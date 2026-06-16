@@ -17,8 +17,8 @@ const initialState = {
     { id: 'RND-001', type: 'random', name: 'Walk-in Customer', phone: '', email: '', creditBalance: 0, status: 'new' },
   ],
   inventory: [
-    { id: 'item-1', name: 'A4 Paper', colorSingle: 10.0, colorDouble: 18.0, bwSingle: 5.0, bwDouble: 9.0, stock: 320 },
-    { id: 'item-2', name: 'A5 Paper', colorSingle: 8.0, colorDouble: 14.0, bwSingle: 4.0, bwDouble: 7.0, stock: 240 },
+    { id: 'item-1', name: 'A4 Paper', colorSingle: 10.0, colorDouble: 18.0, bwSingle: 5.0, bwDouble: 9.0 },
+    { id: 'item-2', name: 'A5 Paper', colorSingle: 8.0, colorDouble: 14.0, bwSingle: 4.0, bwDouble: 7.0 },
   ],
   bills: [
     {
@@ -66,6 +66,8 @@ const initialState = {
     },
   ],
   payments: [],
+  advancePayments: [],
+  expenses: [],
   notifications: [
     { id: 'note-1', title: 'Pending payment due', message: 'BILL-001 has a remaining balance of ₹20.', date: '2026-06-13', type: 'warning', read: false },
     { id: 'note-2', title: 'Inventory low stock', message: 'A5 Paper stock is low.', date: '2026-06-12', type: 'info', read: false },
@@ -83,6 +85,7 @@ const initialState = {
     { id: 'group-1', name: 'Wholesale', color: '#3b82f6' },
     { id: 'group-2', name: 'Retail', color: '#10b981' },
   ],
+  idCounters: { RC: 2, RND: 1, BILL: 2, PAY: 0, EXP: 0, ADV: 0 },
 }
 
 const loadState = () => {
@@ -137,6 +140,22 @@ const reducer = (state, action) => {
         bills: state.bills.map((bill) => (bill.id === action.payload ? { ...bill, deleted: false } : bill)),
       }
     }
+    case 'DELETE_CUSTOMER': {
+      return {
+        ...state,
+        customers: state.customers.map((c) =>
+          c.id === action.payload ? { ...c, deleted: true } : c
+        ),
+      }
+    }
+    case 'RESTORE_CUSTOMER': {
+      return {
+        ...state,
+        customers: state.customers.map((c) =>
+          c.id === action.payload ? { ...c, deleted: false } : c
+        ),
+      }
+    }
     case 'ADD_CUSTOMER': {
       return {
         ...state,
@@ -147,6 +166,65 @@ const reducer = (state, action) => {
       return {
         ...state,
         customers: state.customers.map((customer) => (customer.id === action.payload.id ? { ...customer, ...action.payload.updates } : customer)),
+      }
+    }
+    case 'UPDATE_CUSTOMER_FULL': {
+      // Full edit — replaces all editable fields, logs audit
+      return {
+        ...state,
+        customers: state.customers.map((c) =>
+          c.id === action.payload.id ? { ...c, ...action.payload.data, updatedAt: new Date().toISOString() } : c
+        ),
+      }
+    }
+    case 'INCREMENT_COUNTER': {
+      return {
+        ...state,
+        idCounters: { ...state.idCounters, [action.payload]: (state.idCounters?.[action.payload] || 0) + 1 },
+      }
+    }
+    case 'ADD_USER': {
+      return {
+        ...state,
+        users: [...state.users, action.payload],
+      }
+    }
+    case 'DELETE_USER': {
+      return {
+        ...state,
+        users: state.users.filter((u) => u.id !== action.payload),
+      }
+    }
+    case 'CHANGE_PASSWORD': {
+      return {
+        ...state,
+        users: state.users.map((u) =>
+          u.id === action.payload.userId ? { ...u, password: action.payload.newPassword } : u
+        ),
+      }
+    }
+    case 'ADD_ADVANCE_PAYMENT': {
+      const adv = action.payload
+      return {
+        ...state,
+        advancePayments: [adv, ...state.advancePayments],
+        customers: state.customers.map((c) =>
+          c.id === adv.customerId
+            ? { ...c, advanceBalance: Number(c.advanceBalance || 0) + Number(adv.amount) }
+            : c
+        ),
+      }
+    }
+    case 'USE_ADVANCE': {
+      // Deduct used advance from customer balance; called during billing
+      const { customerId, amount } = action.payload
+      return {
+        ...state,
+        customers: state.customers.map((c) =>
+          c.id === customerId
+            ? { ...c, advanceBalance: Math.max(0, Number(c.advanceBalance || 0) - Number(amount)) }
+            : c
+        ),
       }
     }
     case 'ADD_PAYMENT': {
@@ -179,6 +257,18 @@ const reducer = (state, action) => {
         bills: updatedBills,
         customers: customerCreditUpdate,
         payments: [...state.payments, payment],
+      }
+    }
+    case 'ADD_EXPENSE': {
+      return {
+        ...state,
+        expenses: [action.payload, ...state.expenses],
+      }
+    }
+    case 'DELETE_EXPENSE': {
+      return {
+        ...state,
+        expenses: state.expenses.filter((e) => e.id !== action.payload),
       }
     }
     case 'ADD_INVENTORY_ITEM': {
@@ -266,6 +356,16 @@ const reducer = (state, action) => {
 
 const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
 
+// Sequential ID generator using state counters
+const generateSeqId = (state, type) => {
+  const counters = state.idCounters || {}
+  const current = counters[type] || 0
+  const next = current + 1
+  const padded = String(next).padStart(3, '0')
+  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', item: 'ITEM', GRP: 'GRP' }
+  return `${prefixMap[type] || type}${padded}`
+}
+
 export const AppProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState, loadState)
 
@@ -275,37 +375,72 @@ export const AppProvider = ({ children }) => {
 
   const getCustomerById = (customerId) => state.customers.find((customer) => customer.id === customerId)
 
+  const addAdvancePayment = (data) => {
+    const counterKey = 'ADV'
+    const currentCount = state.idCounters?.[counterKey] || 0
+    const nextCount = currentCount + 1
+    const id = `ADV${String(nextCount).padStart(3, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+    dispatch({
+      type: 'ADD_ADVANCE_PAYMENT',
+      payload: {
+        id,
+        customerId: data.customerId,
+        customerName: data.customerName || '',
+        amount: Number(data.amount),
+        cashAmount: Number(data.cashAmount || 0),
+        upiAmount: Number(data.upiAmount || 0),
+        date: data.date || new Date().toISOString().slice(0, 10),
+        paymentMethod: data.paymentMethod || 'cash',
+        notes: data.notes || '',
+        createdAt: new Date().toISOString(),
+      },
+    })
+    return id
+  }
+
   const addBill = (billData) => {
-    const billId = generateId('BILL')
+    const counterKey = 'BILL'
+    const currentCount = state.idCounters?.[counterKey] || 0
+    const nextCount = currentCount + 1
+    const billId = `BL${String(nextCount).padStart(3, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
     const currentCredit = Number(customer?.creditBalance || 0)
+    const currentAdvance = Number(customer?.advanceBalance || 0)
     const total = Number(billData.total)
     const cashAmount = Number(billData.cashAmount || 0)
     const upiAmount = Number(billData.upiAmount || 0)
     const paidNow = cashAmount + upiAmount
-    const creditUsed = Math.min(currentCredit, total)
-    const billTotalAfterCredit = Math.max(total - creditUsed, 0)
-    const paidTowardsBill = Math.min(paidNow, billTotalAfterCredit)
-    const overpaid = Math.max(paidNow - billTotalAfterCredit, 0)
-    const balance = Math.max(billTotalAfterCredit - paidNow, 0)
-    const status = paidNow + creditUsed >= total ? 'paid' : paidNow > 0 ? 'partial' : 'unpaid'
+    // How much advance to apply (caller passes advanceUsed, capped at available)
+    const advanceUsed = Math.min(Number(billData.advanceUsed || 0), currentAdvance, total)
+    const creditUsed = Math.min(currentCredit, Math.max(total - advanceUsed, 0))
+    const billTotalAfterDeductions = Math.max(total - advanceUsed - creditUsed, 0)
+    const overpaid = Math.max(paidNow - billTotalAfterDeductions, 0)
+    const balance = Math.max(billTotalAfterDeductions - paidNow, 0)
+    const status = paidNow + advanceUsed + creditUsed >= total ? 'paid' : paidNow + advanceUsed + creditUsed > 0 ? 'partial' : 'unpaid'
 
     const updatedCustomer = customer
-      ? { ...customer, creditBalance: Math.max(currentCredit - creditUsed + overpaid, 0) }
+      ? {
+          ...customer,
+          creditBalance: Math.max(currentCredit - creditUsed + overpaid, 0),
+          advanceBalance: Math.max(currentAdvance - advanceUsed, 0),
+        }
       : null
 
     const newBill = {
       id: billId,
       ...billData,
       customerName,
-      amountPaid: paidNow,
+      amountPaid: paidNow + advanceUsed + creditUsed,
       balance,
       status,
       deleted: false,
       items: billData.items,
       paymentMethod: { cash: cashAmount, upi: upiAmount },
       creditUsed,
+      advanceUsed,
     }
 
     dispatch({
@@ -342,12 +477,23 @@ export const AppProvider = ({ children }) => {
       }
       dispatch({ type: 'ADD_PAYMENT', payload: paymentRecord })
     }
+
+    return billId
   }
 
   const addCustomer = (customerData) => {
-    const customerId = customerData.type === 'regular' ? generateId('RC') : generateId('RND')
-    dispatch({ type: 'ADD_CUSTOMER', payload: { ...customerData, id: customerId, creditBalance: Number(customerData.creditBalance) || 0 } })
+    const counterKey = customerData.type === 'regular' ? 'RC' : 'RND'
+    const currentCount = state.idCounters?.[counterKey] || 0
+    const nextCount = currentCount + 1
+    const prefix = customerData.type === 'regular' ? 'RC' : 'WI'
+    const customerId = `${prefix}${String(nextCount).padStart(3, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+    dispatch({ type: 'ADD_CUSTOMER', payload: { ...customerData, id: customerId, creditBalance: Number(customerData.creditBalance) || 0, createdAt: new Date().toISOString() } })
     return customerId
+  }
+
+  const updateCustomerFull = (id, data) => {
+    dispatch({ type: 'UPDATE_CUSTOMER_FULL', payload: { id, data } })
   }
 
   const recordPayment = (paymentData) => {
@@ -383,17 +529,55 @@ export const AppProvider = ({ children }) => {
 
   const addInventoryItem = (itemData) => {
     const itemId = generateId('item')
-    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...itemData } })
+    // Strip stock field — inventory is pricing-only
+    const { stock, low_stock_alert, ...pricingData } = itemData
+    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...pricingData } })
   }
+
+  const addExpense = (expenseData) => {
+    const id = generateId('EXP')
+    dispatch({ type: 'ADD_EXPENSE', payload: { ...expenseData, id } })
+    return id
+  }
+
+  const deleteExpense = (id) => {
+    dispatch({ type: 'DELETE_EXPENSE', payload: id })
+  }
+
+  const addUser = (userData) => {
+    const id = generateId('USER')
+    dispatch({ type: 'ADD_USER', payload: { ...userData, id, createdAt: new Date().toISOString() } })
+    return id
+  }
+
+  const deleteUser = (id) => {
+    dispatch({ type: 'DELETE_USER', payload: id })
+  }
+
+  const changePassword = (userId, newPassword) => {
+    dispatch({ type: 'CHANGE_PASSWORD', payload: { userId, newPassword } })
+  }
+
+  const updateBill = (id, updates) => dispatch({ type: 'UPDATE_BILL', payload: { id, updates } })
 
   const value = useMemo(
     () => ({
       ...state,
       addBill,
+      addAdvancePayment,
       addCustomer,
       recordPayment,
       addInventoryItem,
+      addExpense,
+      deleteExpense,
+      addUser,
+      deleteUser,
+      changePassword,
+      updateBill,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
+      updateCustomerFull,
+      deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
+      restoreCustomer: (id) => dispatch({ type: 'RESTORE_CUSTOMER', payload: id }),
       updateInventoryItem: (id, updates) => dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id, updates } }),
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),

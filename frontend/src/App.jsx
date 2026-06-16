@@ -18,6 +18,7 @@ import Auth from './pages/Auth'
 import CustomerLedger from './pages/CustomerLedger'
 import RecurringBills from './pages/RecurringBills'
 import Analytics from './pages/Analytics'
+import AdvancePayments from './pages/AdvancePayments'
 
 function App() {
   const { notifications, currentUser } = useAppContext()
@@ -51,6 +52,7 @@ function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
             <Route path="/recurring-bills" element={<RecurringBills />} />
+            <Route path="/advance-payments" element={<AdvancePayments />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
