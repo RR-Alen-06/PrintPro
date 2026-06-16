@@ -1,11 +1,12 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp } from 'lucide-react'
+import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet } from 'lucide-react'
 
 const navItems = [
   { label: 'Dashboard', path: '/dashboard', icon: Home },
   { label: 'Billing', path: '/billing', icon: FileText },
   { label: 'Customers', path: '/customers', icon: Users },
+  { label: 'Advance Payments', path: '/advance-payments', icon: Wallet },
   { label: 'Accounting', path: '/accounting', icon: DollarSign },
   { label: 'Analytics', path: '/analytics', icon: TrendingUp },
   { label: 'Inventory', path: '/inventory', icon: Layers },
