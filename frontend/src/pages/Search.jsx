@@ -240,14 +240,7 @@ const Search = () => {
           {/* Inventory Filters */}
           {searchType === 'inventory' && (
             <div className="form-group" style={{ marginTop: '16px' }}>
-              <label className="form-label">
-                <input
-                  type="checkbox"
-                  checked={inventoryFilters.lowStock}
-                  onChange={(e) => setInventoryFilters({ ...inventoryFilters, lowStock: e.target.checked })}
-                />
-                Show low stock items only
-              </label>
+              <p className="text-muted" style={{ fontSize: '0.82rem' }}>Search inventory items by name to find pricing details.</p>
             </div>
           )}
 
@@ -276,7 +269,7 @@ const Search = () => {
                 {searchType === 'inventory' && (
                   <>
                     <option value="name">Name</option>
-                    <option value="stock">Stock</option>
+                    <option value="colorSingle">Color Single Price</option>
                   </>
                 )}
               </select>
@@ -329,8 +322,8 @@ const Search = () => {
                       {searchType === 'inventory' && (
                         <>
                           <th>Name</th>
-                          <th>Color Single</th>
-                          <th>Stock</th>
+                          <th>Color Single (₹)</th>
+                          <th>B/W Single (₹)</th>
                         </>
                       )}
                     </tr>
@@ -362,7 +355,7 @@ const Search = () => {
                           <>
                             <td>{item.name}</td>
                             <td>₹{item.colorSingle.toFixed(2)}</td>
-                            <td>{item.stock}</td>
+                            <td>₹{item.bwSingle.toFixed(2)}</td>
                           </>
                         )}
                       </tr>
