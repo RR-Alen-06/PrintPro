@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 
 const Analytics = () => {
-  const { bills, customers, inventory } = useAppContext()
+  const { bills, customers, inventory, payments, expenses } = useAppContext()
 
   const salesSummary = useMemo(() => {
     const totalRevenue = bills.filter((bill) => !bill.deleted).reduce((sum, bill) => sum + Number(bill.total || 0), 0)
@@ -66,11 +66,54 @@ const Analytics = () => {
 
   const averageOrder = salesSummary.count ? salesSummary.totalRevenue / salesSummary.count : 0
 
+  // ── Payment method summary ─────────────────────────────────────────────────
+  const paymentMethodSummary = useMemo(() => {
+    const cashCollected = payments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const upiCollected = payments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const cashExpenses = (expenses || []).reduce((s, e) => s + Number(e.cashAmount || 0), 0)
+    const upiExpenses = (expenses || []).reduce((s, e) => s + Number(e.upiAmount || 0), 0)
+    return { cashCollected, upiCollected, cashExpenses, upiExpenses }
+  }, [payments, expenses])
+
+  // ── Monthly cash vs UPI trend (last 6 months) ─────────────────────────────
+  const monthlyCashUpi = useMemo(() => {
+    const months = {}
+    const now = new Date()
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = d.toLocaleString('default', { month: 'short', year: 'numeric' })
+      months[key] = { cash: 0, upi: 0 }
+    }
+
+    payments.forEach((p) => {
+      const d = new Date(p.date)
+      const key = d.toLocaleString('default', { month: 'short', year: 'numeric' })
+      if (key in months) {
+        months[key].cash += Number(p.cashAmount || 0)
+        months[key].upi += Number(p.upiAmount || 0)
+      }
+    })
+
+    return Object.entries(months)
+      .reverse()
+      .map(([name, v]) => ({ name, cash: v.cash, upi: v.upi, maxVal: Math.max(v.cash, v.upi, 1) }))
+  }, [payments])
+
+  const maxCashUpi = Math.max(...monthlyCashUpi.map((m) => Math.max(m.cash, m.upi)), 1)
+
+  // ── Discount analytics ─────────────────────────────────────────────────────
+  const discountAnalytics = useMemo(() => {
+    const billsWithDiscount = bills.filter((b) => !b.deleted && Number(b.discountValue) > 0)
+    const totalDiscount = billsWithDiscount.reduce((s, b) => s + Number(b.discountValue || 0), 0)
+    const avgDiscount = billsWithDiscount.length ? totalDiscount / billsWithDiscount.length : 0
+    return { totalDiscount, avgDiscount, count: billsWithDiscount.length }
+  }, [bills])
+
   return (
     <div>
       <div className="page-header">
         <h1>Analytics & Reports</h1>
-        <p>View sales performance, customer revenue, and print type profitability.</p>
+        <p>View sales performance, customer revenue, payment methods, and print type profitability.</p>
       </div>
 
       <div className="grid-3" style={{ gap: '20px' }}>
@@ -100,7 +143,37 @@ const Analytics = () => {
         </div>
       </div>
 
+      {/* Payment Method Summary */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h2 style={{ marginBottom: '16px' }}>Payment Method Summary</h2>
+        <div className="grid-2" style={{ gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Collected</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
+              <span>💵 Total Cash Collected</span>
+              <strong style={{ color: 'var(--success)' }}>₹{paymentMethodSummary.cashCollected.toFixed(2)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)' }}>
+              <span>📱 Total UPI Collected</span>
+              <strong style={{ color: 'var(--info)' }}>₹{paymentMethodSummary.upiCollected.toFixed(2)}</strong>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Expenses</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <span>💵 Cash Expenses</span>
+              <strong style={{ color: 'var(--error)' }}>₹{paymentMethodSummary.cashExpenses.toFixed(2)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
+              <span>📱 UPI Expenses</span>
+              <strong style={{ color: 'var(--warning)' }}>₹{paymentMethodSummary.upiExpenses.toFixed(2)}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid-2" style={{ gap: '20px', marginTop: '24px' }}>
+        {/* Revenue Trend */}
         <div className="card">
           <h2>Revenue Trend (Last 6 Months)</h2>
           <div style={{ display: 'grid', gap: '14px', marginTop: '20px' }}>
@@ -116,6 +189,7 @@ const Analytics = () => {
           </div>
         </div>
 
+        {/* Top Customers */}
         <div className="card">
           <h2>Top Customers</h2>
           <div style={{ display: 'grid', gap: '12px', marginTop: '20px' }}>
@@ -134,6 +208,58 @@ const Analytics = () => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Monthly Cash vs UPI Trend */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h2>Monthly Cash vs UPI (Last 6 Months)</h2>
+        <div style={{ display: 'grid', gap: '16px', marginTop: '20px' }}>
+          {monthlyCashUpi.map((item) => (
+            <div key={item.name}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{item.name}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Cash: ₹{item.cash.toFixed(0)} | UPI: ₹{item.upi.toFixed(0)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ background: '#1f2937', borderRadius: '4px', overflow: 'hidden', height: '8px' }}>
+                  <div style={{ width: `${Math.max((item.cash / maxCashUpi) * 100, item.cash > 0 ? 2 : 0)}%`, height: '100%', background: '#10b981' }} />
+                </div>
+                <div style={{ background: '#1f2937', borderRadius: '4px', overflow: 'hidden', height: '8px' }}>
+                  <div style={{ width: `${Math.max((item.upi / maxCashUpi) * 100, item.upi > 0 ? 2 : 0)}%`, height: '100%', background: '#3b82f6' }} />
+                </div>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '16px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '8px', background: '#10b981', borderRadius: '2px', display: 'inline-block' }} /> Cash
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '8px', background: '#3b82f6', borderRadius: '2px', display: 'inline-block' }} /> UPI
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Discount Analytics */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h2>Discount Analytics</h2>
+        <div className="grid-3" style={{ gap: '16px', marginTop: '16px' }}>
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Total Discount Given</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--warning)' }}>₹{discountAnalytics.totalDiscount.toFixed(2)}</div>
+          </div>
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Avg Discount / Bill</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>₹{discountAnalytics.avgDiscount.toFixed(2)}</div>
+          </div>
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Bills with Discount</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent)' }}>{discountAnalytics.count}</div>
           </div>
         </div>
       </div>

@@ -70,7 +70,7 @@ const RecurringBills = () => {
     <div>
       <div className="page-header">
         <h1>Recurring Bills</h1>
-        <p>Set up automatic recurring bills for regular customers.</p>
+        <p>Set up automatic recurring bills for regular and walk-in customers.</p>
       </div>
 
       {/* Add New Form */}
@@ -88,9 +88,9 @@ const RecurringBills = () => {
                   onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
                   required
                 >
-                  {customers.filter((c) => c.type === 'regular').map((customer) => (
+                  {customers.map((customer) => (
                     <option key={customer.id} value={customer.id}>
-                      {customer.name}
+                      {customer.name} ({customer.type === 'regular' ? 'Regular' : 'Walk-in'})
                     </option>
                   ))}
                 </select>
