@@ -1,70 +1,78 @@
-const mysql = require('mysql2/promise');
-const fs = require('fs');
-const path = require('path');
+const mysql  = require('mysql2/promise');
+const fs     = require('fs');
+const path   = require('path');
+const logger = require('../utils/logger');
 
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT, 10) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'printpro',
+  host:             process.env.DB_HOST     || 'localhost',
+  port:             parseInt(process.env.DB_PORT, 10) || 3306,
+  user:             process.env.DB_USER     || 'root',
+  password:         process.env.DB_PASSWORD || '',
+  database:         process.env.DB_NAME     || 'printpro',
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  multipleStatements: true
+  connectionLimit:  10,
+  queueLimit:       0,
+  multipleStatements: true,
 };
 
 let pool;
 
 /**
- * Initialize the database: create the database if it does not exist,
- * then run schema.sql if the tables have not been created yet.
+ * Initialize the database:
+ *   1. Create the DB if it doesn't exist.
+ *   2. Run schema.sql if tables haven't been created yet.
+ *   3. Create and expose the connection pool.
  */
 async function initializeDatabase() {
-  // First, connect without selecting a database to create it if needed
+  const dbName = dbConfig.database;
+
+  // ── Bootstrap connection (no DB selected yet) ────────────────────────────
   const initConn = await mysql.createConnection({
-    host: dbConfig.host,
-    port: dbConfig.port,
-    user: dbConfig.user,
-    password: dbConfig.password,
-    multipleStatements: true
+    host:               dbConfig.host,
+    port:               dbConfig.port,
+    user:               dbConfig.user,
+    password:           dbConfig.password,
+    multipleStatements: true,
   });
 
-  const dbName = dbConfig.database;
-  console.log(`[INFO] Checking if database "${dbName}" exists...`);
+  logger.info(`Connecting to MySQL at ${dbConfig.host}:${dbConfig.port} as "${dbConfig.user}"`);
 
-  await initConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-  console.log(`[OK] Database "${dbName}" is ready.`);
+  await initConn.query(
+    `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+  );
+  logger.info(`Database "${dbName}" is ready`);
 
   await initConn.query(`USE \`${dbName}\``);
 
-  // Check if tables exist by looking for the business_profile table
+  // ── Check schema ──────────────────────────────────────────────────────────
   const [tables] = await initConn.query(
-    `SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = ? AND table_name = 'business_profile'`,
+    `SELECT COUNT(*) AS cnt
+     FROM information_schema.tables
+     WHERE table_schema = ? AND table_name = 'business_profile'`,
     [dbName]
   );
 
   if (tables[0].cnt === 0) {
-    console.log('[INFO] Tables not found. Running schema.sql...');
+    logger.info('Schema not found — running schema.sql...');
     const schemaPath = path.join(__dirname, '..', 'schema.sql');
-    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+    const schemaSql  = fs.readFileSync(schemaPath, 'utf8');
     await initConn.query(schemaSql);
-    console.log('[OK] Schema created and seed data inserted.');
+    logger.info('Schema created and seed data inserted');
   } else {
-    console.log('[OK] Tables already exist. Skipping schema setup.');
+    logger.info('Schema already exists — skipping migration');
   }
 
   await initConn.end();
 
-  // Now create the connection pool for app usage
+  // ── Create pool ───────────────────────────────────────────────────────────
   pool = mysql.createPool(dbConfig);
-  console.log('[OK] MySQL connection pool created.');
+  logger.info(`Connection pool ready (limit: ${dbConfig.connectionLimit})`);
 
   return pool;
 }
 
 /**
- * Get the active connection pool. Must call initializeDatabase() first.
+ * Return the active pool. Throws if called before initializeDatabase().
  */
 function getPool() {
   if (!pool) {
