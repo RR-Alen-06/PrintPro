@@ -29,6 +29,34 @@ function statusColor(status) {
   return c('32', status);                    // green
 }
 
+function anonymizeIpv4(ip) {
+  const parts = ip.split('.');
+  if (parts.length === 4) {
+    return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
+  }
+  return ip;
+}
+
+function anonymizeIp(ip) {
+  if (!ip || ip === '-') return '-';
+  // If it's IPv4 mapped IPv6 (e.g. ::ffff:127.0.0.1)
+  if (ip.startsWith('::ffff:')) {
+    const ipv4 = ip.substring(7);
+    return `::ffff:${anonymizeIpv4(ipv4)}`;
+  }
+  if (ip.includes('.')) {
+    return anonymizeIpv4(ip);
+  }
+  if (ip.includes(':')) {
+    const parts = ip.split(':');
+    if (parts.length > 3) {
+      return parts.slice(0, 3).join(':') + ':0:0:0:0:0';
+    }
+    return ip;
+  }
+  return ip;
+}
+
 function requestLogger(req, res, next) {
   const start = process.hrtime.bigint();
 
@@ -40,7 +68,8 @@ function requestLogger(req, res, next) {
     const url     = req.originalUrl || req.url;
     const status  = statusColor(res.statusCode);
     const length  = res.getHeader('content-length') || '-';
-    const ip      = req.ip || req.connection?.remoteAddress || '-';
+    const rawIp   = req.ip || req.connection?.remoteAddress || '-';
+    const ip      = anonymizeIp(rawIp);
 
     // Skip noisy health checks from cluttering logs (optional: remove if you want them)
     if (url === '/api/health') return;
