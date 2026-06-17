@@ -7,7 +7,8 @@ const {
 } = require('../controllers/paymentController');
 
 // POST /api/payments
-router.post('/', recordPayment);
+const { validatePayment } = require('../middleware/validate');
+router.post('/', validatePayment, recordPayment);
 
 // GET /api/payments/bill/:billId
 router.get('/bill/:billId', getPaymentsForBill);

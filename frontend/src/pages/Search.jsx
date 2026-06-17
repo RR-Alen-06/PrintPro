@@ -1,14 +1,22 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Search as SearchIcon, X, ArrowUpDown } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { searchBills, searchCustomers, searchInventory, sortResults } from '../utils/search'
+import { useSearchParams } from 'react-router-dom'
 
 const Search = () => {
   const { bills, customers, inventory } = useAppContext()
+  const [searchParams] = useSearchParams()
   const [searchType, setSearchType] = useState('bills')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => searchParams.get('q') || '')
   const [sortBy, setSortBy] = useState('date')
   const [sortOrder, setSortOrder] = useState('desc')
+
+  // Sync query from URL when navigating here from the header search
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) setQuery(q)
+  }, [searchParams])
 
   // Bills filters
   const [billFilters, setBillFilters] = useState({

@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight } from 'lucide-react'
+import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 const Dashboard = () => {
-  const { bills, customers } = useAppContext()
+  const { bills, customers, advancePayments } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
 
@@ -14,6 +14,9 @@ const Dashboard = () => {
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
   const pendingAmount = useMemo(() => activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0), [activeBills])
   const revenue = useMemo(() => activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0), [activeBills])
+  const totalAdvanceCollected = useMemo(() => {
+    return (advancePayments || []).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+  }, [advancePayments])
   const overdueBills = useMemo(
     () => activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < today),
     [activeBills]
@@ -59,7 +62,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats grid */}
-      <div className="stats-grid">
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
         <div className="stat-card">
           <div className="stat-card-header">
             <div className="stat-card-icon indigo"><TrendingUp /></div>
@@ -69,6 +72,17 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="stat-card-sub">{paidBills.length} bills fully collected</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-card-icon success" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}><TrendingUp /></div>
+            <div>
+              <div className="stat-card-label">Revenue + Advance</div>
+              <div className="stat-card-value">₹{(revenue + totalAdvanceCollected).toFixed(2)}</div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Total cash inflow collected</div>
         </div>
 
         <div className="stat-card">
@@ -102,6 +116,17 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="stat-card-sub">Customers with open balance</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-card-icon success" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}><Wallet /></div>
+            <div>
+              <div className="stat-card-label">Total Advance Collected</div>
+              <div className="stat-card-value">₹{totalAdvanceCollected.toFixed(2)}</div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Active advances deposited</div>
         </div>
       </div>
 
@@ -166,7 +191,15 @@ const Dashboard = () => {
                           background: s.bg, border: `1px solid ${s.border}`,
                           color: s.color, fontSize: '0.72rem', fontWeight: 600,
                         }}>
-                          {entry.hasOverdue ? '⚠ Overdue' : '⏳ Pending'}
+                          {entry.hasOverdue ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <AlertTriangle size={12} /> Overdue
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Clock size={12} /> Pending
+                            </span>
+                          )}
                         </span>
                       </td>
                     </tr>
@@ -255,20 +288,20 @@ const Dashboard = () => {
         <div className="card">
           <h3>Bill Status Breakdown</h3>
           <div style={{ marginTop: '12px', display: 'grid', gap: '8px', fontSize: '0.875rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--success)' }}>✓ Paid</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}><CheckCircle size={14} /> Paid</span>
               <strong>{paidBills.length}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--warning)' }}>⏳ Partial</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}><Clock size={14} /> Partial</span>
               <strong>{partialBills.length}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--error)' }}>✗ Unpaid</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}><XCircle size={14} /> Unpaid</span>
               <strong>{unpaidBills.length}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--error)' }}>⚠ Overdue</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={14} /> Overdue</span>
               <strong>{overdueBills.length}</strong>
             </div>
           </div>

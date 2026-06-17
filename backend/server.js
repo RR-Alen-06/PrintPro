@@ -1,14 +1,17 @@
 require('dotenv').config();
 
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const os      = require('os');
+const express   = require('express');
+const cors      = require('cors');
+const path      = require('path');
+const os        = require('os');
+const helmet    = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const { initializeDatabase } = require('./config/db');
 const logger        = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler  = require('./middleware/errorHandler');
+const sanitize      = require('./middleware/sanitize');
 
 // ── Route imports ────────────────────────────────────────────────────────────
 const customerRoutes     = require('./routes/customers');
@@ -29,26 +32,40 @@ const ENV  = process.env.NODE_ENV || 'development';
 app.set('trust proxy', 1); // so req.ip works behind reverse proxies
 
 // ── Global middleware ────────────────────────────────────────────────────────
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(helmet());
+
+// Configure CORS with specific origin from environment
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// Set request payload limits to prevent denial-of-service/payload-bombs
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(sanitize);
+
+// Apply rate limiting to all API requests
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'Too many requests from this IP, please try again later'
+  }
+});
+app.use('/api/', limiter);
+
 app.use(requestLogger);
 
 // ── Static uploads ───────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ── API routes ───────────────────────────────────────────────────────────────
-app.use('/api/customers',     customerRoutes);
-app.use('/api/bills',         billRoutes);
-app.use('/api/payments',      paymentRoutes);
-app.use('/api/inventory',     inventoryRoutes);
-app.use('/api/purchases',     purchaseRoutes);
-app.use('/api/reports',       reportRoutes);
-app.use('/api/profile',       profileRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/audit',         auditRoutes);
-
-// ── Health check ─────────────────────────────────────────────────────────────
+// ── Health check (public) ────────────────────────────────────────────────────
 const startedAt = new Date();
 
 app.get('/api/health', (req, res) => {
@@ -63,25 +80,22 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     started:   startedAt.toISOString(),
     uptime:    uptimeStr,
-    process: {
-      pid:      process.pid,
-      node:     process.version,
-      platform: process.platform,
-      arch:     process.arch,
-      memory: {
-        rss:       `${Math.round(process.memoryUsage().rss       / 1024 / 1024)} MB`,
-        heapUsed:  `${Math.round(process.memoryUsage().heapUsed  / 1024 / 1024)} MB`,
-        heapTotal: `${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)} MB`,
-      },
-    },
-    system: {
-      hostname: os.hostname(),
-      cpus:     os.cpus().length,
-      loadAvg:  os.loadavg().map((v) => v.toFixed(2)),
-      freeMemMB: Math.round(os.freemem() / 1024 / 1024),
-    },
   });
 });
+
+// ── Authenticated API routes ─────────────────────────────────────────────────
+const auth = require('./middleware/auth');
+app.use('/api', auth);
+
+app.use('/api/customers',     customerRoutes);
+app.use('/api/bills',         billRoutes);
+app.use('/api/payments',      paymentRoutes);
+app.use('/api/inventory',     inventoryRoutes);
+app.use('/api/purchases',     purchaseRoutes);
+app.use('/api/reports',       reportRoutes);
+app.use('/api/profile',       profileRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/audit',         auditRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {

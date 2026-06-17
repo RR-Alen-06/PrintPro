@@ -18,6 +18,10 @@ node_modules/
 .env.production
 .env.production.local
 .env.*.local
+frontend/.env*
+!frontend/.env.example
+backend/.env*
+!backend/.env.example
 
 # ------ Production / Build output ---------------------------
 dist/
