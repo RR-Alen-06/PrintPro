@@ -3,12 +3,13 @@ import { useAppContext } from '../context/AppContext'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { customers, advancePayments, addAdvancePayment, addCustomer } = useAppContext()
+  const { customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
   // ── Form state ────────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10)
+  const [actionType, setActionType] = useState('receive') // 'receive' | 'return'
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   // New customer fields
@@ -66,7 +67,7 @@ const AdvancePayments = () => {
     setFormError('')
 
     if (!totalAmount || totalAmount <= 0) {
-      setFormError('Enter a valid advance amount.')
+      setFormError(actionType === 'receive' ? 'Enter a valid advance amount.' : 'Enter a valid return amount.')
       return
     }
     if (cashAmt !== '' || upiAmt !== '') {
@@ -79,26 +80,44 @@ const AdvancePayments = () => {
     let custId = selectedCustomerId
     let custName = selectedCustomer?.name || ''
 
-    if (mode === 'new') {
-      if (!newName.trim()) { setFormError('Customer name is required.'); return }
-      custId = addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
-      custName = newName.trim()
-    } else {
+    if (actionType === 'return') {
       if (!custId) { setFormError('Select a customer.'); return }
+      if (totalAmount > Number(selectedCustomer?.advanceBalance || 0)) {
+        setFormError(`Cannot return ₹${totalAmount.toFixed(2)}. Customer only has ₹${Number(selectedCustomer.advanceBalance).toFixed(2)} advance balance.`)
+        return
+      }
+    } else {
+      if (mode === 'new') {
+        if (!newName.trim()) { setFormError('Customer name is required.'); return }
+        custId = addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
+        custName = newName.trim()
+      } else {
+        if (!custId) { setFormError('Select a customer.'); return }
+      }
     }
 
     const cash = cashAmt !== '' ? Number(cashAmt) : totalAmount
     const upi = cashAmt !== '' ? Number(upiAmt || 0) : 0
 
-    const ref = addAdvancePayment({
-      customerId: custId,
-      customerName: custName,
-      amount: totalAmount,
-      cashAmount: cash,
-      upiAmount: upi,
-      date: payDate,
-      notes,
-    })
+    const ref = actionType === 'receive'
+      ? addAdvancePayment({
+          customerId: custId,
+          customerName: custName,
+          amount: totalAmount,
+          cashAmount: cash,
+          upiAmount: upi,
+          date: payDate,
+          notes,
+        })
+      : returnAdvancePayment({
+          customerId: custId,
+          customerName: custName,
+          amount: totalAmount,
+          cashAmount: cash,
+          upiAmount: upi,
+          date: payDate,
+          notes,
+        })
 
     setSuccessRef(ref)
     // Reset form
@@ -147,9 +166,42 @@ const AdvancePayments = () => {
       )}
 
       <div className="grid-2" style={{ gap: '24px', alignItems: 'flex-start' }}>
-        {/* Receive Advance Form */}
+        {/* Receive/Return Advance Form */}
         <div className="card">
-          <h2 style={{ marginBottom: '16px' }}>Receive Advance Payment</h2>
+          <h2 style={{ marginBottom: '16px' }}>{actionType === 'receive' ? 'Receive Advance Payment' : 'Return Advance Payment'}</h2>
+
+          {/* Action Tabs */}
+          <div className="tabs" style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              className={`tab ${actionType === 'receive' ? 'active' : ''}`}
+              onClick={() => {
+                setActionType('receive')
+                setFormError('')
+                setAmount('')
+                setCashAmt('')
+                setUpiAmt('')
+              }}
+              style={{ flex: 1, padding: '8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            >
+              Receive Advance
+            </button>
+            <button
+              type="button"
+              className={`tab ${actionType === 'return' ? 'active' : ''}`}
+              onClick={() => {
+                setActionType('return')
+                setMode('existing')
+                setFormError('')
+                setAmount('')
+                setCashAmt('')
+                setUpiAmt('')
+              }}
+              style={{ flex: 1, padding: '8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            >
+              Return Advance
+            </button>
+          </div>
 
           {successRef && (
             <div style={{
@@ -159,26 +211,28 @@ const AdvancePayments = () => {
               borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem',
             }}>
               <CheckCircle size={16} />
-              Advance recorded! Reference: <strong style={{ fontFamily: 'monospace' }}>{successRef}</strong>
+              {actionType === 'receive' ? 'Advance recorded!' : 'Advance returned!'} Reference: <strong style={{ fontFamily: 'monospace' }}>{successRef}</strong>
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
-            {/* Customer mode toggle */}
+            {/* Customer selection/mode toggle */}
             <div className="form-group">
               <label className="form-label">Customer</label>
-              <div className="radio-group" style={{ marginBottom: '10px' }}>
-                <label className={`radio-option ${mode === 'existing' ? 'selected' : ''}`}>
-                  <input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} />
-                  Existing Customer
-                </label>
-                <label className={`radio-option ${mode === 'new' ? 'selected' : ''}`}>
-                  <input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} />
-                  <UserPlus size={14} /> New Customer
-                </label>
-              </div>
+              {actionType === 'receive' && (
+                <div className="radio-group" style={{ marginBottom: '10px' }}>
+                  <label className={`radio-option ${mode === 'existing' ? 'selected' : ''}`}>
+                    <input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} />
+                    Existing Customer
+                  </label>
+                  <label className={`radio-option ${mode === 'new' ? 'selected' : ''}`}>
+                    <input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} />
+                    <UserPlus size={14} /> New Customer
+                  </label>
+                </div>
+              )}
 
-              {mode === 'existing' ? (
+              {actionType === 'return' || mode === 'existing' ? (
                 <select
                   className="form-select"
                   value={selectedCustomerId}
@@ -186,18 +240,22 @@ const AdvancePayments = () => {
                 >
                   <option value="">-- Select customer --</option>
                   <optgroup label="Regular Customers">
-                    {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.id}){Number(c.advanceBalance || 0) > 0 ? ` · Adv: ₹${Number(c.advanceBalance).toFixed(2)}` : ''}
-                      </option>
-                    ))}
+                    {activeCustomers
+                      .filter((c) => c.type === 'regular' && (actionType === 'receive' || Number(c.advanceBalance || 0) > 0))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
+                        </option>
+                      ))}
                   </optgroup>
                   <optgroup label="Walk-in Customers">
-                    {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.id}){Number(c.advanceBalance || 0) > 0 ? ` · Adv: ₹${Number(c.advanceBalance).toFixed(2)}` : ''}
-                      </option>
-                    ))}
+                    {activeCustomers
+                      .filter((c) => c.type === 'random' && (actionType === 'receive' || Number(c.advanceBalance || 0) > 0))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
+                        </option>
+                      ))}
                   </optgroup>
                 </select>
               ) : (
@@ -221,11 +279,11 @@ const AdvancePayments = () => {
 
             {/* Amount */}
             <div className="form-group">
-              <label className="form-label">Advance Amount (₹) *</label>
+              <label className="form-label">{actionType === 'receive' ? 'Advance Amount (₹) *' : 'Return Amount (₹) *'}</label>
               <input
                 className="form-input"
                 type="number"
-                min="1"
+                min="0.01"
                 step="0.01"
                 placeholder="0.00"
                 value={amount}
@@ -236,7 +294,7 @@ const AdvancePayments = () => {
             {/* Cash / UPI split */}
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Cash Received (₹)</label>
+                <label className="form-label">{actionType === 'receive' ? 'Cash Received (₹)' : 'Cash Returned (₹)'}</label>
                 <input
                   className="form-input"
                   type="number"
@@ -248,7 +306,7 @@ const AdvancePayments = () => {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">UPI Received (₹)</label>
+                <label className="form-label">{actionType === 'receive' ? 'UPI Received (₹)' : 'UPI Returned (₹)'}</label>
                 <input
                   className="form-input"
                   type="number"
@@ -266,7 +324,7 @@ const AdvancePayments = () => {
 
             {/* Date */}
             <div className="form-group">
-              <label className="form-label">Payment Date</label>
+              <label className="form-label">{actionType === 'receive' ? 'Payment Date' : 'Return Date'}</label>
               <input className="form-input" type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
             </div>
 
@@ -275,7 +333,7 @@ const AdvancePayments = () => {
               <label className="form-label">Notes / Remarks</label>
               <textarea
                 className="form-textarea"
-                placeholder="e.g. Advance for bulk printing order"
+                placeholder={actionType === 'receive' ? "e.g. Advance for bulk printing order" : "e.g. Returned unused advance balance"}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 style={{ minHeight: '60px' }}
@@ -294,7 +352,7 @@ const AdvancePayments = () => {
             )}
 
             <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-              <Plus size={16} /> Record Advance Payment
+              <Plus size={16} /> {actionType === 'receive' ? 'Record Advance Payment' : 'Record Advance Return'}
             </button>
           </form>
         </div>
@@ -366,10 +424,13 @@ const AdvancePayments = () => {
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ap.customerId}</div>
                       </td>
                       <td>{ap.date}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--success)' }}>₹{Number(ap.amount).toFixed(2)}</td>
-                      <td>₹{Number(ap.cashAmount || 0).toFixed(2)}</td>
-                      <td>₹{Number(ap.upiAmount || 0).toFixed(2)}</td>
+                      <td style={{ fontWeight: 700, color: ap.amount < 0 ? 'var(--error)' : 'var(--success)' }}>
+                        {ap.amount < 0 ? `-₹${Math.abs(ap.amount).toFixed(2)}` : `₹${Number(ap.amount).toFixed(2)}`}
+                      </td>
+                      <td>{ap.amount < 0 ? `-₹${Math.abs(ap.cashAmount || 0).toFixed(2)}` : `₹${Number(ap.cashAmount || 0).toFixed(2)}`}</td>
+                      <td>{ap.amount < 0 ? `-₹${Math.abs(ap.upiAmount || 0).toFixed(2)}` : `₹${Number(ap.upiAmount || 0).toFixed(2)}`}</td>
                       <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ap.isReturn && <span className="badge badge-error" style={{ fontSize: '0.65rem', marginRight: '6px', padding: '2px 6px' }}>RETURN</span>}
                         {ap.notes || '—'}
                       </td>
                     </tr>

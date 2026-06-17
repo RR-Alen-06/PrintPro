@@ -1,12 +1,58 @@
 import React, { useState } from 'react'
 import { jsPDF } from 'jspdf'
-import { Printer, Download, X, Search as SearchIcon, FileText } from 'lucide-react'
+import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 
 const Receipt = () => {
-  const { bills, business } = useAppContext()
+  const { bills, business, showAlert } = useAppContext()
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  const getUpiLink = (amount) => {
+    if (!business?.upiId || amount <= 0) return ''
+    const params = new URLSearchParams({
+      pa: business.upiId,
+      pn: business.shopName || 'PrintPro',
+      am: amount.toFixed(2),
+      cu: 'INR',
+      tn: `Receipt ${selectedBill?.id || ''}`,
+    })
+    return `upi://pay?${params.toString()}`
+  }
+
+  const buildShareText = (bill) => {
+    if (!bill) return ''
+    return [
+      `*${business?.shopName || 'PrintPro'} - Receipt*`,
+      `Bill ID: ${bill.id}`,
+      `Customer: ${bill.customerName}`,
+      `Date: ${bill.date}`,
+      `Total: Rs.${bill.total.toFixed(2)}`,
+      `Paid: Rs.${bill.amountPaid.toFixed(2)}`,
+      bill.balance > 0 ? `Balance Due: Rs.${bill.balance.toFixed(2)}` : `Status: PAID`,
+      bill.balance > 0 && business?.upiId ? `\nPay via UPI: ${getUpiLink(bill.balance)}` : '',
+      `\nThank you for your business!`,
+    ].filter(Boolean).join('\n')
+  }
+
+  const handleWhatsApp = () => {
+    if (!selectedBill) return
+    const text = encodeURIComponent(buildShareText(selectedBill))
+    window.open(`https://wa.me/?text=${text}`, '_blank')
+  }
+
+  const handleWebShare = async () => {
+    if (!selectedBill) return
+    const text = buildShareText(selectedBill)
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `Receipt ${selectedBill.id}`, text })
+      } catch (_) {/* user cancelled */}
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(text).then(() => showAlert('Receipt text copied to clipboard!', 'success'))
+    }
+  }
 
   const filteredBills = bills
     .filter((b) => !b.deleted)
@@ -16,8 +62,8 @@ const Receipt = () => {
     )
 
   // ── Programmatic PDF using jsPDF text/line API ────────────────────────────
-  const generatePDF = (bill) => {
-    if (!bill) return
+  const createPDFDoc = (bill) => {
+    if (!bill) return null
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const W = doc.internal.pageSize.getWidth()  // 210 mm
@@ -185,7 +231,41 @@ const Receipt = () => {
       addFooter(p, totalPages)
     }
 
-    doc.save(`Receipt-${bill.id}.pdf`)
+    return doc
+  }
+
+  const generatePDF = (bill) => {
+    if (!bill) return
+    const doc = createPDFDoc(bill)
+    if (doc) {
+      doc.save(`Receipt-${bill.id}.pdf`)
+    }
+  }
+
+  const handleSharePDF = async () => {
+    if (!selectedBill) return
+    const doc = createPDFDoc(selectedBill)
+    if (!doc) return
+    
+    try {
+      const pdfBlob = doc.output('blob')
+      const file = new File([pdfBlob], `Receipt-${selectedBill.id}.pdf`, { type: 'application/pdf' })
+      
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Receipt ${selectedBill.id}`,
+          text: `Here is the PDF receipt for Bill ${selectedBill.id} from ${business?.shopName || 'PrintPro'}.`,
+        })
+      } else {
+        doc.save(`Receipt-${selectedBill.id}.pdf`)
+        showAlert('Direct PDF sharing is not supported by your browser. The PDF has been downloaded instead.', 'warning')
+      }
+    } catch (err) {
+      console.error('Failed to share PDF:', err)
+      // Fallback
+      doc.save(`Receipt-${selectedBill.id}.pdf`)
+    }
   }
 
   const handlePrint = () => {
@@ -262,7 +342,31 @@ const Receipt = () => {
               disabled={!selectedBill}
               style={{ width: '100%' }}
             >
-              <Printer size={16} /> Print Preview
+              <Printer size={16} /> Print
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleSharePDF}
+              disabled={!selectedBill}
+              style={{ width: '100%', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Share2 size={16} /> Share PDF (WhatsApp/Email)
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleWhatsApp}
+              disabled={!selectedBill}
+              style={{ width: '100%', background: 'linear-gradient(135deg, #25d366, #128c7e)', border: 'none', color: '#fff' }}
+            >
+              <MessageCircle size={16} /> Share Text on WhatsApp
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleWebShare}
+              disabled={!selectedBill}
+              style={{ width: '100%' }}
+            >
+              <Share2 size={16} /> Share Text / Copy
             </button>
             {selectedBill && (
               <button
@@ -289,7 +393,7 @@ const Receipt = () => {
       {/* Receipt Preview */}
       {selectedBill && (
         <div className="card receipt-print-area" style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+          <div className="receipt-preview-header no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
             <h2>Receipt Preview</h2>
             <button className="btn btn-secondary btn-sm" onClick={() => generatePDF(selectedBill)}>
               <Download size={14} /> Download PDF
@@ -406,12 +510,37 @@ const Receipt = () => {
       {/* Print-only styles */}
       <style>{`
         @media print {
-          body * { visibility: hidden; }
-          .receipt-print-area, .receipt-print-area * { visibility: visible; }
+          .no-print, .receipt-preview-header, .sidebar, .header, .page-header, .grid-2, button, .btn {
+            display: none !important;
+          }
+          .app-layout, .main-wrapper, .main-content {
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+          }
+          body {
+            background: #fff;
+            color: #000;
+          }
           .receipt-print-area {
-            position: fixed; top: 0; left: 0;
-            margin: 0; border: none !important; box-shadow: none !important;
+            display: block !important;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
             page-break-after: avoid;
+          }
+          .receipt-print-area > div {
+            border: none !important;
+            box-shadow: none !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
         }
       `}</style>
