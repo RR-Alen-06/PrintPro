@@ -16,13 +16,14 @@ router.get('/', listItems);
 router.get('/low-stock', getLowStock);
 
 // POST /api/inventory
-router.post('/', addItem);
+const { validateInventoryItem } = require('../middleware/validate');
+router.post('/', validateInventoryItem, addItem);
 
 // PUT /api/inventory/:id
-router.put('/:id', updateItem);
+router.put('/:id', validateInventoryItem, updateItem);
 
 // PUT /api/inventory/:id/stock
-router.put('/:id/stock', updateStock);
+router.put('/:id/stock', validateInventoryItem, updateStock);
 
 // DELETE /api/inventory/:id
 router.delete('/:id', deleteItem);

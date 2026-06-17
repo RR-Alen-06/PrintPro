@@ -23,16 +23,16 @@ function errorHandler(err, req, res, _next) {
     if (err.stack) logger.error(err.stack);
   }
 
-  // ── MySQL duplicate entry ─────────────────────────────────────────────────
-  if (err.code === 'ER_DUP_ENTRY') {
+  // ── PostgreSQL duplicate entry (23505) ────────────────────────────────────
+  if (err.code === '23505' || err.code === 'ER_DUP_ENTRY') {
     return res.status(409).json({
       success: false,
       error: 'Duplicate entry. This record already exists.',
     });
   }
 
-  // ── MySQL FK constraint ───────────────────────────────────────────────────
-  if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.code === 'ER_NO_REFERENCED_ROW_2') {
+  // ── PostgreSQL FK constraint (23503) ──────────────────────────────────────
+  if (err.code === '23503' || err.code === 'ER_ROW_IS_REFERENCED_2' || err.code === 'ER_NO_REFERENCED_ROW_2') {
     return res.status(400).json({
       success: false,
       error: 'Operation failed due to a data reference constraint.',
@@ -63,7 +63,9 @@ function errorHandler(err, req, res, _next) {
 
   // ── Generic ───────────────────────────────────────────────────────────────
   const statusCode = err.statusCode || 500;
-  const message    = err.statusCode ? err.message : 'Internal server error';
+  // Mask 5xx or unhandled server error messages to prevent data/code leaks to the client browser.
+  // Only 4xx client-side errors will return their specific messages.
+  const message = (statusCode >= 400 && statusCode < 500) ? err.message : 'Internal server error';
 
   return res.status(statusCode).json({ success: false, error: message });
 }
