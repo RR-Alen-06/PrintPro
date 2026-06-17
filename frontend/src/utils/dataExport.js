@@ -10,7 +10,9 @@ export const exportToJSON = (data, filename = 'printpro-backup.json') => {
 
 export const exportToCSV = (data, filename = 'printpro-export.csv') => {
   const csv = convertToCSV(data)
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  // UTF-8 BOM prefix ensures Excel opens the file correctly (handles ₹ and unicode)
+  const BOM = '\uFEFF'
+  const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' })
   downloadFile(blob, filename)
 }
 
@@ -22,18 +24,29 @@ const downloadFile = (blob, filename) => {
   URL.revokeObjectURL(link.href)
 }
 
+const escapeCSVCell = (value) => {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  // Always quote strings that contain commas, quotes, newlines, or ₹
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes('₹')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
 const convertToCSV = (data) => {
   if (!Array.isArray(data) || data.length === 0) return ''
 
   const keys = Object.keys(data[0])
   const csv = [
-    keys.join(','),
+    keys.map(escapeCSVCell).join(','),
     ...data.map((row) =>
       keys.map((key) => {
         const value = row[key]
-        if (typeof value === 'object') return JSON.stringify(value).replace(/"/g, '""')
-        if (typeof value === 'string' && value.includes(',')) return `"${value.replace(/"/g, '""')}"`
-        return value
+        if (typeof value === 'object' && value !== null) {
+          return escapeCSVCell(JSON.stringify(value))
+        }
+        return escapeCSVCell(value)
       }).join(',')
     ),
   ]
@@ -94,7 +107,7 @@ export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') 
     'Payment ID': payment.id,
     'Bill ID': payment.billId,
     'Customer ID': payment.customerId,
-    'Date': new Date(payment.date).toLocaleDateString(),
+    'Date': payment.date ? payment.date.slice(0, 10) : '',
     'Cash': payment.cashAmount,
     'UPI': payment.upiAmount,
     'Total Paid': payment.totalPaid,

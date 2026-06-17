@@ -1,13 +1,17 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 
 const CustomerLedger = () => {
-  const { customers, bills, payments, advancePayments } = useAppContext()
+  const { customers, bills, payments, advancePayments, recordPayment } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
+  
+  const [payCash, setPayCash] = useState(0)
+  const [payUpi, setPayUpi] = useState(0)
+  const [paySuccess, setPaySuccess] = useState(false)
 
   const selectedCustomer = useMemo(
     () => activeCustomers.find((c) => c.id === selectedCustomerId),
@@ -76,10 +80,29 @@ const CustomerLedger = () => {
 
     let runningBalance = 0
     return entries.map((entry) => {
-      runningBalance += (entry.debit || 0) - (entry.credit || 0) - (entry.advanceUsed || 0)
+      // Bank statement style: payments/advances increase credit balance (+), billing/charges subtract from credit (-)
+      runningBalance += (entry.credit || 0) + (entry.advanceIn || 0) - (entry.debit || 0)
       return { ...entry, balance: runningBalance }
     })
   }, [customerBills, customerPayments, customerAdvances])
+
+  const handleApplyPayment = () => {
+    const cash = Number(payCash || 0)
+    const upi = Number(payUpi || 0)
+    if (cash + upi <= 0 || !selectedCustomer) return
+
+    recordPayment({
+      customerId: selectedCustomer.id,
+      cashAmount: cash,
+      upiAmount: upi,
+      notes: `Payment from ledger page`,
+    })
+
+    setPayCash(0)
+    setPayUpi(0)
+    setPaySuccess(true)
+    setTimeout(() => setPaySuccess(false), 3500)
+  }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
   const totalPaid = customerPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
@@ -87,32 +110,40 @@ const CustomerLedger = () => {
   const totalAdvanceUsed = customerBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
   const totalDiscount = customerBills.reduce((s, b) => s + Number(b.discountValue || 0), 0)
   const outstanding = customerBills.reduce((s, b) => s + Number(b.balance || 0), 0)
+  const finalBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0
 
-  // CSV download
+  // CSV download with UTF-8 BOM for Excel compatibility
   const downloadStatement = () => {
     const date = new Date()
+    const escCell = (v) => {
+      if (v === null || v === undefined) return ''
+      const s = String(v)
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('₹')) return `"${s.replace(/"/g, '""')}"`
+      return s
+    }
     const rows = [
-      [`Customer Ledger Statement — ${selectedCustomer?.name}`],
-      [`Customer ID:`, selectedCustomer?.id || ''],
-      [`Generated:`, date.toLocaleString()],
-      [],
-      ['Date', 'Type', 'Description', 'Debit (₹)', 'Credit (₹)', 'Balance (₹)'],
+      [`Customer Ledger Statement - ${selectedCustomer?.name}`, '', '', '', '', ''],
+      [`Customer ID:`, selectedCustomer?.id || '', '', '', '', ''],
+      [`Generated:`, date.toLocaleString(), '', '', '', ''],
+      ['', '', '', '', '', ''],
+      ['Date', 'Type', 'Description', 'Debit (Rs)', 'Credit (Rs)', 'Balance (Rs)'],
       ...ledgerEntries.map((e) => [
-        new Date(e.date).toLocaleDateString(),
+        e.date ? e.date.slice(0, 10) : '',
         e.type,
-        `"${e.description}"`,
+        e.description,
         e.debit > 0 ? e.debit.toFixed(2) : '',
         e.credit > 0 ? e.credit.toFixed(2) : (e.advanceIn > 0 ? e.advanceIn.toFixed(2) : ''),
         e.balance.toFixed(2),
       ]),
-      [],
+      ['', '', '', '', '', ''],
       ['', '', 'TOTAL BILLED', totalBilled.toFixed(2), '', ''],
       ['', '', 'TOTAL PAID', '', totalPaid.toFixed(2), ''],
       ['', '', 'ADVANCE DEPOSITED', '', totalAdvanceIn.toFixed(2), ''],
       ['', '', 'OUTSTANDING', outstanding.toFixed(2), '', ''],
     ]
-    const csv = rows.map((r) => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const BOM = '\uFEFF'
+    const csv = rows.map((r) => r.map(escCell).join(',')).join('\n')
+    const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = `${selectedCustomer?.name}-ledger-${date.toISOString().slice(0, 10)}.csv`
@@ -210,16 +241,20 @@ const CustomerLedger = () => {
       const typeLabel = entry.type === 'bill' ? 'Invoice' : entry.type === 'advance' ? 'Advance' : 'Payment'
       const debitStr = entry.debit > 0 ? `Rs.${entry.debit.toFixed(2)}` : '-'
       const creditStr = entry.credit > 0 ? `Rs.${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `Rs.${entry.advanceIn.toFixed(2)}` : '-'
-      const balStr = `Rs.${entry.balance.toFixed(2)}`
+      const balStr = entry.balance < 0 ? `-Rs.${Math.abs(entry.balance).toFixed(2)}` : `Rs.${entry.balance.toFixed(2)}`
       doc.text(new Date(entry.date).toLocaleDateString(), cols.date, y)
       doc.text(typeLabel, cols.type, y)
       const shortDesc = entry.description.length > 30 ? entry.description.slice(0, 28) + '…' : entry.description
       doc.text(shortDesc, cols.desc, y)
-      doc.setTextColor(entry.debit > 0 ? 200 : 0, 0, 0)
+      doc.setTextColor(entry.debit > 0 ? 239 : 0, entry.debit > 0 ? 68 : 0, entry.debit > 0 ? 68 : 0)
       doc.text(debitStr, cols.debit, y)
-      doc.setTextColor(0, entry.credit > 0 || entry.advanceIn > 0 ? 150 : 0, 0)
+      doc.setTextColor((entry.credit > 0 || entry.advanceIn > 0) ? 16 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 185 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 129 : 0)
       doc.text(creditStr, cols.credit, y)
-      doc.setTextColor(entry.balance > 0 ? 180 : 0, entry.balance <= 0 ? 150 : 0, 0)
+      if (entry.balance >= 0) {
+        doc.setTextColor(16, 185, 129)
+      } else {
+        doc.setTextColor(239, 68, 68)
+      }
       doc.text(balStr, cols.bal, y)
       doc.setTextColor(0)
       y += 6
@@ -248,54 +283,122 @@ const CustomerLedger = () => {
       </div>
 
       <div className="grid-2" style={{ gap: '24px' }}>
-        {/* Customer Selector */}
-        <div className="card">
-          <h2 style={{ marginBottom: '16px' }}>Select Customer</h2>
-          <select
-            className="form-select"
-            value={selectedCustomerId}
-            onChange={(e) => setSelectedCustomerId(e.target.value)}
-          >
-            <optgroup label="Regular Customers">
-              {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
-              ))}
-            </optgroup>
-            <optgroup label="Walk-in Customers">
-              {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
-              ))}
-            </optgroup>
-          </select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+          {/* Customer Selector */}
+          <div className="card" style={{ width: '100%' }}>
+            <h2 style={{ marginBottom: '16px' }}>Select Customer</h2>
+            <select
+              className="form-select"
+              value={selectedCustomerId}
+              onChange={(e) => setSelectedCustomerId(e.target.value)}
+            >
+              <optgroup label="Regular Customers">
+                {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Walk-in Customers">
+                {activeCustomers.filter((c) => c.type === 'random').map((c) => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                ))}
+              </optgroup>
+            </select>
 
-          {selectedCustomer && (
-            <div style={{ marginTop: '16px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.875rem' }}>
-              <div style={{ display: 'grid', gap: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="text-muted">ID</span>
-                  <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="text-muted">Type</span>
-                  <span className={`badge ${selectedCustomer.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
-                    {selectedCustomer.type === 'regular' ? 'Regular' : 'Walk-in'}
-                  </span>
-                </div>
-                {selectedCustomer.phone && (
+            {selectedCustomer && (
+              <div style={{ marginTop: '16px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.875rem' }}>
+                <div style={{ display: 'grid', gap: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span className="text-muted">Phone</span>
-                    <span>{selectedCustomer.phone}</span>
+                    <span className="text-muted">ID</span>
+                    <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
                   </div>
-                )}
-                {Number(selectedCustomer.advanceBalance || 0) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--info)' }}>
-                      <Wallet size={13} /> Advance Balance
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span className="text-muted">Type</span>
+                    <span className={`badge ${selectedCustomer.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
+                      {selectedCustomer.type === 'regular' ? 'Regular' : 'Walk-in'}
                     </span>
-                    <strong style={{ color: 'var(--info)' }}>₹{Number(selectedCustomer.advanceBalance).toFixed(2)}</strong>
                   </div>
-                )}
+                  {selectedCustomer.phone && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="text-muted">Phone</span>
+                      <span>{selectedCustomer.phone}</span>
+                    </div>
+                  )}
+                  {Number(selectedCustomer.advanceBalance || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--info)' }}>
+                        <Wallet size={13} /> Advance Balance
+                      </span>
+                      <strong style={{ color: 'var(--info)' }}>₹{Number(selectedCustomer.advanceBalance).toFixed(2)}</strong>
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Record Payment Form */}
+          {selectedCustomer && outstanding > 0 && (
+            <div className="card" style={{ width: '100%' }}>
+              <h3 style={{ marginBottom: '12px' }}>Record Payment</h3>
+              <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
+                Payment will be applied to oldest unpaid bills first. Outstanding: <strong style={{ color: 'var(--warning)' }}>₹{outstanding.toFixed(2)}</strong>
+              </p>
+
+              {paySuccess && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 14px', marginBottom: '12px',
+                  background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
+                  borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
+                }}>
+                  <CheckCircle size={16} /> Payment recorded successfully!
+                </div>
+              )}
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Cash Amount (₹)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={payCash}
+                    onChange={(e) => setPayCash(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">UPI Amount (₹)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={payUpi}
+                    onChange={(e) => setPayUpi(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Paying Now: <strong style={{ color: 'var(--text-primary)' }}>
+                    ₹{(Number(payCash || 0) + Number(payUpi || 0)).toFixed(2)}
+                  </strong>
+                </span>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Balance After: <strong style={{ color: 'var(--accent)' }}>
+                    ₹{Math.max(outstanding - (Number(payCash || 0) + Number(payUpi || 0)), 0).toFixed(2)}
+                  </strong>
+                </span>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleApplyPayment}
+                disabled={Number(payCash || 0) + Number(payUpi || 0) <= 0}
+                style={{ width: '100%' }}
+              >
+                <CheckCircle size={16} /> Apply Payment
+              </button>
             </div>
           )}
         </div>
@@ -393,8 +496,8 @@ const CustomerLedger = () => {
                     <td style={{ textAlign: 'right', color: (entry.credit > 0 || entry.advanceIn > 0) ? 'var(--success)' : 'var(--text-muted)' }}>
                       {entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `₹${entry.advanceIn.toFixed(2)}` : '—'}
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: entry.balance > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                      ₹{entry.balance.toFixed(2)}
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: entry.balance >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                      {entry.balance < 0 ? `-₹${Math.abs(entry.balance).toFixed(2)}` : `₹${entry.balance.toFixed(2)}`}
                     </td>
                   </tr>
                 ))}
@@ -402,8 +505,8 @@ const CustomerLedger = () => {
                   <td colSpan={3}>TOTAL</td>
                   <td style={{ textAlign: 'right', color: 'var(--error)' }}>₹{totalBilled.toFixed(2)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--success)' }}>₹{(totalPaid + totalAdvanceIn).toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', color: outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                    ₹{outstanding.toFixed(2)}
+                  <td style={{ textAlign: 'right', color: finalBalance >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                    {finalBalance < 0 ? `-₹${Math.abs(finalBalance).toFixed(2)}` : `₹${finalBalance.toFixed(2)}`}
                   </td>
                 </tr>
               </tbody>
