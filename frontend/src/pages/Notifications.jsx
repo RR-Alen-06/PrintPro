@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { Bell } from 'lucide-react'
 
 const NotificationsPage = () => {
-  const { notifications, markNotificationRead } = useAppContext()
+  const { notifications, markNotificationRead, markAllNotificationsRead } = useAppContext()
 
   return (
     <div>
@@ -17,6 +17,11 @@ const NotificationsPage = () => {
           <div>
             <h2>Notification Center</h2>
           </div>
+          {notifications.some((note) => !note.read) && (
+            <button className="btn btn-secondary btn-sm" onClick={markAllNotificationsRead}>
+              Mark all as read
+            </button>
+          )}
         </div>
         <div className="table-container">
           <table className="table">
