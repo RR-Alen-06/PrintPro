@@ -19,21 +19,30 @@ import CustomerLedger from './pages/CustomerLedger'
 import RecurringBills from './pages/RecurringBills'
 import Analytics from './pages/Analytics'
 import AdvancePayments from './pages/AdvancePayments'
+import CustomerBills from './pages/CustomerBills'
+import AuthCallback from './pages/AuthCallback'
 
 function App() {
-  const { notifications, currentUser } = useAppContext()
-  const unreadCount = notifications.filter((note) => !note.read).length
+  const { currentUser } = useAppContext()
+
+  // Check if we are handling OAuth redirect callback
+  const isAuthCallback = window.location.pathname === '/auth/callback'
 
   // Show login page if not authenticated
-  if (!currentUser) {
+  if (!currentUser && !isAuthCallback) {
     return <Auth />
+  }
+
+  // Render AuthCallback in full screen layout
+  if (isAuthCallback) {
+    return <AuthCallback />
   }
 
   return (
     <div className="app-layout">
       <Sidebar />
       <div className="main-wrapper">
-        <Header notificationsCount={unreadCount} />
+        <Header />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -51,8 +60,10 @@ function App() {
             <Route path="/auth" element={<Auth />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
+            <Route path="/customer-bills" element={<CustomerBills />} />
             <Route path="/recurring-bills" element={<RecurringBills />} />
             <Route path="/advance-payments" element={<AdvancePayments />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
