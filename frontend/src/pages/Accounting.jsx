@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone } from 'lucide-react'
+import PeriodReport from '../components/PeriodReport'
 
 const Accounting = () => {
-  const { bills, payments, expenses, addExpense, deleteExpense } = useAppContext()
+  const { bills, payments, expenses, advancePayments, addExpense, deleteExpense } = useAppContext()
 
   const today = new Date().toISOString().slice(0, 10)
   const [expForm, setExpForm] = useState({
@@ -22,7 +23,8 @@ const Accounting = () => {
 
     const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
     const totalExpenses = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
-    const netCashFlow = realizedRevenue - totalExpenses
+    const totalAdvanceCollected = (advancePayments || []).reduce((s, ap) => s + Number(ap.amount || 0), 0)
+    const netCashFlow = (realizedRevenue + totalAdvanceCollected) - totalExpenses
     const pendingReceivables = activeBills
       .filter((b) => b.status !== 'paid')
       .reduce((s, b) => s + Number(b.balance || 0), 0)
@@ -35,8 +37,8 @@ const Accounting = () => {
     const cashSpent = (expenses || []).reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiSpent = (expenses || []).reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    return { realizedRevenue, totalExpenses, netCashFlow, pendingReceivables, cashCollected, upiCollected, cashSpent, upiSpent }
-  }, [bills, payments, expenses])
+    return { realizedRevenue, totalExpenses, netCashFlow, pendingReceivables, cashCollected, upiCollected, cashSpent, upiSpent, totalAdvanceCollected }
+  }, [bills, payments, expenses, advancePayments])
 
   // ── Expense form ──────────────────────────────────────────────────────────
   const handleExpenseChange = (field, value) => {
@@ -82,7 +84,7 @@ const Accounting = () => {
       </div>
 
       {/* Summary stats */}
-      <div className="stats-grid" style={{ marginBottom: '24px' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: '24px' }}>
         <div className="stat-card">
           <div className="stat-card-header">
             <div className="stat-card-icon success"><DollarSign /></div>
@@ -92,6 +94,28 @@ const Accounting = () => {
             </div>
           </div>
           <div className="stat-card-sub">Total collected from bills.</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-card-icon success" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}><DollarSign /></div>
+            <div>
+              <div className="stat-card-label">Total Advance Collected</div>
+              <div className="stat-card-value" style={{ color: 'var(--info)' }}>₹{stats.totalAdvanceCollected.toFixed(2)}</div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Total advance deposits received.</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-card-icon success" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}><TrendingUp /></div>
+            <div>
+              <div className="stat-card-label">Revenue + Advance</div>
+              <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{(stats.realizedRevenue + stats.totalAdvanceCollected).toFixed(2)}</div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Realized revenue plus advances.</div>
         </div>
 
         <div className="stat-card">
@@ -115,7 +139,7 @@ const Accounting = () => {
               </div>
             </div>
           </div>
-          <div className="stat-card-sub">Revenue minus expenses.</div>
+          <div className="stat-card-sub">Total Inflow minus expenses.</div>
         </div>
 
         <div className="stat-card">
@@ -138,11 +162,11 @@ const Accounting = () => {
             <h4 style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Collected (Revenue)</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>💵 Cash Collected</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Collected</span>
                 <span style={{ fontWeight: 700, color: 'var(--success)' }}>₹{stats.cashCollected.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>📱 UPI Collected</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Collected</span>
                 <span style={{ fontWeight: 700, color: 'var(--info)' }}>₹{stats.upiCollected.toFixed(2)}</span>
               </div>
             </div>
@@ -151,17 +175,19 @@ const Accounting = () => {
             <h4 style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Spent (Expenses)</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>💵 Cash Spent</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Spent</span>
                 <span style={{ fontWeight: 700, color: 'var(--error)' }}>₹{stats.cashSpent.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>📱 UPI Spent</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Spent</span>
                 <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiSpent.toFixed(2)}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      <PeriodReport />
 
       {/* Add Expense */}
       <div className="card" style={{ marginBottom: '24px' }}>

@@ -1,8 +1,14 @@
 import React, { useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
+import PeriodReport from '../components/PeriodReport'
+import { Banknote, Smartphone } from 'lucide-react'
 
 const Analytics = () => {
-  const { bills, customers, inventory, payments, expenses } = useAppContext()
+  const { bills, customers, inventory, payments, expenses, advancePayments } = useAppContext()
+
+  const totalAdvanceCollected = useMemo(() => {
+    return (advancePayments || []).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+  }, [advancePayments])
 
   const salesSummary = useMemo(() => {
     const totalRevenue = bills.filter((bill) => !bill.deleted).reduce((sum, bill) => sum + Number(bill.total || 0), 0)
@@ -116,7 +122,7 @@ const Analytics = () => {
         <p>View sales performance, customer revenue, payment methods, and print type profitability.</p>
       </div>
 
-      <div className="grid-3" style={{ gap: '20px' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
         <div className="stat-card">
           <div className="stat-card-label">Total Revenue</div>
           <div className="stat-card-value">₹{salesSummary.totalRevenue.toFixed(2)}</div>
@@ -124,6 +130,14 @@ const Analytics = () => {
         <div className="stat-card">
           <div className="stat-card-label">Total Paid</div>
           <div className="stat-card-value">₹{salesSummary.totalPaid.toFixed(2)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-label">Total Advance Collected</div>
+          <div className="stat-card-value" style={{ color: 'var(--info)' }}>₹{totalAdvanceCollected.toFixed(2)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-label">Revenue + Advance</div>
+          <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{(salesSummary.totalPaid + totalAdvanceCollected).toFixed(2)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-label">Outstanding</div>
@@ -143,29 +157,31 @@ const Analytics = () => {
         </div>
       </div>
 
+      <PeriodReport />
+
       {/* Payment Method Summary */}
       <div className="card" style={{ marginTop: '24px' }}>
         <h2 style={{ marginBottom: '16px' }}>Payment Method Summary</h2>
         <div className="grid-2" style={{ gap: '16px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Collected</h4>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
-              <span>💵 Total Cash Collected</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Total Cash Collected</span>
               <strong style={{ color: 'var(--success)' }}>₹{paymentMethodSummary.cashCollected.toFixed(2)}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)' }}>
-              <span>📱 Total UPI Collected</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Total UPI Collected</span>
               <strong style={{ color: 'var(--info)' }}>₹{paymentMethodSummary.upiCollected.toFixed(2)}</strong>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Expenses</h4>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.2)' }}>
-              <span>💵 Cash Expenses</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.2)', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Expenses</span>
               <strong style={{ color: 'var(--error)' }}>₹{paymentMethodSummary.cashExpenses.toFixed(2)}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
-              <span>📱 UPI Expenses</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Expenses</span>
               <strong style={{ color: 'var(--warning)' }}>₹{paymentMethodSummary.upiExpenses.toFixed(2)}</strong>
             </div>
           </div>

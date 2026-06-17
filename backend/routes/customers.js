@@ -18,10 +18,11 @@ router.get('/', listCustomers);
 router.get('/:id', getCustomer);
 
 // POST /api/customers
-router.post('/', createCustomer);
+const { validateCustomer } = require('../middleware/validate');
+router.post('/', validateCustomer, createCustomer);
 
 // PUT /api/customers/:id
-router.put('/:id', updateCustomer);
+router.put('/:id', validateCustomer, updateCustomer);
 
 // DELETE /api/customers/:id
 router.delete('/:id', deleteCustomer);

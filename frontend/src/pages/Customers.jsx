@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet } from 'lucide-react'
 
@@ -11,7 +12,8 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { customers, bills, payments, advancePayments, addCustomer, recordPayment, deleteCustomer, restoreCustomer, updateCustomerFull } = useAppContext()
+  const { customers, bills, payments, advancePayments, addCustomer, recordPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const navigate = useNavigate()
 
   const [showModal, setShowModal] = useState(false)
   const [editMode, setEditMode] = useState(false) // false = add, true = edit
@@ -227,7 +229,7 @@ const Customers = () => {
           { key: 'all', label: 'All', count: customers.filter((c) => !c.deleted).length },
           { key: 'regular', label: 'Regular', count: regular.length },
           { key: 'random', label: 'Walk-in', count: random.length },
-          { key: 'deleted', label: '🗑 Deleted', count: deletedCustomers.length },
+          { key: 'deleted', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Trash2 size={13} /> Deleted</span>, count: deletedCustomers.length },
         ].map((t) => (
           <button
             key={t.key}
@@ -303,40 +305,72 @@ const Customers = () => {
                         opacity: customer.deleted ? 0.6 : 1,
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{customer.name}</span>
-                            <span className={`badge ${customer.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'start' }}>
+                        {/* Left Side: Identity Info */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span 
+                              style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }} 
+                              title={customer.name}
+                            >
+                              {customer.name}
+                            </span>
+                            <span className={`badge ${customer.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.62rem', padding: '2px 6px', flexShrink: 0 }}>
                               {customer.type === 'regular' ? 'Regular' : 'Walk-in'}
                             </span>
                           </div>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {customer.id}{customer.phone ? ` · ${customer.phone}` : ''}
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                            {customer.id}
                           </div>
+                          {customer.phone && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {customer.phone}
+                            </div>
+                          )}
+                          {Number(customer.advanceBalance || customer.creditBalance || 0) > 0 && (
+                            <div style={{ display: 'flex', marginTop: '2px' }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 600,
+                                background: 'rgba(16, 185, 129, 0.1)',
+                                color: 'var(--success)',
+                                border: '1px solid rgba(16, 185, 129, 0.2)',
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm)'
+                              }}>
+                                Adv: ₹{Number(customer.advanceBalance || customer.creditBalance || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+
+                        {/* Right Side: Balances & Actions */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0, minWidth: '80px' }}>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
                               ₹{outstanding.toFixed(2)}
                             </div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
                               {outstanding > 0 ? 'outstanding' : 'settled'}
                             </div>
                           </div>
                           <button
                             className="btn btn-ghost btn-sm"
-                            style={{ flexShrink: 0, color: 'var(--error)' }}
+                            style={{ flexShrink: 0, color: 'var(--error)', padding: '4px', minHeight: 'unset', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={(e) => {
                               e.stopPropagation()
                               if (outstanding > 0) {
-                                alert(`Cannot delete "${customer.name}" — ₹${outstanding.toFixed(2)} outstanding. Settle all bills first.`)
+                                showAlert(`Cannot delete "${customer.name}" — ₹${outstanding.toFixed(2)} outstanding. Settle all bills first.`, 'error')
                                 return
                               }
-                              if (window.confirm(`Move "${customer.name}" to deleted? Can be restored anytime.`)) {
-                                deleteCustomer(customer.id)
-                                if (selectedCustomerId === customer.id) setSelectedCustomerId(null)
-                              }
+                              showConfirm(
+                                'Delete Customer',
+                                `Move "${customer.name}" to deleted? Can be restored anytime.`,
+                                () => {
+                                  deleteCustomer(customer.id)
+                                  if (selectedCustomerId === customer.id) setSelectedCustomerId(null)
+                                }
+                              )
                             }}
                             title="Delete customer"
                           >
@@ -430,6 +464,7 @@ const Customers = () => {
                         <th>Paid</th>
                         <th>Balance</th>
                         <th>Status</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -457,10 +492,21 @@ const Customers = () => {
                                 {bill.status}
                               </span>
                             </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
+                                onClick={() => navigate(`/billing?edit=${bill.id}`)}
+                                title="Edit Bill"
+                              >
+                                <Pencil size={14} /> Edit
+                              </button>
+                            </td>
                           </tr>
-                          {expandedBillId === bill.id && (
-                            <tr>
-                              <td colSpan={7} style={{ padding: '0 16px 12px', background: 'var(--bg-elevated)' }}>
+                           {expandedBillId === bill.id && (
+                             <tr>
+                               <td colSpan={8} style={{ padding: '0 16px 12px', background: 'var(--bg-elevated)' }}>
                                 <div style={{ padding: '12px 0' }}>
                                   <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Line Items</div>
                                   <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
@@ -487,6 +533,41 @@ const Customers = () => {
                                       ))}
                                     </tbody>
                                   </table>
+
+                                  {/* Post-Bill Discount Form */}
+                                  <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
+                                    <form onSubmit={(e) => {
+                                      e.preventDefault()
+                                      const formEl = e.target
+                                      const type = formEl.discountType.value
+                                      const val = Number(formEl.discountValue.value || 0)
+                                      if (val < 0) {
+                                        showAlert('Discount value cannot be negative.', 'error')
+                                        return
+                                      }
+                                      applyPostDiscount(bill.id, type, val)
+                                      showAlert('Post-bill discount applied successfully.', 'success')
+                                    }} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <select name="discountType" className="form-select" style={{ width: '120px', padding: '6px', height: '32px', fontSize: '0.8rem' }} defaultValue={bill.discountType || 'flat'}>
+                                        <option value="flat">Flat (₹)</option>
+                                        <option value="percent">Percent (%)</option>
+                                      </select>
+                                      <input
+                                        type="number"
+                                        name="discountValue"
+                                        step="any"
+                                        className="form-input"
+                                        style={{ width: '100px', padding: '6px', height: '32px', fontSize: '0.8rem' }}
+                                        placeholder="Value"
+                                        defaultValue={bill.discountValue || 0}
+                                        min="0"
+                                      />
+                                      <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '6px 12px', height: '32px', fontSize: '0.8rem' }}>
+                                        Apply Discount
+                                      </button>
+                                    </form>
+                                  </div>
                                 </div>
                               </td>
                             </tr>
