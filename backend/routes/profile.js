@@ -6,13 +6,14 @@ const { getPool } = require('../config/db');
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM business_profile WHERE id = 1');
+    const [rows] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
     res.json({ success: true, data: rows[0] || {} });
   } catch (err) { next(err); }
 });
 
 // PUT /api/profile
-router.put('/', async (req, res, next) => {
+const { validateProfile } = require('../middleware/validate');
+router.put('/', validateProfile, async (req, res, next) => {
   try {
     const pool = getPool();
     const { shop_name, owner_name, phone, address, gstin, upi_id } = req.body;
@@ -30,9 +31,9 @@ router.put('/', async (req, res, next) => {
     }
 
     const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE business_profile SET ${setClauses} WHERE id = 1`, Object.values(updates));
+    await pool.query(`UPDATE business_profile SET ${setClauses} WHERE user_id = ?`, [...Object.values(updates), req.user.id]);
 
-    const [updated] = await pool.query('SELECT * FROM business_profile WHERE id = 1');
+    const [updated] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) { next(err); }
 });

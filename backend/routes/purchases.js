@@ -43,7 +43,8 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // POST /api/purchases
-router.post('/', async (req, res, next) => {
+const { validatePurchase } = require('../middleware/validate');
+router.post('/', validatePurchase, async (req, res, next) => {
   try {
     const pool = getPool();
     const { date, item_name, category, qty, unit_cost, notes } = req.body;
