@@ -9,13 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "axios": "^1.6.2",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "lucide-react": "^0.294.0",
-    "axios": "^1.6.2",
-    "jspdf": "^2.5.1",
-    "html2canvas": "^1.4.1"
+    "react-router-dom": "^6.20.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",

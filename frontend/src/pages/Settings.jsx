@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle } from 'lucide-react'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck } from 'lucide-react'
 
 const Settings = () => {
   const { settings, updateSettings, business, updateBusiness } = useAppContext()
@@ -23,6 +23,31 @@ const Settings = () => {
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
+  // RBAC permissions state
+  const defaultPerms = {
+    billing: true, customers: true, advancePayments: true, accounting: false,
+    analytics: false, inventory: false, ledger: false, recurringBills: false,
+    receipt: true, search: true, dataManagement: false, deletedBills: false, settings: false,
+  }
+  const [staffPerms, setStaffPerms] = useState(settings.staffPermissions || defaultPerms)
+  const [permSaved, setPermSaved] = useState(false)
+
+  const PERM_LABELS = [
+    { key: 'billing',        label: 'Billing — Create & manage bills' },
+    { key: 'customers',      label: 'Customers — View & edit customers' },
+    { key: 'advancePayments',label: 'Advance Payments — Manage advance deposits' },
+    { key: 'accounting',     label: 'Accounting — View financial reports' },
+    { key: 'analytics',      label: 'Analytics — View charts & analytics' },
+    { key: 'inventory',      label: 'Inventory — Manage pricing inventory' },
+    { key: 'ledger',         label: 'Customer Ledger — View ledger statements' },
+    { key: 'recurringBills', label: 'Recurring Bills — Manage recurring billing' },
+    { key: 'receipt',        label: 'Receipt — Print & download receipts' },
+    { key: 'search',         label: 'Search — Search across all data' },
+    { key: 'dataManagement', label: 'Data Management — Import/export data' },
+    { key: 'deletedBills',   label: 'Deleted Bills — View & restore deleted bills' },
+    { key: 'settings',       label: 'Settings & Auth — Access settings & authentication' },
+  ]
+
   const [clearConfirm, setClearConfirm] = useState(false)
 
   const handleBizSave = (e) => {
@@ -37,6 +62,12 @@ const Settings = () => {
     updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
+  }
+
+  const handlePermSave = () => {
+    updateSettings({ staffPermissions: staffPerms })
+    setPermSaved(true)
+    setTimeout(() => setPermSaved(false), 3000)
   }
 
   const handleClearData = () => {
