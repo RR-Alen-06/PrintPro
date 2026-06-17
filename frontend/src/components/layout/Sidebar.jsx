@@ -1,27 +1,39 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet } from 'lucide-react'
+import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet, BookOpen, RefreshCw } from 'lucide-react'
+import { useAppContext } from '../../context/AppContext'
 
+// permKey = key in staffPermissions; undefined means always show (e.g. Dashboard, Notifications)
 const navItems = [
-  { label: 'Dashboard', path: '/dashboard', icon: Home },
-  { label: 'Billing', path: '/billing', icon: FileText },
-  { label: 'Customers', path: '/customers', icon: Users },
-  { label: 'Advance Payments', path: '/advance-payments', icon: Wallet },
-  { label: 'Accounting', path: '/accounting', icon: DollarSign },
-  { label: 'Analytics', path: '/analytics', icon: TrendingUp },
-  { label: 'Inventory', path: '/inventory', icon: Layers },
-  { label: 'Notifications', path: '/notifications', icon: Bell },
-  { label: 'Customer Ledger', path: '/customer-ledger', icon: TrendingUp },
-  { label: 'Recurring Bills', path: '/recurring-bills', icon: FileText },
-  { label: 'Receipt', path: '/receipt', icon: Receipt },
-  { label: 'Search', path: '/search', icon: SearchIcon },
-  { label: 'Data Management', path: '/data-management', icon: Download },
-  { label: 'Deleted Bills', path: '/deleted-bills', icon: Trash2 },
-  { label: 'Authentication', path: '/auth', icon: Lock },
-  { label: 'Settings', path: '/settings', icon: Settings },
+  { label: 'Dashboard',        path: '/dashboard',         icon: Home,         permKey: undefined },
+  { label: 'Billing',          path: '/billing',           icon: FileText,     permKey: 'billing' },
+  { label: 'Customers',        path: '/customers',         icon: Users,        permKey: 'customers' },
+  { label: 'Advance Payments', path: '/advance-payments',  icon: Wallet,       permKey: 'advancePayments' },
+  { label: 'Accounting',       path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
+  { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'analytics' },
+  { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
+  { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },
+  { label: 'Customer Bills',   path: '/customer-bills',    icon: FileText,     permKey: 'customers' },
+  { label: 'Recurring Bills',  path: '/recurring-bills',   icon: RefreshCw,    permKey: 'recurringBills' },
+  { label: 'Receipt',          path: '/receipt',           icon: Receipt,      permKey: 'receipt' },
+  { label: 'Search',           path: '/search',            icon: SearchIcon,   permKey: 'search' },
+  { label: 'Notifications',    path: '/notifications',     icon: Bell,         permKey: undefined },
+  { label: 'Data Management',  path: '/data-management',   icon: Download,     permKey: 'dataManagement' },
+  { label: 'Deleted Bills',    path: '/deleted-bills',     icon: Trash2,       permKey: 'deletedBills' },
+  { label: 'Authentication',   path: '/auth',              icon: Lock,         permKey: 'settings' },
+  { label: 'Settings',         path: '/settings',          icon: Settings,     permKey: 'settings' },
 ]
 
 const Sidebar = () => {
+  const { currentUser } = useAppContext()
+  // Since there is only one merchant/owner role, any logged-in user gets full access
+  const isMerchant = !!currentUser
+
+  const visibleItems = navItems.filter((item) => {
+    if (isMerchant) return true                      // Merchant sees everything
+    return item.permKey === undefined                // Non-logged-in sees only public
+  })
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -31,7 +43,7 @@ const Sidebar = () => {
         <div className="sidebar-logo-text">PrintPro</div>
       </div>
       <nav className="sidebar-nav">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = item.icon
           return (
             <NavLink
