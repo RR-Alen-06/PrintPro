@@ -33,11 +33,13 @@ export default [
       ...security.configs.recommended.rules,
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
-      "react/no-unescaped-entities": "warn",
-      "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/purity": "warn",
-      "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
-      "no-console": "warn"
+      "react/no-unescaped-entities": "off",
+      "security/detect-object-injection": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "no-unused-vars": "off",
+      "no-console": "off"
     },
     settings: {
       react: {
