@@ -166,31 +166,6 @@ const Settings = () => {
     setBranding(prev => ({ ...prev, logoUrl: '' }))
   }
 
-  // RBAC permissions state
-  const defaultPerms = {
-    billing: true, customers: true, advancePayments: true, accounting: false,
-    analytics: false, inventory: false, ledger: false, recurringBills: false,
-    receipt: true, search: true, dataManagement: false, deletedBills: false, settings: false,
-  }
-  const [staffPerms, setStaffPerms] = useState(settings.staffPermissions || defaultPerms)
-  const [permSaved, setPermSaved] = useState(false)
-
-  const PERM_LABELS = [
-    { key: 'billing',        label: 'Billing — Create & manage bills' },
-    { key: 'customers',      label: 'Customers — View & edit customers' },
-    { key: 'advancePayments',label: 'Advance Payments — Manage advance deposits' },
-    { key: 'accounting',     label: 'Accounting — View financial reports' },
-    { key: 'analytics',      label: 'Analytics — View charts & analytics' },
-    { key: 'inventory',      label: 'Inventory — Manage pricing inventory' },
-    { key: 'ledger',         label: 'Customer Ledger — View ledger statements' },
-    { key: 'recurringBills', label: 'Recurring Bills — Manage recurring billing' },
-    { key: 'receipt',        label: 'Receipt — Print & download receipts' },
-    { key: 'search',         label: 'Search — Search across all data' },
-    { key: 'dataManagement', label: 'Data Management — Import/export data' },
-    { key: 'deletedBills',   label: 'Deleted Bills — View & restore deleted bills' },
-    { key: 'settings',       label: 'Settings & Auth — Access settings & authentication' },
-  ]
-
   const [clearConfirm, setClearConfirm] = useState(false)
 
   const handleBizSave = (e) => {
@@ -205,12 +180,6 @@ const Settings = () => {
     updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
-  }
-
-  const handlePermSave = () => {
-    updateSettings({ staffPermissions: staffPerms })
-    setPermSaved(true)
-    setTimeout(() => setPermSaved(false), 3000)
   }
 
   const handleClearData = () => {
@@ -918,7 +887,7 @@ const Settings = () => {
           <div style={{ padding: '14px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <div style={{ fontWeight: 600, marginBottom: '4px' }}>Data Storage</div>
             <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-              All data is stored locally in your browser's localStorage. No backend or cloud sync. Export regular backups from Data Management.
+              All data is automatically synchronized and securely stored in your Supabase cloud backend.
             </p>
           </div>
 
