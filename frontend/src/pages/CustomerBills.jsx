@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle } from 'lucide-react'
+import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const CustomerBills = () => {
-  const { customers, bills, inventory, editBill, deleteBill, showAlert, showConfirm } = useAppContext()
+  const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
@@ -29,11 +29,42 @@ const CustomerBills = () => {
   const [discountValue, setDiscountValue] = useState(0)
   const [cashAmount, setCashAmount] = useState(0)
   const [upiAmount, setUpiAmount] = useState(0)
+  const [advanceUsed, setAdvanceUsed] = useState(0)
   const [notes, setNotes] = useState('')
   const [date, setDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   
+  const [customGst, setCustomGst] = useState('')
+  const [showRefundModal, setShowRefundModal] = useState(false)
+  const [refundInfo, setRefundInfo] = useState(null)
+  const [refundMethod, setRefundMethod] = useState('cash')
+  const [refundChoice, setRefundChoice] = useState('direct')
+  const [customerUpiId, setCustomerUpiId] = useState('')
+  
   const [duplicateWarning, setDuplicateWarning] = useState('')
+
+  const [showUpiModal, setShowUpiModal] = useState(false)
+  const [upiModalAmount, setUpiModalAmount] = useState(0)
+  const [upiModalNotes, setUpiModalNotes] = useState('')
+  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
+  const [refundQrGenerated, setRefundQrGenerated] = useState(false)
+
+  const copyUpiLink = (link) => {
+    if (!link) return
+    navigator.clipboard.writeText(link)
+  }
+
+  const getUpiLink = (amount, notesText = 'Payment') => {
+    if (!business?.upiId || amount <= 0) return ''
+    const params = new URLSearchParams({
+      pa: business.upiId,
+      pn: business.shopName || 'PrintPro',
+      am: amount.toFixed(2),
+      cu: 'INR',
+      tn: notesText,
+    })
+    return `upi://pay?${params.toString()}`
+  }
 
   // ── Open / Close edit modal ──
   const openEditModal = (bill) => {
@@ -44,7 +75,10 @@ const CustomerBills = () => {
     setDiscountValue(bill.discountValue || 0)
     setCashAmount(bill.paymentMethod?.cash || 0)
     setUpiAmount(bill.paymentMethod?.upi || 0)
+    setAdvanceUsed(bill.advanceUsed || 0)
     setNotes(bill.notes || '')
+    
+    setCustomGst(bill.gstAmount !== undefined && bill.gstAmount !== null ? String(bill.gstAmount) : '')
     
     // Map items
     setItemRows(
@@ -58,6 +92,7 @@ const CustomerBills = () => {
         qty: item.qty || 1,
         unitPrice: item.unitPrice || 0,
         amount: item.amount || 0,
+        gstRate: item.gstRate || 0,
       }))
     )
     setIsEditModalOpen(true)
@@ -67,6 +102,7 @@ const CustomerBills = () => {
     setIsEditModalOpen(false)
     setEditingBill(null)
     setItemRows([])
+    setAdvanceUsed(0)
     setDuplicateWarning('')
   }
 
@@ -192,6 +228,7 @@ const CustomerBills = () => {
         qty: 1,
         unitPrice,
         amount: unitPrice,
+        gstRate: 0,
       },
     ])
   }
@@ -209,6 +246,7 @@ const CustomerBills = () => {
         qty: 1,
         unitPrice: 0,
         amount: 0,
+        gstRate: 0,
       },
     ])
   }
@@ -219,17 +257,21 @@ const CustomerBills = () => {
 
   // ── Totals Math ──
   const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
+  const autoGst = itemRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+  const totalGst = customGst !== '' ? Number(customGst) : autoGst
+  const cgst = totalGst / 2
+  const sgst = totalGst / 2
   const discountAmount =
     discountType === 'percent'
       ? (subtotal * Number(discountValue || 0)) / 100
       : Number(discountValue || 0)
-  const total = Math.max(subtotal - discountAmount, 0)
+  const total = Math.max(subtotal + totalGst - discountAmount, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   
   const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
   const currentBillAdvanceUsed = editingBill ? Number(editingBill.advanceUsed || 0) : 0
   const totalAvailableAdvance = customerAdvance + currentBillAdvanceUsed
-  const appliedAdvance = Math.min(totalAvailableAdvance, total)
+  const appliedAdvance = Math.min(Number(advanceUsed || 0), totalAvailableAdvance, total)
   
   const netBalance = Math.max(total - appliedAdvance - amountPaid, 0)
   const excessPaid = Math.max(amountPaid - Math.max(total - appliedAdvance, 0), 0)
@@ -271,6 +313,9 @@ const CustomerBills = () => {
       discountType,
       discountValue: Number(discountValue || 0),
       discountAmount,
+      gstAmount: totalGst,
+      cgst,
+      sgst,
       total,
       rounding: editingBill.rounding || 0,
       cashAmount: Number(cashAmount || 0),
@@ -287,11 +332,114 @@ const CustomerBills = () => {
         qty: Number(row.qty),
         unitPrice: Number(row.unitPrice),
         amount: Number(row.amount),
+        gstRate: Number(row.gstRate || 0),
       })),
+    }
+
+    const oldPayments = payments.filter(p => p.billId === editingBill.id)
+    const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const oldPaidDirect = oldPaidCash + oldPaidUpi
+    const oldAdvanceUsed = Number(editingBill.advanceUsed || 0)
+    const oldPaidTotal = oldPaidDirect + oldAdvanceUsed
+
+    if (oldPaidTotal > total) {
+      const refundDue = oldPaidTotal - total
+      const directRefund = Math.min(refundDue, oldPaidDirect)
+      const advanceRefund = refundDue - directRefund
+
+      setRefundInfo({
+        refundDue,
+        directRefund,
+        advanceRefund,
+        oldPaidDirect,
+        oldAdvanceUsed,
+        payload
+      })
+      setRefundQrGenerated(false)
+      setShowRefundModal(true)
+      return
     }
 
     editBill(editingBill.id, payload)
     closeEditModal()
+  }
+
+  const handleConfirmRefund = () => {
+    if (!editingBill || !refundInfo) return
+    const refundAction = {
+      type: refundChoice,
+      method: refundMethod,
+      directAmount: refundInfo.directRefund,
+      advanceAmount: refundInfo.advanceRefund
+    }
+    editBill(editingBill.id, refundInfo.payload, refundAction)
+    setShowRefundModal(false)
+    setRefundInfo(null)
+    setCustomerUpiId('')
+    setRefundQrGenerated(false)
+    closeEditModal()
+  }
+
+  const initiateFullRefund = (bill) => {
+    setEditingBill(bill)
+    setDate(bill.date || '')
+    setDueDate(bill.dueDate || '')
+    setDiscountType('flat')
+    setDiscountValue(0)
+    setCashAmount(0)
+    setUpiAmount(0)
+    setNotes(bill.notes || '')
+    setCustomGst('')
+    setItemRows([])
+
+    const oldPayments = payments.filter(p => p.billId === bill.id)
+    const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const oldPaidDirect = oldPaidCash + oldPaidUpi
+    const oldAdvanceUsed = Number(bill.advanceUsed || 0)
+    const oldPaidTotal = oldPaidDirect + oldAdvanceUsed
+
+    const payload = {
+      customerId: bill.customerId,
+      customerType: bill.customerType,
+      customerName: bill.customerName,
+      date: bill.date,
+      dueDate: bill.dueDate,
+      subtotal: 0,
+      discountType: 'flat',
+      discountValue: 0,
+      discountAmount: 0,
+      gstAmount: 0,
+      cgst: 0,
+      sgst: 0,
+      total: 0,
+      rounding: 0,
+      cashAmount: 0,
+      upiAmount: 0,
+      amountPaid: 0,
+      advanceUsed: 0,
+      notes: 'Fully Refunded',
+      paymentMode: 'full',
+      items: [],
+    }
+
+    const refundDue = oldPaidTotal
+    const directRefund = oldPaidDirect
+    const advanceRefund = oldAdvanceUsed
+
+    setRefundInfo({
+      refundDue,
+      directRefund,
+      advanceRefund,
+      oldPaidDirect,
+      oldAdvanceUsed,
+      payload
+    })
+    setRefundChoice(oldPaidDirect > 0 ? 'direct' : 'advance')
+    setRefundMethod(oldPaidUpi > oldPaidCash ? 'upi' : 'cash')
+    setRefundQrGenerated(false)
+    setShowRefundModal(true)
   }
 
   return (
@@ -395,6 +543,30 @@ const CustomerBills = () => {
                           >
                             <Pencil size={13} /> Edit
                           </button>
+                          {Number(bill.amountPaid || 0) > 0 && (
+                            <button
+                              type="button"
+                              className="btn btn-warning btn-sm"
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.3)' }}
+                              onClick={() => initiateFullRefund(bill)}
+                            >
+                              <RefreshCw size={13} /> Refund
+                            </button>
+                          )}
+                          {Number(bill.balance || 0) > 0 && business?.upiId && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
+                              onClick={() => {
+                                setUpiModalAmount(bill.balance)
+                                setUpiModalNotes(`Bill #${bill.id} payment`)
+                                setShowUpiModal(true)
+                              }}
+                            >
+                              <Smartphone size={13} style={{ color: 'var(--accent)' }} /> Pay QR
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn btn-danger btn-sm"
@@ -473,6 +645,7 @@ const CustomerBills = () => {
                         <th>Sides</th>
                         <th style={{ width: '80px' }}>Qty</th>
                         <th style={{ width: '100px' }}>Unit (₹)</th>
+                        <th style={{ width: '110px' }}>GST Rate</th>
                         <th>Amount</th>
                         <th></th>
                       </tr>
@@ -568,6 +741,18 @@ const CustomerBills = () => {
                               onChange={(e) => updateRow(row.id, { unitPrice: e.target.value })}
                             />
                           </td>
+                          <td>
+                            <select
+                              className="form-select"
+                              value={row.gstRate}
+                              onChange={(e) => updateRow(row.id, { gstRate: Number(e.target.value) })}
+                            >
+                              <option value="0">0%</option>
+                              <option value="5">5%</option>
+                              <option value="12">12%</option>
+                              <option value="18">18%</option>
+                            </select>
+                          </td>
                           <td>₹{Number(row.amount || 0).toFixed(2)}</td>
                           <td>
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeRow(row.id)}>
@@ -615,24 +800,96 @@ const CustomerBills = () => {
                       <label className="form-label">Cash Amount (₹)</label>
                       <input className="form-input" type="number" min="0" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} />
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
+                    <div className="form-group">
                       <label className="form-label">UPI Amount (₹)</label>
-                      <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} />
+                      <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => {
+                        setUpiAmount(e.target.value)
+                        setUpiCheckoutAmount(0)
+                      }} />
                     </div>
+                    <div className="form-group">
+                      <label className="form-label">UPI Checkout</label>
+                      <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                        <button type="button" className="btn btn-secondary" onClick={() => setUpiCheckoutAmount(Number(upiAmount || 0))} style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Link2 size={14} /> Generate QR
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          disabled={!upiCheckoutAmount || !business?.upiId}
+                          onClick={() => copyUpiLink(getUpiLink(upiCheckoutAmount, 'Bill edit pay'))}
+                          style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Copy size={14} /> Copy Link
+                        </button>
+                      </div>
+                      {business?.upiId ? (
+                        <>
+                          {upiCheckoutAmount > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
+                              <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, 'Bill edit pay'))}`}
+                                alt="UPI QR Code"
+                                style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                width={100} height={100}
+                              />
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to pay ₹{upiCheckoutAmount.toFixed(2)}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+                      )}
+                    </div>
+                    {totalAvailableAdvance > 0 && (
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Advance Used (₹) <span className="text-muted" style={{ fontSize: '0.75rem' }}>(Max: ₹{totalAvailableAdvance.toFixed(2)})</span></label>
+                        <input className="form-input" type="number" min="0" max={totalAvailableAdvance} value={advanceUsed} onChange={(e) => setAdvanceUsed(Math.min(Number(e.target.value || 0), totalAvailableAdvance))} />
+                      </div>
+                    )}
                   </div>
 
                   <div className="card" style={{ padding: '16px' }}>
                     <h4 style={{ marginBottom: '12px' }}>Summary Statement</h4>
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label className="form-label" style={{ fontSize: '0.8rem' }}>Override GST Amount</label>
+                      <input
+                        className="form-input form-input-sm"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder={`Auto: ₹${autoGst.toFixed(2)}`}
+                        value={customGst}
+                        onChange={(e) => setCustomGst(e.target.value)}
+                        style={{ padding: '4px 8px', height: 'auto', fontSize: '0.85rem' }}
+                      />
+                    </div>
                     <div style={{ display: 'grid', gap: '6px', fontSize: '0.85rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span className="text-muted">Subtotal</span>
                         <span>₹{subtotal.toFixed(2)}</span>
                       </div>
+                      {totalGst > 0 && (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '8px', fontSize: '0.8rem' }}>
+                            <span className="text-muted">CGST ({(totalGst / 2).toFixed(2)})</span>
+                            <span>₹{(totalGst / 2).toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '8px', fontSize: '0.8rem' }}>
+                            <span className="text-muted">SGST ({(totalGst / 2).toFixed(2)})</span>
+                            <span>₹{(totalGst / 2).toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span className="text-muted">Total GST</span>
+                            <span>₹{totalGst.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span className="text-muted">Discount</span>
                         <span>₹{discountAmount.toFixed(2)}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderTop: '1px solid var(--border)', pt: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderTop: '1px solid var(--border)', paddingTop: '4px' }}>
                         <span>Total Bill Amount</span>
                         <span>₹{total.toFixed(2)}</span>
                       </div>
@@ -677,6 +934,242 @@ const CustomerBills = () => {
                 <button type="submit" className="btn btn-primary">Save Changes</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Refund Modal ─────────────────────────────────────────────── */}
+      {showRefundModal && refundInfo && (
+        <div className="modal-overlay" onClick={() => { setShowRefundModal(false); setRefundInfo(null); setCustomerUpiId('') }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+            <div className="modal-header">
+              <h3>Refund Options</h3>
+              <button className="modal-close btn-icon" type="button"
+                onClick={() => { setShowRefundModal(false); setRefundInfo(null); setCustomerUpiId('') }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                The new bill total is lower than what was already paid. A total refund of <strong style={{ color: 'var(--warning)' }}>₹{refundInfo.refundDue.toFixed(2)}</strong> is due.
+              </p>
+
+              {/* Math Breakdown Table */}
+              <div style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '12px',
+                fontSize: '0.85rem',
+                display: 'grid',
+                gap: '8px'
+              }}>
+                <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border)', paddingBottom: '6px', color: 'var(--text-primary)' }}>Refund Calculation Breakdown</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Total Previously Paid (Direct Cash/UPI):</span>
+                  <span>₹{refundInfo.oldPaidDirect.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Total Previously Paid (Advance Credit Used):</span>
+                  <span>₹{refundInfo.oldAdvanceUsed.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
+                  <span className="text-muted">New Adjusted Bill Total:</span>
+                  <span>₹{refundInfo.payload.total.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '6px', fontWeight: 700 }}>
+                  <span style={{ color: 'var(--warning)' }}>Total Refund Due:</span>
+                  <span style={{ color: 'var(--warning)' }}>₹{refundInfo.refundDue.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {refundInfo.advanceRefund > 0 && (
+                <div style={{ padding: '10px 14px', background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--info)', fontWeight: 600 }}>Automatic Advance Return:</span>
+                  <div style={{ marginTop: '4px' }}>₹{refundInfo.advanceRefund.toFixed(2)} will be credited back to customer's Advance balance (reversing advance used).</div>
+                </div>
+              )}
+
+              {refundInfo.directRefund > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600, marginBottom: '8px' }}>How would you like to handle the direct refund of ₹{refundInfo.directRefund.toFixed(2)}?</label>
+                    <div className="radio-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <label className={`radio-option ${refundChoice === 'direct' ? 'selected' : ''}`} style={{
+                        padding: '12px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                        cursor: 'pointer',
+                        background: refundChoice === 'direct' ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                        borderColor: refundChoice === 'direct' ? 'var(--accent)' : 'var(--border)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+                          <input type="radio" name="refundChoice" value="direct" checked={refundChoice === 'direct'} onChange={() => setRefundChoice('direct')} />
+                          Direct Refund (Cash/UPI)
+                        </div>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '22px' }}>
+                          Give cash back or transfer ₹{refundInfo.directRefund.toFixed(2)} directly to the customer. No changes will be made to their store credit.
+                        </span>
+                      </label>
+                      
+                      <label className={`radio-option ${refundChoice === 'advance' ? 'selected' : ''}`} style={{
+                        padding: '12px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                        cursor: 'pointer',
+                        background: refundChoice === 'advance' ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                        borderColor: refundChoice === 'advance' ? 'var(--accent)' : 'var(--border)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+                          <input type="radio" name="refundChoice" value="advance" checked={refundChoice === 'advance'} onChange={() => setRefundChoice('advance')} />
+                          Credit to Advance Balance (Store Credit)
+                        </div>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '22px' }}>
+                          Add ₹{refundInfo.directRefund.toFixed(2)} to the customer's advance balance. They can use this credit to pay for future bills.
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>Refund Method</label>
+                    <div className="radio-group" style={{ marginTop: '6px', display: 'flex', gap: '12px' }}>
+                      <label className={`radio-option ${refundMethod === 'cash' ? 'selected' : ''}`} style={{ flex: 1, padding: '10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="radio" name="refundMethod" value="cash" checked={refundMethod === 'cash'} onChange={() => setRefundMethod('cash')} />
+                        Cash
+                      </label>
+                      <label className={`radio-option ${refundMethod === 'upi' ? 'selected' : ''}`} style={{ flex: 1, padding: '10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="radio" name="refundMethod" value="upi" checked={refundMethod === 'upi'} onChange={() => setRefundMethod('upi')} />
+                        UPI
+                      </label>
+                    </div>
+                  </div>
+
+                  {refundChoice === 'direct' && refundMethod === 'upi' && (
+                    <div className="form-group">
+                      <label className="form-label">Customer UPI ID / Phone for Refund</label>
+                      <input
+                        className="form-input"
+                        type="text"
+                        placeholder="e.g. 9876543210@upi or customer UPI ID"
+                        value={customerUpiId}
+                        onChange={(e) => {
+                          setCustomerUpiId(e.target.value)
+                          setRefundQrGenerated(false)
+                        }}
+                      />
+                      <div className="form-group" style={{ marginTop: '12px' }}>
+                        <label className="form-label">UPI Refund Checkout</label>
+                        <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            disabled={!customerUpiId}
+                            onClick={() => setRefundQrGenerated(true)}
+                            style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Link2 size={14} /> Generate QR
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            disabled={!customerUpiId || !refundQrGenerated}
+                            onClick={() => copyUpiLink(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}
+                            style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Copy size={14} /> Copy Link
+                          </button>
+                        </div>
+                        {customerUpiId ? (
+                          <>
+                            {refundQrGenerated && (
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
+                                <img
+                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}`}
+                                  alt="Refund QR Code"
+                                  style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                  width={100} height={100}
+                                />
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan to pay customer ₹{refundInfo.directRefund.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Enter Customer UPI ID to enable QR code.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowRefundModal(false); setRefundInfo(null); setCustomerUpiId('') }}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={handleConfirmRefund}>
+                  Confirm Refund & Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── UPI Pay QR Modal ─────────────────────────────────────────── */}
+      {showUpiModal && upiModalAmount > 0 && (
+        <div className="modal-overlay" onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '360px', padding: '24px' }}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>UPI Checkout</h3>
+              <button className="modal-close btn-icon" type="button" onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 0 0' }}>
+              <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setUpiCheckoutAmount(upiModalAmount)} style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <Link2 size={14} /> Generate QR
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={!business?.upiId}
+                  onClick={() => copyUpiLink(getUpiLink(upiModalAmount, upiModalNotes))}
+                  style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <Copy size={14} /> Copy Link
+                </button>
+              </div>
+              {business?.upiId ? (
+                <>
+                  <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>UPI ID: {business.upiId} · Amount: ₹{upiModalAmount.toFixed(2)}</p>
+                  {upiCheckoutAmount > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                      <div style={{ padding: '8px', background: '#fff', borderRadius: '8px', border: '2px solid var(--accent)' }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, upiModalNotes))}`}
+                          alt="UPI QR Code"
+                          width={150} height={150}
+                        />
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to pay ₹{upiCheckoutAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted" style={{ margin: 0, fontSize: '0.8rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+              )}
+              <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '12px' }} onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
