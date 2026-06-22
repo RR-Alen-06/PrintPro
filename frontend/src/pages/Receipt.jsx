@@ -2,9 +2,10 @@ import React, { useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { uploadPDFReceipt } from '../api/share'
 
 const Receipt = () => {
-  const { bills, business, settings, showAlert } = useAppContext()
+  const { bills, customers, business, settings, showAlert, showToast } = useAppContext()
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -20,29 +21,42 @@ const Receipt = () => {
     return `upi://pay?${params.toString()}`
   }
 
-  const buildShareText = (bill) => {
+  const buildShareText = (bill, pdfUrl = '') => {
     if (!bill) return ''
+    const itemLines = bill.items?.map(item => `• ${item.itemName || item.name} (${item.qty} qty) - ₹${Number(item.amount).toFixed(2)}`).join('\n') || ''
     const loyaltyLines = (settings.loyaltyEnabled !== false && bill.customerType === 'regular')
-      ? `Loyalty Points Added: +${bill.loyaltyPointsEarned || 0}\nLoyalty Balance: ${bill.customerTotalLoyaltyPoints || 0} pts`
+      ? `*Loyalty Points Added:* +${bill.loyaltyPointsEarned || 0}\n*Loyalty Balance:* ${bill.customerTotalLoyaltyPoints || 0} pts\n`
       : ''
+    const pdfLine = pdfUrl ? `*Download PDF Receipt:* ${pdfUrl}\n` : ''
+
     return [
-      `*${business?.shopName || 'PrintPro'} - Receipt*`,
-      `Bill ID: ${bill.id}`,
-      `Customer: ${bill.customerName}`,
-      `Date: ${bill.date}`,
-      `Total: Rs.${bill.total.toFixed(2)}`,
-      `Paid: Rs.${bill.amountPaid.toFixed(2)}`,
-      bill.balance > 0 ? `Balance Due: Rs.${bill.balance.toFixed(2)}` : `Status: PAID`,
-      bill.balance > 0 && business?.upiId ? `Pay via UPI: ${getUpiLink(bill.balance)}` : '',
+      `*Invoice from ${business?.shopName || 'PrintPro'}*`,
+      `*Bill ID:* ${bill.id}`,
+      `*Date:* ${bill.date}`,
+      `*Customer:* ${bill.customerName}`,
+      `------------------------`,
+      itemLines,
+      `------------------------`,
+      `*Subtotal:* ₹${bill.subtotal.toFixed(2)}`,
+      bill.gstAmount > 0 && settings.showGstBreakdown !== false ? `*CGST/SGST:* ₹${(bill.gstAmount / 2).toFixed(2)} / ₹${(bill.gstAmount / 2).toFixed(2)}` : '',
+      bill.discountAmount > 0 ? `*Discount:* -₹${bill.discountAmount.toFixed(2)}` : '',
+      `*Total:* *₹${bill.total.toFixed(2)}*`,
+      `*Paid:* ₹${bill.amountPaid.toFixed(2)}`,
+      bill.balance > 0 ? `*Balance Due:* *₹${bill.balance.toFixed(2)}*` : `*Status:* PAID`,
+      `------------------------`,
       loyaltyLines,
+      pdfLine,
       `Thank you for your business!`,
     ].filter(Boolean).join('\n')
   }
 
   const handleWhatsApp = () => {
     if (!selectedBill) return
+    const customer = customers.find(c => c.id === selectedBill.customerId)
+    const phone = customer?.phone || ''
+    const cleanPhone = phone.replace(/[^0-9]/g, '')
     const text = encodeURIComponent(buildShareText(selectedBill))
-    window.open(`https://wa.me/?text=${text}`, '_blank')
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`, '_blank')
   }
 
   const handleWebShare = async () => {
@@ -54,7 +68,7 @@ const Receipt = () => {
       } catch (_) {/* user cancelled */}
     } else {
       // Fallback: copy to clipboard
-      navigator.clipboard.writeText(text).then(() => showAlert('Receipt text copied to clipboard!', 'success'))
+      navigator.clipboard.writeText(text).then(() => showToast('Receipt text copied to clipboard!', 'success'))
     }
   }
 
@@ -404,13 +418,25 @@ const Receipt = () => {
           text: `Here is the PDF receipt for Bill ${selectedBill.id} from ${business?.shopName || 'PrintPro'}.`,
         })
       } else {
-        doc.save(`Receipt-${selectedBill.id}.pdf`)
-        showAlert('Direct PDF sharing is not supported by your browser. The PDF has been downloaded instead.', 'warning')
+        showToast('Uploading PDF receipt to share...', 'info')
+        const uploadResult = await uploadPDFReceipt(pdfBlob, selectedBill.id)
+        if (uploadResult && uploadResult.fileUrl) {
+          showToast('Receipt PDF ready to share!', 'success')
+          const customer = customers.find(c => c.id === selectedBill.customerId)
+          const phone = customer?.phone || ''
+          const cleanPhone = phone.replace(/[^0-9]/g, '')
+          const text = encodeURIComponent(buildShareText(selectedBill, uploadResult.fileUrl))
+          const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
+          window.open(url, '_blank')
+        } else {
+          throw new Error('No hosted URL returned')
+        }
       }
     } catch (err) {
       console.error('Failed to share PDF:', err)
       // Fallback
       doc.save(`Receipt-${selectedBill.id}.pdf`)
+      showAlert('Could not upload PDF receipt for direct sharing. The PDF has been downloaded instead.', 'warning')
     }
   }
 
