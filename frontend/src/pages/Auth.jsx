@@ -3,7 +3,7 @@ import { Printer, ShieldCheck, ArrowRight, Github } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 
 const Auth = () => {
-  const { currentUser, logout, signInWithGoogle, signInWithGitHub, signInMockUser } = useAppContext()
+  const { currentUser, logout, signInWithGoogle, signInWithGitHub } = useAppContext()
   const [loadingProvider, setLoadingProvider] = useState(null)
   const [error, setError] = useState('')
 
@@ -124,15 +124,6 @@ const Auth = () => {
               <Github size={18} style={{ marginRight: '10px' }} />
             )}
             Sign in with GitHub
-          </button>
-
-          <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
-
-          <button
-            onClick={signInMockUser}
-            style={styles.bypassButton}
-          >
-            Bypass Sign In (Dev Mode)
           </button>
         </div>
 
@@ -290,21 +281,6 @@ const styles = {
     fontSize: '0.925rem',
     fontWeight: 600,
     border: '1px solid rgba(255, 255, 255, 0.08)',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    outline: 'none',
-  },
-  bypassButton: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '12px 16px',
-    borderRadius: '10px',
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    color: '#60a5fa',
-    fontSize: '0.925rem',
-    fontWeight: 600,
-    border: '1px dashed rgba(59, 130, 246, 0.4)',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     outline: 'none',
