@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { syncEntityToCloud } from '../lib/syncService'
 
 const AppContext = createContext(null)
 
@@ -384,6 +385,18 @@ const baseReducer = (state, action) => {
         notifications: state.notifications.map((note) => ({ ...note, read: true })),
       }
     }
+    case 'DELETE_NOTIFICATION': {
+      return {
+        ...state,
+        notifications: state.notifications.filter((note) => note.id !== action.payload),
+      }
+    }
+    case 'CLEAR_ALL_NOTIFICATIONS': {
+      return {
+        ...state,
+        notifications: [],
+      }
+    }
     case 'UPDATE_SETTINGS': {
       return {
         ...state,
@@ -589,7 +602,13 @@ const calcLoyaltyPoints = (total, tiers) => {
 }
 
 export const AppProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(reducer, initialState, loadState)
+  const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
+
+  const dispatch = (action) => {
+    rawDispatch(action)
+    // Synchronously fire the background sync, catching errors silently
+    syncEntityToCloud(action.type, action.payload).catch(console.error)
+  }
 
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
@@ -1731,19 +1750,6 @@ export const AppProvider = ({ children }) => {
       deleteExpense,
       signInWithGoogle,
       signInWithGitHub,
-      signInMockUser: () => {
-        dispatch({
-          type: 'SET_CURRENT_USER',
-          payload: {
-            id: 'dev-user-id',
-            username: 'dev-merchant',
-            email: 'dev@printpro.com',
-            role: 'owner',
-            token: 'mock-token',
-            avatarUrl: ''
-          }
-        });
-      },
       updateBill,
       editBill,
       applyPostDiscount,
@@ -1757,6 +1763,8 @@ export const AppProvider = ({ children }) => {
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),
       markAllNotificationsRead: () => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ' }),
+      deleteNotification: (id) => dispatch({ type: 'DELETE_NOTIFICATION', payload: id }),
+      clearAllNotifications: () => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS' }),
       updateSettings: (updates) => dispatch({ type: 'UPDATE_SETTINGS', payload: updates }),
       updateBusiness: (updates) => dispatch({ type: 'UPDATE_BUSINESS', payload: updates }),
       addRecurringBill: (bill) => dispatch({ type: 'ADD_RECURRING_BILL', payload: { ...bill, id: generateId('REC') } }),
