@@ -3,6 +3,7 @@ import { Search as SearchIcon, X, ArrowUpDown } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { searchBills, searchCustomers, searchInventory, sortResults } from '../utils/search'
 import { useSearchParams } from 'react-router-dom'
+import EmptyState from '../components/common/EmptyState'
 
 const Search = () => {
   const { bills, customers, inventory } = useAppContext()
@@ -303,7 +304,13 @@ const Search = () => {
 
           <div style={{ marginTop: '16px' }}>
             {results.length === 0 ? (
-              <p className="text-muted">No results found. Try adjusting your filters.</p>
+              <EmptyState
+                Icon={SearchIcon}
+                title="No results found"
+                description="No matching records were found for your search query and filter criteria."
+                actionText="Reset Search & Filters"
+                onAction={clearFilters}
+              />
             ) : (
               <div className="table-container" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                 <table className="table">

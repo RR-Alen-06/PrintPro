@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2 } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
+import EmptyState from '../components/common/EmptyState'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -790,7 +791,11 @@ const CustomerLedger = () => {
           </div>
 
           {ledgerEntries.length === 0 ? (
-            <p className="text-muted" style={{ padding: '24px 0' }}>No transactions found for this customer.</p>
+            <EmptyState
+              Icon={AlertCircle}
+              title="No transactions found"
+              description="There are no billing or payment records logged for this customer during the selected time period."
+            />
           ) : (
             <div className="table-container">
               <table className="table">

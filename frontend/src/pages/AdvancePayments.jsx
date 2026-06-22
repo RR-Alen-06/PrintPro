@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
+import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
@@ -453,11 +454,11 @@ const AdvancePayments = () => {
           </div>
 
           {filteredHistory.length === 0 ? (
-            <div className="empty-state">
-              <Wallet />
-              <h4>No advance transactions</h4>
-              <p>{advancePayments.length === 0 ? 'Record your first advance payment using the form.' : 'No results match your filters.'}</p>
-            </div>
+            <EmptyState
+              Icon={Wallet}
+              title="No advance transactions"
+              description={advancePayments.length === 0 ? 'Record your first advance payment using the form.' : 'No transaction records match your filters.'}
+            />
           ) : (
             <div className="table-container">
               <table className="table">

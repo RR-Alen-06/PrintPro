@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { AlertCircle, ArrowLeftRight, Banknote, HelpCircle, Smartphone, RefreshCw, Trash2, User } from 'lucide-react'
+import EmptyState from '../components/common/EmptyState'
 
 const Refunds = () => {
   const { payments, deletedPayments, advancePayments, customers } = useAppContext()
@@ -249,11 +250,11 @@ const Refunds = () => {
         </div>
 
         {filteredLogs.length === 0 ? (
-          <div className="empty-state" style={{ padding: '40px 20px' }}>
-            <AlertCircle size={40} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-            <h4>No refund transactions match filters</h4>
-            <p>Modify search query or filter settings.</p>
-          </div>
+          <EmptyState
+            Icon={AlertCircle}
+            title="No refund records found"
+            description="No refund, deletion, or return logs match your search query and selected filter options."
+          />
         ) : (
           <div className="table-container">
             <table className="table">

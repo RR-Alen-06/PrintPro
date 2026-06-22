@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
+import EmptyState from '../components/common/EmptyState'
 
 const Accounting = () => {
   const { bills, payments, expenses, advancePayments, customers, addExpense, deleteExpense, deletedPayments } = useAppContext()
@@ -416,11 +417,11 @@ const Accounting = () => {
       <div className="card">
         <h2 style={{ marginBottom: '16px' }}>Expense Log ({sortedExpenses.length})</h2>
         {sortedExpenses.length === 0 ? (
-          <div className="empty-state">
-            <TrendingDown />
-            <h4>No expenses recorded</h4>
-            <p>Add expenses above to track your spending.</p>
-          </div>
+          <EmptyState
+            Icon={TrendingDown}
+            title="No expenses recorded"
+            description="You haven't logged any business expenses yet. Use the form above to add your first expense."
+          />
         ) : (
           <div className="table-container">
             <table className="table">
@@ -467,11 +468,11 @@ const Accounting = () => {
       <div className="card" style={{ marginTop: '24px' }}>
         <h2 style={{ marginBottom: '16px' }}>Refund & Reversal Log ({refundLogs.length})</h2>
         {refundLogs.length === 0 ? (
-          <div className="empty-state">
-            <AlertCircle />
-            <h4>No refund transactions recorded</h4>
-            <p>All edited bill refunds, deleted payments, and returned advances will be logged here.</p>
-          </div>
+          <EmptyState
+            Icon={AlertCircle}
+            title="No refund transactions recorded"
+            description="All edited bill refunds, deleted payments, and returned advances will be logged here."
+          />
         ) : (
           <div className="table-container">
             <table className="table">
