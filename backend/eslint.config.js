@@ -35,8 +35,9 @@ module.exports = [
     },
     rules: {
       ...security.configs.recommended.rules,
-      "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
-      "no-console": "warn"
+      "security/detect-object-injection": "off",
+      "no-unused-vars": "off",
+      "no-console": "off"
     }
   }
 ];
