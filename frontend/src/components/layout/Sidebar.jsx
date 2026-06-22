@@ -1,15 +1,17 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet, BookOpen, RefreshCw } from 'lucide-react'
+import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet, BookOpen, RefreshCw, GitMerge } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
 // permKey = key in staffPermissions; undefined means always show (e.g. Dashboard, Notifications)
 const navItems = [
   { label: 'Dashboard',        path: '/dashboard',         icon: Home,         permKey: undefined },
   { label: 'Billing',          path: '/billing',           icon: FileText,     permKey: 'billing' },
+  { label: 'Group Billing',    path: '/group-billing',     icon: GitMerge,     permKey: 'billing' },
   { label: 'Customers',        path: '/customers',         icon: Users,        permKey: 'customers' },
   { label: 'Advance Payments', path: '/advance-payments',  icon: Wallet,       permKey: 'advancePayments' },
   { label: 'Accounting',       path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
+  { label: 'Refunds',          path: '/refunds',           icon: RefreshCw,    permKey: 'accounting' },
   { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'analytics' },
   { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
   { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },

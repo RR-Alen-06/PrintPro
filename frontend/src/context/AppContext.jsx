@@ -37,11 +37,40 @@ const initialState = {
       deletedBills: false,
       settings: false,
     },
+    // Loyalty Program Settings
+    loyaltyEnabled: true,
+    loyaltyEarningRate: 30,
+    loyaltyRedeemRatioPoints: 150,
+    loyaltyRedeemRatioRupees: 5,
+    loyaltyRedeemOptions: [
+      { points: 100, rupees: 2.5 },
+      { points: 120, rupees: 3 },
+      { points: 150, rupees: 5 },
+    ],
+    // Tiered loyalty earning rules: [{from, to, points}] - sorted ascending by 'from'
+    loyaltyTiers: [
+      { from: 1, to: 40, points: 1 },
+      { from: 41, to: 100, points: 2 },
+    ],
+    // Invoice Customizer & Branding Settings
+    primaryColor: '#0f172a',
+    logoUrl: '',
+    headerNotes: '',
+    footerNotes: '',
+    showGstBreakdown: true,
+    showUpiQrCode: true,
   },
   recurringBills: [],
   currentUser: null,
   customerGroups: [],
-  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0 },
+  groupBills: [],
+  deletedPayments: [],
+  promoCodes: [
+    { code: 'STUDENT10', type: 'percent', value: 10, minAmount: 0 },
+    { code: 'BULK50', type: 'flat', value: 50, minAmount: 500 },
+    { code: 'WELCOME20', type: 'flat', value: 20, minAmount: 150 },
+  ],
+  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0 },
 }
 
 const loadState = () => {
@@ -53,8 +82,18 @@ const loadState = () => {
     // Force users and currentUser to be initialized correctly
     const { currentUser, users, ...sanitized } = parsed;
 
+    // Deep merge settings
+    const mergedSettings = {
+      ...initialState.settings,
+      ...parsed.settings,
+      staffPermissions: {
+        ...initialState.settings.staffPermissions,
+        ...(parsed.settings?.staffPermissions || {})
+      }
+    }
+
     // Merge with initialState so any newly added top-level keys are present
-    return { ...initialState, ...sanitized }
+    return { ...initialState, ...sanitized, settings: mergedSettings }
   } catch (error) {
     return initialState
   }
@@ -69,7 +108,7 @@ const saveState = (state) => {
   }
 }
 
-const reducer = (state, action) => {
+const baseReducer = (state, action) => {
   switch (action.type) {
     case 'ADD_BILL': {
       const { notification, ...billData } = action.payload
@@ -96,15 +135,49 @@ const reducer = (state, action) => {
       }
     }
     case 'DELETE_BILL': {
+      const bill = state.bills.find(b => b.id === action.payload)
+      let updatedCustomers = state.customers
+      const pointsEnabled = state.settings?.loyaltyEnabled !== false
+      
+      if (bill && bill.customerId && pointsEnabled) {
+        const earned = bill.loyaltyPointsEarned || 0
+        const redeemed = bill.loyaltyPointsRedeemed || 0
+        updatedCustomers = state.customers.map(c => {
+          if (c.id !== bill.customerId) return c
+          return {
+            ...c,
+            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) - earned + redeemed)
+          }
+        })
+      }
+
       return {
         ...state,
-        bills: state.bills.map((bill) => (bill.id === action.payload ? { ...bill, deleted: true } : bill)),
+        bills: state.bills.map((b) => (b.id === action.payload ? { ...b, deleted: true } : b)),
+        customers: updatedCustomers,
       }
     }
     case 'RESTORE_BILL': {
+      const bill = state.bills.find(b => b.id === action.payload)
+      let updatedCustomers = state.customers
+      const pointsEnabled = state.settings?.loyaltyEnabled !== false
+      
+      if (bill && bill.customerId && pointsEnabled) {
+        const earned = bill.loyaltyPointsEarned || 0
+        const redeemed = bill.loyaltyPointsRedeemed || 0
+        updatedCustomers = state.customers.map(c => {
+          if (c.id !== bill.customerId) return c
+          return {
+            ...c,
+            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) + earned - redeemed)
+          }
+        })
+      }
+
       return {
         ...state,
-        bills: state.bills.map((bill) => (bill.id === action.payload ? { ...bill, deleted: false } : bill)),
+        bills: state.bills.map((b) => (b.id === action.payload ? { ...b, deleted: false } : b)),
+        customers: updatedCustomers,
       }
     }
     case 'DELETE_CUSTOMER': {
@@ -124,10 +197,44 @@ const reducer = (state, action) => {
       }
     }
     case 'ADD_CUSTOMER': {
-      return {
+      const customer = action.payload
+      const openingBalance = Number(customer.creditBalance) || 0
+      let nextState = {
         ...state,
-        customers: [...state.customers, action.payload],
+        customers: [...state.customers, customer],
       }
+      
+      if (openingBalance > 0) {
+        const currentCount = state.idCounters?.ADV || 0
+        const nextCount = currentCount + 1
+        const advId = `ADV${String(nextCount).padStart(3, '0')}`
+        const opCash = Number(customer.openingCash) || 0
+        const opUpi = Number(customer.openingUpi) || 0
+        const method = opCash > 0 && opUpi > 0 ? 'split' : (opUpi > 0 ? 'upi' : 'cash')
+        
+        const advRecord = {
+          id: advId,
+          customerId: customer.id,
+          customerName: customer.name || '',
+          amount: openingBalance,
+          cashAmount: opCash,
+          upiAmount: opUpi,
+          date: customer.createdAt.slice(0, 10),
+          paymentMethod: method,
+          notes: 'Opening Credit Balance',
+          createdAt: customer.createdAt,
+        }
+        
+        nextState = {
+          ...nextState,
+          advancePayments: [advRecord, ...(state.advancePayments || [])],
+          idCounters: {
+            ...state.idCounters,
+            ADV: nextCount
+          }
+        }
+      }
+      return nextState
     }
     case 'UPDATE_CUSTOMER': {
       return {
@@ -325,9 +432,124 @@ const reducer = (state, action) => {
         customerGroups: state.customerGroups.filter((group) => group.id !== action.payload),
       }
     }
+    case 'ADD_GROUP_BILL': {
+      return {
+        ...state,
+        groupBills: [action.payload, ...state.groupBills],
+      }
+    }
+    case 'UPDATE_GROUP_BILL': {
+      return {
+        ...state,
+        groupBills: state.groupBills.map((gb) =>
+          gb.id === action.payload.id ? { ...gb, ...action.payload.updates } : gb
+        ),
+      }
+    }
+    case 'DELETE_PAYMENT': {
+      const paymentId = action.payload
+      const payment = state.payments.find((p) => p.id === paymentId)
+      if (!payment) return state
+
+      const updatedBills = state.bills.map((bill) => {
+        if (bill.id !== payment.billId) return bill
+        const newPaid = Math.max(0, Number(bill.amountPaid || 0) - Number(payment.totalPaid))
+        const newBalance = Math.max(0, bill.total - newPaid)
+        const newStatus = newPaid >= bill.total ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid')
+        return {
+          ...bill,
+          amountPaid: newPaid,
+          balance: newBalance,
+          status: newStatus,
+          paymentMethod: {
+            cash: Math.max(0, Number(bill.paymentMethod?.cash || 0) - Number(payment.cashAmount || 0)),
+            upi: Math.max(0, Number(bill.paymentMethod?.upi || 0) - Number(payment.upiAmount || 0)),
+          },
+        }
+      })
+
+      const updatedCustomers = state.customers.map((c) => {
+        if (c.id !== payment.customerId) return c
+        let newBal = Number(c.advanceBalance || c.creditBalance || 0)
+        if (payment.excessCredit) {
+          newBal = Math.max(0, newBal - Number(payment.excessCredit))
+        }
+        return {
+          ...c,
+          advanceBalance: newBal,
+          creditBalance: newBal,
+        }
+      })
+
+      const updatedPayments = state.payments.filter((p) => p.id !== paymentId)
+      const deletedPaymentRecord = {
+        ...payment,
+        deletedAt: new Date().toISOString(),
+      }
+      const updatedDeletedPayments = [deletedPaymentRecord, ...(state.deletedPayments || [])]
+
+      return {
+        ...state,
+        bills: updatedBills,
+        customers: updatedCustomers,
+        payments: updatedPayments,
+        deletedPayments: updatedDeletedPayments,
+      }
+    }
+    case 'SET_PROMO_CODES': {
+      return {
+        ...state,
+        promoCodes: action.payload,
+      }
+    }
     default:
       return state
   }
+}
+
+const reducer = (state, action) => {
+  let nextState = baseReducer(state, action)
+  if (nextState && nextState !== state) {
+    const pointsEnabled = nextState.settings?.loyaltyEnabled !== false
+    
+    // Calculate new loyalty points for all customers dynamically
+    const updatedCustomers = nextState.customers.map((customer) => {
+      if (customer.deleted) return customer
+
+      // Points are only earned from fully paid bills (status === 'paid')
+      const pointsEarned = nextState.bills
+        .filter((b) => b.customerId === customer.id && !b.deleted && b.status === 'paid')
+        .reduce((sum, b) => sum + (b.loyaltyPointsEarned || 0), 0)
+
+      // Points redeemed are subtracted from all bills
+      const pointsRedeemed = nextState.bills
+        .filter((b) => b.customerId === customer.id && !b.deleted)
+        .reduce((sum, b) => sum + (b.loyaltyPointsRedeemed || 0), 0)
+
+      const loyaltyPoints = pointsEnabled ? Math.max(0, pointsEarned - pointsRedeemed) : 0
+
+      if (customer.loyaltyPoints !== loyaltyPoints) {
+        return { ...customer, loyaltyPoints }
+      }
+      return customer
+    })
+
+    // Sync customerTotalLoyaltyPoints on all bills
+    const updatedBills = nextState.bills.map((bill) => {
+      const cust = updatedCustomers.find((c) => c.id === bill.customerId)
+      if (cust && bill.customerTotalLoyaltyPoints !== cust.loyaltyPoints) {
+        return { ...bill, customerTotalLoyaltyPoints: cust.loyaltyPoints }
+      }
+      return bill
+    })
+
+    nextState = {
+      ...nextState,
+      customers: updatedCustomers,
+      bills: updatedBills,
+    }
+  }
+  return nextState
 }
 
 const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
@@ -338,8 +560,32 @@ const generateSeqId = (state, type) => {
   const current = counters[type] || 0
   const next = current + 1
   const padded = String(next).padStart(3, '0')
-  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', item: 'ITEM', GRP: 'GRP' }
+  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
   return `${prefixMap[type] || type}${padded}`
+}
+
+// Tiered loyalty points calculator
+// tiers: [{from: Number, to: Number, points: Number}] - owner-configured ranges
+// Returns the points value of the matching tier for the given bill total.
+// If total >= any tier's 'from' but there's no upper tier, uses the highest tier.
+const calcLoyaltyPoints = (total, tiers) => {
+  if (!tiers || !tiers.length || total <= 0) return 0
+  const sorted = [...tiers].sort((a, b) => a.from - b.from)
+  let matched = 0
+  for (const tier of sorted) {
+    const from = Number(tier.from || 0)
+    const to = Number(tier.to || Infinity)
+    const pts = Number(tier.points || 0)
+    if (total >= from && total <= to) {
+      return pts
+    }
+    // Track highest tier for fallback
+    if (total > to) {
+      matched = pts
+    }
+  }
+  // If total exceeds all upper bounds, return the highest tier points
+  return matched
 }
 
 export const AppProvider = ({ children }) => {
@@ -375,8 +621,8 @@ export const AppProvider = ({ children }) => {
           type: 'SET_CURRENT_USER',
           payload: {
             id: session.user.id,
-            username: session.user.email.split('@')[0],
-            email: session.user.email,
+            username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
+            email: session.user.email || '',
             role: 'owner',
             token: session.access_token,
             avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
@@ -393,8 +639,8 @@ export const AppProvider = ({ children }) => {
           type: 'SET_CURRENT_USER',
           payload: {
             id: session.user.id,
-            username: session.user.email.split('@')[0],
-            email: session.user.email,
+            username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
+            email: session.user.email || '',
             role: 'owner',
             token: session.access_token,
             avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
@@ -491,8 +737,8 @@ export const AppProvider = ({ children }) => {
           billId: bill.id,
           customerId: bill.customerId,
           date: new Date().toISOString(),
-          cashAmount: applyCash,
-          upiAmount: applyUpi,
+          cashAmount: 0,
+          upiAmount: 0,
           totalPaid: applyAmt,
           paymentType: updatedBill.status === 'paid' ? 'full' : 'partial',
           excessCredit: 0,
@@ -559,6 +805,14 @@ export const AppProvider = ({ children }) => {
     const advanceUsed = Math.min(Number(billData.advanceUsed || 0), currentAdvance, total)
     const creditUsed = Math.min(currentCredit, Math.max(total - advanceUsed, 0))
 
+    // Earned loyalty points calculation (tiered system)
+    const pointsEnabled = state.settings?.loyaltyEnabled !== false
+    const loyaltyPointsEarned = pointsEnabled ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
+    const loyaltyPointsRedeemed = Number(billData.loyaltyPointsRedeemed || 0)
+
+    const currentCustomerPoints = Number(customer?.loyaltyPoints || 0)
+    const newCustomerPoints = Math.max(0, currentCustomerPoints - loyaltyPointsRedeemed + loyaltyPointsEarned)
+
     // FIFO payment distribution
     const unpaidBills = state.bills
       .filter((b) => b.customerId === billData.customerId && !b.deleted && b.status !== 'paid')
@@ -578,6 +832,9 @@ export const AppProvider = ({ children }) => {
       advanceUsed: 0,
       rounding: billData.rounding || 0,
       discountAmount: billData.discountAmount ?? (billData.discountType === 'percent' ? (Number(billData.subtotal || 0) * Number(billData.discountValue || 0)) / 100 : Number(billData.discountValue || 0)),
+      loyaltyPointsEarned,
+      loyaltyPointsRedeemed,
+      customerTotalLoyaltyPoints: newCustomerPoints,
     }
 
     const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
@@ -662,15 +919,21 @@ export const AppProvider = ({ children }) => {
     const overpaid = R_cash + R_upi
     if (updatedCustomer) {
       const finalBal = Math.max(
-        (currentAdvance - (Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance)) + overpaid,
+        (currentAdvance - (Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance)),
         0
       )
       updatedCustomer.advanceBalance = finalBal
       updatedCustomer.creditBalance = finalBal
+      if (pointsEnabled) {
+        updatedCustomer.loyaltyPoints = newCustomerPoints
+      }
     }
 
     if (overpaid > 0 && paymentRecords.length > 0) {
-      paymentRecords[paymentRecords.length - 1].excessCredit = overpaid
+      const lastRec = paymentRecords[paymentRecords.length - 1]
+      lastRec.excessCredit = overpaid
+      lastRec.cashAmount += R_cash
+      lastRec.upiAmount += R_upi
     } else if (overpaid > 0) {
       paymentRecords.push({
         id: generateId('PAY'),
@@ -679,7 +942,7 @@ export const AppProvider = ({ children }) => {
         date: new Date().toISOString(),
         cashAmount: R_cash,
         upiAmount: R_upi,
-        totalPaid: overpaid,
+        totalPaid: 0,
         paymentType: 'full',
         excessCredit: overpaid,
         notes: 'Excess payment added to advance credit',
@@ -729,13 +992,21 @@ export const AppProvider = ({ children }) => {
     const counterKey = customerData.type === 'regular' ? 'RC' : 'RND'
     const customerId = generateSeqId(state, counterKey)
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    const openingCash = Number(customerData.openingCash) || 0
+    const openingUpi = Number(customerData.openingUpi) || 0
+    const totalOpening = openingCash + openingUpi
+
     dispatch({
       type: 'ADD_CUSTOMER',
       payload: {
         ...customerData,
         id: customerId,
-        creditBalance: Number(customerData.creditBalance) || 0,
-        advanceBalance: Number(customerData.creditBalance) || 0,
+        creditBalance: totalOpening,
+        advanceBalance: totalOpening,
+        openingCash,
+        openingUpi,
+        loyaltyPoints: 0,
         createdAt: new Date().toISOString()
       }
     })
@@ -802,7 +1073,10 @@ export const AppProvider = ({ children }) => {
 
     const excess = R_cash + R_upi
     if (excess > 0 && paymentRecords.length > 0) {
-      paymentRecords[paymentRecords.length - 1].excessCredit = excess
+      const lastRec = paymentRecords[paymentRecords.length - 1]
+      lastRec.excessCredit = excess
+      lastRec.cashAmount += R_cash
+      lastRec.upiAmount += R_upi
     } else if (excess > 0) {
       paymentRecords.push({
         id: generateId('PAY'),
@@ -811,22 +1085,13 @@ export const AppProvider = ({ children }) => {
         date: new Date().toISOString(),
         cashAmount: R_cash,
         upiAmount: R_upi,
-        totalPaid: excess,
+        totalPaid: 0,
         paymentType: 'full',
         excessCredit: excess,
         notes: 'Advance deposit via payment',
       })
     }
 
-    if (customer) {
-      const newBal = Number(customer.advanceBalance || customer.creditBalance || 0) + excess
-      const updatedCustomer = {
-        ...customer,
-        creditBalance: newBal,
-        advanceBalance: newBal,
-      }
-      dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: customer.id, updates: updatedCustomer } })
-    }
 
     paymentRecords.forEach((p) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
@@ -835,6 +1100,220 @@ export const AppProvider = ({ children }) => {
     updatedBills.forEach((b) => {
       dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
     })
+  }
+
+  // ── Targeted payment for a specific bill (no FIFO) ─────────────────────────
+  const recordSpecificBillPayment = (paymentData) => {
+    const { billId, customerId, cashAmount: rawCash, upiAmount: rawUpi } = paymentData
+    const bill = state.bills.find((b) => b.id === billId)
+    if (!bill) return
+
+    const cash = Number(rawCash || 0)
+    const upi = Number(rawUpi || 0)
+    const totalPaying = cash + upi
+    if (totalPaying <= 0) return
+
+    const billRemaining = Math.max(bill.total - bill.amountPaid, 0)
+    const applyAmt = Math.min(totalPaying, billRemaining)
+    const excessAmt = totalPaying - applyAmt
+
+    // Proportional split
+    const total = cash + upi
+    const applyCash = total > 0 ? Number((applyAmt * (cash / total)).toFixed(2)) : 0
+    const applyUpi = Number((applyAmt - applyCash).toFixed(2))
+
+    const newAmountPaid = bill.amountPaid + applyAmt
+    const newBalance = Math.max(bill.total - newAmountPaid, 0)
+    const newStatus = newAmountPaid >= bill.total ? 'paid' : 'partial'
+
+    dispatch({
+      type: 'UPDATE_BILL',
+      payload: {
+        id: billId,
+        updates: {
+          amountPaid: newAmountPaid,
+          balance: newBalance,
+          status: newStatus,
+          paymentMethod: {
+            cash: Number(bill.paymentMethod?.cash || 0) + applyCash,
+            upi: Number(bill.paymentMethod?.upi || 0) + applyUpi,
+          },
+        },
+      },
+    })
+
+    dispatch({
+      type: 'ADD_PAYMENT',
+      payload: {
+        id: generateId('PAY'),
+        billId,
+        customerId,
+        date: new Date().toISOString(),
+        cashAmount: applyCash,
+        upiAmount: applyUpi,
+        totalPaid: applyAmt,
+        paymentType: newStatus === 'paid' ? 'full' : 'partial',
+        excessCredit: excessAmt > 0 ? excessAmt : 0,
+        notes: paymentData.notes || `Targeted payment for bill ${billId}`,
+      },
+    })
+  }
+
+  // ── Add Group Bill (creates individual bills + a group record) ──────────────
+  const addGroupBill = (groupData) => {
+    const grpCounterKey = 'GRP'
+    const grpId = generateSeqId(state, grpCounterKey)
+    dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
+
+    const memberBillIds = []
+
+    for (const member of groupData.members) {
+      const billCounterKey = 'BILL'
+      const billId = generateSeqId(state, billCounterKey)
+      dispatch({ type: 'INCREMENT_COUNTER', payload: billCounterKey })
+
+      const customer = state.customers.find((c) => c.id === member.customerId)
+      const customerName = customer?.name || member.customerName || 'Guest'
+      const currentAdvance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
+
+      const memberTotal = member.total
+      let advanceUsed = 0
+      let amountPaid = 0
+      let billStatus = 'unpaid'
+
+      if (member.useAdvance && currentAdvance > 0) {
+        advanceUsed = Math.min(currentAdvance, memberTotal)
+        amountPaid = advanceUsed
+        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
+
+        // Deduct from customer advance
+        dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
+      }
+
+      const pointsEnabled = state.settings?.loyaltyEnabled !== false
+      const loyaltyPointsEarned = pointsEnabled ? calcLoyaltyPoints(memberTotal, state.settings.loyaltyTiers) : 0
+      const loyaltyPointsRedeemed = Number(member.loyaltyPointsRedeemed || 0)
+
+      const newBill = {
+        id: billId,
+        customerId: member.customerId,
+        customerName,
+        customerType: customer?.type || 'regular',
+        date: groupData.date || new Date().toISOString().slice(0, 10),
+        dueDate: groupData.dueDate || '',
+        items: member.items,
+        subtotal: member.subtotal,
+        discountType: member.discountType || 'flat',
+        discountValue: member.discountValue || 0,
+        discountAmount: member.discountAmount || 0,
+        gstAmount: member.gstAmount || 0,
+        cgst: member.cgst || 0,
+        sgst: member.sgst || 0,
+        total: memberTotal,
+        amountPaid,
+        balance: Math.max(memberTotal - amountPaid, 0),
+        status: billStatus,
+        advanceUsed,
+        creditUsed: 0,
+        paymentMethod: { cash: 0, upi: 0 },
+        rounding: member.rounding || 0,
+        notes: groupData.notes || '',
+        deleted: false,
+        groupBillId: grpId,
+        groupRole: member.groupRole || 'shared',
+        splitTotal: groupData.splitTotal || null,
+        splitCount: groupData.splitCount || null,
+        loyaltyPointsEarned,
+        loyaltyPointsRedeemed,
+        customerTotalLoyaltyPoints: customer ? customer.loyaltyPoints : 0,
+      }
+
+      dispatch({
+        type: 'ADD_BILL',
+        payload: {
+          ...newBill,
+          notification: {
+            id: generateId('NOTE'),
+            title: `Group Bill ${grpId} — ${billId}`,
+            message: `Bill for ${customerName} created under group ${grpId} (${billStatus}).`,
+            date: new Date().toISOString().slice(0, 10),
+            type: billStatus === 'paid' ? 'success' : 'warning',
+            read: false,
+          },
+        },
+      })
+
+      memberBillIds.push(billId)
+    }
+
+    if (groupData.type === 'split') {
+      const parentBillId = `GRP-${grpId}`
+      const parentGst = groupData.members.reduce((sum, m) => sum + Number(m.gstAmount || 0), 0)
+      const parentTotal = (groupData.splitTotal || 0) + parentGst
+      
+      const parentBill = {
+        id: parentBillId,
+        customerId: 'GROUP-PARENT',
+        customerName: `Split Group ${grpId}`,
+        customerType: 'regular',
+        date: groupData.date || new Date().toISOString().slice(0, 10),
+        dueDate: groupData.dueDate || '',
+        items: groupData.members[0]?.items || [],
+        subtotal: groupData.splitTotal || 0,
+        discountType: 'flat',
+        discountValue: 0,
+        discountAmount: 0,
+        gstAmount: parentGst,
+        cgst: parentGst / 2,
+        sgst: parentGst / 2,
+        total: parentTotal,
+        amountPaid: 0,
+        balance: parentTotal,
+        status: 'unpaid',
+        advanceUsed: 0,
+        creditUsed: 0,
+        paymentMethod: { cash: 0, upi: 0 },
+        rounding: 0,
+        notes: groupData.notes || '',
+        deleted: false,
+        groupBillId: grpId,
+        groupRole: 'parent',
+        isGroupParent: true,
+      }
+      
+      dispatch({
+        type: 'ADD_BILL',
+        payload: {
+          ...parentBill,
+          notification: {
+            id: generateId('NOTE'),
+            title: `Group Parent Bill ${grpId}`,
+            message: `Parent bill created for group ${grpId}.`,
+            date: new Date().toISOString().slice(0, 10),
+            type: 'info',
+            read: false,
+          }
+        }
+      })
+    }
+
+    // Store group meta record
+    dispatch({
+      type: 'ADD_GROUP_BILL',
+      payload: {
+        id: grpId,
+        type: groupData.type || 'shared',
+        memberBillIds,
+        createdAt: new Date().toISOString(),
+        roundingMode: groupData.roundingMode || null,
+        totalAmount: groupData.splitTotal || null,
+        splitCount: groupData.splitCount || null,
+        notes: groupData.notes || '',
+        date: groupData.date || new Date().toISOString().slice(0, 10),
+      },
+    })
+
+    return grpId
   }
 
   const addInventoryItem = (itemData) => {
@@ -876,7 +1355,7 @@ export const AppProvider = ({ children }) => {
     await supabase.auth.signOut()
   }
 
-  const editBill = (billId, newBillData) => {
+  const editBill = (billId, newBillData, refundAction = null) => {
     const oldBill = state.bills.find(b => b.id === billId)
     if (!oldBill) return
 
@@ -886,12 +1365,15 @@ export const AppProvider = ({ children }) => {
     let currentCredit = Number(customer?.creditBalance || 0)
     let currentAdvance = Number(customer?.advanceBalance || 0)
 
-    if (customer) {
-      const oldCreditUsed = Number(oldBill.creditUsed || 0)
-      const oldAdvanceUsed = Number(oldBill.advanceUsed || 0)
-      const oldPayments = state.payments.filter(p => p.billId === billId)
-      const oldExcess = oldPayments.reduce((s, p) => s + Number(p.excessCredit || 0), 0)
+    let oldAdvanceUsed = Number(oldBill.advanceUsed || 0)
+    let oldCreditUsed = Number(oldBill.creditUsed || 0)
+    const oldPayments = state.payments.filter(p => p.billId === billId)
+    const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const oldPaidDirect = oldPaidCash + oldPaidUpi
 
+    if (customer) {
+      const oldExcess = oldPayments.reduce((s, p) => s + Number(p.excessCredit || 0), 0)
       currentCredit = Math.max(0, currentCredit + oldCreditUsed - oldExcess)
       currentAdvance = currentAdvance + oldAdvanceUsed
     }
@@ -900,145 +1382,283 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'REMOVE_PAYMENTS_FOR_BILL', payload: billId })
 
     const total = Number(newBillData.total)
-    const cashAmount = Number(newBillData.cashAmount || 0)
-    const upiAmount = Number(newBillData.upiAmount || 0)
-    const paidNow = cashAmount + upiAmount
+    let updatedCustomer = customer ? { ...customer } : null
 
-    // Unpaid bills excluding this one
-    const unpaidBills = state.bills
-      .filter((b) => b.customerId === newBillData.customerId && !b.deleted && b.status !== 'paid' && b.id !== billId)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    // Loyalty point updates on edit (tiered system)
+    const pointsEnabled = state.settings?.loyaltyEnabled !== false
+    const oldEarned = oldBill.loyaltyPointsEarned || 0
+    const oldRedeemed = oldBill.loyaltyPointsRedeemed || 0
+    const newEarned = pointsEnabled ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
+    const newRedeemed = Number(newBillData.loyaltyPointsRedeemed || 0)
+    const pointsDelta = (newEarned - newRedeemed) - (oldEarned - oldRedeemed)
 
-    const newBill = {
-      ...oldBill,
-      ...newBillData,
-      amountPaid: 0,
-      balance: total,
-      status: 'unpaid',
-      paymentMethod: { cash: 0, upi: 0 },
-      creditUsed: 0,
-      advanceUsed: 0,
-      rounding: newBillData.rounding || 0,
-      discountAmount: newBillData.discountAmount,
+    if (updatedCustomer && pointsEnabled) {
+      updatedCustomer.loyaltyPoints = Math.max(0, (customer.loyaltyPoints || 0) + pointsDelta)
     }
 
-    const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
+    // If refundAction is provided (meaning there is an overpayment / refund due)
+    if (refundAction) {
+      const { type: refundType, method: refundMethod, directAmount, advanceAmount } = refundAction
+      
+      const newAdvanceUsed = Math.max(0, oldAdvanceUsed - Number(advanceAmount || 0))
+      const newPaidDirect = Math.max(0, oldPaidDirect - Number(directAmount || 0))
 
-    let R_advance = Math.min(Number(newBillData.advanceUsed || 0), currentAdvance)
-    let R_credit = 0
-    let R_cash = cashAmount
-    let R_upi = upiAmount
-
-    const paymentRecords = []
-
-    // Distribute advance & credit
-    for (const bill of billsToPay) {
-      let remaining = bill.total - bill.amountPaid
-      if (remaining <= 0) continue
-
-      if (R_advance > 0) {
-        const applyAdv = Math.min(R_advance, remaining)
-        bill.advanceUsed = (bill.advanceUsed || 0) + applyAdv
-        bill.amountPaid += applyAdv
-        remaining -= applyAdv
-        R_advance -= applyAdv
+      let newPaidCash = 0
+      let newPaidUpi = 0
+      if (oldPaidDirect > 0) {
+        newPaidCash = Number((newPaidDirect * (oldPaidCash / oldPaidDirect)).toFixed(2))
+        newPaidUpi = Number((newPaidDirect - newPaidCash).toFixed(2))
       }
 
-      if (R_credit > 0 && remaining > 0) {
-        const applyCred = Math.min(R_credit, remaining)
-        bill.creditUsed = (bill.creditUsed || 0) + applyCred
-        bill.amountPaid += applyCred
-        remaining -= applyCred
-        R_credit -= applyCred
-      }
-    }
-
-    // Distribute new cash/upi
-    for (const bill of billsToPay) {
-      let remaining = bill.total - bill.amountPaid
-      if (remaining <= 0) continue
-
-      let applyCash = 0
-      let applyUpi = 0
-
-      if (R_cash > 0) {
-        applyCash = Math.min(R_cash, remaining)
-        R_cash -= applyCash
-        remaining -= applyCash
-      }
-      if (R_upi > 0 && remaining > 0) {
-        applyUpi = Math.min(R_upi, remaining)
-        R_upi -= applyUpi
-        remaining -= applyUpi
+      // Update bill properties directly
+      const updatedBill = {
+        ...oldBill,
+        ...newBillData,
+        amountPaid: newPaidDirect + newAdvanceUsed,
+        balance: Math.max(total - (newPaidDirect + newAdvanceUsed), 0),
+        status: (newPaidDirect + newAdvanceUsed) >= total ? 'paid' : ((newPaidDirect + newAdvanceUsed) > 0 ? 'partial' : 'unpaid'),
+        paymentMethod: { cash: newPaidCash, upi: newPaidUpi },
+        advanceUsed: newAdvanceUsed,
+        creditUsed: 0,
+        rounding: newBillData.rounding || 0,
+        discountAmount: newBillData.discountAmount,
+        loyaltyPointsEarned: newEarned,
+        loyaltyPointsRedeemed: newRedeemed,
+        customerTotalLoyaltyPoints: updatedCustomer ? updatedCustomer.loyaltyPoints : 0,
       }
 
-      const applyTotal = applyCash + applyUpi
-      if (applyTotal > 0) {
-        bill.amountPaid += applyTotal
-        bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
-        bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
+      dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates: updatedBill } })
 
-        paymentRecords.push({
-          id: generateId('PAY'),
-          billId: bill.id,
-          customerId: bill.customerId,
-          date: new Date().toISOString(),
-          cashAmount: applyCash,
-          upiAmount: applyUpi,
-          totalPaid: applyTotal,
-          paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
-          excessCredit: 0,
-          notes: newBillData.notes || 'Edit bill payment allocation',
+      // Recreate the direct payment record on the bill (if any direct payment remains)
+      if (oldPaidDirect > 0) {
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: generateId('PAY'),
+            billId: billId,
+            customerId: newBillData.customerId,
+            date: new Date().toISOString(),
+            cashAmount: oldPaidCash,
+            upiAmount: oldPaidUpi,
+            totalPaid: oldPaidDirect,
+            paymentType: 'full',
+            excessCredit: 0,
+            notes: 'Original direct payments re-logged',
+          }
         })
       }
-    }
 
-    // Update status and balance
-    for (const bill of billsToPay) {
-      bill.balance = Math.max(bill.total - bill.amountPaid, 0)
-      bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
-    }
+      // Record refund payment (negative payment) if directAmount > 0
+      if (directAmount > 0) {
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: generateId('PAY'),
+            billId: billId,
+            customerId: newBillData.customerId,
+            date: new Date().toISOString(),
+            cashAmount: refundMethod === 'cash' ? -Number(directAmount) : 0,
+            upiAmount: refundMethod === 'upi' ? -Number(directAmount) : 0,
+            totalPaid: -Number(directAmount),
+            paymentType: 'refund',
+            excessCredit: 0,
+            notes: refundType === 'direct' 
+              ? `Direct refund of excess payment via ${refundMethod.toUpperCase()}`
+              : `Excess payment moved to advance balance`,
+            isRefund: true,
+          }
+        })
 
-    const excess = R_cash + R_upi
-    let updatedCustomer = customer ? { ...customer } : null
-    if (updatedCustomer) {
-      const finalBal = Math.max(
-        (currentAdvance - (Math.min(Number(newBillData.advanceUsed || 0), currentAdvance) - R_advance)) + excess,
-        0
-      )
-      updatedCustomer.advanceBalance = finalBal
-      updatedCustomer.creditBalance = finalBal
-    }
+        if (refundType === 'direct') {
+          // Direct refund to customer: customer's advance gets updated with only advanceRefund
+          if (updatedCustomer) {
+            const finalBal = currentAdvance - newAdvanceUsed
+            updatedCustomer.advanceBalance = finalBal
+            updatedCustomer.creditBalance = finalBal
+            dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
+          }
+        } else {
+          // Credit to advance: directAmount is also added to the customer's advance balance
+          // We create an advance payment deposit record for directAmount
+          const advCounterKey = 'ADV'
+          const advCount = state.idCounters?.[advCounterKey] || 0
+          const advId = `ADV${String(advCount + 1).padStart(3, '0')}`
+          dispatch({ type: 'INCREMENT_COUNTER', payload: advCounterKey })
 
-    if (excess > 0 && paymentRecords.length > 0) {
-      paymentRecords[paymentRecords.length - 1].excessCredit = excess
-    } else if (excess > 0) {
-      paymentRecords.push({
-        id: generateId('PAY'),
-        billId: billId,
-        customerId: newBillData.customerId,
-        date: new Date().toISOString(),
-        cashAmount: R_cash,
-        upiAmount: R_upi,
-        totalPaid: excess,
-        paymentType: 'full',
-        excessCredit: excess,
-        notes: 'Excess payment from edit added to credit',
+          dispatch({
+            type: 'ADD_ADVANCE_PAYMENT',
+            payload: {
+              id: advId,
+              customerId: newBillData.customerId,
+              customerName: newBillData.customerName || '',
+              amount: Number(directAmount),
+              cashAmount: refundMethod === 'cash' ? Number(directAmount) : 0,
+              upiAmount: refundMethod === 'upi' ? Number(directAmount) : 0,
+              date: new Date().toISOString().slice(0, 10),
+              paymentMethod: refundMethod,
+              notes: `Excess credit from bill ${billId} edit`,
+              createdAt: new Date().toISOString(),
+            }
+          })
+
+          if (updatedCustomer) {
+            const finalBal = currentAdvance - newAdvanceUsed + Number(directAmount)
+            updatedCustomer.advanceBalance = finalBal
+            updatedCustomer.creditBalance = finalBal
+            dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
+          }
+        }
+      } else {
+        // If directAmount is 0, only advanceRefund applies
+        if (updatedCustomer) {
+          const finalBal = currentAdvance - newAdvanceUsed
+          updatedCustomer.advanceBalance = finalBal
+          updatedCustomer.creditBalance = finalBal
+          dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
+        }
+      }
+    } else {
+      // Normal editing (no overpayment/refund or total increased)
+      const cashAmount = Number(newBillData.cashAmount || 0)
+      const upiAmount = Number(newBillData.upiAmount || 0)
+
+      const unpaidBills = state.bills
+        .filter((b) => b.customerId === newBillData.customerId && !b.deleted && b.status !== 'paid' && b.id !== billId)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+
+      const newBill = {
+        ...oldBill,
+        ...newBillData,
+        amountPaid: 0,
+        balance: total,
+        status: 'unpaid',
+        paymentMethod: { cash: 0, upi: 0 },
+        creditUsed: 0,
+        advanceUsed: 0,
+        rounding: newBillData.rounding || 0,
+        discountAmount: newBillData.discountAmount,
+        loyaltyPointsEarned: newEarned,
+        loyaltyPointsRedeemed: newRedeemed,
+        customerTotalLoyaltyPoints: updatedCustomer ? updatedCustomer.loyaltyPoints : 0,
+      }
+
+      const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
+
+      let R_advance = Math.min(Number(newBillData.advanceUsed || 0), currentAdvance)
+      let R_credit = 0
+      let R_cash = cashAmount
+      let R_upi = upiAmount
+
+      const paymentRecords = []
+
+      // Distribute advance & credit
+      for (const bill of billsToPay) {
+        let remaining = bill.total - bill.amountPaid
+        if (remaining <= 0) continue
+
+        if (R_advance > 0) {
+          const applyAdv = Math.min(R_advance, remaining)
+          bill.advanceUsed = (bill.advanceUsed || 0) + applyAdv
+          bill.amountPaid += applyAdv
+          remaining -= applyAdv
+          R_advance -= applyAdv
+        }
+
+        if (R_credit > 0 && remaining > 0) {
+          const applyCred = Math.min(R_credit, remaining)
+          bill.creditUsed = (bill.creditUsed || 0) + applyCred
+          bill.amountPaid += applyCred
+          remaining -= applyCred
+          R_credit -= applyCred
+        }
+      }
+
+      // Distribute new cash/upi
+      for (const bill of billsToPay) {
+        let remaining = bill.total - bill.amountPaid
+        if (remaining <= 0) continue
+
+        let applyCash = 0
+        let applyUpi = 0
+
+        if (R_cash > 0) {
+          applyCash = Math.min(R_cash, remaining)
+          R_cash -= applyCash
+          remaining -= applyCash
+        }
+        if (R_upi > 0 && remaining > 0) {
+          applyUpi = Math.min(R_upi, remaining)
+          R_upi -= applyUpi
+          remaining -= applyUpi
+        }
+
+        const applyTotal = applyCash + applyUpi
+        if (applyTotal > 0) {
+          bill.amountPaid += applyTotal
+          bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
+          bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
+
+          paymentRecords.push({
+            id: generateId('PAY'),
+            billId: bill.id,
+            customerId: bill.customerId,
+            date: new Date().toISOString(),
+            cashAmount: applyCash,
+            upiAmount: applyUpi,
+            totalPaid: applyTotal,
+            paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
+            excessCredit: 0,
+            notes: newBillData.notes || 'Edit bill payment allocation',
+          })
+        }
+      }
+
+      // Update status and balance
+      for (const bill of billsToPay) {
+        bill.balance = Math.max(bill.total - bill.amountPaid, 0)
+        bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
+      }
+
+      const excess = R_cash + R_upi
+      if (updatedCustomer) {
+        const finalBal = Math.max(
+          (currentAdvance - (Math.min(Number(newBillData.advanceUsed || 0), currentAdvance) - R_advance)),
+          0
+        )
+        updatedCustomer.advanceBalance = finalBal
+        updatedCustomer.creditBalance = finalBal
+        dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
+      }
+
+      if (excess > 0 && paymentRecords.length > 0) {
+        const lastRec = paymentRecords[paymentRecords.length - 1]
+        lastRec.excessCredit = excess
+        lastRec.cashAmount += R_cash
+        lastRec.upiAmount += R_upi
+      } else if (excess > 0) {
+        paymentRecords.push({
+          id: generateId('PAY'),
+          billId: billId,
+          customerId: newBillData.customerId,
+          date: new Date().toISOString(),
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          totalPaid: 0,
+          paymentType: 'full',
+          excessCredit: excess,
+          notes: 'Excess payment from edit added to credit',
+        })
+      }
+
+      // Dispatch bills updates
+      billsToPay.forEach((b) => {
+        dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
+      })
+
+      paymentRecords.forEach((p) => {
+        dispatch({ type: 'ADD_PAYMENT', payload: p })
       })
     }
-
-    // Dispatch bills updates
-    billsToPay.forEach((b) => {
-      dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
-    })
-
-    if (updatedCustomer) {
-      dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
-    }
-
-    paymentRecords.forEach((p) => {
-      dispatch({ type: 'ADD_PAYMENT', payload: p })
-    })
   }
 
   const applyPostDiscount = (billId, discountType, discountValue) => {
@@ -1091,6 +1711,7 @@ export const AppProvider = ({ children }) => {
   }
 
   const updateBill = (id, updates) => dispatch({ type: 'UPDATE_BILL', payload: { id, updates } })
+  const deletePayment = (id) => dispatch({ type: 'DELETE_PAYMENT', payload: id })
 
   const value = useMemo(
     () => ({
@@ -1110,9 +1731,23 @@ export const AppProvider = ({ children }) => {
       deleteExpense,
       signInWithGoogle,
       signInWithGitHub,
+      signInMockUser: () => {
+        dispatch({
+          type: 'SET_CURRENT_USER',
+          payload: {
+            id: 'dev-user-id',
+            username: 'dev-merchant',
+            email: 'dev@printpro.com',
+            role: 'owner',
+            token: 'mock-token',
+            avatarUrl: ''
+          }
+        });
+      },
       updateBill,
       editBill,
       applyPostDiscount,
+      deletePayment,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
       updateCustomerFull,
       deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
@@ -1131,6 +1766,10 @@ export const AppProvider = ({ children }) => {
       addCustomerGroup: (group) => dispatch({ type: 'ADD_CUSTOMER_GROUP', payload: { ...group, id: generateId('GRP') } }),
       updateCustomerGroup: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER_GROUP', payload: { id, updates } }),
       deleteCustomerGroup: (id) => dispatch({ type: 'DELETE_CUSTOMER_GROUP', payload: id }),
+      addGroupBill,
+      recordSpecificBillPayment,
+      updateGroupBill: (id, updates) => dispatch({ type: 'UPDATE_GROUP_BILL', payload: { id, updates } }),
+      setPromoCodes: (promoCodes) => dispatch({ type: 'SET_PROMO_CODES', payload: promoCodes }),
     }),
     [state, toast, dialog]
   )

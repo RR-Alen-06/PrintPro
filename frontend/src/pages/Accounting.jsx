@@ -4,7 +4,7 @@ import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle,
 import PeriodReport from '../components/PeriodReport'
 
 const Accounting = () => {
-  const { bills, payments, expenses, advancePayments, addExpense, deleteExpense } = useAppContext()
+  const { bills, payments, expenses, advancePayments, customers, addExpense, deleteExpense, deletedPayments } = useAppContext()
 
   const today = new Date().toISOString().slice(0, 10)
   const [expForm, setExpForm] = useState({
@@ -19,26 +19,126 @@ const Accounting = () => {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const activeBills = bills.filter((b) => !b.deleted)
+    const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
 
     const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
     const totalExpenses = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
-    const totalAdvanceCollected = (advancePayments || []).reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const netCashFlow = (realizedRevenue + totalAdvanceCollected) - totalExpenses
+    
+    const totalCustomerAdvance = customers
+      .filter((c) => !c.deleted)
+      .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
+
+    const pInflow = payments
+      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const advInflow = (advancePayments || []).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    const totalCashInflow = pInflow + advInflow
+
+    const netCashFlow = totalCashInflow - totalExpenses
     const pendingReceivables = activeBills
       .filter((b) => b.status !== 'paid')
       .reduce((s, b) => s + Number(b.balance || 0), 0)
 
-    // Cash/UPI from payments
-    const cashCollected = payments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiCollected = payments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    // Cash/UPI from payments + positive advance payments
+    const cashFromPayments = payments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const upiFromPayments = payments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashCollected = cashFromPayments + cashFromAdvances
+    const upiCollected = upiFromPayments + upiFromAdvances
 
     // Cash/UPI from expenses
     const cashSpent = (expenses || []).reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiSpent = (expenses || []).reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    return { realizedRevenue, totalExpenses, netCashFlow, pendingReceivables, cashCollected, upiCollected, cashSpent, upiSpent, totalAdvanceCollected }
-  }, [bills, payments, expenses, advancePayments])
+    return { realizedRevenue, totalExpenses, netCashFlow, pendingReceivables, cashCollected, upiCollected, cashSpent, upiSpent, totalCustomerAdvance, totalCashInflow }
+  }, [bills, payments, expenses, advancePayments, customers])
+
+  const refundStats = useMemo(() => {
+    // 1. Bill Refunds (negative payments)
+    const billRefundsList = payments.filter((p) => p.totalPaid < 0 || p.isRefund)
+    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
+    const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+
+    // 2. Payment Deletions (deleted payments)
+    const delPaymentsList = deletedPayments || []
+    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
+    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+
+    // 3. Advance Returns (negative advance payments)
+    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
+    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
+    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+
+    return {
+      billRefundsTotal: Math.abs(billRefundsTotal),
+      billRefundsCash: Math.abs(billRefundsCash),
+      billRefundsUpi: Math.abs(billRefundsUpi),
+      billRefundsList,
+
+      delPaymentsTotal: Math.abs(delPaymentsTotal),
+      delPaymentsCash: Math.abs(delPaymentsCash),
+      delPaymentsUpi: Math.abs(delPaymentsUpi),
+      delPaymentsList,
+
+      advReturnsTotal: Math.abs(advReturnsTotal),
+      advReturnsCash: Math.abs(advReturnsCash),
+      advReturnsUpi: Math.abs(advReturnsUpi),
+      advReturnsList,
+    }
+  }, [payments, deletedPayments, advancePayments])
+
+  const refundLogs = useMemo(() => {
+    const logs = []
+    
+    // Add bill refunds
+    refundStats.billRefundsList.forEach(r => {
+      logs.push({
+        id: r.id,
+        date: r.date,
+        type: 'Bill Refund',
+        description: `Refund for Bill #${r.billId}`,
+        cash: Math.abs(r.cashAmount || 0),
+        upi: Math.abs(r.upiAmount || 0),
+        total: Math.abs(r.totalPaid || 0),
+        notes: r.notes || '',
+      })
+    })
+
+    // Add deleted payments
+    refundStats.delPaymentsList.forEach(r => {
+      logs.push({
+        id: r.id,
+        date: r.deletedAt || r.date,
+        type: 'Payment Deletion',
+        description: `Deleted Payment for Bill #${r.billId}`,
+        cash: Math.abs(r.cashAmount || 0),
+        upi: Math.abs(r.upiAmount || 0),
+        total: Math.abs(r.totalPaid || 0),
+        notes: `Deleted on ${new Date(r.deletedAt).toLocaleDateString()}`,
+      })
+    })
+
+    // Add advance returns
+    refundStats.advReturnsList.forEach(r => {
+      logs.push({
+        id: r.id,
+        date: r.date,
+        type: 'Advance Return',
+        description: `Returned Advance to Customer #${r.customerId}`,
+        cash: Math.abs(r.cashAmount || 0),
+        upi: Math.abs(r.upiAmount || 0),
+        total: Math.abs(r.amount || 0),
+        notes: r.notes || '',
+      })
+    })
+
+    // Sort by date descending
+    return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [refundStats])
 
   // ── Expense form ──────────────────────────────────────────────────────────
   const handleExpenseChange = (field, value) => {
@@ -100,22 +200,22 @@ const Accounting = () => {
           <div className="stat-card-header">
             <div className="stat-card-icon success" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}><DollarSign /></div>
             <div>
-              <div className="stat-card-label">Total Advance Collected</div>
-              <div className="stat-card-value" style={{ color: 'var(--info)' }}>₹{stats.totalAdvanceCollected.toFixed(2)}</div>
+              <div className="stat-card-label">Total Advance Balance</div>
+              <div className="stat-card-value" style={{ color: 'var(--info)' }}>₹{stats.totalCustomerAdvance.toFixed(2)}</div>
             </div>
           </div>
-          <div className="stat-card-sub">Total advance deposits received.</div>
+          <div className="stat-card-sub">Current customer credits.</div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
             <div className="stat-card-icon success" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}><TrendingUp /></div>
             <div>
-              <div className="stat-card-label">Revenue + Advance</div>
-              <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{(stats.realizedRevenue + stats.totalAdvanceCollected).toFixed(2)}</div>
+              <div className="stat-card-label">Total Cash Inflow</div>
+              <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.totalCashInflow.toFixed(2)}</div>
             </div>
           </div>
-          <div className="stat-card-sub">Realized revenue plus advances.</div>
+          <div className="stat-card-sub">Total cash inflow collected.</div>
         </div>
 
         <div className="stat-card">
@@ -182,6 +282,39 @@ const Accounting = () => {
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Spent</span>
                 <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiSpent.toFixed(2)}</span>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Refunds & Reversals Summary */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '16px' }}>Refunds & Reversals Summary</h2>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', border: 'none', padding: 0 }}>
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Bill Refunds</h4>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <span>Cash: ₹{refundStats.billRefundsCash.toFixed(2)}</span>
+              <span>UPI: ₹{refundStats.billRefundsUpi.toFixed(2)}</span>
+            </div>
+          </div>
+          
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Payment Deletions</h4>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <span>Cash: ₹{refundStats.delPaymentsCash.toFixed(2)}</span>
+              <span>UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Advance Returns</h4>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <span>Cash: ₹{refundStats.advReturnsCash.toFixed(2)}</span>
+              <span>UPI: ₹{refundStats.advReturnsUpi.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -322,6 +455,53 @@ const Accounting = () => {
                         <Trash2 size={14} />
                       </button>
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Refund & Reversal Log */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h2 style={{ marginBottom: '16px' }}>Refund & Reversal Log ({refundLogs.length})</h2>
+        {refundLogs.length === 0 ? (
+          <div className="empty-state">
+            <AlertCircle />
+            <h4>No refund transactions recorded</h4>
+            <p>All edited bill refunds, deleted payments, and returned advances will be logged here.</p>
+          </div>
+        ) : (
+          <div className="table-container">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Cash (₹)</th>
+                  <th>UPI (₹)</th>
+                  <th>Total (₹)</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {refundLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{new Date(log.date).toLocaleDateString()}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{log.id}</td>
+                    <td>
+                      <span className={`badge badge-${log.type === 'Bill Refund' ? 'partial' : log.type === 'Payment Deletion' ? 'unpaid' : 'info'}`} style={{ fontSize: '0.7rem' }}>
+                        {log.type}
+                      </span>
+                    </td>
+                    <td>{log.description}</td>
+                    <td>₹{log.cash.toFixed(2)}</td>
+                    <td>₹{log.upi.toFixed(2)}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{log.notes}</td>
                   </tr>
                 ))}
               </tbody>
