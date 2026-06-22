@@ -1,0 +1,15 @@
+{
+  "name": "printpro-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "start:backend": "npm run start --prefix backend",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
+    "lint:fix": "npm run lint:fix --prefix backend && npm run lint:fix --prefix frontend",
+    "audit-check": "npm run audit-check --prefix backend && npm run audit-check --prefix frontend",
+    "security-check": "npm run lint && npm run audit-check"
+  }
+}
