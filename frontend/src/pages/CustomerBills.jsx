@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
+import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
   const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm } = useAppContext()
@@ -499,11 +500,11 @@ const CustomerBills = () => {
           </div>
 
           {customerBills.length === 0 ? (
-            <div className="empty-state">
-              <ClipboardList />
-              <h4>No bills found</h4>
-              <p>This customer does not have any active bills recorded.</p>
-            </div>
+            <EmptyState
+              Icon={ClipboardList}
+              title="No bills found"
+              description="This customer does not have any active bills recorded."
+            />
           ) : (
             <div className="table-container">
               <table className="table">

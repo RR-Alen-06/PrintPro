@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy } from 'lucide-react'
+import EmptyState from '../components/common/EmptyState'
+import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList } from 'lucide-react'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -346,11 +347,11 @@ const Customers = () => {
             </div>
             <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
               {filteredCustomers.length === 0 ? (
-                <div className="empty-state">
-                  <Users />
-                  <h4>No customers found</h4>
-                  <p>Try adjusting your search or filters.</p>
-                </div>
+                <EmptyState
+                  Icon={Users}
+                  title="No customers found"
+                  description="Try adjusting your search query or switching filters."
+                />
               ) : (
                 filteredCustomers.map((customer) => {
                   const outstanding = getCustomerOutstanding(customer.id)
@@ -521,7 +522,11 @@ const Customers = () => {
             <div className="card">
               <h3 style={{ marginBottom: '12px' }}>Billing History ({customerBills.length})</h3>
               {customerBills.length === 0 ? (
-                <p className="text-muted">No bills found for this customer.</p>
+                <EmptyState
+                  Icon={ClipboardList}
+                  title="No bills found"
+                  description="This customer does not have any billing records yet."
+                />
               ) : (
                 <div className="table-container">
                   <table className="table">
@@ -854,12 +859,12 @@ const Customers = () => {
             </div>
           </div>
         ) : (
-          <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
-            <div className="empty-state">
-              <Users />
-              <h4>Select a customer</h4>
-              <p>Click a customer from the list to view their billing history and record payments.</p>
-            </div>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', padding: '24px' }}>
+            <EmptyState
+              Icon={Users}
+              title="Select a customer"
+              description="Click a customer from the list to view their billing history and record payments."
+            />
           </div>
         )}
         </div>
@@ -877,11 +882,11 @@ const Customers = () => {
             </h2>
           </div>
           {filteredCustomers.length === 0 ? (
-            <div className="empty-state">
-              <Users />
-              <h4>No deleted customers</h4>
-              <p>Customers you delete will appear here and can be restored.</p>
-            </div>
+            <EmptyState
+              Icon={Users}
+              title="No deleted customers"
+              description="Customers you delete will appear here and can be restored."
+            />
           ) : (
             <div>
               {filteredCustomers.map((customer) => (

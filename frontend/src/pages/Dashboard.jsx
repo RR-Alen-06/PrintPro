@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import EmptyState from '../components/common/EmptyState'
 
 const Dashboard = () => {
   const { bills, customers, advancePayments, payments, expenses } = useAppContext()
@@ -237,11 +238,11 @@ const Dashboard = () => {
         </div>
 
         {pendingDues.length === 0 ? (
-          <div className="empty-state" style={{ padding: '32px 20px' }}>
-            <TrendingUp />
-            <h4>All bills settled</h4>
-            <p>No outstanding balances at this time.</p>
-          </div>
+          <EmptyState
+            Icon={CheckCircle}
+            title="All bills settled"
+            description="No outstanding balances at this time. All customer accounts are fully paid."
+          />
         ) : (
           <div className="table-container">
             <table className="table">
@@ -391,7 +392,17 @@ const Dashboard = () => {
                 </tr>
               ))}
               {activeBills.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px' }}>No bills yet.</td></tr>
+                <tr>
+                  <td colSpan={7} style={{ padding: '0' }}>
+                    <EmptyState
+                      Icon={CreditCard}
+                      title="No bills generated yet"
+                      description="Generate your first print bill invoice to see detailed activity here."
+                      actionText="Create First Bill"
+                      onAction={() => navigate('/billing')}
+                    />
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

@@ -4,6 +4,8 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
+import BillSuccessScreen from '../components/common/BillSuccessScreen'
+
 
 const makeInitialRow = (inventory) => ({
   id: `row-${Date.now()}`,
@@ -142,6 +144,11 @@ const Billing = () => {
     if (!selectedBill) return null
     return bills.find((b) => b.id === selectedBill.id) || selectedBill
   }, [bills, selectedBill])
+
+  const successBill = useMemo(() => {
+    if (!lastBillId) return null
+    return bills.find((b) => b.id === lastBillId)
+  }, [bills, lastBillId])
 
   const billPayments = useMemo(() => {
     if (!liveBill) return []
@@ -1374,22 +1381,23 @@ const Billing = () => {
         <p>Create orders with full split payment, discount and credit handling.</p>
       </div>
 
-      {lastBillId && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '12px 16px', marginBottom: '16px',
-          background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-          borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-        }}>
-          <CheckCircle size={16} />
-          Bill created successfully! Bill ID: <strong style={{ fontFamily: 'monospace' }}>{lastBillId}</strong>
-          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setLastBillId(null)}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      <form className="card" onSubmit={handleSubmit}>
+      {lastBillId && successBill ? (
+        <BillSuccessScreen
+          bill={successBill}
+          onDownload={() => downloadBillPDF(successBill)}
+          onWhatsApp={() => shareOnWhatsApp(successBill)}
+          onPrint={async () => {
+            const doc = await generateBillPDFDoc(successBill)
+            if (doc) {
+              doc.autoPrint()
+              const hUri = doc.output('bloburl')
+              window.open(hUri, '_blank')
+            }
+          }}
+          onCreateNew={() => setLastBillId(null)}
+        />
+      ) : (
+        <form className="card" onSubmit={handleSubmit}>
         <div className="bill-view-header">
           <div>
             {isEditing ? (
@@ -2078,7 +2086,8 @@ const Billing = () => {
             </button>
           )}
         </div>
-      </form>
+        </form>
+      )}
 
       {/* Recent Bills Table */}
       <div className="card" style={{ marginTop: '24px' }}>
