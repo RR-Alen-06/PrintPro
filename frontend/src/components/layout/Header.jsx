@@ -4,7 +4,7 @@ import { useAppContext } from '../../context/AppContext'
 import { useNavigate } from 'react-router-dom'
 
 const Header = () => {
-  const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead } = useAppContext()
+  const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } = useAppContext()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -59,7 +59,7 @@ const Header = () => {
                 position: 'absolute',
                 top: 'calc(100% + 8px)',
                 right: 0,
-                backgroundColor: 'var(--bg-elevated)',
+                backgroundColor: '#15152a',
                 border: '1px solid var(--border-accent)',
                 borderRadius: 'var(--radius-xl)',
                 width: '340px',
@@ -70,16 +70,29 @@ const Header = () => {
                 overflow: 'hidden',
               }}
             >
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0e0e1c' }}>
                 <span style={{ fontWeight: 'bold', fontSize: '15px' }}>Notifications</span>
-                {unreadNotifications.length > 0 && (
-                  <button
-                    onClick={() => markAllNotificationsRead()}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
-                  >
-                    Mark all read
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {unreadNotifications.length > 0 && (
+                    <button
+                      onClick={() => markAllNotificationsRead()}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  {unreadNotifications.length > 0 && notifications.length > 0 && (
+                    <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>•</span>
+                  )}
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={() => clearAllNotifications()}
+                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
               </div>
               <div style={{ maxHeight: '300px', overflowY: 'auto', padding: '8px 0' }}>
                 {notifications.length === 0 ? (
@@ -100,27 +113,43 @@ const Header = () => {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                        <span style={{ fontWeight: note.read ? 500 : 600, fontSize: '13px', color: note.read ? 'var(--text-secondary)' : 'var(--text-primary)', wordBreak: 'break-word' }}>
+                        <span style={{ fontWeight: note.read ? 500 : 600, fontSize: '13px', color: note.read ? 'var(--text-secondary)' : 'var(--text-primary)', wordBreak: 'break-word', paddingRight: '12px' }}>
                           {note.title}
                         </span>
-                        {!note.read && (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                          {!note.read && (
+                            <button
+                              onClick={() => markNotificationRead(note.id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--accent)',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                padding: '2px 6px',
+                                borderRadius: '2px',
+                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                              }}
+                            >
+                              Mark read
+                            </button>
+                          )}
                           <button
-                            onClick={() => markNotificationRead(note.id)}
+                            onClick={() => deleteNotification(note.id)}
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: 'var(--text-muted)',
+                              color: '#ef4444',
                               fontSize: '10px',
                               cursor: 'pointer',
-                              padding: '2px 6px',
+                              padding: '2px 4px',
                               borderRadius: '2px',
-                              backgroundColor: 'rgba(255,255,255,0.05)',
-                              flexShrink: 0,
                             }}
+                            title="Dismiss"
                           >
-                            Mark read
+                            ✕
                           </button>
-                        )}
+                        </div>
                       </div>
                       <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4', wordBreak: 'break-word' }}>
                         {note.message}
@@ -132,7 +161,7 @@ const Header = () => {
                   ))
                 )}
               </div>
-              <div style={{ borderTop: '1px solid var(--border)', textAlign: 'center', background: 'var(--bg-card)' }}>
+              <div style={{ borderTop: '1px solid var(--border)', textAlign: 'center', background: '#0e0e1c' }}>
                 <button
                   onClick={() => {
                     navigate('/notifications')
@@ -183,7 +212,7 @@ const Header = () => {
                 position: 'absolute',
                 top: 'calc(100% + 8px)',
                 right: 0,
-                backgroundColor: 'var(--bg-elevated)',
+                backgroundColor: '#15152a',
                 border: '1px solid var(--border-accent)',
                 borderRadius: 'var(--radius-xl)',
                 minWidth: '220px',
@@ -192,7 +221,7 @@ const Header = () => {
                 overflow: 'hidden',
               }}
             >
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px', background: '#0e0e1c' }}>
                 {currentUser?.avatarUrl && (
                   <img
                     src={currentUser.avatarUrl}
