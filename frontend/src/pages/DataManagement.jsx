@@ -11,7 +11,9 @@ const DataManagement = () => {
   const [importMessage, setImportMessage] = useState('')
   const [importType, setImportType] = useState('backup')
   const [selectedReport, setSelectedReport] = useState(null)
-  const [reportPeriod, setReportPeriod] = useState('all') // 'all'|'daily'|'weekly'|'monthly'|'quarterly'|'yearly'
+  const [reportPeriod, setReportPeriod] = useState('all') // 'all'|'daily'|'weekly'|'monthly'|'quarterly'|'yearly'|'custom'
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
   const fileInputRef = useRef(null)
 
   const showExport = (msg) => { setExportMessage(msg); setTimeout(() => setExportMessage(''), 4000) }
@@ -108,6 +110,19 @@ const DataManagement = () => {
       const end = new Date(now.getFullYear(), 11, 31)
       return { start, end }
     }
+    if (period === 'custom') {
+      let start = null
+      if (customStartDate) {
+        const [y, m, d] = customStartDate.split('-').map(Number)
+        start = new Date(y, m - 1, d, 0, 0, 0, 0)
+      }
+      let end = null
+      if (customEndDate) {
+        const [y, m, d] = customEndDate.split('-').map(Number)
+        end = new Date(y, m - 1, d, 23, 59, 59, 999)
+      }
+      return { start, end }
+    }
     return null
   }
 
@@ -118,7 +133,9 @@ const DataManagement = () => {
     return items.filter((item) => {
       const d = item[dateKey] ? new Date(item[dateKey]) : null
       if (!d) return false
-      return d >= range.start && d <= range.end
+      const afterStart = range.start ? d >= range.start : true
+      const beforeEnd = range.end ? d <= range.end : true
+      return afterStart && beforeEnd
     })
   }
 
@@ -279,13 +296,20 @@ const DataManagement = () => {
       }
     }
 
+    const getPeriodText = () => {
+      if (reportPeriod === 'custom') {
+        return `Custom (${customStartDate || 'Start'} to ${customEndDate || 'End'})`
+      }
+      return reportPeriod.toUpperCase()
+    }
+
     // Title
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
     doc.text(title, MARGIN, y)
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
-    doc.text(`Generated: ${new Date().toLocaleString()} · Row Count: ${data.length}`, W - MARGIN, y, { align: 'right' })
+    doc.text(`Period: ${getPeriodText()} · Generated: ${new Date().toLocaleString()} · Row Count: ${data.length}`, W - MARGIN, y, { align: 'right' })
     y += 10
 
     printHeaders()
@@ -458,22 +482,50 @@ const DataManagement = () => {
               <h2 style={{ margin: 0 }}>Report Preview: {selectedReport.toUpperCase()}</h2>
               <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '2px' }}>Rows in report: {getReportData(selectedReport).length}</p>
             </div>
-            {/* Period selector */}
-            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-              {['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'].map((p) => (
-                <button
-                  key={p} type="button"
-                  onClick={() => setReportPeriod(p)}
-                  style={{
-                    padding: '5px 12px', borderRadius: '5px', border: 'none', cursor: 'pointer',
-                    fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
-                    background: reportPeriod === p ? 'var(--accent)' : 'transparent',
-                    color: reportPeriod === p ? '#fff' : '#71717a',
-                  }}
-                >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
-              ))}
+            {/* Period selector & Custom Date Range Wrapper */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                {['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'].map((p) => (
+                  <button
+                    key={p} type="button"
+                    onClick={() => setReportPeriod(p)}
+                    style={{
+                      padding: '5px 12px', borderRadius: '5px', border: 'none', cursor: 'pointer',
+                      fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
+                      background: reportPeriod === p ? 'var(--accent)' : 'transparent',
+                      color: reportPeriod === p ? '#fff' : '#71717a',
+                    }}
+                  >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+                ))}
+              </div>
+
+              {reportPeriod === 'custom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>From:</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '12px', width: '135px', height: '28px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>To:</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '12px', width: '135px', height: '28px' }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => generateReportPDF(selectedReport, getReportData(selectedReport))}>
                 <Download size={14} /> Download PDF
               </button>
@@ -484,6 +536,18 @@ const DataManagement = () => {
                 <X size={14} /> Close
               </button>
             </div>
+          </div>
+
+          {/* Print-only header */}
+          <div className="print-only" style={{ display: 'none', marginBottom: '20px', borderBottom: '2px solid #ddd', paddingBottom: '12px' }}>
+            <h1 style={{ margin: '0 0 6px 0', fontSize: '20px', fontWeight: 'bold', color: '#111' }}>
+              {business?.shopName || 'PrintPro'} — {selectedReport.charAt(0).toUpperCase() + selectedReport.slice(1)} Report
+            </h1>
+            <p style={{ margin: 0, fontSize: '11px', color: '#555', display: 'flex', gap: '16px' }}>
+              <span><strong>Period:</strong> {reportPeriod === 'custom' ? `${customStartDate || 'Start'} to ${customEndDate || 'End'}` : reportPeriod.toUpperCase()}</span>
+              <span><strong>Generated:</strong> {new Date().toLocaleString()}</span>
+              <span><strong>Total Rows:</strong> {getReportData(selectedReport).length}</span>
+            </p>
           </div>
 
           <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
@@ -615,7 +679,15 @@ const DataManagement = () => {
 
       {/* Print-only styles for reports */}
       <style>{`
+        @page {
+          size: landscape;
+          margin: 10mm 12mm;
+        }
         @media print {
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           .no-print, .sidebar, .header, .page-header, .grid-2, button, .btn {
             display: none !important;
           }
@@ -627,6 +699,7 @@ const DataManagement = () => {
             padding: 0 !important;
             margin: 0 !important;
             border: none !important;
+            background: transparent !important;
           }
           body {
             background: #fff !important;
@@ -634,16 +707,17 @@ const DataManagement = () => {
           }
           .report-print-area {
             display: block !important;
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            position: static !important;
+            width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
             box-shadow: none !important;
             background: #fff !important;
             color: #000 !important;
+          }
+          .print-only {
+            display: block !important;
           }
           .report-print-area .table-container {
             max-height: none !important;
@@ -658,13 +732,24 @@ const DataManagement = () => {
           .report-print-area td {
             color: #000 !important;
             border: 1px solid #ddd !important;
-            padding: 8px 12px !important;
-            font-size: 12px !important;
+            padding: 6px 10px !important;
+            font-size: 11px !important;
+          }
+          .report-print-area td {
+            word-break: break-word !important;
+          }
+          /* Keep ID and Status badges on one line */
+          .report-print-area td:first-child,
+          .report-print-area td .badge {
+            white-space: nowrap !important;
           }
           .report-print-area th {
             background: #f4f4f5 !important;
             font-weight: bold !important;
-            text-align: left !important;
+            text-align: left;
+          }
+          .report-print-area tr {
+            page-break-inside: avoid !important;
           }
         }
       `}</style>
