@@ -53,6 +53,9 @@ class PgConnectionWrapper {
     pgSql = pgSql.replace(/YEAR\(([^)]+)\)/gi, "EXTRACT(YEAR FROM $1)");
     pgSql = pgSql.replace(/MONTH\(([^)]+)\)/gi, "EXTRACT(MONTH FROM $1)");
 
+    // Translate MySQL CURDATE() to PostgreSQL CURRENT_DATE
+    pgSql = pgSql.replace(/CURDATE\(\)/gi, 'CURRENT_DATE');
+
     // Translate MySQL AS UNSIGNED cast
     pgSql = pgSql.replace(/AS UNSIGNED/gi, 'AS INTEGER');
 
@@ -110,6 +113,7 @@ class PgPoolWrapper {
     pgSql = pgSql.replace(/DATE_FORMAT\(([^,]+),\s*['"]%Y-%m['"]\)/gi, "TO_CHAR($1, 'YYYY-MM')");
     pgSql = pgSql.replace(/YEAR\(([^)]+)\)/gi, "EXTRACT(YEAR FROM $1)");
     pgSql = pgSql.replace(/MONTH\(([^)]+)\)/gi, "EXTRACT(MONTH FROM $1)");
+    pgSql = pgSql.replace(/CURDATE\(\)/gi, 'CURRENT_DATE');
     pgSql = pgSql.replace(/AS UNSIGNED/gi, 'AS INTEGER');
 
     if (pgSql.trim().toUpperCase().startsWith('INSERT ') && !pgSql.toUpperCase().includes(' RETURNING ')) {

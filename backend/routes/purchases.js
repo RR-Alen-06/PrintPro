@@ -7,8 +7,8 @@ router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
     const { startDate, endDate, category } = req.query;
-    let sql = 'SELECT * FROM purchases WHERE 1=1';
-    const params = [];
+    let sql = 'SELECT * FROM purchases WHERE user_id = ?';
+    const params = [req.user.id];
 
     if (startDate) { sql += ' AND date >= ?'; params.push(startDate); }
     if (endDate)   { sql += ' AND date <= ?'; params.push(endDate); }
@@ -26,7 +26,8 @@ router.get('/summary', async (req, res, next) => {
     const pool = getPool();
     const [rows] = await pool.query(
       `SELECT category, COUNT(*) AS count, SUM(total) AS total_spent
-       FROM purchases GROUP BY category ORDER BY total_spent DESC`
+       FROM purchases WHERE user_id = ? GROUP BY category ORDER BY total_spent DESC`,
+      [req.user.id]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -36,7 +37,7 @@ router.get('/summary', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    const [rows] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (rows.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
     res.json({ success: true, data: rows[0] });
   } catch (err) { next(err); }
@@ -58,11 +59,11 @@ router.post('/', validatePurchase, async (req, res, next) => {
     const total = parseFloat((qtyNum * cost).toFixed(2));
 
     const [result] = await pool.query(
-      `INSERT INTO purchases (date, item_name, category, qty, unit_cost, total, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [date, item_name, category, qtyNum, cost, total, notes || '']
+      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '']
     );
 
-    const [newRow] = await pool.query('SELECT * FROM purchases WHERE id = ?', [result.insertId]);
+    const [newRow] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
     res.status(201).json({ success: true, data: newRow[0] });
   } catch (err) { next(err); }
 });
@@ -72,7 +73,7 @@ router.put('/:id', async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
     const { date, item_name, category, qty, unit_cost, notes } = req.body;
@@ -95,9 +96,9 @@ router.put('/:id', async (req, res, next) => {
     }
 
     const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ?`, [...Object.values(updates), id]);
+    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ? AND user_id = ?`, [...Object.values(updates), id, req.user.id]);
 
-    const [updated] = await pool.query('SELECT * FROM purchases WHERE id = ?', [id]);
+    const [updated] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) { next(err); }
 });
@@ -106,9 +107,9 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
-    await pool.query('DELETE FROM purchases WHERE id = ?', [req.params.id]);
+    await pool.query('DELETE FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     res.json({ success: true, message: 'Purchase deleted successfully' });
   } catch (err) { next(err); }
 });

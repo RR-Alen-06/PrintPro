@@ -8,8 +8,8 @@ router.get('/', async (req, res, next) => {
     const pool = getPool();
     const { entity_type, action, limit = 100 } = req.query;
 
-    let sql = 'SELECT * FROM audit_log WHERE 1=1';
-    const params = [];
+    let sql = 'SELECT * FROM audit_log WHERE user_id = ?';
+    const params = [req.user.id];
 
     if (entity_type) { sql += ' AND entity_type = ?'; params.push(entity_type); }
     if (action)      { sql += ' AND action = ?';      params.push(action); }
@@ -28,8 +28,8 @@ router.get('/:entity_type/:entity_id', async (req, res, next) => {
     const pool = getPool();
     const { entity_type, entity_id } = req.params;
     const [rows] = await pool.query(
-      'SELECT * FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY timestamp DESC',
-      [entity_type, entity_id]
+      'SELECT * FROM audit_log WHERE user_id = ? AND entity_type = ? AND entity_id = ? ORDER BY timestamp DESC',
+      [req.user.id, entity_type, entity_id]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
