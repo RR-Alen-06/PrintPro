@@ -34,9 +34,22 @@ app.set('trust proxy', 1); // so req.ip works behind reverse proxies
 // ── Global middleware ────────────────────────────────────────────────────────
 app.use(helmet());
 
-// Configure CORS with specific origin from environment
+// Configure CORS with allowed local development origins and configured CORS_ORIGIN
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  process.env.CORS_ORIGIN
+].filter(Boolean);
+
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('http://localhost:')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200
 };

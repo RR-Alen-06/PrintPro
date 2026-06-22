@@ -5,8 +5,8 @@ async function listCustomers(req, res, next) {
   try {
     const pool = getPool();
     const { type, search } = req.query;
-    let sql = 'SELECT * FROM customers WHERE 1=1';
-    const params = [];
+    let sql = 'SELECT * FROM customers WHERE user_id = ?';
+    const params = [req.user.id];
 
     if (type) {
       sql += ' AND type = ?';
@@ -33,7 +33,7 @@ async function getCustomer(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customers] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [customers] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (customers.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -50,8 +50,8 @@ async function getCustomer(req, res, next) {
         SUM(CASE WHEN status = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
         SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) AS partial_count,
         SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid_count
-      FROM bills WHERE customer_id = ? AND deleted_at IS NULL`,
-      [id]
+      FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [id, req.user.id]
     );
 
     res.json({
@@ -79,8 +79,8 @@ async function createCustomer(req, res, next) {
     // Generate ID based on type
     const prefix = type === 'regular' ? 'RC' : 'RND';
     const [maxRows] = await pool.query(
-      `SELECT id FROM customers WHERE type = ? ORDER BY CAST(SUBSTRING_INDEX(id, '-', -1) AS UNSIGNED) DESC LIMIT 1`,
-      [type]
+      `SELECT id FROM customers WHERE type = ? AND user_id = ? ORDER BY CAST(split_part(id, '-', 2) AS INTEGER) DESC LIMIT 1`,
+      [type, req.user.id]
     );
 
     let nextNum = 1;
@@ -93,18 +93,18 @@ async function createCustomer(req, res, next) {
     const customerId = `${prefix}-${String(nextNum).padStart(3, '0')}`;
 
     await pool.query(
-      `INSERT INTO customers (id, type, name, phone, email, address, credit_limit)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [customerId, type, name, phone || '', email || '', address || '', credit_limit || 0]
+      `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [customerId, req.user.id, type, name, phone || '', email || '', address || '', credit_limit || 0]
     );
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?)`,
-      ['CREATE', 'customer', customerId, JSON.stringify({ type, name, phone, email, address })]
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, 'CREATE', 'customer', customerId, JSON.stringify({ type, name, phone, email, address })]
     );
 
-    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = ?', [customerId]);
+    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
     res.status(201).json({ success: true, data: newCustomer[0] });
   } catch (err) {
     next(err);
@@ -118,7 +118,7 @@ async function updateCustomer(req, res, next) {
     const { id } = req.params;
     const { name, phone, email, address, credit_limit } = req.body;
 
-    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -138,17 +138,17 @@ async function updateCustomer(req, res, next) {
 
     const setClauses = Object.keys(updates).map(key => `${key} = ?`).join(', ');
     const values = Object.values(updates);
-    values.push(id);
+    values.push(id, req.user.id);
 
-    await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ?`, values);
+    await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?)`,
-      ['UPDATE', 'customer', id, JSON.stringify(oldValue), JSON.stringify(updates)]
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.id, 'UPDATE', 'customer', id, JSON.stringify(oldValue), JSON.stringify(updates)]
     );
 
-    const [updated] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [updated] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) {
     next(err);
@@ -161,15 +161,15 @@ async function deleteCustomer(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     // Check for unpaid bills
     const [unpaidBills] = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM bills WHERE customer_id = ? AND status != 'paid' AND deleted_at IS NULL`,
-      [id]
+      `SELECT COUNT(*) AS cnt FROM bills WHERE customer_id = ? AND user_id = ? AND status != 'paid' AND deleted_at IS NULL`,
+      [id, req.user.id]
     );
 
     if (unpaidBills[0].cnt > 0) {
@@ -179,12 +179,12 @@ async function deleteCustomer(req, res, next) {
       });
     }
 
-    await pool.query('DELETE FROM customers WHERE id = ?', [id]);
+    await pool.query('DELETE FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (action, entity_type, entity_id, old_value) VALUES (?, ?, ?, ?)`,
-      ['DELETE', 'customer', id, JSON.stringify(existing[0])]
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, 'DELETE', 'customer', id, JSON.stringify(existing[0])]
     );
 
     res.json({ success: true, message: 'Customer deleted successfully' });
@@ -199,14 +199,14 @@ async function getCustomerBills(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ?', [id]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     const [bills] = await pool.query(
-      'SELECT * FROM bills WHERE customer_id = ? AND deleted_at IS NULL ORDER BY date DESC',
-      [id]
+      'SELECT * FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date DESC',
+      [id, req.user.id]
     );
 
     res.json({ success: true, data: bills });
@@ -221,7 +221,7 @@ async function getCustomerPayments(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ?', [id]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -229,10 +229,10 @@ async function getCustomerPayments(req, res, next) {
     const [payments] = await pool.query(
       `SELECT p.*, b.total AS bill_total
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id = b.id
-       WHERE p.customer_id = ?
+       LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+       WHERE p.customer_id = ? AND p.user_id = ?
        ORDER BY p.date DESC`,
-      [id]
+      [id, req.user.id]
     );
 
     res.json({ success: true, data: payments });
@@ -247,7 +247,7 @@ async function getCustomerStatement(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [customer] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -255,15 +255,15 @@ async function getCustomerStatement(req, res, next) {
     // Get all bills
     const [bills] = await pool.query(
       `SELECT id, date, total, amount_paid, balance, status, 'bill' AS entry_type
-       FROM bills WHERE customer_id = ? AND deleted_at IS NULL`,
-      [id]
+       FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [id, req.user.id]
     );
 
     // Get all payments
     const [payments] = await pool.query(
       `SELECT id, date, total_paid, cash_amount, upi_amount, bill_id, payment_type, 'payment' AS entry_type
-       FROM payments WHERE customer_id = ?`,
-      [id]
+       FROM payments WHERE customer_id = ? AND user_id = ?`,
+      [id, req.user.id]
     );
 
     // Combine and sort by date
