@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet } from 'lucide-react'
+import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy } from 'lucide-react'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -9,11 +9,31 @@ const EMPTY_FORM = {
   phone: '',
   email: '',
   creditBalance: '',
+  openingBalanceMethod: 'cash',
+  openingCash: '',
+  openingUpi: '',
 }
 
 const Customers = () => {
-  const { customers, bills, payments, advancePayments, addCustomer, recordPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, customers, bills, payments, advancePayments, addCustomer, recordPayment, recordSpecificBillPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
+
+  const copyUpiLink = (link) => {
+    if (!link) return
+    navigator.clipboard.writeText(link)
+  }
+
+  const getUpiLink = (amount, notesText = 'Opening Balance') => {
+    if (!business?.upiId || amount <= 0) return ''
+    const params = new URLSearchParams({
+      pa: business.upiId,
+      pn: business.shopName || 'PrintPro',
+      am: amount.toFixed(2),
+      cu: 'INR',
+      tn: notesText,
+    })
+    return `upi://pay?${params.toString()}`
+  }
 
   const [showModal, setShowModal] = useState(false)
   const [editMode, setEditMode] = useState(false) // false = add, true = edit
@@ -23,6 +43,8 @@ const Customers = () => {
   const [successMsg, setSuccessMsg] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState('all')
+  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
+  const [qrGenerated, setQrGenerated] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const [expandedBillId, setExpandedBillId] = useState(null)
 
@@ -30,6 +52,14 @@ const Customers = () => {
   const [payCash, setPayCash] = useState(0)
   const [payUpi, setPayUpi] = useState(0)
   const [paySuccess, setPaySuccess] = useState(false)
+
+  // Targeted bill payment state
+  const [targetBillPayId, setTargetBillPayId] = useState(null) // which bill's pay panel is open
+  const [targetCash, setTargetCash] = useState(0)
+  const [targetUpi, setTargetUpi] = useState(0)
+  const [targetPaySuccess, setTargetPaySuccess] = useState(false)
+  const [targetBillQrGenerated, setTargetBillQrGenerated] = useState(false)
+  const [targetBillUpiCheckoutAmount, setTargetBillUpiCheckoutAmount] = useState(0)
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c) => {
@@ -70,38 +100,44 @@ const Customers = () => {
       .reduce((sum, b) => sum + Number(b.balance || 0), 0)
   }
 
-  // Apply payment to oldest unpaid bills first
+  // Apply payment to oldest unpaid bills first via FIFO (handled in AppContext)
   const handleApplyPayment = () => {
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
     const totalPaying = cash + upi
     if (totalPaying <= 0 || !selectedCustomer) return
 
-    // Get unpaid bills sorted oldest first
-    const unpaidBills = customerBills
-      .filter((b) => b.balance > 0)
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-
-    let remaining = totalPaying
-    for (const bill of unpaidBills) {
-      if (remaining <= 0) break
-      const toApply = Math.min(remaining, bill.balance)
-      const billCash = Math.min(cash, toApply)
-      const billUpi = toApply - billCash
-      recordPayment({
-        billId: bill.id,
-        customerId: selectedCustomer.id,
-        cashAmount: billCash,
-        upiAmount: billUpi,
-        notes: `Payment from customer page`,
-      })
-      remaining -= toApply
-    }
+    // Pass the lump-sum payment to recordPayment — AppContext handles FIFO
+    // distribution across unpaid bills and credits excess to advance balance
+    recordPayment({
+      customerId: selectedCustomer.id,
+      cashAmount: cash,
+      upiAmount: upi,
+      notes: `Payment from customer page`,
+    })
 
     setPayCash(0)
     setPayUpi(0)
     setPaySuccess(true)
     setTimeout(() => setPaySuccess(false), 3500)
+  }
+
+  const handleTargetBillPayment = (bill) => {
+    const cash = Number(targetCash || 0)
+    const upi = Number(targetUpi || 0)
+    if (cash + upi <= 0) { showAlert('Enter a payment amount.', 'error'); return }
+    recordSpecificBillPayment({
+      billId: bill.id,
+      customerId: bill.customerId,
+      cashAmount: cash,
+      upiAmount: upi,
+      notes: `Selective payment for bill ${bill.id}`,
+    })
+    setTargetBillPayId(null)
+    setTargetCash(0)
+    setTargetUpi(0)
+    setTargetPaySuccess(true)
+    setTimeout(() => setTargetPaySuccess(false), 3500)
   }
 
   const openModal = () => {
@@ -110,6 +146,8 @@ const Customers = () => {
     setSuccessMsg('')
     setEditMode(false)
     setEditingId(null)
+    setUpiCheckoutAmount(0)
+    setQrGenerated(false)
     setShowModal(true)
   }
 
@@ -120,11 +158,16 @@ const Customers = () => {
       phone: customer.phone || '',
       email: customer.email || '',
       creditBalance: String(customer.creditBalance || 0),
+      openingBalanceMethod: 'cash',
+      openingCash: '',
+      openingUpi: '',
     })
     setErrors({})
     setSuccessMsg('')
     setEditMode(true)
     setEditingId(customer.id)
+    setUpiCheckoutAmount(0)
+    setQrGenerated(false)
     setShowModal(true)
   }
 
@@ -133,6 +176,8 @@ const Customers = () => {
     setErrors({})
     setEditMode(false)
     setEditingId(null)
+    setUpiCheckoutAmount(0)
+    setQrGenerated(false)
   }
 
   const validate = () => {
@@ -140,8 +185,18 @@ const Customers = () => {
     if (!form.name.trim()) errs.name = 'Name is required.'
     if (form.phone && !/^\d{7,15}$/.test(form.phone.trim())) errs.phone = 'Enter a valid phone number.'
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Enter a valid email.'
-    if (form.type === 'regular' && form.creditBalance !== '' && isNaN(Number(form.creditBalance))) {
-      errs.creditBalance = 'Enter a valid number.'
+    
+    if (form.type === 'regular' && !editMode) {
+      if (form.openingBalanceMethod === 'cash' || form.openingBalanceMethod === 'split') {
+        if (form.openingCash !== '' && isNaN(Number(form.openingCash))) {
+          errs.openingCash = 'Enter a valid cash amount.'
+        }
+      }
+      if (form.openingBalanceMethod === 'upi' || form.openingBalanceMethod === 'split') {
+        if (form.openingUpi !== '' && isNaN(Number(form.openingUpi))) {
+          errs.openingUpi = 'Enter a valid UPI amount.'
+        }
+      }
     }
     return errs
   }
@@ -161,12 +216,27 @@ const Customers = () => {
       })
       setSuccessMsg(`Customer updated successfully!`)
     } else {
+      const isRegular = form.type === 'regular'
+      const method = form.openingBalanceMethod
+      
+      const opCash = isRegular ? (
+        method === 'cash' ? Number(form.openingCash || 0) :
+        method === 'split' ? Number(form.openingCash || 0) : 0
+      ) : 0
+
+      const opUpi = isRegular ? (
+        method === 'upi' ? Number(form.openingUpi || 0) :
+        method === 'split' ? Number(form.openingUpi || 0) : 0
+      ) : 0
+
       addCustomer({
         type: form.type,
         name: form.name.trim(),
         phone: form.phone.trim(),
         email: form.email.trim(),
-        creditBalance: form.type === 'regular' ? Number(form.creditBalance || 0) : 0,
+        creditBalance: opCash + opUpi,
+        openingCash: opCash,
+        openingUpi: opUpi,
         status: 'active',
       })
       setSuccessMsg(`Customer "${form.name.trim()}" added successfully!`)
@@ -493,15 +563,34 @@ const Customers = () => {
                               </span>
                             </td>
                             <td>
-                              <button
-                                type="button"
-                                className="btn btn-ghost btn-sm"
-                                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
-                                onClick={() => navigate(`/billing?edit=${bill.id}`)}
-                                title="Edit Bill"
-                              >
-                                <Pencil size={14} /> Edit
-                              </button>
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
+                                  onClick={() => navigate(`/billing?edit=${bill.id}`)}
+                                  title="Edit Bill"
+                                >
+                                  <Pencil size={14} /> Edit
+                                </button>
+                                {bill.status !== 'paid' && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-sm"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: '#10b981', fontSize: '12px' }}
+                                    onClick={() => {
+                                      setTargetBillPayId(targetBillPayId === bill.id ? null : bill.id)
+                                      setTargetCash(0)
+                                      setTargetUpi(0)
+                                      setTargetBillQrGenerated(false)
+                                      setTargetBillUpiCheckoutAmount(0)
+                                    }}
+                                    title="Pay This Bill"
+                                  >
+                                    <Wallet size={13} /> Pay
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                            {expandedBillId === bill.id && (
@@ -572,6 +661,103 @@ const Customers = () => {
                               </td>
                             </tr>
                           )}
+                          {/* Pay This Bill Panel */}
+                          {targetBillPayId === bill.id && bill.status !== 'paid' && (
+                            <tr>
+                              <td colSpan={8} style={{ padding: '0 16px 12px', background: 'rgba(16,185,129,0.05)' }}>
+                                <div style={{ padding: '12px', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', marginTop: '4px' }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Wallet size={13} /> Pay This Bill Only — {bill.id}
+                                    <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{Number(bill.balance).toFixed(2)})</span>
+                                  </div>
+                                  {targetPaySuccess && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', marginBottom: '8px' }}>
+                                      <CheckCircle size={14} /> Payment recorded!
+                                    </div>
+                                  )}
+                                   <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                    <div>
+                                      <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash (₹)</label>
+                                      <input className="form-input" type="number" min="0" step="0.01" value={targetCash}
+                                        style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
+                                        onChange={(e) => setTargetCash(e.target.value)} />
+                                    </div>
+                                    <div>
+                                      <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI (₹)</label>
+                                      <input className="form-input" type="number" min="0" step="0.01" value={targetUpi}
+                                        style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
+                                        onChange={(e) => {
+                                          setTargetUpi(e.target.value)
+                                          setTargetBillQrGenerated(false)
+                                          setTargetBillUpiCheckoutAmount(0)
+                                        }} />
+                                    </div>
+                                    <button
+                                      type="button" className="btn btn-primary"
+                                      style={{ padding: '7px 16px', fontSize: '13px', background: '#10b981', border: 'none' }}
+                                      onClick={() => handleTargetBillPayment(bill)}
+                                    >
+                                      Record Payment
+                                    </button>
+                                    <button
+                                      type="button" className="btn btn-ghost btn-sm"
+                                      onClick={() => setTargetBillPayId(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+
+                                  {/* Inline UPI Checkout Option */}
+                                  <div style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
+                                    <label className="form-label" style={{ fontSize: '0.78rem', color: '#71717a' }}>UPI Checkout</label>
+                                    <div style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        disabled={!Number(targetUpi || 0)}
+                                        onClick={() => {
+                                          setTargetBillUpiCheckoutAmount(Number(targetUpi || 0))
+                                          setTargetBillQrGenerated(true)
+                                        }}
+                                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                      >
+                                        <Link2 size={14} /> Generate QR
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost btn-sm"
+                                        disabled={!Number(targetUpi || 0) || !business?.upiId}
+                                        onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${bill.id}`))}
+                                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                      >
+                                        <Copy size={14} /> Copy Link
+                                      </button>
+                                    </div>
+                                    {business?.upiId ? (
+                                      <>
+                                        {targetBillQrGenerated && targetBillUpiCheckoutAmount > 0 && (
+                                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: 'fit-content' }}>
+                                            <img
+                                              src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${bill.id}`))}`}
+                                              alt="UPI QR Code"
+                                              style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                              width={110} height={110}
+                                            />
+                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{targetBillUpiCheckoutAmount.toFixed(2)}</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#71717a', marginTop: '8px' }}>
+                                    ⚠ This payment applies only to {bill.id}, no FIFO reordering.
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                         </React.Fragment>
                       ))}
                     </tbody>
@@ -580,70 +766,92 @@ const Customers = () => {
               )}
             </div>
 
-            {/* Payment form (only if outstanding > 0) */}
-            {outstandingBalance > 0 && (
-              <div className="card">
-                <h3 style={{ marginBottom: '12px' }}>Record Payment</h3>
+            {/* Payment form — always show if customer is selected */}
+            <div className="card">
+              <h3 style={{ marginBottom: '12px' }}>Record Payment</h3>
+              {outstandingBalance > 0 ? (
                 <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-                  Payment will be applied to the oldest unpaid bills first. Total outstanding: <strong style={{ color: 'var(--warning)' }}>₹{outstandingBalance.toFixed(2)}</strong>
+                  Payment applied to oldest unpaid bills first (FIFO). Total outstanding: <strong style={{ color: 'var(--warning)' }}>₹{outstandingBalance.toFixed(2)}</strong>
                 </p>
+              ) : (
+                <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
+                  No outstanding bills. Any payment received will be added to the customer's advance credit balance.
+                </p>
+              )}
 
-                {paySuccess && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '10px 14px', marginBottom: '12px',
-                    background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-                    borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-                  }}>
-                    <CheckCircle size={16} /> Payment recorded successfully!
-                  </div>
-                )}
+              {paySuccess && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 14px', marginBottom: '12px',
+                  background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
+                  borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
+                }}>
+                  <CheckCircle size={16} /> Payment recorded successfully!
+                </div>
+              )}
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Cash Amount (₹)</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={payCash}
-                      onChange={(e) => setPayCash(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">UPI Amount (₹)</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={payUpi}
-                      onChange={(e) => setPayUpi(e.target.value)}
-                    />
-                  </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Cash Amount (₹)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={payCash}
+                    onChange={(e) => setPayCash(e.target.value)}
+                  />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Paying Now: <strong style={{ color: 'var(--text-primary)' }}>
-                      ₹{(Number(payCash || 0) + Number(payUpi || 0)).toFixed(2)}
-                    </strong>
-                  </span>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Balance After: <strong style={{ color: 'var(--accent)' }}>
-                      ₹{Math.max(outstandingBalance - (Number(payCash || 0) + Number(payUpi || 0)), 0).toFixed(2)}
-                    </strong>
-                  </span>
+                <div className="form-group">
+                  <label className="form-label">UPI Amount (₹)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={payUpi}
+                    onChange={(e) => setPayUpi(e.target.value)}
+                  />
                 </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleApplyPayment}
-                  disabled={Number(payCash || 0) + Number(payUpi || 0) <= 0}
-                >
-                  <CheckCircle size={16} /> Apply Payment
-                </button>
               </div>
-            )}
+
+              {/* Live payment summary */}
+              {(() => {
+                const totalPaying = Number(payCash || 0) + Number(payUpi || 0)
+                const balanceAfter = Math.max(outstandingBalance - totalPaying, 0)
+                const excessToAdvance = Math.max(totalPaying - outstandingBalance, 0)
+                return (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      Paying Now: <strong style={{ color: 'var(--text-primary)' }}>₹{totalPaying.toFixed(2)}</strong>
+                    </span>
+                    {outstandingBalance > 0 && (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        Balance After: <strong style={{ color: balanceAfter > 0 ? 'var(--warning)' : 'var(--success)' }}>₹{balanceAfter.toFixed(2)}</strong>
+                      </span>
+                    )}
+                    {excessToAdvance > 0 && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                        fontSize: '0.85rem', fontWeight: 600, color: 'var(--info)',
+                        background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)',
+                        borderRadius: 'var(--radius-sm)', padding: '2px 10px'
+                      }}>
+                        <Wallet size={13} /> ₹{excessToAdvance.toFixed(2)} will be added to Advance Credit
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
+
+              <button
+                className="btn btn-primary"
+                onClick={handleApplyPayment}
+                disabled={Number(payCash || 0) + Number(payUpi || 0) <= 0}
+              >
+                <CheckCircle size={16} /> Apply Payment
+              </button>
+            </div>
           </div>
         ) : (
           <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
@@ -798,9 +1006,135 @@ const Customers = () => {
                   )}
                 </div>
 
-                {form.type === 'regular' && (
+                {form.type === 'regular' && !editMode && (
+                  <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                    <h4 style={{ marginBottom: '12px', fontSize: '0.95rem' }}>Opening Credit Balance</h4>
+                    
+                    <div className="form-group">
+                      <label className="form-label">Receiving Method</label>
+                      <select
+                        className="form-select"
+                        value={form.openingBalanceMethod}
+                        onChange={(e) => handleChange('openingBalanceMethod', e.target.value)}
+                      >
+                        <option value="cash">Cash Only</option>
+                        <option value="upi">UPI Only</option>
+                        <option value="split">Split (Cash + UPI)</option>
+                      </select>
+                    </div>
+
+                    {(form.openingBalanceMethod === 'cash' || form.openingBalanceMethod === 'split') && (
+                      <div className="form-group">
+                        <label className="form-label">Cash Amount (₹)</label>
+                        <input
+                          className={`form-input${errors.openingCash ? ' form-input-error' : ''}`}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={form.openingCash}
+                          onChange={(e) => handleChange('openingCash', e.target.value)}
+                        />
+                        {errors.openingCash && (
+                          <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={12} /> {errors.openingCash}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {(form.openingBalanceMethod === 'upi' || form.openingBalanceMethod === 'split') && (
+                      <div className="form-group">
+                        <label className="form-label">UPI Amount (₹)</label>
+                        <input
+                          className={`form-input${errors.openingUpi ? ' form-input-error' : ''}`}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={form.openingUpi}
+                          onChange={(e) => {
+                            handleChange('openingUpi', e.target.value)
+                            setUpiCheckoutAmount(0)
+                            setQrGenerated(false)
+                          }}
+                        />
+                        {errors.openingUpi && (
+                          <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={12} /> {errors.openingUpi}
+                          </div>
+                        )}
+                        
+                        <div style={{ marginTop: '12px' }}>
+                          <label className="form-label" style={{ fontSize: '0.78rem' }}>UPI Checkout</label>
+                          <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={!Number(form.openingUpi || 0)}
+                              onClick={() => {
+                                setUpiCheckoutAmount(Number(form.openingUpi || 0))
+                                setQrGenerated(true)
+                              }}
+                              style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <Link2 size={14} /> Generate QR
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={!Number(form.openingUpi || 0) || !business?.upiId}
+                              onClick={() => copyUpiLink(getUpiLink(Number(form.openingUpi || 0), 'Opening Balance'))}
+                              style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <Copy size={14} /> Copy Link
+                            </button>
+                          </div>
+                          {business?.upiId ? (
+                            <>
+                              {qrGenerated && upiCheckoutAmount > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                  <img
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, 'Opening Balance'))}`}
+                                    alt="UPI QR Code"
+                                    style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                    width={110} height={110}
+                                  />
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{upiCheckoutAmount.toFixed(2)}</span>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {(() => {
+                      const cashVal = Number(form.openingCash || 0)
+                      const upiVal = Number(form.openingUpi || 0)
+                      const totalVal = (form.openingBalanceMethod === 'cash' ? cashVal :
+                                        form.openingBalanceMethod === 'upi' ? upiVal :
+                                        (cashVal + upiVal))
+                      if (totalVal > 0) {
+                        return (
+                          <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600 }}>
+                              <span className="text-muted">Total Opening Balance:</span>
+                              <span style={{ color: 'var(--accent)' }}>₹{totalVal.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
+                  </div>
+                )}
+
+                {form.type === 'regular' && editMode && (
                   <div className="form-group">
-                    <label className="form-label">Opening Credit Balance (₹)</label>
+                    <label className="form-label">Credit Balance (₹)</label>
                     <input
                       className={`form-input${errors.creditBalance ? ' form-input-error' : ''}`}
                       type="number"
@@ -815,9 +1149,6 @@ const Customers = () => {
                         <AlertCircle size={12} /> {errors.creditBalance}
                       </div>
                     )}
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Leave blank for ₹0. Updated automatically as bills are paid.
-                    </p>
                   </div>
                 )}
               </div>

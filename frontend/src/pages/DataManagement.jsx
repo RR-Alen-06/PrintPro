@@ -11,6 +11,7 @@ const DataManagement = () => {
   const [importMessage, setImportMessage] = useState('')
   const [importType, setImportType] = useState('backup')
   const [selectedReport, setSelectedReport] = useState(null)
+  const [reportPeriod, setReportPeriod] = useState('all') // 'all'|'daily'|'weekly'|'monthly'|'quarterly'|'yearly'
   const fileInputRef = useRef(null)
 
   const showExport = (msg) => { setExportMessage(msg); setTimeout(() => setExportMessage(''), 4000) }
@@ -78,11 +79,54 @@ const DataManagement = () => {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  // ── Period date range helper ──────────────────────────────────────────────
+  const getPeriodRange = (period) => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    if (period === 'daily') {
+      return { start: today, end: new Date(today.getTime() + 86400000 - 1) }
+    }
+    if (period === 'weekly') {
+      const day = today.getDay()
+      const mon = new Date(today); mon.setDate(today.getDate() - (day === 0 ? 6 : day - 1))
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+      return { start: mon, end: sun }
+    }
+    if (period === 'monthly') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      return { start, end }
+    }
+    if (period === 'quarterly') {
+      const q = Math.floor(now.getMonth() / 3)
+      const start = new Date(now.getFullYear(), q * 3, 1)
+      const end = new Date(now.getFullYear(), q * 3 + 3, 0)
+      return { start, end }
+    }
+    if (period === 'yearly') {
+      const start = new Date(now.getFullYear(), 0, 1)
+      const end = new Date(now.getFullYear(), 11, 31)
+      return { start, end }
+    }
+    return null
+  }
+
+  const filterByPeriod = (items, dateKey) => {
+    if (reportPeriod === 'all') return items
+    const range = getPeriodRange(reportPeriod)
+    if (!range) return items
+    return items.filter((item) => {
+      const d = item[dateKey] ? new Date(item[dateKey]) : null
+      if (!d) return false
+      return d >= range.start && d <= range.end
+    })
+  }
+
   const getReportData = (type) => {
-    if (type === 'bills') return bills.filter(b => !b.deleted)
-    if (type === 'customers') return customers
-    if (type === 'payments') return payments
-    if (type === 'expenses') return expenses || []
+    if (type === 'bills') return filterByPeriod(bills.filter(b => !b.deleted), 'date')
+    if (type === 'customers') return filterByPeriod(customers, 'createdAt')
+    if (type === 'payments') return filterByPeriod(payments, 'date')
+    if (type === 'expenses') return filterByPeriod(expenses || [], 'date')
     if (type === 'inventory') return inventory
     return []
   }
@@ -409,10 +453,25 @@ const DataManagement = () => {
       {/* Report Preview Section */}
       {selectedReport && (
         <div className="card report-print-area" style={{ marginTop: '24px' }}>
-          <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <h2 style={{ margin: 0 }}>Report Preview: {selectedReport.toUpperCase()}</h2>
               <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '2px' }}>Rows in report: {getReportData(selectedReport).length}</p>
+            </div>
+            {/* Period selector */}
+            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              {['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'].map((p) => (
+                <button
+                  key={p} type="button"
+                  onClick={() => setReportPeriod(p)}
+                  style={{
+                    padding: '5px 12px', borderRadius: '5px', border: 'none', cursor: 'pointer',
+                    fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
+                    background: reportPeriod === p ? 'var(--accent)' : 'transparent',
+                    color: reportPeriod === p ? '#fff' : '#71717a',
+                  }}
+                >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+              ))}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => generateReportPDF(selectedReport, getReportData(selectedReport))}>
@@ -560,11 +619,18 @@ const DataManagement = () => {
           .no-print, .sidebar, .header, .page-header, .grid-2, button, .btn {
             display: none !important;
           }
+          .card:not(.report-print-area) {
+            display: none !important;
+          }
           .app-layout, .main-wrapper, .main-content {
             display: block !important;
             padding: 0 !important;
             margin: 0 !important;
             border: none !important;
+          }
+          body {
+            background: #fff !important;
+            color: #000 !important;
           }
           .report-print-area {
             display: block !important;
@@ -576,6 +642,29 @@ const DataManagement = () => {
             padding: 0 !important;
             border: none !important;
             box-shadow: none !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+          .report-print-area .table-container {
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          .report-print-area table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            margin-top: 15px !important;
+          }
+          .report-print-area th,
+          .report-print-area td {
+            color: #000 !important;
+            border: 1px solid #ddd !important;
+            padding: 8px 12px !important;
+            font-size: 12px !important;
+          }
+          .report-print-area th {
+            background: #f4f4f5 !important;
+            font-weight: bold !important;
+            text-align: left !important;
           }
         }
       `}</style>
