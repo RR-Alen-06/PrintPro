@@ -23,6 +23,7 @@ const reportRoutes       = require('./routes/reports');
 const profileRoutes      = require('./routes/profile');
 const notificationRoutes = require('./routes/notifications');
 const auditRoutes        = require('./routes/audit');
+const shareRoutes        = require('./routes/share');
 
 // ── App setup ────────────────────────────────────────────────────────────────
 const app  = express();
@@ -109,6 +110,7 @@ app.use('/api/reports',       reportRoutes);
 app.use('/api/profile',       profileRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/audit',         auditRoutes);
+app.use('/api/share',         shareRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {

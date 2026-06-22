@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
+import { uploadPDFReceipt } from '../api/share'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -29,7 +30,7 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, recordPayment } = useAppContext()
+  const { business, customers, settings, bills, payments, advancePayments, recordPayment, showToast } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -324,9 +325,9 @@ const CustomerLedger = () => {
     URL.revokeObjectURL(link.href)
   }
 
-  // PDF download
-  const downloadPDF = () => {
-    if (!selectedCustomer) return
+  // PDF document generator
+  const generateLedgerPDFDoc = () => {
+    if (!selectedCustomer) return null
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const W = doc.internal.pageSize.getWidth()
     const H = doc.internal.pageSize.getHeight()
@@ -443,14 +444,43 @@ const CustomerLedger = () => {
     })
 
     addFooter(page)
-    doc.save(`${selectedCustomer.name}-ledger-${new Date().toISOString().slice(0, 10)}.pdf`)
+    return doc
   }
 
-  const shareStatementWhatsApp = () => {
+  // PDF download
+  const downloadPDF = () => {
+    const doc = generateLedgerPDFDoc()
+    if (doc && selectedCustomer) {
+      doc.save(`${selectedCustomer.name}-ledger-${new Date().toISOString().slice(0, 10)}.pdf`)
+    }
+  }
+
+  const shareStatementWhatsApp = async () => {
     if (!selectedCustomer) return
     const phone = selectedCustomer.phone || ''
     const dateStr = new Date().toLocaleDateString()
+
+    showToast('Generating and uploading ledger PDF statement...', 'info')
+    let pdfUrl = ''
+    try {
+      const doc = generateLedgerPDFDoc()
+      if (doc) {
+        const pdfBlob = doc.output('blob')
+        // Clean customer name for filename
+        const cleanName = selectedCustomer.name.replace(/[^a-zA-Z0-9_-]/g, '')
+        const uploadResult = await uploadPDFReceipt(pdfBlob, `ledger-${cleanName}`)
+        if (uploadResult && uploadResult.fileUrl) {
+          pdfUrl = uploadResult.fileUrl
+          showToast('Ledger statement PDF ready to share!', 'success')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to upload ledger PDF for WhatsApp share:', err)
+      showToast('Sharing statement details without PDF link due to upload issue.', 'warning')
+    }
     
+    const pdfUrlLine = pdfUrl ? `*Download Ledger PDF:* ${pdfUrl}%0A` : ''
+
     const text = `*Ledger Statement for ${selectedCustomer.name} (${selectedCustomer.id})*%0A` +
       `*Generated on:* ${dateStr}%0A` +
       `------------------------%0A` +
@@ -461,6 +491,7 @@ const CustomerLedger = () => {
       `*Advance Used:* ₹${totalAdvanceUsed.toFixed(2)}%0A` +
       `*Outstanding Balance:* *₹${outstanding.toFixed(2)}*%0A` +
       `------------------------%0A` +
+      pdfUrlLine +
       `Thank you! - ${business?.shopName || 'PrintPro'}`
 
     const cleanPhone = phone.replace(/[^0-9]/g, '')
