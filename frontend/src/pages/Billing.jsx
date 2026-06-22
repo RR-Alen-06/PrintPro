@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
+import { uploadPDFReceipt } from '../api/share'
 
 const makeInitialRow = (inventory) => ({
   id: `row-${Date.now()}`,
@@ -18,7 +19,7 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast } = useAppContext()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -333,10 +334,27 @@ const Billing = () => {
 
 
   // ── WhatsApp receipt sharing ──────────────────────────────────────────────
-  const shareOnWhatsApp = (bill) => {
+  const shareOnWhatsApp = async (bill) => {
     const customer = customers.find(c => c.id === bill.customerId)
     const phone = customer?.phone || ''
     
+    showToast('Generating and uploading PDF receipt...', 'info')
+    let pdfUrl = ''
+    try {
+      const doc = await generateBillPDFDoc(bill)
+      if (doc) {
+        const pdfBlob = doc.output('blob')
+        const uploadResult = await uploadPDFReceipt(pdfBlob, bill.id)
+        if (uploadResult && uploadResult.fileUrl) {
+          pdfUrl = uploadResult.fileUrl
+          showToast('Receipt PDF ready to share!', 'success')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to upload PDF for WhatsApp share:', err)
+      showToast('Sharing message without PDF link due to upload issue.', 'warning')
+    }
+
     const itemLines = bill.items.map(item => `• ${item.itemName || item.name} (${item.qty} qty) - ₹${Number(item.amount).toFixed(2)}`).join('%0A')
     const gstLines = (settings.showGstBreakdown !== false && bill.gstAmount > 0)
       ? `*CGST:* ₹${(bill.gstAmount / 2).toFixed(2)}%0A*SGST:* ₹${(bill.gstAmount / 2).toFixed(2)}%0A`
@@ -348,6 +366,7 @@ const Billing = () => {
     const loyaltyDiscountLine = Number(bill.loyaltyPointsRedeemed) > 0
       ? `*Loyalty Discount:* -₹${(bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)}%0A`
       : ''
+    const pdfUrlLine = pdfUrl ? `*Download PDF Receipt:* ${pdfUrl}%0A` : ''
 
     const text = `*Invoice from ${business?.shopName || 'PrintPro'}*%0A` +
       `*Bill ID:* ${bill.id}%0A` +
@@ -365,6 +384,7 @@ const Billing = () => {
       (bill.balance > 0 ? `*Balance Due:* *₹${bill.balance.toFixed(2)}*%0A` : `*Status:* PAID%0A`) +
       `------------------------%0A` +
       loyaltyLines +
+      pdfUrlLine +
       `%0AThank you for your business!`
 
     const cleanPhone = phone.replace(/[^0-9]/g, '')
@@ -1081,8 +1101,9 @@ const Billing = () => {
   }
 
   // ── PDF download (programmatic jsPDF, no html2canvas) ─────────────────────
-  const downloadBillPDF = async () => {
-    if (!liveBill) return
+  const generateBillPDFDoc = async (billToUse) => {
+    const bill = billToUse || liveBill
+    if (!bill) return null
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const W = doc.internal.pageSize.getWidth()
     const H = doc.internal.pageSize.getHeight()
@@ -1181,13 +1202,13 @@ const Billing = () => {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(50, 50, 50)
-    text(`Bill ID: ${liveBill.id}`, MARGIN, y)
-    text(`Date: ${liveBill.date}`, W - MARGIN, y, { align: 'right' })
+    text(`Bill ID: ${bill.id}`, MARGIN, y)
+    text(`Date: ${bill.date}`, W - MARGIN, y, { align: 'right' })
     y += 5
-    text(`Customer: ${liveBill.customerName}`, MARGIN, y)
-    text(`Due: ${liveBill.dueDate}`, W - MARGIN, y, { align: 'right' })
+    text(`Customer: ${bill.customerName}`, MARGIN, y)
+    text(`Due: ${bill.dueDate}`, W - MARGIN, y, { align: 'right' })
     y += 5
-    text(`Status: ${liveBill.status.toUpperCase()}`, MARGIN, y)
+    text(`Status: ${bill.status.toUpperCase()}`, MARGIN, y)
     y += 3
     doc.setDrawColor(rgb.r, rgb.g, rgb.b)
     line(MARGIN, y, W - MARGIN, y, 0.3)
@@ -1210,7 +1231,7 @@ const Billing = () => {
 
     // Items
     doc.setFont('helvetica', 'normal')
-    liveBill.items.forEach((item) => {
+    bill.items.forEach((item) => {
       checkNewPage(8)
       text(item.itemName || item.name || '-', cols.item, y)
       text(item.printType === 'color' ? 'Color' : 'B/W', cols.type, y)
@@ -1230,32 +1251,32 @@ const Billing = () => {
     const valX = W - MARGIN
     checkNewPage(30)
     doc.setFontSize(9)
-    text('Subtotal:', labelX, y); text(`Rs.${liveBill.subtotal.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    text('Subtotal:', labelX, y); text(`Rs.${bill.subtotal.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     
-    if (settings.showGstBreakdown !== false && liveBill.gstAmount > 0) {
-      text('CGST:', labelX, y); text(`Rs.${(liveBill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
-      text('SGST:', labelX, y); text(`Rs.${(liveBill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    if (settings.showGstBreakdown !== false && bill.gstAmount > 0) {
+      text('CGST:', labelX, y); text(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      text('SGST:', labelX, y); text(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
     
-    if (Number(liveBill.discountAmount || liveBill.discountValue) > 0) {
-      text('Discount:', labelX, y); text(`-Rs.${Number(liveBill.discountAmount || liveBill.discountValue).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    if (Number(bill.discountAmount || bill.discountValue) > 0) {
+      text('Discount:', labelX, y); text(`-Rs.${Number(bill.discountAmount || bill.discountValue).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
     
-    if (Number(liveBill.loyaltyPointsRedeemed) > 0) {
+    if (Number(bill.loyaltyPointsRedeemed) > 0) {
       const ptVal = (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150)
-      const loyaltyDisc = liveBill.loyaltyPointsRedeemed * ptVal
+      const loyaltyDisc = bill.loyaltyPointsRedeemed * ptVal
       text('Loyalty Discount:', labelX, y); text(`-Rs.${loyaltyDisc.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(rgb.r, rgb.g, rgb.b)
-    text('Total:', labelX, y); text(`Rs.${liveBill.total.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    text('Total:', labelX, y); text(`Rs.${bill.total.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     doc.setTextColor(50, 50, 50)
     doc.setFont('helvetica', 'normal')
-    text('Amount Paid:', labelX, y); text(`Rs.${liveBill.amountPaid.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
-    if (liveBill.balance > 0) {
+    text('Amount Paid:', labelX, y); text(`Rs.${bill.amountPaid.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    if (bill.balance > 0) {
       doc.setTextColor(239, 68, 68)
-      text('Balance Due:', labelX, y); text(`Rs.${liveBill.balance.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      text('Balance Due:', labelX, y); text(`Rs.${bill.balance.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
     }
     y += 3
@@ -1269,8 +1290,8 @@ const Billing = () => {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
       doc.setTextColor(rgb.r, rgb.g, rgb.b)
-      text(`Loyalty Points Added: +${liveBill.loyaltyPointsEarned || 0}`, MARGIN, y)
-      text(`Total Loyalty Balance: ${liveBill.customerTotalLoyaltyPoints || 0} pts`, W - MARGIN, y, { align: 'right' })
+      text(`Loyalty Points Added: +${bill.loyaltyPointsEarned || 0}`, MARGIN, y)
+      text(`Total Loyalty Balance: ${bill.customerTotalLoyaltyPoints || 0} pts`, W - MARGIN, y, { align: 'right' })
       y += 6
       doc.setTextColor(50, 50, 50)
       doc.setFont('helvetica', 'normal')
@@ -1279,8 +1300,8 @@ const Billing = () => {
     }
 
     // Payment breakdown & QR code
-    const upiLink = getUpiLink(liveBill.balance)
-    const qrBase64 = (settings.showUpiQrCode !== false && liveBill.balance > 0) 
+    const upiLink = getUpiLink(bill.balance)
+    const qrBase64 = (settings.showUpiQrCode !== false && bill.balance > 0) 
       ? await getQrCodeBase64(upiLink) 
       : ''
 
@@ -1296,10 +1317,10 @@ const Billing = () => {
       doc.setFont('helvetica', 'bold')
       text('Payment Breakdown:', MARGIN, y); y += 4
       doc.setFont('helvetica', 'normal')
-      text(`Cash: Rs.${(liveBill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y); y += 4
-      text(`UPI: Rs.${(liveBill.paymentMethod?.upi || 0).toFixed(2)}`, MARGIN, y); y += 4
-      if (liveBill.advanceUsed > 0) {
-        text(`Advance Used: Rs.${liveBill.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
+      text(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y); y += 4
+      text(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, MARGIN, y); y += 4
+      if (bill.advanceUsed > 0) {
+        text(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
       }
       y = Math.max(y, y - 16 + qrSize + 6)
     } else {
@@ -1308,11 +1329,11 @@ const Billing = () => {
       doc.setFont('helvetica', 'bold')
       text('Payment Breakdown:', MARGIN, y); y += 5
       doc.setFont('helvetica', 'normal')
-      text(`Cash: Rs.${(liveBill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y)
-      text(`UPI: Rs.${(liveBill.paymentMethod?.upi || 0).toFixed(2)}`, 70, y)
+      text(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y)
+      text(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, 70, y)
       y += 5
-      if (liveBill.advanceUsed > 0) {
-        text(`Advance Used: Rs.${liveBill.advanceUsed.toFixed(2)}`, 130, y - 5)
+      if (bill.advanceUsed > 0) {
+        text(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, 130, y - 5)
       }
       y += 5
     }
@@ -1336,7 +1357,14 @@ const Billing = () => {
       addFooter(p, totalPages)
     }
 
-    doc.save(`${liveBill.id || 'invoice'}.pdf`)
+    return doc
+  }
+
+  const downloadBillPDF = async () => {
+    const doc = await generateBillPDFDoc(liveBill)
+    if (doc) {
+      doc.save(`${liveBill.id || 'invoice'}.pdf`)
+    }
   }
 
   return (
