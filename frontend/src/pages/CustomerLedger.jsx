@@ -195,14 +195,15 @@ const CustomerLedger = () => {
       const isReturn = adv.isReturn || adv.amount < 0
       const amt = Number(adv.amount)
       entries.push({
-        type: 'advance',
+        type: isReturn ? 'advance_return' : 'advance',
         date: adv.date,
         id: adv.id,
         description: isReturn ? `Advance Return` : `Advance Deposit`,
         subtext: `Ref: ${adv.id} · Cash ₹${Number(Math.abs(adv.cashAmount || 0)).toFixed(2)} · UPI ₹${Number(Math.abs(adv.upiAmount || 0)).toFixed(2)}${adv.notes ? ` · ${adv.notes}` : ''}`,
-        debit: isReturn ? Math.abs(amt) : 0,
+        debit: 0,
         credit: 0,
         advanceIn: isReturn ? 0 : amt,
+        advanceReturn: isReturn ? Math.abs(amt) : 0,
       })
     })
 
@@ -226,7 +227,7 @@ const CustomerLedger = () => {
     let runningBalance = openingBalance
     const mapped = entries.map((entry) => {
       // Bank statement style: payments/advances increase credit balance (+), billing/charges subtract from credit (-)
-      runningBalance += (entry.credit || 0) + (entry.advanceIn || 0) - (entry.debit || 0)
+      runningBalance += (entry.credit || 0) + (entry.advanceIn || 0) - (entry.debit || 0) - (entry.advanceReturn || 0)
       return { ...entry, balance: runningBalance }
     })
 
@@ -268,7 +269,8 @@ const CustomerLedger = () => {
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
   const totalPaid = customerPayments.reduce((s, p) => s + Number(p.totalPaid || 0) + Number(p.excessCredit || 0), 0)
-  const totalAdvanceIn = customerAdvances.reduce((s, a) => s + Number(a.amount || 0), 0)
+  const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => a.amount > 0 || !a.isReturn).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
+  const totalAdvanceReturned = useMemo(() => customerAdvances.filter(a => a.amount < 0 || a.isReturn).reduce((s, a) => s + Math.abs(Number(a.amount || 0)), 0), [customerAdvances])
   const totalAdvanceUsed = customerBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
   const totalDiscount = customerBills.reduce((s, b) => s + Number(b.discountValue || 0), 0)
   const totalGstBilled = customerBills.reduce((s, b) => s + Number(b.gstAmount || 0), 0)
@@ -276,6 +278,7 @@ const CustomerLedger = () => {
   const finalBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0
   const totalDebits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.debit || 0), 0), [ledgerEntries])
   const totalCredits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.credit || 0) + (e.advanceIn || 0), 0), [ledgerEntries])
+  const periodAdvanceReturned = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.advanceReturn || 0), 0), [ledgerEntries])
 
   // Loyalty points summary
   const totalLoyaltyEarned = useMemo(
@@ -305,15 +308,16 @@ const CustomerLedger = () => {
       ['Date', 'Type', 'Description', 'Debit (Rs)', 'Credit (Rs)', 'Balance (Rs)'],
       ...ledgerEntries.map((e) => [
         e.date ? e.date.slice(0, 10) : '',
-        e.type === 'bill' ? 'Invoice' : e.type === 'advance' ? 'Advance' : e.type === 'refund' ? 'Refund' : 'Payment',
+        e.type === 'bill' ? 'Invoice' : e.type === 'advance' ? 'Advance Deposit' : e.type === 'advance_return' ? 'Advance Return' : e.type === 'refund' ? 'Refund' : 'Payment',
         e.description,
         e.debit > 0 ? e.debit.toFixed(2) : '',
-        e.credit > 0 ? e.credit.toFixed(2) : (e.advanceIn > 0 ? e.advanceIn.toFixed(2) : ''),
+        e.credit > 0 ? e.credit.toFixed(2) : (e.advanceIn > 0 ? e.advanceIn.toFixed(2) : (e.advanceReturn > 0 ? `-${e.advanceReturn.toFixed(2)}` : '')),
         e.balance.toFixed(2),
       ]),
       ['', '', '', '', '', ''],
       ['', '', 'TOTAL DEBITS', totalDebits.toFixed(2), '', ''],
       ['', '', 'TOTAL CREDITS', '', totalCredits.toFixed(2), ''],
+      ['', '', 'TOTAL ADVANCE RETURNS', '', `-${periodAdvanceReturned.toFixed(2)}`, ''],
       ['', '', 'FINAL BALANCE', '', '', finalBalance.toFixed(2)],
     ]
     const BOM = '\uFEFF'
@@ -375,6 +379,7 @@ const CustomerLedger = () => {
     const sumItems = [
       ['Total Debits', `Rs.${totalDebits.toFixed(2)}`],
       ['Total Credits', `Rs.${totalCredits.toFixed(2)}`],
+      ['Adv Returned', `Rs.${periodAdvanceReturned.toFixed(2)}`],
       ['Final Balance', `Rs.${finalBalance.toFixed(2)}`],
     ]
     const colW = (W - MARGIN * 2) / sumItems.length
@@ -412,9 +417,9 @@ const CustomerLedger = () => {
     doc.setFontSize(8)
     ledgerEntries.forEach((entry) => {
       checkPage(7)
-      const typeLabel = entry.type === 'bill' ? 'Invoice' : entry.type === 'advance' ? 'Advance' : entry.type === 'refund' ? 'Refund' : 'Payment'
+      const typeLabel = entry.type === 'bill' ? 'Invoice' : entry.type === 'advance' ? 'Advance' : entry.type === 'advance_return' ? 'Adv Return' : entry.type === 'refund' ? 'Refund' : 'Payment'
       const debitStr = entry.debit > 0 ? `Rs.${entry.debit.toFixed(2)}` : '-'
-      const creditStr = entry.credit > 0 ? `Rs.${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `Rs.${entry.advanceIn.toFixed(2)}` : '-'
+      const creditStr = entry.credit > 0 ? `Rs.${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `Rs.${entry.advanceIn.toFixed(2)}` : entry.advanceReturn > 0 ? `-Rs.${entry.advanceReturn.toFixed(2)}` : '-'
       const balStr = entry.balance < 0 ? `-Rs.${Math.abs(entry.balance).toFixed(2)}` : `Rs.${entry.balance.toFixed(2)}`
       doc.text(new Date(entry.date).toLocaleDateString(), cols.date, y)
       doc.text(typeLabel, cols.type, y)
@@ -432,7 +437,7 @@ const CustomerLedger = () => {
       doc.text(shortDesc, cols.desc, y)
       doc.setTextColor(entry.debit > 0 ? 239 : 0, entry.debit > 0 ? 68 : 0, entry.debit > 0 ? 68 : 0)
       doc.text(debitStr, cols.debit, y)
-      doc.setTextColor((entry.credit > 0 || entry.advanceIn > 0) ? 16 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 185 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 129 : 0)
+      doc.setTextColor((entry.credit > 0 || entry.advanceIn > 0) ? 16 : entry.advanceReturn > 0 ? 245 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 185 : entry.advanceReturn > 0 ? 158 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 129 : entry.advanceReturn > 0 ? 11 : 0)
       doc.text(creditStr, cols.credit, y)
       if (entry.balance >= 0) {
         doc.setTextColor(16, 185, 129)
@@ -489,6 +494,7 @@ const CustomerLedger = () => {
       `*Total Paid (Credits):* ₹${totalCredits.toFixed(2)}%0A` +
       `*Final Balance:* *₹${finalBalance.toFixed(2)}*%0A` +
       `*Advance Deposited:* ₹${totalAdvanceIn.toFixed(2)}%0A` +
+      `*Advance Returned:* ₹${totalAdvanceReturned.toFixed(2)}%0A` +
       `*Advance Used:* ₹${totalAdvanceUsed.toFixed(2)}%0A` +
       `*Outstanding Balance:* *₹${outstanding.toFixed(2)}*%0A` +
       `------------------------%0A` +
@@ -503,13 +509,15 @@ const CustomerLedger = () => {
   const typeColor = (type) => {
     if (type === 'bill') return 'var(--error)'
     if (type === 'advance') return 'var(--info)'
+    if (type === 'advance_return') return 'var(--warning)'
     if (type === 'opening_balance') return 'var(--text-secondary)'
     if (type === 'refund') return 'var(--warning)'
     return 'var(--success)'
   }
   const typeLabel = (type) => {
     if (type === 'bill') return 'Invoice'
-    if (type === 'advance') return 'Advance'
+    if (type === 'advance') return 'Advance Deposit'
+    if (type === 'advance_return') return 'Advance Return'
     if (type === 'opening_balance') return 'Opening'
     if (type === 'refund') return 'Refund'
     return 'Payment'
@@ -610,6 +618,7 @@ const CustomerLedger = () => {
                 { label: 'Total GST Charged', value: totalGstBilled, color: '#818cf8' },
                 { label: 'Total Discounts Given', value: totalDiscount, color: 'var(--accent)' },
                 { label: 'Advance Deposited', value: totalAdvanceIn, color: 'var(--info)' },
+                { label: 'Advance Returned', value: totalAdvanceReturned, color: 'var(--warning)' },
                 { label: 'Advance Used in Bills', value: totalAdvanceUsed, color: 'var(--info)' },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
@@ -860,21 +869,41 @@ const CustomerLedger = () => {
                       <td style={{ textAlign: 'right', color: entry.debit > 0 ? 'var(--error)' : 'var(--text-muted)' }}>
                         {entry.debit > 0 ? `₹${entry.debit.toFixed(2)}` : '—'}
                       </td>
-                      <td style={{ textAlign: 'right', color: (entry.credit > 0 || entry.advanceIn > 0) ? 'var(--success)' : 'var(--text-muted)' }}>
-                        {entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `₹${entry.advanceIn.toFixed(2)}` : '—'}
+                      <td style={{ textAlign: 'right', color: (entry.credit > 0 || entry.advanceIn > 0) ? 'var(--success)' : entry.advanceReturn > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                        {entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `₹${entry.advanceIn.toFixed(2)}` : entry.advanceReturn > 0 ? `-₹${entry.advanceReturn.toFixed(2)}` : '—'}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: entry.balance >= 0 ? 'var(--success)' : 'var(--error)' }}>
                         {entry.balance < 0 ? `-₹${Math.abs(entry.balance).toFixed(2)}` : entry.balance > 0 ? `+₹${entry.balance.toFixed(2)}` : `₹${entry.balance.toFixed(2)}`}
                       </td>
                     </tr>
                   ))}
-                  <tr style={{ borderTop: '2px solid var(--border-light)', fontWeight: 700, background: 'var(--bg-elevated)' }}>
-                    <td colSpan={3}>TOTAL</td>
+                  <tr style={{ borderTop: '2px solid var(--border-light)', fontWeight: 600, background: 'var(--bg-elevated)', fontSize: '0.85rem' }}>
+                    <td colSpan={3} style={{ color: 'var(--text-secondary)' }}>TOTAL DEBITS (Invoices & Charges)</td>
                     <td style={{ textAlign: 'right', color: 'var(--error)' }}>₹{totalDebits.toFixed(2)}</td>
+                    <td></td>
+                    <td></td>
+                  </tr>
+                  <tr style={{ fontWeight: 600, background: 'var(--bg-elevated)', fontSize: '0.85rem' }}>
+                    <td colSpan={3} style={{ color: 'var(--text-secondary)' }}>TOTAL CREDITS (Payments & Deposits)</td>
+                    <td></td>
                     <td style={{ textAlign: 'right', color: 'var(--success)' }}>₹{totalCredits.toFixed(2)}</td>
+                    <td></td>
+                  </tr>
+                  {periodAdvanceReturned > 0 && (
+                    <tr style={{ fontWeight: 600, background: 'var(--bg-elevated)', fontSize: '0.85rem' }}>
+                      <td colSpan={3} style={{ color: 'var(--text-secondary)' }}>TOTAL ADVANCE RETURNS</td>
+                      <td></td>
+                      <td style={{ textAlign: 'right', color: 'var(--warning)' }}>-₹{periodAdvanceReturned.toFixed(2)}</td>
+                      <td></td>
+                    </tr>
+                  )}
+                  <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--bg-elevated)' }}>
+                    <td colSpan={3}>FINAL BALANCE</td>
+                    <td></td>
+                    <td></td>
                     <td style={{ 
                       textAlign: 'right', 
-                      color: finalBalance >= 0 ? 'var(--info)' : 'var(--warning)',
+                      color: finalBalance >= 0 ? 'var(--success)' : 'var(--error)',
                       fontWeight: 700
                     }}>
                       {finalBalance < 0 ? `-₹${Math.abs(finalBalance).toFixed(2)}` : finalBalance > 0 ? `+₹${finalBalance.toFixed(2)}` : `₹${finalBalance.toFixed(2)}`}

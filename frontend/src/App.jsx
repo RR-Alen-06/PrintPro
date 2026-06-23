@@ -27,6 +27,18 @@ import Refunds from './pages/Refunds'
 function App() {
   const { currentUser } = useAppContext()
 
+  React.useEffect(() => {
+    const handleWheel = (e) => {
+      if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'number') {
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      document.removeEventListener('wheel', handleWheel)
+    }
+  }, [])
+
   // Check if we are handling OAuth redirect callback
   const isAuthCallback = window.location.pathname === '/auth/callback'
 
