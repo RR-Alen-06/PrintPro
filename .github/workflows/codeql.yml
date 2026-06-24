@@ -1,0 +1,50 @@
+# =============================================================================
+# PrintPro – CodeQL Analysis
+# GitHub's native static analysis engine. Runs on push/PR to main and weekly.
+# Results are visible in the GitHub Security → Code Scanning tab.
+# =============================================================================
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 0"  # Every Sunday 03:00 UTC
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: CodeQL · JavaScript
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript]  # JS covers JSX and Node.js
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the security-extended query suite for broader coverage
+          queries: security-extended
+
+      # Let CodeQL auto-build (works fine for JS/TS)
+      - name: Auto-build
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -1,0 +1,35 @@
+# =============================================================================
+# PrintPro – Labeler Configuration
+# Used by pr-checks.yml → actions/labeler to auto-label PRs by changed files.
+# =============================================================================
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: ["frontend/**"]
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file: ["backend/**"]
+
+ci/cd:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**"]
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["*.md", "docs/**"]
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/package.json"
+          - "**/package-lock.json"
+          - ".github/dependabot.yml"
+
+configuration:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.config.*"
+          - "**/*.config.*"
+          - ".env.example"
+          - "vercel.json"

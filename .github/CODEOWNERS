@@ -1,0 +1,21 @@
+# Code Owners
+# GitHub will automatically request review from these owners when a PR
+# touches files in their area.
+# Syntax: <pattern>  <@github-username or @org/team>
+# Replace @your-github-username with your actual GitHub username.
+
+# Global fallback – everything requires owner review
+*                           @your-github-username
+
+# Frontend
+frontend/                   @your-github-username
+
+# Backend
+backend/                    @your-github-username
+
+# CI/CD – only the owner can change pipelines
+.github/                    @your-github-username
+
+# Root config files
+package.json                @your-github-username
+vercel.json                 @your-github-username

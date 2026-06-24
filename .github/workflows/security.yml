@@ -1,0 +1,176 @@
+# =============================================================================
+# PrintPro – Security Audit
+# Runs automatically every Monday at 08:00 UTC and can be triggered manually.
+# Checks for vulnerable deps (npm audit), secret leaks (gitleaks), and
+# generates a SARIF report for GitHub Security tab.
+# =============================================================================
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # Every Monday 08:00 UTC
+  workflow_dispatch:        # Allow manual trigger from GitHub UI
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Dependency vulnerability scan – Backend
+  # ---------------------------------------------------------------------------
+  dep-audit-backend:
+    name: Dep Audit · Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci --prefer-offline
+        working-directory: backend
+
+      - name: npm audit (backend)
+        run: npm audit --audit-level=moderate --json > audit-backend.json || true
+        working-directory: backend
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-backend-${{ github.run_id }}
+          path: backend/audit-backend.json
+          retention-days: 30
+
+      - name: Fail on high/critical vulnerabilities
+        run: npm audit --audit-level=high
+        working-directory: backend
+
+  # ---------------------------------------------------------------------------
+  # 2. Dependency vulnerability scan – Frontend
+  # ---------------------------------------------------------------------------
+  dep-audit-frontend:
+    name: Dep Audit · Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --prefer-offline
+        working-directory: frontend
+
+      - name: npm audit (frontend)
+        run: npm audit --audit-level=moderate --json > audit-frontend.json || true
+        working-directory: frontend
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-frontend-${{ github.run_id }}
+          path: frontend/audit-frontend.json
+          retention-days: 30
+
+      - name: Fail on high/critical vulnerabilities
+        run: npm audit --audit-level=high
+        working-directory: frontend
+
+  # ---------------------------------------------------------------------------
+  # 3. Secret / credential leak detection (Gitleaks)
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for gitleaks
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # only needed for org repos
+
+  # ---------------------------------------------------------------------------
+  # 4. ESLint Security Plugin – Backend SARIF
+  # ---------------------------------------------------------------------------
+  eslint-security-backend:
+    name: ESLint Security · Backend
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci --prefer-offline
+        working-directory: backend
+
+      - name: Install SARIF formatter
+        run: npm install --save-dev @microsoft/eslint-formatter-sarif
+        working-directory: backend
+
+      - name: Run ESLint (SARIF output)
+        run: |
+          npx eslint . \
+            --format @microsoft/eslint-formatter-sarif \
+            --output-file eslint-backend.sarif || true
+        working-directory: backend
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: backend/eslint-backend.sarif
+          category: eslint-backend
+
+  # ---------------------------------------------------------------------------
+  # 5. ESLint Security Plugin – Frontend SARIF
+  # ---------------------------------------------------------------------------
+  eslint-security-frontend:
+    name: ESLint Security · Frontend
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --prefer-offline
+        working-directory: frontend
+
+      - name: Install SARIF formatter
+        run: npm install --save-dev @microsoft/eslint-formatter-sarif
+        working-directory: frontend
+
+      - name: Run ESLint (SARIF output)
+        run: |
+          npx eslint . \
+            --format @microsoft/eslint-formatter-sarif \
+            --output-file eslint-frontend.sarif || true
+        working-directory: frontend
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: frontend/eslint-frontend.sarif
+          category: eslint-frontend
