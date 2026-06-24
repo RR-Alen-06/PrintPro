@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Edit2, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, Edit2, CheckCircle, Clock } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import EmptyState from '../components/common/EmptyState'
 
 const RecurringBills = () => {
   const { customers, recurringBills, addRecurringBill, deleteRecurringBill } = useAppContext()
@@ -187,9 +188,16 @@ const RecurringBills = () => {
         <h2>Recurring Bills ({recurringBills.filter((b) => b.active).length} Active)</h2>
 
         {recurringBills.length === 0 ? (
-          <p className="text-muted" style={{ marginTop: '16px' }}>
-            No recurring bills set up yet. Create one to get started.
-          </p>
+          <EmptyState
+            Icon={Clock}
+            title="No recurring bills"
+            description="No recurring billing profiles have been configured yet."
+            actionText="Set Up Recurring Bill"
+            onAction={() => {
+              setShowForm(true)
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          />
         ) : (
           <div className="table-container" style={{ marginTop: '16px' }}>
             <table className="table">

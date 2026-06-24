@@ -18,9 +18,10 @@ router.get('/', async (req, res, next) => {
     const [overdue] = await pool.query(
       `SELECT b.id, b.due_date, b.balance, c.name AS customer_name
        FROM bills b
-       LEFT JOIN customers c ON b.customer_id = c.id
-       WHERE b.status != 'paid' AND b.due_date < CURDATE() AND b.deleted_at IS NULL
-       ORDER BY b.due_date ASC LIMIT 20`
+       LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.user_id = ? AND b.status != 'paid' AND b.due_date < CURDATE() AND b.deleted_at IS NULL
+       ORDER BY b.due_date ASC LIMIT 20`,
+      [req.user.id]
     );
 
     overdue.forEach((bill) => {
@@ -37,7 +38,8 @@ router.get('/', async (req, res, next) => {
     // Low stock items
     const [lowStock] = await pool.query(
       `SELECT name, stock, low_stock_alert FROM inventory_items
-       WHERE stock <= low_stock_alert ORDER BY stock ASC`
+       WHERE user_id = ? AND stock <= low_stock_alert ORDER BY stock ASC`,
+      [req.user.id]
     );
 
     lowStock.forEach((item) => {

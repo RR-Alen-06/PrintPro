@@ -58,7 +58,7 @@ const PeriodReport = () => {
     const periodPayments = payments.filter(p => p.date && p.date.startsWith(periodKey))
     const periodAdvances = (advancePayments || []).filter(ap => ap.date && ap.date.startsWith(periodKey))
     const periodExpenses = (expenses || []).filter(e => e.date && e.date.startsWith(periodKey))
-    const periodBills = bills.filter(b => !b.deleted && b.date && b.date.startsWith(periodKey))
+    const periodBills = bills.filter(b => !b.deleted && !b.isGroupParent && b.date && b.date.startsWith(periodKey))
 
     const revenue = periodPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
     const cashRevenue = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)

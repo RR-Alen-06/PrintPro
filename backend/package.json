@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "audit-check": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -22,6 +25,8 @@
     "xss": "^1.0.15"
   },
   "devDependencies": {
+    "eslint": "^10.5.0",
+    "eslint-plugin-security": "^4.0.1",
     "nodemon": "^3.1.9"
   }
 }

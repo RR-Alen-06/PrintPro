@@ -21,9 +21,23 @@ import Analytics from './pages/Analytics'
 import AdvancePayments from './pages/AdvancePayments'
 import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
+import GroupBilling from './pages/GroupBilling'
+import Refunds from './pages/Refunds'
 
 function App() {
   const { currentUser } = useAppContext()
+
+  React.useEffect(() => {
+    const handleWheel = (e) => {
+      if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'number') {
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      document.removeEventListener('wheel', handleWheel)
+    }
+  }, [])
 
   // Check if we are handling OAuth redirect callback
   const isAuthCallback = window.location.pathname === '/auth/callback'
@@ -64,6 +78,8 @@ function App() {
             <Route path="/recurring-bills" element={<RecurringBills />} />
             <Route path="/advance-payments" element={<AdvancePayments />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/group-billing" element={<GroupBilling />} />
+            <Route path="/refunds" element={<Refunds />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
