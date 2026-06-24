@@ -1674,42 +1674,27 @@ const GroupBillsHistory = () => {
                           }}>{b.status.toUpperCase()}</span>
                         </td>
                         <td style={{ padding: '7px 10px' }}>
-  ) : (
-    <button
-      type="button"
-      className="btn btn-primary btn-sm"
-      onClick={() => {
-        const amount = b.total; // pay full amount for member
-        dispatch({
-          type: 'PAY_GROUP_MEMBER',
-          payload: {
-            groupBillId: grp.id,
-            memberId: b.memberId || b.id, // fallback
-            paymentAmount: amount,
-          },
-        });
-      }}
-    >Pay</button>
-  )}
-</td>
-                          <td style={{ padding: '7px 10px' }}>
+                          {b.status === 'paid' ? (
+                            <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                              PAID
+                            </span>
+                          ) : (
                             <button
                               type="button"
                               className="btn btn-primary btn-sm"
                               onClick={() => {
-                                const amount = b.total; // pay full amount for member
                                 dispatch({
                                   type: 'PAY_GROUP_MEMBER',
                                   payload: {
                                     groupBillId: grp.id,
-                                    memberId: b.memberId || b.id, // fallback
-                                    paymentAmount: amount,
+                                    memberId: b.memberId || b.id,
+                                    paymentAmount: b.total,
                                   },
                                 });
                               }}
                             >Pay</button>
-                          </td>
-                        )}
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
