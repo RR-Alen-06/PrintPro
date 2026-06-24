@@ -265,7 +265,7 @@ const MemberCard = ({ member, idx, customers, inventory, onChange, onRemove, set
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {customers.filter((c) => !c.deleted).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
             </select>
             <button
               type="button"
@@ -1270,7 +1270,7 @@ const GroupBilling = () => {
                       <select className="form-input" style={{ flex: 1, fontSize: '13px' }} value={m.customerId}
                         onChange={(e) => updateSplitMember(m.id, { customerId: e.target.value })}>
                         <option value="">— Select Customer —</option>
-                        {activeCustomers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
                       </select>
                       <button
                         type="button"
@@ -1611,7 +1611,7 @@ const GroupBilling = () => {
 
 // ── Group Bills History List ───────────────────────────────────────────────────
 const GroupBillsHistory = () => {
-  const { groupBills = [], bills, customers } = useAppContext()
+  const { groupBills = [], bills, customers, dispatch } = useAppContext()
   const [expanded, setExpanded] = useState(null)
 
   if (!groupBills.length) {
@@ -1653,7 +1653,7 @@ const GroupBillsHistory = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      {['Bill ID', 'Customer', 'Total', 'Paid', 'Balance', 'Status'].map((h) => (
+                      {['Bill ID', 'Customer', 'Total', 'Paid', 'Balance', 'Status', 'Action'].map((h) => (
                         <th key={h} style={{ padding: '7px 10px', textAlign: 'left', color: '#71717a', fontWeight: 600 }}>{h}</th>
                       ))}
                     </tr>
@@ -1673,6 +1673,43 @@ const GroupBillsHistory = () => {
                             color: b.status === 'paid' ? '#10b981' : b.status === 'partial' ? '#f59e0b' : '#ef4444',
                           }}>{b.status.toUpperCase()}</span>
                         </td>
+                        <td style={{ padding: '7px 10px' }}>
+  ) : (
+    <button
+      type="button"
+      className="btn btn-primary btn-sm"
+      onClick={() => {
+        const amount = b.total; // pay full amount for member
+        dispatch({
+          type: 'PAY_GROUP_MEMBER',
+          payload: {
+            groupBillId: grp.id,
+            memberId: b.memberId || b.id, // fallback
+            paymentAmount: amount,
+          },
+        });
+      }}
+    >Pay</button>
+  )}
+</td>
+                          <td style={{ padding: '7px 10px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              onClick={() => {
+                                const amount = b.total; // pay full amount for member
+                                dispatch({
+                                  type: 'PAY_GROUP_MEMBER',
+                                  payload: {
+                                    groupBillId: grp.id,
+                                    memberId: b.memberId || b.id, // fallback
+                                    paymentAmount: amount,
+                                  },
+                                });
+                              }}
+                            >Pay</button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

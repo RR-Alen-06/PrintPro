@@ -451,6 +451,52 @@ const baseReducer = (state, action) => {
         groupBills: [action.payload, ...state.groupBills],
       }
     }
+    // ── Pay for a specific member in a group bill ───────────────────────────────
+    case 'PAY_GROUP_MEMBER': {
+      const { groupBillId, memberId, paymentAmount } = action.payload;
+      // Update the specific member within the group bill
+      const updatedGroupBills = state.groupBills.map((gb) => {
+        if (gb.id !== groupBillId) return gb;
+        const updatedMembers = gb.members.map((m) => {
+          if (m.id !== memberId) return m;
+          const newStatus = paymentAmount >= m.total ? 'paid' : 'partial';
+          return { ...m, amountPaid: paymentAmount, status: newStatus };
+        });
+        return { ...gb, members: updatedMembers };
+      });
+      // Update customer balances (simplified: add credit if excess, reduce advance if used)
+      const targetMember = state.groupBills
+        .find((gb) => gb.id === groupBillId)
+        ?.members.find((m) => m.id === memberId);
+      if (!targetMember) return state;
+      const customerId = targetMember.customerId;
+      const updatedCustomers = state.customers.map((c) => {
+        if (c.id !== customerId) return c;
+        // If member used advance, deduct it
+        let newAdvance = Number(c.advanceBalance || c.creditBalance || 0);
+        if (targetMember.useAdvance) {
+          newAdvance = Math.max(0, newAdvance - paymentAmount);
+        }
+        return { ...c, advanceBalance: newAdvance, creditBalance: newAdvance };
+      });
+      // Record a payment entry for audit purposes
+      const paymentRecord = {
+        id: generateId('PAY'),
+        groupBillId,
+        memberId,
+        customerId,
+        date: new Date().toISOString(),
+        totalPaid: paymentAmount,
+        paymentMethod: { cash: paymentAmount, upi: 0 },
+        notes: `Payment for group bill ${groupBillId} member ${memberId}`,
+      };
+      return {
+        ...state,
+        groupBills: updatedGroupBills,
+        customers: updatedCustomers,
+        payments: [...state.payments, paymentRecord],
+      };
+    }
     case 'UPDATE_GROUP_BILL': {
       return {
         ...state,
