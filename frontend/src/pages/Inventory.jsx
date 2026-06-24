@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Plus, Pencil, Trash2, Check, X, AlertCircle } from 'lucide-react'
+import EmptyState from '../components/common/EmptyState'
+import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
 
 const EMPTY_FORM = { name: '', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '' }
 
@@ -208,8 +209,17 @@ const Inventory = () => {
             <tbody>
               {visibleInventory.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
-                    No items yet. Click "Add Item" to create one.
+                  <td colSpan={6} style={{ padding: '0' }}>
+                    <EmptyState
+                      Icon={Inbox}
+                      title="No items in inventory"
+                      description="You haven't configured any paper or pricing configurations yet."
+                      actionText="Create Pricing Profile"
+                      onAction={() => {
+                        setShowAddForm(true)
+                        window.scrollTo({ top: 0, behavior: 'smooth' })
+                      }}
+                    />
                   </td>
                 </tr>
               )}

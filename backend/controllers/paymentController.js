@@ -7,14 +7,14 @@ async function getPaymentsForBill(req, res, next) {
     const pool = getPool();
     const billId = req.params.billId || req.params.id;
 
-    const [bill] = await pool.query('SELECT id FROM bills WHERE id = ?', [billId]);
+    const [bill] = await pool.query('SELECT id FROM bills WHERE id = ? AND user_id = ?', [billId, req.user.id]);
     if (bill.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const [payments] = await pool.query(
-      'SELECT * FROM payments WHERE bill_id = ? ORDER BY date ASC',
-      [billId]
+      'SELECT * FROM payments WHERE bill_id = ? AND user_id = ? ORDER BY date ASC',
+      [billId, req.user.id]
     );
 
     res.json({ success: true, data: payments });
@@ -46,8 +46,6 @@ async function recordPayment(req, res, next) {
     const totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
 
     if (totalPaid <= 0) {
-      await conn.rollback();
-      conn.release();
       return res.status(400).json({ success: false, error: 'Payment amount must be greater than zero' });
     }
 
@@ -55,29 +53,31 @@ async function recordPayment(req, res, next) {
     let customerId = customer_id;
     if (!customerId && bill_id) {
       const [billRows] = await conn.query(
-        'SELECT customer_id FROM bills WHERE id = ? AND deleted_at IS NULL',
-        [bill_id]
+        'SELECT customer_id FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
+        [bill_id, req.user.id]
       );
       if (billRows.length === 0) {
-        await conn.rollback();
-        conn.release();
         return res.status(404).json({ success: false, error: 'Bill not found' });
       }
       customerId = billRows[0].customer_id;
     }
 
     if (!customerId) {
-      await conn.rollback();
-      conn.release();
       return res.status(400).json({ success: false, error: 'customer_id or bill_id is required' });
+    }
+
+    // Verify customer belongs to the user
+    const [custRows] = await conn.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    if (custRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     // ── FIFO: get all unpaid/partial bills for this customer, oldest first ────
     const [unpaidBills] = await conn.query(
       `SELECT * FROM bills
-       WHERE customer_id = ? AND deleted_at IS NULL AND status != 'paid'
+       WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL AND status != 'paid'
        ORDER BY date ASC, id ASC`,
-      [customerId]
+      [customerId, req.user.id]
     );
 
     let remainingCash = cashAmt;
@@ -111,22 +111,22 @@ async function recordPayment(req, res, next) {
 
       // Insert payment record for this bill
       const [payResult] = await conn.query(
-        `INSERT INTO payments (bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment']
+        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.id, bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment']
       );
 
       // Update the bill
       await conn.query(
-        'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ?',
-        [newAmountPaid, newBalance, newStatus, bill.id]
+        'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?',
+        [newAmountPaid, newBalance, newStatus, bill.id, req.user.id]
       );
 
       // Audit log
       await conn.query(
-        `INSERT INTO audit_log (action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
         [
-          'PAYMENT', 'payment', String(payResult.insertId),
+          req.user.id, 'PAYMENT', 'payment', String(payResult.insertId),
           JSON.stringify({ bill_id: bill.id, old_balance: outstanding, old_status: bill.status }),
           JSON.stringify({ applied: applyTotal, new_balance: newBalance, new_status: newStatus })
         ]
@@ -141,17 +141,17 @@ async function recordPayment(req, res, next) {
     const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
     if (excess > 0) {
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ?',
-        [excess, customerId]
+        'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND user_id = ?',
+        [excess, customerId, req.user.id]
       );
 
       // Record excess as a payment entry (no specific bill)
       if (paymentRecords.length === 0 && bill_id) {
         // If no unpaid bills were found but a bill_id was given, still record it
         const [pr] = await conn.query(
-          `INSERT INTO payments (bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
-           VALUES (?, ?, ?, ?, ?, 'full', ?)`,
-          [bill_id, customerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit']
+          `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
+           VALUES (?, ?, ?, ?, ?, ?, 'full', ?)`,
+          [req.user.id, bill_id, customerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit']
         );
         paymentRecords.push({ paymentId: pr.insertId, billId: bill_id, applied: excess, excess });
       }
@@ -160,7 +160,6 @@ async function recordPayment(req, res, next) {
     }
 
     await conn.commit();
-    conn.release();
 
     res.status(201).json({
       success: true,
@@ -172,8 +171,9 @@ async function recordPayment(req, res, next) {
     });
   } catch (err) {
     await conn.rollback();
-    conn.release();
     next(err);
+  } finally {
+    conn.release();
   }
 }
 
@@ -183,7 +183,7 @@ async function getPaymentsByCustomer(req, res, next) {
     const pool = getPool();
     const { customerId } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ?', [customerId]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -191,10 +191,10 @@ async function getPaymentsByCustomer(req, res, next) {
     const [payments] = await pool.query(
       `SELECT p.*, b.total AS bill_total, b.status AS bill_status
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id = b.id
-       WHERE p.customer_id = ?
+       LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+       WHERE p.customer_id = ? AND p.user_id = ?
        ORDER BY p.date DESC`,
-      [customerId]
+      [customerId, req.user.id]
     );
 
     res.json({ success: true, data: payments });

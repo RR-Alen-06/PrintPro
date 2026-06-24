@@ -10,9 +10,9 @@ router.get('/daily', async (req, res, next) => {
 
     const [bills] = await pool.query(
       `SELECT b.*, c.name AS customer_name FROM bills b
-       LEFT JOIN customers c ON b.customer_id = c.id
-       WHERE b.date = ? AND b.deleted_at IS NULL ORDER BY b.created_at DESC`,
-      [date]
+       LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.user_id = ? AND b.date = ? AND b.deleted_at IS NULL ORDER BY b.created_at DESC`,
+      [req.user.id, date]
     );
 
     const totalBilled = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
@@ -34,9 +34,9 @@ router.get('/monthly', async (req, res, next) => {
 
     const [bills] = await pool.query(
       `SELECT b.*, c.name AS customer_name FROM bills b
-       LEFT JOIN customers c ON b.customer_id = c.id
-       WHERE DATE_FORMAT(b.date,'%Y-%m') = ? AND b.deleted_at IS NULL ORDER BY b.date DESC`,
-      [`${year}-${pad}`]
+       LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.user_id = ? AND DATE_FORMAT(b.date,'%Y-%m') = ? AND b.deleted_at IS NULL ORDER BY b.date DESC`,
+      [req.user.id, `${year}-${pad}`]
     );
 
     const totalBilled = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
@@ -57,15 +57,15 @@ router.get('/yearly', async (req, res, next) => {
               COUNT(*) AS bill_count,
               SUM(total) AS total_billed,
               SUM(amount_paid) AS total_paid
-       FROM bills WHERE YEAR(date) = ? AND deleted_at IS NULL
+       FROM bills WHERE user_id = ? AND YEAR(date) = ? AND deleted_at IS NULL
        GROUP BY month ORDER BY month ASC`,
-      [year]
+      [req.user.id, year]
     );
 
     const [totals] = await pool.query(
       `SELECT COUNT(*) AS bill_count, SUM(total) AS total_billed, SUM(amount_paid) AS total_paid
-       FROM bills WHERE YEAR(date) = ? AND deleted_at IS NULL`,
-      [year]
+       FROM bills WHERE user_id = ? AND YEAR(date) = ? AND deleted_at IS NULL`,
+      [req.user.id, year]
     );
 
     res.json({ success: true, data: { year, monthly, summary: totals[0] } });
@@ -80,9 +80,10 @@ router.get('/receivables', async (req, res, next) => {
       `SELECT b.id, b.date, b.due_date, b.total, b.amount_paid, b.balance, b.status,
               c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone
        FROM bills b
-       LEFT JOIN customers c ON b.customer_id = c.id
-       WHERE b.status != 'paid' AND b.deleted_at IS NULL
-       ORDER BY b.balance DESC`
+       LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.user_id = ? AND b.status != 'paid' AND b.deleted_at IS NULL
+       ORDER BY b.balance DESC`,
+      [req.user.id]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -105,9 +106,11 @@ router.get('/top-customers', async (req, res, next) => {
       `SELECT c.id, c.name, COUNT(b.id) AS bill_count,
               SUM(b.total) AS total_billed, SUM(b.amount_paid) AS total_paid
        FROM customers c
-       LEFT JOIN bills b ON c.id = b.customer_id AND b.deleted_at IS NULL ${dateFilter}
+       LEFT JOIN bills b ON c.id = b.customer_id AND c.user_id = b.user_id AND b.deleted_at IS NULL ${dateFilter}
+       WHERE c.user_id = ?
        GROUP BY c.id, c.name
-       ORDER BY total_billed DESC LIMIT 10`
+       ORDER BY total_billed DESC LIMIT 10`,
+      [req.user.id]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -130,10 +133,11 @@ router.get('/best-items', async (req, res, next) => {
       `SELECT bi.item_name, bi.print_type, bi.sides,
               SUM(bi.qty) AS total_qty, SUM(bi.amount) AS total_revenue
        FROM bill_items bi
-       JOIN bills b ON bi.bill_id = b.id
-       WHERE b.deleted_at IS NULL ${dateFilter}
+       JOIN bills b ON bi.bill_id = b.id AND bi.user_id = b.user_id
+       WHERE b.user_id = ? AND b.deleted_at IS NULL ${dateFilter}
        GROUP BY bi.item_name, bi.print_type, bi.sides
-       ORDER BY total_revenue DESC LIMIT 10`
+       ORDER BY total_revenue DESC LIMIT 10`,
+      [req.user.id]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }

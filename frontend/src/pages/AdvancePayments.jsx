@@ -1,11 +1,24 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus } from 'lucide-react'
+import EmptyState from '../components/common/EmptyState'
+import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer } = useAppContext()
+  const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+
+  const getUpiLink = (amount, notesText = 'Advance Payment') => {
+    if (!business?.upiId || amount <= 0) return ''
+    const params = new URLSearchParams({
+      pa: business.upiId,
+      pn: business.shopName || 'PrintPro',
+      am: amount.toFixed(2),
+      cu: 'INR',
+      tn: notesText,
+    })
+    return `upi://pay?${params.toString()}`
+  }
 
   // ── Form state ────────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10)
@@ -24,6 +37,12 @@ const AdvancePayments = () => {
   const [notes, setNotes] = useState('')
   const [formError, setFormError] = useState('')
   const [successRef, setSuccessRef] = useState('')
+  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
+
+  const copyUpiLink = (link) => {
+    if (!link) return
+    navigator.clipboard.writeText(link)
+  }
 
   // ── Filter/search state ───────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
@@ -314,10 +333,49 @@ const AdvancePayments = () => {
                   step="0.01"
                   placeholder="0.00"
                   value={upiAmt}
-                  onChange={(e) => setUpiAmt(e.target.value)}
+                  onChange={(e) => {
+                    setUpiAmt(e.target.value)
+                    setUpiCheckoutAmount(0)
+                  }}
                 />
               </div>
             </div>
+            {actionType === 'receive' && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label">UPI Checkout</label>
+                <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setUpiCheckoutAmount(Number(upiAmt || 0))} style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Link2 size={14} /> Generate QR
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={!upiCheckoutAmount || !business?.upiId}
+                    onClick={() => copyUpiLink(getUpiLink(upiCheckoutAmount, 'Advance deposit'))}
+                    style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Copy size={14} /> Copy Link
+                  </button>
+                </div>
+                {business?.upiId ? (
+                  <>
+                    {upiCheckoutAmount > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, 'Advance deposit'))}`}
+                          alt="UPI QR Code"
+                          style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                          width={100} height={100}
+                        />
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to pay ₹{upiCheckoutAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+                )}
+              </div>
+            )}
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '12px', marginTop: '-8px' }}>
               Cash + UPI must equal total amount. Leave blank to auto-assign as cash.
             </p>
@@ -396,17 +454,18 @@ const AdvancePayments = () => {
           </div>
 
           {filteredHistory.length === 0 ? (
-            <div className="empty-state">
-              <Wallet />
-              <h4>No advance transactions</h4>
-              <p>{advancePayments.length === 0 ? 'Record your first advance payment using the form.' : 'No results match your filters.'}</p>
-            </div>
+            <EmptyState
+              Icon={Wallet}
+              title="No advance transactions"
+              description={advancePayments.length === 0 ? 'Record your first advance payment using the form.' : 'No transaction records match your filters.'}
+            />
           ) : (
             <div className="table-container">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Ref ID</th>
+                    <th>Type</th>
                     <th>Customer</th>
                     <th>Date</th>
                     <th>Amount</th>
@@ -420,6 +479,14 @@ const AdvancePayments = () => {
                     <tr key={ap.id}>
                       <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{ap.id}</td>
                       <td>
+                        {ap.isReturn
+                          ? <span className="badge badge-error" style={{ fontSize: '0.68rem', padding: '2px 7px' }}>Return</span>
+                          : ap.isAutoCredit
+                          ? <span className="badge badge-info" style={{ fontSize: '0.68rem', padding: '2px 7px' }}>Auto-Credit</span>
+                          : <span className="badge badge-paid" style={{ fontSize: '0.68rem', padding: '2px 7px' }}>Receive</span>
+                        }
+                      </td>
+                      <td>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{ap.customerName || ap.customerId}</div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ap.customerId}</div>
                       </td>
@@ -430,7 +497,6 @@ const AdvancePayments = () => {
                       <td>{ap.amount < 0 ? `-₹${Math.abs(ap.cashAmount || 0).toFixed(2)}` : `₹${Number(ap.cashAmount || 0).toFixed(2)}`}</td>
                       <td>{ap.amount < 0 ? `-₹${Math.abs(ap.upiAmount || 0).toFixed(2)}` : `₹${Number(ap.upiAmount || 0).toFixed(2)}`}</td>
                       <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {ap.isReturn && <span className="badge badge-error" style={{ fontSize: '0.65rem', marginRight: '6px', padding: '2px 6px' }}>RETURN</span>}
                         {ap.notes || '—'}
                       </td>
                     </tr>
