@@ -2,13 +2,13 @@ const { Pool } = require('pg');
 const logger = require('../utils/logger');
 
 // Validate PostgreSQL credentials in environment
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 if (!supabaseUrl) {
-  throw new Error('Database configuration error: Required environment variable "SUPABASE_URL" is missing.');
+  throw new Error('Database configuration error: Required environment variable "SUPABASE_URL" or "VITE_SUPABASE_URL" is missing.');
 }
 if (!supabaseAnonKey) {
-  throw new Error('Database configuration error: Required environment variable "SUPABASE_PUBLISHABLE_KEY" or "SUPABASE_ANON_KEY" is missing.');
+  throw new Error('Database configuration error: Required environment variable "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY", "VITE_SUPABASE_PUBLISHABLE_KEY" or "VITE_SUPABASE_ANON_KEY" is missing.');
 }
 
 // Parse project reference from Supabase URL (e.g., https://latjtnhjvmbmnrhznpfx.supabase.co -> latjtnhjvmbmnrhznpfx)
