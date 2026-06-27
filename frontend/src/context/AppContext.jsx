@@ -1058,6 +1058,25 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
 
+    if (overpaid > 0 && billData.returnChangeUpi > 0) {
+      const retAmt = Math.min(overpaid, billData.returnChangeUpi)
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'RETURN_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: billData.customerId,
+          amount: -retAmt,
+          date: new Date().toISOString(),
+          paymentMethod: 'upi',
+          notes: 'Returned change via UPI',
+          isReturn: true,
+        }
+      })
+    }
+
     return billId
   }
 
@@ -1171,6 +1190,25 @@ export const AppProvider = ({ children }) => {
     paymentRecords.forEach((p) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
+
+    if (excess > 0 && paymentData.returnChangeUpi > 0) {
+      const retAmt = Math.min(excess, paymentData.returnChangeUpi)
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'RETURN_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: paymentData.customerId,
+          amount: -retAmt,
+          date: new Date().toISOString(),
+          paymentMethod: 'upi',
+          notes: 'Returned change via UPI',
+          isReturn: true,
+        }
+      })
+    }
 
     updatedBills.forEach((b) => {
       dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
@@ -1387,7 +1425,7 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
 
     // Settle each member bill
-    let payIdxOffset = 1
+    // Settle each member bill
     for (const { bill, apply, applyCash, applyUpi } of settlements) {
       const newAmountPaid = bill.amountPaid + apply
       const newBalance = Math.max(bill.total - newAmountPaid, 0)
@@ -1412,29 +1450,8 @@ export const AppProvider = ({ children }) => {
         },
       })
 
-      // Record individual payment for each bill
-      const payId = `PAY${String((state.idCounters?.PAY || 0) + payIdxOffset).padStart(4, '0')}`
-      payIdxOffset++
-      dispatch({
-        type: 'ADD_PAYMENT',
-        payload: {
-          id: payId,
-          billId: bill.id,
-          customerId: bill.customerId,
-          payerCustomerId,
-          groupBillId,
-          date: new Date().toISOString(),
-          cashAmount: applyCash,
-          upiAmount: applyUpi,
-          totalPaid: apply,
-          paymentType: newStatus === 'paid' ? 'full' : 'partial',
-          excessCredit: 0,
-          isGroupSettlement: !isByPayer,
-          notes: isByPayer
-            ? `Split share payment for ${bill.id}`
-            : `Settled by group payment from ${payerBillId} (Group ${groupBillId})`,
-        },
-      })
+      // (We no longer generate individual ADD_PAYMENT records per bill for group settlements.
+      // This ensures Cash/UPI is only counted once, and Customer Ledgers use the master group payment and settlements.)
     }
 
     // Record the master group audit payment (for settlement view)
