@@ -66,6 +66,10 @@ const Settings = () => {
       alert("Please enter a valid discount value.")
       return
     }
+    if (newPromo.type === 'percent' && val > 100) {
+      alert("Percentage discount cannot exceed 100%.")
+      return
+    }
     const minAmt = Number(newPromo.minAmount || 0)
     
     // Check if code already exists

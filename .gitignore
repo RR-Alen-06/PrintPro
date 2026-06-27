@@ -87,3 +87,5 @@ backend/uploads/
 .expo/
 .vercel/
 .netlify/
+.vercel
+.env*
