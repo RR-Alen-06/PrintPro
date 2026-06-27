@@ -6,14 +6,30 @@ const xss = require('xss');
 function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
 
-  for (const key in obj) {
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-      continue;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      const val = obj[i];
+      if (typeof val === 'string') {
+        obj[i] = xss(val.trim());
+      } else if (typeof val === 'object' && val !== null) {
+        sanitizeObject(val);
+      }
     }
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+  } else {
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        continue;
+      }
       const val = obj[key];
       if (typeof val === 'string') {
-        obj[key] = xss(val.trim());
+        Object.defineProperty(obj, key, {
+          value: xss(val.trim()),
+          writable: true,
+          enumerable: true,
+          configurable: true
+        });
       } else if (typeof val === 'object' && val !== null) {
         sanitizeObject(val);
       }
