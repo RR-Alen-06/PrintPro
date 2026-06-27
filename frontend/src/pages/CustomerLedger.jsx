@@ -53,6 +53,7 @@ const CustomerLedger = () => {
   
   const [payCash, setPayCash] = useState(0)
   const [payUpi, setPayUpi] = useState(0)
+  const [returnChange, setReturnChange] = useState(false)
   const [paySuccess, setPaySuccess] = useState(false)
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
 
@@ -114,10 +115,12 @@ const CustomerLedger = () => {
       cashAmount: cash,
       upiAmount: upi,
       notes: `Payment from ledger page`,
+      returnChangeUpi: returnChange ? Math.max(0, (cash + upi) - outstanding) : 0
     })
 
     setPayCash(0)
     setPayUpi(0)
+    setReturnChange(false)
     setPaySuccess(true)
     setTimeout(() => setPaySuccess(false), 3500)
   }
@@ -139,6 +142,7 @@ const CustomerLedger = () => {
   const totalDebits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.debit || 0), 0), [ledgerEntries])
   const totalCredits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.credit || 0) + (e.advanceIn || 0), 0), [ledgerEntries])
   const periodAdvanceReturned = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.advanceReturn || 0), 0), [ledgerEntries])
+  const totalGroupSettled = useMemo(() => ledgerEntries.filter(e => e.type === 'group_settlement').reduce((s, e) => s + (e.credit || 0), 0), [ledgerEntries])
 
   // Loyalty points summary
   const totalLoyaltyEarned = useMemo(
@@ -480,17 +484,19 @@ const CustomerLedger = () => {
                 { label: 'Total Billed', value: totalBilled, color: 'var(--error)' },
                 { label: 'Gross Paid (Before Refunds)', value: totalGrossPaid, color: 'var(--success)' },
                 { label: 'Total Refunded', value: totalRefunded, color: 'var(--warning)' },
+                { label: 'Group Bills Settled', value: totalGroupSettled, color: 'var(--info)' },
                 { label: 'Net Paid (After Refunds)', value: totalPaid, color: 'var(--info)' },
-                { label: 'Outstanding Balance', value: outstanding, color: 'var(--error)' },
+                { label: 'Total Ledger Balance', value: finalBalance, color: finalBalance < 0 ? 'var(--error)' : 'var(--success)' },
+                { label: 'Unpaid Bills Only (Without Advances)', value: outstanding, color: 'var(--error)' },
                 { label: 'Total GST Charged', value: totalGstBilled, color: '#818cf8' },
                 { label: 'Total Discounts Given', value: totalDiscount, color: 'var(--accent)' },
                 { label: 'Advance Deposited', value: totalAdvanceIn, color: 'var(--info)' },
-                { label: 'Advance Returned', value: totalAdvanceReturned, color: 'var(--warning)' },
+                { label: 'Advance/Change Returned', value: periodAdvanceReturned, color: 'var(--warning)' },
                 { label: 'Advance Used in Bills', value: totalAdvanceUsed, color: 'var(--info)' },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{label}</span>
-                  <strong style={{ color }}>₹{value.toFixed(2)}</strong>
+                  <strong style={{ color }}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</strong>
                 </div>
               ))}
             </div>
@@ -564,7 +570,24 @@ const CustomerLedger = () => {
                   />
                 </div>
               </div>
-              <div className="form-group">
+
+              {(Number(payCash || 0) + Number(payUpi || 0) > outstanding) && outstanding > 0 && (
+                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.1)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '6px', fontWeight: 600 }}>
+                    Change Due: ₹{((Number(payCash || 0) + Number(payUpi || 0)) - outstanding).toFixed(2)}
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={returnChange}
+                      onChange={(e) => setReturnChange(e.target.checked)}
+                    />
+                    Return change immediately (via UPI) to prevent it from becoming Advance Credit.
+                  </label>
+                </div>
+              )}
+
+              <div className="form-group" style={{ marginTop: '12px' }}>
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI QR Checkout</label>
                 <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setUpiCheckoutAmount(Number(payUpi || 0))} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

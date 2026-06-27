@@ -54,6 +54,7 @@ const Billing = () => {
   const [followUpUpi, setFollowUpUpi] = useState(0)
   const [selectedBill, setSelectedBill] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [followUpReturnChange, setFollowUpReturnChange] = useState(false)
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [lastBillId, setLastBillId] = useState(null)
@@ -170,6 +171,7 @@ const Billing = () => {
     setSelectedBill(bill)
     setFollowUpCash(0)
     setFollowUpUpi(0)
+    setFollowUpReturnChange(false)
     setPaymentSuccess(false)
     setDiscountModalType(bill.discountType || 'flat')
     setDiscountModalValue(bill.discountValue || 0)
@@ -218,10 +220,12 @@ const Billing = () => {
       cashAmount: cash,
       upiAmount: upi,
       notes: `Follow-up payment for ${liveBill.id}`,
+      returnChangeUpi: followUpReturnChange ? Math.max(0, (cash + upi) - liveBill.balance) : 0
     })
 
     setFollowUpCash(0)
     setFollowUpUpi(0)
+    setFollowUpReturnChange(false)
     setPaymentSuccess(true)
     // Sync selectedBill so the derived liveBill picks up the change next render
     setTimeout(() => setPaymentSuccess(false), 3500)
@@ -957,9 +961,11 @@ const Billing = () => {
     let finalUpiAmount = Number(upiAmount || 0)
     let finalAmountPaid = amountPaid
 
+    let returnChangeUpi = 0
+
     if (changeDue > 0) {
       if (changeHandling === 'upi_refund') {
-        finalUpiAmount = Number((finalUpiAmount - changeDue).toFixed(2))
+        returnChangeUpi = changeDue
         finalAmountPaid = total
       } else if (changeHandling === 'cash_refund') {
         finalCashAmount = Number((finalCashAmount - changeDue).toFixed(2))
@@ -984,6 +990,7 @@ const Billing = () => {
       rounding: 0,
       cashAmount: finalCashAmount,
       upiAmount: finalUpiAmount,
+      returnChangeUpi: returnChangeUpi,
       amountPaid: finalAmountPaid,
       advanceUsed: appliedAdvance,
       notes,
@@ -2445,16 +2452,24 @@ const Billing = () => {
                     </div>
                   </div>
                   {(() => {
-                    const paying = Number(followUpCash || 0) + Number(followUpUpi || 0)
-                    const excess = Math.max(paying - liveBill.balance, 0)
                     return excess > 0 ? (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: '6px',
-                        padding: '6px 12px', borderRadius: 'var(--radius-sm)',
-                        background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)',
-                        color: 'var(--info)', fontWeight: 600, fontSize: '0.82rem'
-                      }}>
-                        <Wallet size={13} /> ₹{excess.toFixed(2)} → Advance Credit
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: '6px',
+                          padding: '6px 12px', borderRadius: 'var(--radius-sm)',
+                          background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)',
+                          color: 'var(--info)', fontWeight: 600, fontSize: '0.82rem'
+                        }}>
+                          <Wallet size={13} /> ₹{excess.toFixed(2)} → Advance Credit
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={followUpReturnChange}
+                            onChange={(e) => setFollowUpReturnChange(e.target.checked)}
+                          />
+                          Return change via UPI immediately
+                        </label>
                       </div>
                     ) : null
                   })()}
