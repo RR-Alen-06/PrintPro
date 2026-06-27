@@ -169,4 +169,13 @@ process.on('unhandledRejection', (reason) => {
   process.exit(1);
 });
 
-start();
+if (require.main === module) {
+  start();
+} else {
+  // Export for serverless environments (e.g., Vercel)
+  // Ensure the database is initialized, though Vercel might cold-start
+  initializeDatabase().catch(err => {
+    logger.error(`Database init failed during cold start: ${err.message}`);
+  });
+  module.exports = app;
+}
