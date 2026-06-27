@@ -7,6 +7,9 @@ function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
 
   for (const key in obj) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const val = obj[key];
       if (typeof val === 'string') {
