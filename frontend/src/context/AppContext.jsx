@@ -796,11 +796,15 @@ export const AppProvider = ({ children }) => {
       // Dispatch bill update
       dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill } })
 
+      // Generate a new sequential PAY ID and increment the counter
+      const paySeqId = generateSeqId(state, 'PAY')
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+
       // Dispatch payment record
       dispatch({
         type: 'ADD_PAYMENT',
         payload: {
-          id: generateId('PAY'),
+          id: paySeqId,
           billId: bill.id,
           customerId: bill.customerId,
           date: new Date().toISOString(),

@@ -117,8 +117,8 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
           changes.unitPrice !== undefined
             ? Number(changes.unitPrice)
             : changes.itemId || changes.printType || changes.sides
-            ? getItemBasePrice(inventory, changes.itemId ?? r.itemId, changes.printType ?? r.printType, changes.sides ?? r.sides)
-            : r.unitPrice
+              ? getItemBasePrice(inventory, changes.itemId ?? r.itemId, changes.printType ?? r.printType, changes.sides ?? r.sides)
+              : r.unitPrice
         const qty = changes.qty !== undefined ? Number(changes.qty) : r.qty
         return { ...r, ...changes, unitPrice, qty, amount: unitPrice * qty }
       })
@@ -245,7 +245,7 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 }
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
-const MemberCard = ({ member, idx, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
+const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
   const customer = customers.find((c) => c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
@@ -308,22 +308,21 @@ const MemberCard = ({ member, idx, customers, inventory, onChange, onRemove, set
 
       {/* Discount & GST */}
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
-        {sharedDiscountMode === 'group' ? (
+        {sharedDiscountMode === 'group' && (
           <div style={{ fontSize: '12px', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '4px 10px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
             Group Discount: {sharedGroupDiscount.type === 'percent' ? `${sharedGroupDiscount.value}% Off` : `₹${Number(sharedGroupDiscount.value || 0).toFixed(2)} Flat`} (Applied)
           </div>
-        ) : (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: '#71717a' }}>Discount:</span>
-            <select className="form-input" style={{ width: '90px', fontSize: '12px', padding: '4px 6px' }} value={member.discountType}
-              onChange={(e) => onChange(member.id, { discountType: e.target.value })}>
-              <option value="flat">₹ Flat</option>
-              <option value="percent">% Off</option>
-            </select>
-            <input className="form-input" style={{ width: '80px', fontSize: '12px', padding: '4px 6px' }} type="number" min="0" step="0.01"
-              value={member.discountValue} onChange={(e) => onChange(member.id, { discountValue: Number(e.target.value) })} />
-          </div>
         )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: '#71717a' }}>{sharedDiscountMode === 'group' ? 'Indiv. Discount:' : 'Discount:'}</span>
+          <select className="form-input" style={{ width: '90px', fontSize: '12px', padding: '4px 6px' }} value={member.discountType}
+            onChange={(e) => onChange(member.id, { discountType: e.target.value })}>
+            <option value="flat">₹ Flat</option>
+            <option value="percent">% Off</option>
+          </select>
+          <input className="form-input" style={{ width: '80px', fontSize: '12px', padding: '4px 6px' }} type="number" min="0" step="0.01"
+            value={member.discountValue} onChange={(e) => onChange(member.id, { discountValue: Number(e.target.value) })} />
+        </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: '#71717a' }}>Edit GST:</span>
@@ -382,7 +381,7 @@ const MemberCard = ({ member, idx, customers, inventory, onChange, onRemove, set
                     onChange(member.id, { promoError: 'This coupon is disabled.' })
                     return
                   }
-                  
+
                   // Date validity check
                   const billDate = date || new Date().toISOString().slice(0, 10)
                   if (promo.startDate && billDate < promo.startDate) {
@@ -432,7 +431,7 @@ const MemberCard = ({ member, idx, customers, inventory, onChange, onRemove, set
               <span> (value: ₹{((customer.loyaltyPoints * (settings.loyaltyRedeemRatioRupees || 5)) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)})</span>
             )}
           </div>
-          
+
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>
             <input
               type="checkbox"
@@ -554,13 +553,15 @@ const GroupBilling = () => {
       const cgst = gstAmount / 2
       const sgst = gstAmount / 2
 
-      const manualDisc = sharedDiscountMode === 'group'
+      const groupDisc = sharedDiscountMode === 'group'
         ? (sharedGroupDiscount.type === 'percent'
-            ? (baseTotal * Number(sharedGroupDiscount.value || 0)) / 100
-            : Number(sharedGroupDiscount.value || 0))
-        : (m.discountType === 'percent'
-            ? (baseTotal * Number(m.discountValue || 0)) / 100
-            : Number(m.discountValue || 0))
+          ? (baseTotal * Number(sharedGroupDiscount.value || 0)) / 100
+          : Number(sharedGroupDiscount.value || 0))
+        : 0;
+      const individualDisc = m.discountType === 'percent'
+        ? (baseTotal * Number(m.discountValue || 0)) / 100
+        : Number(m.discountValue || 0);
+      const manualDisc = groupDisc + individualDisc;
 
       let promoDisc = 0
       if (m.appliedPromo) {
@@ -606,13 +607,15 @@ const GroupBilling = () => {
       const memberGstShare = m.customGst !== undefined && m.customGst !== '' ? Number(m.customGst) : autoGstShare
       const memberSubtotalShare = splitAmount - autoGstShare
 
-      const manualDisc = splitDiscountMode === 'group'
+      const groupDisc = splitDiscountMode === 'group'
         ? (splitGroupDiscount.type === 'percent'
-            ? (splitAmount * Number(splitGroupDiscount.value || 0)) / 100
-            : Number(splitGroupDiscount.value || 0))
-        : (m.discountType === 'percent'
-            ? (splitAmount * Number(m.discountValue || 0)) / 100
-            : Number(m.discountValue || 0))
+          ? (splitAmount * Number(splitGroupDiscount.value || 0)) / 100
+          : Number(splitGroupDiscount.value || 0))
+        : 0;
+      const individualDisc = m.discountType === 'percent'
+        ? (splitAmount * Number(m.discountValue || 0)) / 100
+        : Number(m.discountValue || 0);
+      const manualDisc = groupDisc + individualDisc;
 
       let promoDisc = 0
       if (m.appliedPromo) {
@@ -786,16 +789,16 @@ const GroupBilling = () => {
         })),
         ...(m.hasAddons
           ? m.addonRows.map((r) => ({
-              itemId: r.itemId,
-              itemName: r.itemName,
-              printType: r.printType,
-              sides: r.sides,
-              qty: Number(r.qty),
-              unitPrice: Number(r.unitPrice),
-              amount: Number(r.amount),
-              isAddon: true,
-              gstRate: Number(r.gstRate || 0),
-            }))
+            itemId: r.itemId,
+            itemName: r.itemName,
+            printType: r.printType,
+            sides: r.sides,
+            qty: Number(r.qty),
+            unitPrice: Number(r.unitPrice),
+            amount: Number(r.amount),
+            isAddon: true,
+            gstRate: Number(r.gstRate || 0),
+          }))
           : []),
       ]
       const hasBoth = m.appliedPromo && Number(m.discountValue) > 0
@@ -1051,6 +1054,7 @@ const GroupBilling = () => {
                 key={m.id}
                 member={m}
                 idx={i}
+                members={members}
                 customers={activeCustomers}
                 inventory={inventory}
                 onChange={updateMember}
@@ -1323,33 +1327,32 @@ const GroupBilling = () => {
 
                       {/* Discount override */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(255,255,255,0.01)', padding: '6px', borderRadius: '6px' }}>
-                        {splitDiscountMode === 'group' ? (
+                        {splitDiscountMode === 'group' && (
                           <div style={{ fontSize: '11px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
                             Group Discount: {splitGroupDiscount.type === 'percent' ? `${splitGroupDiscount.value}% Off` : `₹${Number(splitGroupDiscount.value || 0).toFixed(2)} Flat`} (Applied)
                           </div>
-                        ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ color: '#a1a1aa' }}>Discount:</span>
-                            <select
-                              className="form-input"
-                              style={{ width: '80px', fontSize: '11px', padding: '2px 4px', height: '24px' }}
-                              value={m.discountType}
-                              onChange={(e) => updateSplitMember(m.id, { discountType: e.target.value })}
-                            >
-                              <option value="flat">₹ Flat</option>
-                              <option value="percent">% Off</option>
-                            </select>
-                            <input
-                              className="form-input"
-                              style={{ width: '80px', fontSize: '11px', padding: '2px 4px', height: '24px' }}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={m.discountValue || ''}
-                              onChange={(e) => updateSplitMember(m.id, { discountValue: Number(e.target.value) })}
-                            />
-                          </div>
                         )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                          <span style={{ color: '#a1a1aa' }}>{splitDiscountMode === 'group' ? 'Indiv. Discount:' : 'Discount:'}</span>
+                          <select
+                            className="form-input"
+                            style={{ width: '80px', fontSize: '11px', padding: '2px 4px', height: '24px' }}
+                            value={m.discountType}
+                            onChange={(e) => updateSplitMember(m.id, { discountType: e.target.value })}
+                          >
+                            <option value="flat">₹ Flat</option>
+                            <option value="percent">% Off</option>
+                          </select>
+                          <input
+                            className="form-input"
+                            style={{ width: '80px', fontSize: '11px', padding: '2px 4px', height: '24px' }}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={m.discountValue || ''}
+                            onChange={(e) => updateSplitMember(m.id, { discountValue: Number(e.target.value) })}
+                          />
+                        </div>
                       </div>
 
                       {/* Promo Code selection */}
@@ -1394,7 +1397,7 @@ const GroupBilling = () => {
                                     updateSplitMember(m.id, { promoError: 'This coupon is disabled.' })
                                     return
                                   }
-                                  
+
                                   // Date validity check
                                   const billDate = date || new Date().toISOString().slice(0, 10)
                                   if (promo.startDate && billDate < promo.startDate) {
@@ -1611,20 +1614,49 @@ const GroupBilling = () => {
 
 // ── Group Bills History List ───────────────────────────────────────────────────
 const GroupBillsHistory = () => {
-  const { groupBills = [], bills, customers, dispatch } = useAppContext()
+  const { groupBills = [], bills, customers, recordSpecificBillPayment, recordSplitGroupPayment, payments = [] } = useAppContext()
   const [expanded, setExpanded] = useState(null)
+  const [payModalBill, setPayModalBill] = useState(null)
+  const [payModalGroup, setPayModalGroup] = useState(null)
+  const [payCash, setPayCash] = useState('')
+  const [payUpi, setPayUpi] = useState('')
+  const [payMode, setPayMode] = useState('share')
+  const [showConfirmScreen, setShowConfirmScreen] = useState(false)
 
   if (!groupBills.length) {
     return <div style={{ color: '#52525b', fontSize: '14px', padding: '24px', textAlign: 'center', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '8px' }}>No group bills created yet.</div>
   }
 
+  const getGroupBal = (grp) =>
+    (grp.memberBillIds || [])
+      .map(id => bills.find(b => b.id === id && !b.deleted))
+      .filter(Boolean)
+      .reduce((s, b) => s + (b.balance || 0), 0)
+
+  const openPayModal = (bill, grp) => {
+    setPayModalBill(bill)
+    setPayModalGroup(grp)
+    setPayMode('share')
+    setPayCash(String(bill.balance || 0))
+    setPayUpi('0')
+    setShowConfirmScreen(false)
+  }
+
+  const closeModal = () => { setPayModalBill(null); setPayModalGroup(null); setShowConfirmScreen(false) }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {[...groupBills].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 20).map((grp) => {
-        const memberBills = bills.filter((b) => b.groupBillId === grp.id && !b.deleted)
+        // Always look up bills by stored memberBillIds — never filter by groupBillId to avoid including parent bills
+        const memberBills = (grp.memberBillIds || [])
+          .map((id) => bills.find((b) => b.id === id && !b.deleted))
+          .filter(Boolean)
+        // Totals computed live from actual child bill data
         const totalAmount = memberBills.reduce((s, b) => s + b.total, 0)
-        const paidAmount = memberBills.reduce((s, b) => s + b.amountPaid, 0)
+        const paidAmount = memberBills.reduce((s, b) => s + (b.amountPaid || 0), 0)
+        const balanceAmount = memberBills.reduce((s, b) => s + (b.balance || 0), 0)
         const isExpanded = expanded === grp.id
+        const groupPayment = payments.find(p => p.groupBillId === grp.id && p.isGroupPayment)
 
         return (
           <div key={grp.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', overflow: 'hidden' }}>
@@ -1641,69 +1673,207 @@ const GroupBillsHistory = () => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <span style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635' }}>₹{totalAmount.toFixed(2)}</span>
-                <span style={{ fontSize: '12px', color: paidAmount >= totalAmount ? '#10b981' : '#f59e0b' }}>
-                  Paid: ₹{paidAmount.toFixed(2)}
-                </span>
+                <span style={{ fontSize: '12px', color: '#10b981' }}>Paid: ₹{paidAmount.toFixed(2)}</span>
+                <span style={{ fontSize: '12px', color: balanceAmount > 0 ? '#f59e0b' : '#10b981' }}>Bal: ₹{balanceAmount.toFixed(2)}</span>
                 <ChevronDown size={16} style={{ color: '#71717a', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
               </div>
             </div>
 
             {isExpanded && (
-              <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      {['Bill ID', 'Customer', 'Total', 'Paid', 'Balance', 'Status', 'Action'].map((h) => (
-                        <th key={h} style={{ padding: '7px 10px', textAlign: 'left', color: '#71717a', fontWeight: 600 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {memberBills.map((b) => (
-                      <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '7px 10px', color: 'var(--accent)', fontWeight: 600 }}>{b.id}</td>
-                        <td style={{ padding: '7px 10px' }}>{b.customerName}</td>
-                        <td style={{ padding: '7px 10px' }}>₹{Number(b.total).toFixed(2)}</td>
-                        <td style={{ padding: '7px 10px', color: '#10b981' }}>₹{Number(b.amountPaid).toFixed(2)}</td>
-                        <td style={{ padding: '7px 10px', color: '#f59e0b' }}>₹{Number(b.balance).toFixed(2)}</td>
-                        <td style={{ padding: '7px 10px' }}>
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
-                            background: b.status === 'paid' ? 'rgba(16,185,129,0.15)' : b.status === 'partial' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                            color: b.status === 'paid' ? '#10b981' : b.status === 'partial' ? '#f59e0b' : '#ef4444',
-                          }}>{b.status.toUpperCase()}</span>
-                        </td>
-                        <td style={{ padding: '7px 10px' }}>
-                          {b.status === 'paid' ? (
-                            <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
-                              PAID
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn-primary btn-sm"
-                              onClick={() => {
-                                dispatch({
-                                  type: 'PAY_GROUP_MEMBER',
-                                  payload: {
-                                    groupBillId: grp.id,
-                                    memberId: b.memberId || b.id,
-                                    paymentAmount: b.total,
-                                  },
-                                });
-                              }}
-                            >Pay</button>
-                          )}
-                        </td>
+              <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        {['Bill ID', 'Customer', 'Total', 'Paid', 'Balance', 'Status', 'Action'].map((h) => (
+                          <th key={h} style={{ padding: '7px 10px', textAlign: 'left', color: '#71717a', fontWeight: 600 }}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {memberBills.map((b) => (
+                        <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding: '7px 10px', color: 'var(--accent)', fontWeight: 600 }}>{b.id}</td>
+                          <td style={{ padding: '7px 10px' }}>{b.customerName}</td>
+                          <td style={{ padding: '7px 10px' }}>₹{Number(b.total).toFixed(2)}</td>
+                          <td style={{ padding: '7px 10px', color: '#10b981' }}>₹{Number(b.amountPaid).toFixed(2)}</td>
+                          <td style={{ padding: '7px 10px', color: '#f59e0b' }}>₹{Number(b.balance).toFixed(2)}</td>
+                          <td style={{ padding: '7px 10px' }}>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
+                              background: b.settledByGroupPayment ? 'rgba(99,102,241,0.15)' : (b.status === 'paid' ? 'rgba(16,185,129,0.15)' : b.status === 'partial' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'),
+                              color: b.settledByGroupPayment ? '#818cf8' : (b.status === 'paid' ? '#10b981' : b.status === 'partial' ? '#f59e0b' : '#ef4444'),
+                            }}>{b.settledByGroupPayment ? 'SETTLED' : b.status.toUpperCase()}</span>
+                          </td>
+                          <td style={{ padding: '7px 10px' }}>
+                            {b.status === 'paid' || b.settledByGroupPayment ? (
+                              <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: b.settledByGroupPayment ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)', color: b.settledByGroupPayment ? '#818cf8' : '#10b981' }}>
+                                {b.settledByGroupPayment ? 'SETTLED' : 'PAID'}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => {
+                                  if (grp.type === 'split') {
+                                    openPayModal(b, grp)
+                                  } else {
+                                    recordSpecificBillPayment({ billId: b.id, customerId: b.customerId, cashAmount: b.balance > 0 ? b.balance : b.total, upiAmount: 0, notes: `Payment for group member bill ${b.id}` })
+                                  }
+                                }}
+                              >Pay</button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {grp.type === 'split' && groupPayment && (
+                  <div style={{ padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.2)' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle size={14} /> Split Settlement View
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', fontSize: '12px' }}>
+                      <div><span style={{ color: '#a1a1aa' }}>Group ID:</span> <strong>{grp.id}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Total:</span> <strong>₹{totalAmount.toFixed(2)}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Actual Payer:</span> <strong>{customers.find(c => c.id === groupPayment.customerId)?.name || 'Unknown'}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{groupPayment.id}</strong></div>
+                    </div>
+                    <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', marginBottom: '4px' }}>Members Settled:</div>
+                      {memberBills.map(b => (
+                        <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: b.customerId === groupPayment.customerId ? '#fff' : '#a1a1aa' }}>
+                          <span>{b.customerName} {b.customerId === groupPayment.customerId ? '(Payer)' : '(Settled)'}</span>
+                          <span>₹{Number(b.total).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )
       })}
+
+      {/* Split Payment Modal */}
+      {payModalBill && payModalGroup && (() => {
+        const groupBal = getGroupBal(payModalGroup)
+        const allUnpaidBills = (payModalGroup.memberBillIds || [])
+          .map(id => bills.find(b => b.id === id && !b.deleted))
+          .filter(Boolean)
+          .filter(b => b.balance > 0)
+          .sort((a, b) => a.id.localeCompare(b.id))
+        const totalPaying = Number(payCash || 0) + Number(payUpi || 0)
+        const remaining = Math.max(0, groupBal - totalPaying)
+
+        const previewSettlements = (() => {
+          let rem = totalPaying
+          return allUnpaidBills.map(b => {
+            const apply = Math.min(rem, b.balance)
+            rem -= apply
+            return { bill: b, apply }
+          })
+        })()
+
+        return (
+          <div className="modal-overlay" onClick={closeModal}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+              <div className="modal-header">
+                <h3>{showConfirmScreen ? 'Confirm Full Group Payment' : 'Record Split Payment'}</h3>
+                <button type="button" className="btn-close" onClick={closeModal}>&times;</button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payer</div>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent)', marginTop: '2px' }}>{payModalBill.customerName}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '10px' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase' }}>My Share Balance</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>₹{Number(payModalBill.balance || 0).toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase' }}>Group Balance</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635', marginTop: '2px' }}>₹{groupBal.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {!showConfirmScreen ? (
+                  <>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button type="button" className={`btn btn-sm ${payMode === 'share' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => { setPayMode('share'); setPayCash(String(payModalBill.balance || 0)); setPayUpi('0') }}>
+                        Pay My Share (₹{Number(payModalBill.balance || 0).toFixed(2)})
+                      </button>
+                      <button type="button" className={`btn btn-sm ${payMode === 'full' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => { setPayMode('full'); setPayCash(String(groupBal)); setPayUpi('0') }}>
+                        Pay Full Group (₹{groupBal.toFixed(2)})
+                      </button>
+                      <button type="button" className={`btn btn-sm ${payMode === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setPayMode('custom')}>
+                        Custom
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '4px', display: 'block' }}>Cash (₹)</label>
+                        <input type="number" className="form-input" style={{ width: '100%' }} value={payCash}
+                          onChange={(e) => { setPayCash(e.target.value); setPayMode('custom') }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '4px', display: 'block' }}>UPI (₹)</label>
+                        <input type="number" className="form-input" style={{ width: '100%' }} value={payUpi}
+                          onChange={(e) => { setPayUpi(e.target.value); setPayMode('custom') }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                      <span style={{ color: '#a1a1aa' }}>Paying: <strong>₹{totalPaying.toFixed(2)}</strong></span>
+                      <span style={{ color: '#a1a1aa' }}>Remaining: <strong style={{ color: remaining > 0 ? '#f59e0b' : '#10b981' }}>₹{remaining.toFixed(2)}</strong></span>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ padding: '12px', background: 'rgba(99,102,241,0.07)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.2)', fontSize: '13px' }}>
+                    <strong style={{ color: '#818cf8' }}>{payModalBill.customerName}</strong> is paying <strong>₹{totalPaying.toFixed(2)}</strong>
+                    <div style={{ marginTop: '8px', fontSize: '12px', color: '#a1a1aa' }}>This will automatically settle:</div>
+                    {previewSettlements.map(({ bill, apply }) => (
+                      <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
+                        <span>✓ {bill.customerName} ({bill.id})</span>
+                        <strong style={{ color: '#10b981' }}>₹{apply.toFixed(2)}</strong>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                      <span style={{ color: '#a1a1aa' }}>Group Balance after:</span>
+                      <strong style={{ color: remaining > 0 ? '#f59e0b' : '#10b981' }}>₹{remaining.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={showConfirmScreen ? () => setShowConfirmScreen(false) : closeModal}>
+                  {showConfirmScreen ? 'Back' : 'Cancel'}
+                </button>
+                <button type="button" className="btn btn-primary" onClick={() => {
+                  const cash = Number(payCash || 0)
+                  const upi = Number(payUpi || 0)
+                  const total = cash + upi
+                  if (total <= 0) return
+                  if (total > groupBal + 0.01) { alert(`Cannot exceed group balance of ₹${groupBal.toFixed(2)}`); return }
+                  if (!showConfirmScreen && total > (payModalBill.balance || 0) + 0.01) {
+                    setShowConfirmScreen(true); return
+                  }
+                  recordSplitGroupPayment({ payerBillId: payModalBill.id, payerCustomerId: payModalBill.customerId, cashAmount: cash, upiAmount: upi, groupBillId: payModalGroup.id })
+                  closeModal()
+                }}>
+                  {showConfirmScreen ? 'Confirm & Settle' : 'Confirm Payment'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
