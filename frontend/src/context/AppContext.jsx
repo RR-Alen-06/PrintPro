@@ -140,14 +140,20 @@ const baseReducer = (state, action) => {
       let updatedCustomers = state.customers
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
       
-      if (bill && bill.customerId && pointsEnabled) {
-        const earned = bill.loyaltyPointsEarned || 0
-        const redeemed = bill.loyaltyPointsRedeemed || 0
+      if (bill && bill.customerId) {
+        const earned = pointsEnabled ? (bill.loyaltyPointsEarned || 0) : 0
+        const redeemed = pointsEnabled ? (bill.loyaltyPointsRedeemed || 0) : 0
+        const advanceToRestore = Number(bill.advanceUsed || 0)
+        
         updatedCustomers = state.customers.map(c => {
           if (c.id !== bill.customerId) return c
+          const currentAdvance = Number(c.advanceBalance || c.creditBalance || 0)
+          const newAdvance = currentAdvance + advanceToRestore
           return {
             ...c,
-            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) - earned + redeemed)
+            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) - earned + redeemed),
+            advanceBalance: newAdvance,
+            creditBalance: newAdvance
           }
         })
       }
@@ -163,14 +169,20 @@ const baseReducer = (state, action) => {
       let updatedCustomers = state.customers
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
       
-      if (bill && bill.customerId && pointsEnabled) {
-        const earned = bill.loyaltyPointsEarned || 0
-        const redeemed = bill.loyaltyPointsRedeemed || 0
+      if (bill && bill.customerId) {
+        const earned = pointsEnabled ? (bill.loyaltyPointsEarned || 0) : 0
+        const redeemed = pointsEnabled ? (bill.loyaltyPointsRedeemed || 0) : 0
+        const advanceToDeduct = Number(bill.advanceUsed || 0)
+        
         updatedCustomers = state.customers.map(c => {
           if (c.id !== bill.customerId) return c
+          const currentAdvance = Number(c.advanceBalance || c.creditBalance || 0)
+          const newAdvance = Math.max(0, currentAdvance - advanceToDeduct)
           return {
             ...c,
-            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) + earned - redeemed)
+            loyaltyPoints: Math.max(0, (c.loyaltyPoints || 0) + earned - redeemed),
+            advanceBalance: newAdvance,
+            creditBalance: newAdvance
           }
         })
       }
@@ -198,7 +210,7 @@ const baseReducer = (state, action) => {
       }
     }
     case 'ADD_CUSTOMER': {
-      const customer = action.payload
+      const customer = { ...action.payload, advanceBalance: Number(action.payload.creditBalance) || 0 }
       const openingBalance = Number(customer.creditBalance) || 0
       let nextState = {
         ...state,
