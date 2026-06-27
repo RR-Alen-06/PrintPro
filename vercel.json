@@ -67,11 +67,8 @@
       "destination": "/api/index.js"
     },
     {
-      "source": "/(.*)",
-      "destination": "/"
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
-  ],
-
-  "cleanUrls": true,
-  "trailingSlash": false
+  ]
 }
