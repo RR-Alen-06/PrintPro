@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
 
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "buildCommand": "npm run build:frontend",
+  "outputDirectory": "frontend/dist",
   "installCommand": "npm ci --prefer-offline",
   "framework": "vite",
 
@@ -62,6 +62,10 @@
   ],
 
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
     {
       "source": "/((?!api/|assets/).*)",
       "destination": "/index.html"
