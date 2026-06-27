@@ -45,9 +45,6 @@ jobs:
       - name: Pull Vercel environment (preview)
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Copy env to frontend
-        run: cp .env.preview.local frontend/
-
       - name: Build project (via Vercel)
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
 
