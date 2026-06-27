@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm } = useAppContext()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -20,6 +20,7 @@ const Settings = () => {
   const [acct, setAcct] = useState({
     gstRate: settings.gstRate ?? 0,
     viewMode: settings.viewMode || 'monthly',
+    refundsEnabled: settings.refundsEnabled !== false,
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
@@ -177,19 +178,20 @@ const Settings = () => {
 
   const handleAcctSave = (e) => {
     e.preventDefault()
-    updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode })
+    updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode, refundsEnabled: acct.refundsEnabled })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
   }
 
   const handleClearData = () => {
-    if (clearConfirm) {
-      localStorage.removeItem('printpro-state')
-      window.location.reload()
-    } else {
-      setClearConfirm(true)
-      setTimeout(() => setClearConfirm(false), 5000)
-    }
+    showConfirm(
+      'Clear All Data',
+      'This permanently erases ALL data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
+      () => {
+        localStorage.removeItem('printpro-state')
+        window.location.reload()
+      }
+    )
   }
 
   return (
@@ -338,6 +340,22 @@ const Settings = () => {
               </select>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                 Default date range for reports.
+              </p>
+            </div>
+          </div>
+          <div className="form-row" style={{ marginTop: '12px' }}>
+            <div className="form-group" style={{ marginBottom: '0' }}>
+              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={acct.refundsEnabled}
+                  onChange={(e) => setAcct((a) => ({ ...a, refundsEnabled: e.target.checked }))}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                <span style={{ fontWeight: 600 }}>Enable Refunds Module</span>
+              </label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
+                Show the Refunds module for managing cash/UPI reversals.
               </p>
             </div>
           </div>
@@ -904,11 +922,7 @@ const Settings = () => {
                   className="btn btn-danger"
                   onClick={handleClearData}
                 >
-                  {clearConfirm ? (
-                    <><AlertTriangle size={16} /> Click again to confirm — this is irreversible!</>
-                  ) : (
-                    'Clear All Data'
-                  )}
+                  Clear All Data
                 </button>
               </div>
             </div>

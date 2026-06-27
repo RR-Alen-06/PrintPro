@@ -4,7 +4,7 @@ import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle
 import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
-  const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm } = useAppContext()
+  const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm, settings } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
@@ -544,7 +544,7 @@ const CustomerBills = () => {
                           >
                             <Pencil size={13} /> Edit
                           </button>
-                          {Number(bill.amountPaid || 0) > 0 && (
+                          {Number(bill.amountPaid || 0) > 0 && settings?.refundsEnabled !== false && (
                             <button
                               type="button"
                               className="btn btn-warning btn-sm"
