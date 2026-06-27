@@ -80,6 +80,9 @@ jobs:
       - name: Pull Vercel environment (production)
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
+      - name: Copy env to frontend
+        run: cp .env.production.local frontend/
+
       - name: Build project (via Vercel)
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
