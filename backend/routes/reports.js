@@ -15,11 +15,40 @@ router.get('/daily', async (req, res, next) => {
       [req.user.id, date]
     );
 
-    const totalBilled = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
-    const totalPaid   = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
-    const totalDue    = bills.reduce((s, b) => s + parseFloat(b.balance || 0), 0);
+    // Compute refund totals for the day from the payments table
+    const [refundRows] = await pool.query(
+      `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
+              COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
+              COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
+       FROM payments
+       WHERE user_id = ? AND DATE(date) = ? AND (is_refund = 1 OR payment_type = 'refund' OR total_paid < 0)`,
+      [req.user.id, date]
+    );
 
-    res.json({ success: true, data: { date, bills, summary: { total_billed: totalBilled, total_paid: totalPaid, total_due: totalDue, bill_count: bills.length } } });
+    const totalBilled   = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
+    const totalPaid     = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
+    const totalDue      = bills.reduce((s, b) => s + parseFloat(b.balance || 0), 0);
+    const totalRefunds  = parseFloat(refundRows[0]?.total_refunds || 0);
+    const netSales      = totalBilled; // bill.total already net after refund edit
+    const netPaid       = totalPaid;   // bill.amount_paid already net after ADD_PAYMENT fix
+
+    res.json({
+      success: true,
+      data: {
+        date, bills,
+        summary: {
+          total_billed:  totalBilled,
+          total_paid:    totalPaid,
+          total_due:     totalDue,
+          total_refunds: totalRefunds,
+          net_sales:     netSales,
+          net_paid:      netPaid,
+          cash_refunded: parseFloat(refundRows[0]?.cash_refunded || 0),
+          upi_refunded:  parseFloat(refundRows[0]?.upi_refunded || 0),
+          bill_count:    bills.length,
+        }
+      }
+    });
   } catch (err) { next(err); }
 });
 
@@ -39,10 +68,36 @@ router.get('/monthly', async (req, res, next) => {
       [req.user.id, `${year}-${pad}`]
     );
 
-    const totalBilled = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
-    const totalPaid   = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
+    // Compute refund totals for the month
+    const [refundRows] = await pool.query(
+      `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
+              COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
+              COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
+       FROM payments
+       WHERE user_id = ? AND DATE_FORMAT(date,'%Y-%m') = ? AND (is_refund = 1 OR payment_type = 'refund' OR total_paid < 0)`,
+      [req.user.id, `${year}-${pad}`]
+    );
 
-    res.json({ success: true, data: { year, month, bills, summary: { total_billed: totalBilled, total_paid: totalPaid, bill_count: bills.length } } });
+    const totalBilled  = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
+    const totalPaid    = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
+    const totalRefunds = parseFloat(refundRows[0]?.total_refunds || 0);
+
+    res.json({
+      success: true,
+      data: {
+        year, month, bills,
+        summary: {
+          total_billed:  totalBilled,
+          total_paid:    totalPaid,
+          total_refunds: totalRefunds,
+          net_sales:     totalBilled,  // already net after refund-edit
+          net_paid:      totalPaid,    // already net after ADD_PAYMENT fix
+          cash_refunded: parseFloat(refundRows[0]?.cash_refunded || 0),
+          upi_refunded:  parseFloat(refundRows[0]?.upi_refunded || 0),
+          bill_count:    bills.length,
+        }
+      }
+    });
   } catch (err) { next(err); }
 });
 
@@ -68,7 +123,27 @@ router.get('/yearly', async (req, res, next) => {
       [req.user.id, year]
     );
 
-    res.json({ success: true, data: { year, monthly, summary: totals[0] } });
+    // Compute refund totals for the year from payments table
+    const [refundRows] = await pool.query(
+      `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
+              COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
+              COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
+       FROM payments
+       WHERE user_id = ? AND YEAR(date) = ? AND (is_refund = 1 OR payment_type = 'refund' OR total_paid < 0)`,
+      [req.user.id, year]
+    );
+
+    const totalRefunds = parseFloat(refundRows[0]?.total_refunds || 0);
+    const summary = {
+      ...totals[0],
+      total_refunds: totalRefunds,
+      net_sales:     parseFloat(totals[0]?.total_billed || 0),  // already net after refund-edit
+      net_paid:      parseFloat(totals[0]?.total_paid || 0),    // already net after ADD_PAYMENT fix
+      cash_refunded: parseFloat(refundRows[0]?.cash_refunded || 0),
+      upi_refunded:  parseFloat(refundRows[0]?.upi_refunded || 0),
+    };
+
+    res.json({ success: true, data: { year, monthly, summary } });
   } catch (err) { next(err); }
 });
 

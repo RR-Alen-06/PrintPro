@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf'
 import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { uploadPDFReceipt } from '../api/share'
+import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 
 const Receipt = () => {
   const { bills, customers, business, settings, showAlert, showToast } = useAppContext()
@@ -22,32 +23,7 @@ const Receipt = () => {
   }
 
   const buildShareText = (bill, pdfUrl = '') => {
-    if (!bill) return ''
-    const itemLines = bill.items?.map(item => `• ${item.itemName || item.name} (${item.qty} qty) - ₹${Number(item.amount).toFixed(2)}`).join('\n') || ''
-    const loyaltyLines = (settings.loyaltyEnabled !== false && bill.customerType === 'regular')
-      ? `*Loyalty Points Added:* +${bill.loyaltyPointsEarned || 0}\n*Loyalty Balance:* ${bill.customerTotalLoyaltyPoints || 0} pts\n`
-      : ''
-    const pdfLine = pdfUrl ? `*Download PDF Receipt:* ${pdfUrl}\n` : ''
-
-    return [
-      `*Invoice from ${business?.shopName || 'PrintPro'}*`,
-      `*Bill ID:* ${bill.id}`,
-      `*Date:* ${bill.date}`,
-      `*Customer:* ${bill.customerName}`,
-      `------------------------`,
-      itemLines,
-      `------------------------`,
-      `*Subtotal:* ₹${bill.subtotal.toFixed(2)}`,
-      bill.gstAmount > 0 && settings.showGstBreakdown !== false ? `*CGST/SGST:* ₹${(bill.gstAmount / 2).toFixed(2)} / ₹${(bill.gstAmount / 2).toFixed(2)}` : '',
-      bill.discountAmount > 0 ? `*Discount:* -₹${bill.discountAmount.toFixed(2)}` : '',
-      `*Total:* *₹${bill.total.toFixed(2)}*`,
-      `*Paid:* ₹${bill.amountPaid.toFixed(2)}`,
-      bill.balance > 0 ? `*Balance Due:* *₹${bill.balance.toFixed(2)}*` : `*Status:* PAID`,
-      `------------------------`,
-      loyaltyLines,
-      pdfLine,
-      `Thank you for your business!`,
-    ].filter(Boolean).join('\n')
+    return formatWhatsAppReceipt(bill, settings, business, pdfUrl)
   }
 
   const handleWhatsApp = () => {

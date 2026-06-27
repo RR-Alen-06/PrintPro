@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList } from 'lucide-react'
+import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -16,7 +16,7 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, customers, bills, payments, advancePayments, addCustomer, recordPayment, recordSpecificBillPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, customers, bills, payments, advancePayments, addCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
 
   const copyUpiLink = (link) => {
@@ -127,13 +127,28 @@ const Customers = () => {
     const cash = Number(targetCash || 0)
     const upi = Number(targetUpi || 0)
     if (cash + upi <= 0) { showAlert('Enter a payment amount.', 'error'); return }
-    recordSpecificBillPayment({
-      billId: bill.id,
-      customerId: bill.customerId,
-      cashAmount: cash,
-      upiAmount: upi,
-      notes: `Selective payment for bill ${bill.id}`,
-    })
+
+    const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
+    const isSplitGroup = bill.groupBillId && groupMembers.length > 1
+
+    if (isSplitGroup && (cash + upi > bill.balance + 0.01)) {
+      recordSplitGroupPayment({
+        payerBillId: bill.id,
+        payerCustomerId: bill.customerId,
+        cashAmount: cash,
+        upiAmount: upi,
+        groupBillId: bill.groupBillId,
+        notes: `Group payment from customer page for bill ${bill.id}`,
+      })
+    } else {
+      recordSpecificBillPayment({
+        billId: bill.id,
+        customerId: bill.customerId,
+        cashAmount: cash,
+        upiAmount: upi,
+        notes: `Selective payment for bill ${bill.id}`,
+      })
+    }
     setTargetBillPayId(null)
     setTargetCash(0)
     setTargetUpi(0)
@@ -675,6 +690,38 @@ const Customers = () => {
                                     <Wallet size={13} /> Pay This Bill Only — {bill.id}
                                     <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{Number(bill.balance).toFixed(2)})</span>
                                   </div>
+                                  {(() => {
+                                    const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
+                                    const isSplit = bill.groupBillId && groupMembers.length > 1
+                                    if (!isSplit) return null
+                                    const groupBal = groupMembers.reduce((s, b) => s + b.balance, 0)
+                                    return (
+                                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-sm"
+                                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                                          onClick={() => {
+                                            setTargetCash(String(bill.balance))
+                                            setTargetUpi('0')
+                                          }}
+                                        >
+                                          Pay My Share (₹{Number(bill.balance).toFixed(2)})
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-sm"
+                                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                                          onClick={() => {
+                                            setTargetCash(String(groupBal))
+                                            setTargetUpi('0')
+                                          }}
+                                        >
+                                          Pay Full Group (₹{Number(groupBal).toFixed(2)})
+                                        </button>
+                                      </div>
+                                    )
+                                  })()}
                                   {targetPaySuccess && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', marginBottom: '8px' }}>
                                       <CheckCircle size={14} /> Payment recorded!
@@ -770,6 +817,60 @@ const Customers = () => {
                 </div>
               )}
             </div>
+
+            {/* Promotions Used section */}
+            {(() => {
+              const customerPromos = bills
+                .filter((b) => !b.deleted && b.customerId === selectedCustomer.id && b.promoCode)
+                .map((b) => ({
+                  code: b.promoCode,
+                  usedOn: b.date,
+                  invoice: b.id,
+                  discount: b.promoDiscount || b.discountAmount || 0,
+                  status: 'Redeemed',
+                }))
+
+              return (
+                <div className="card">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <Tag size={16} style={{ color: 'var(--accent)' }} />
+                    <h3 style={{ margin: 0 }}>Promotions Used ({customerPromos.length})</h3>
+                  </div>
+                  {customerPromos.length === 0 ? (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No promotions used by this customer yet.</p>
+                  ) : (
+                    <div className="table-container">
+                      <table className="table" style={{ fontSize: '0.82rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Promo Code</th>
+                            <th>Used On</th>
+                            <th>Invoice</th>
+                            <th style={{ textAlign: 'right' }}>Discount</th>
+                            <th style={{ textAlign: 'center' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customerPromos.map((cp, idx) => (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{cp.code}</td>
+                              <td>{cp.usedOn}</td>
+                              <td style={{ fontFamily: 'monospace' }}>{cp.invoice}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>₹{cp.discount.toFixed(2)}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className="badge badge-paid" style={{ textTransform: 'none', fontSize: '0.7rem', padding: '2px 6px' }}>
+                                  {cp.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Payment form — always show if customer is selected */}
             <div className="card">

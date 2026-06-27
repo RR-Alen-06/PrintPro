@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
+import { DashboardService } from '../utils/financialServices'
 
 const Dashboard = () => {
   const { bills, customers, advancePayments, payments, expenses } = useAppContext()
@@ -61,28 +62,28 @@ const Dashboard = () => {
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
-  const pendingAmount = useMemo(() => activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0), [activeBills])
-  const revenue = useMemo(() => activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0), [activeBills])
+
+  // Centralized calculations using DashboardService
+  const dashboardStats = useMemo(() => {
+    return DashboardService.getSummaryWidgets({ bills, payments, expenses, customers, inventory: [] })
+  }, [bills, payments, expenses, customers])
+
+  const netRevenue = dashboardStats.netRevenue
+  const pendingAmount = dashboardStats.pendingAmount
+  const totalRefunds = dashboardStats.totalRefunds
+  const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
   const refundPayments = useMemo(() => {
     return (payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
   }, [payments])
 
-  const totalRefunds = useMemo(() => {
-    return refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
-  }, [refundPayments])
-
-  const netRevenue = useMemo(() => revenue, [revenue])
-  
-  const totalCustomerAdvance = useMemo(() => {
-    return customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
-  }, [customers])
-
   const totalCashInflow = useMemo(() => {
     const pInflow = (payments || [])
       .filter((p) => !p.notes?.includes('from advance deposit'))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const advInflow = (advancePayments || []).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    const advInflow = (advancePayments || [])
+      .filter(ap => !ap.isRefundCredit)
+      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     return pInflow + advInflow
   }, [payments, advancePayments])
 

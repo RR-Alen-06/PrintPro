@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
+import { LedgerService } from '../utils/financialServices'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -80,174 +81,28 @@ const CustomerLedger = () => {
     [advancePayments, selectedCustomerId]
   )
 
+  const customerSettlements = useMemo(() => {
+    return payments.filter(p => {
+      if (!p.isGroupPayment) return false
+      if (p.customerId === selectedCustomerId) return true
+      return (p.groupSettlements || []).some(s => s.customerId === selectedCustomerId)
+    })
+  }, [payments, selectedCustomerId])
+
   // Build full ledger timeline with period filter
   // Build full ledger timeline with period filter
+  // Build full ledger timeline with period filter using LedgerService
   const ledgerEntries = useMemo(() => {
-    const range = getLedgerPeriodRange(ledgerPeriod)
-    const entries = []
-
-    let openingBalance = 0
-    if (range) {
-      let preDebit = 0
-      let preCredit = 0
-
-      customerBills.forEach((bill) => {
-        const d = bill.date ? new Date(bill.date) : null
-        if (d && d < range.start) {
-          preDebit += Number(bill.total || 0)
-        }
-      })
-
-      customerPayments.forEach((payment) => {
-        const d = payment.date ? new Date(payment.date) : null
-        if (d && d < range.start) {
-          const excess = Number(payment.excessCredit || 0)
-          preCredit += Number(payment.totalPaid || 0) + excess
-        }
-      })
-
-      customerAdvances.forEach((adv) => {
-        const d = adv.date ? new Date(adv.date) : null
-        if (d && d < range.start) {
-          preCredit += Number(adv.amount || 0)
-        }
-      })
-
-      openingBalance = preCredit - preDebit
-    }
-
-    customerBills.forEach((bill) => {
-      const d = bill.date ? new Date(bill.date) : null
-      if (range && d && (d < range.start || d > range.end)) return
-
-      let details = []
-      if (bill.promoCode) {
-        const valStr = bill.promoDiscount > 0 ? `₹${bill.promoDiscount.toFixed(2)}` : `${bill.discountValue}${bill.discountType === 'percent' ? '%' : ' Rs'}`
-        details.push(`Promo: ${bill.promoCode} (-${valStr})`)
-      }
-      if (bill.loyaltyPointsRedeemed > 0) {
-        const lpDisc = bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))
-        details.push(`Loyalty: ${bill.loyaltyPointsRedeemed} pts (-₹${lpDisc.toFixed(2)})`)
-      }
-      if (bill.gstAmount > 0) {
-        details.push(`GST: ₹${Number(bill.gstAmount).toFixed(2)}`)
-      }
-      const descSuffix = details.length > 0 ? ` [${details.join(' · ')}]` : ''
-
-      const advUsed = Number(bill.advanceUsed || 0)
-      const bal = Number(bill.balance || 0)
-      const breakdown = `₹${bill.total.toFixed(2)}${advUsed > 0 ? `; ₹${advUsed.toFixed(2)} advance used` : ''}${bal > 0 ? `, ₹${bal.toFixed(2)} pending` : ''}`
-
-      entries.push({
-        type: 'bill',
-        date: bill.date,
-        id: bill.id,
-        description: `Invoice #${bill.id}${descSuffix}`,
-        subtext: `${bill.items ? `${bill.items.length} item(s) · ` : ''}${bill.status.toUpperCase()} (${breakdown})`,
-        debit: bill.total,
-        credit: 0,
-        advanceUsed: advUsed,
-        discountValue: Number(bill.discountValue || 0),
-        loyaltyPointsEarned: bill.loyaltyPointsEarned || 0,
-        loyaltyPointsRedeemed: bill.loyaltyPointsRedeemed || 0,
-        promoCode: bill.promoCode || null,
-        promoDiscount: bill.promoDiscount || 0,
-        loyaltyDiscount: bill.loyaltyDiscount || 0,
-        gstAmount: Number(bill.gstAmount || 0),
-      })
+    const res = LedgerService.calculateLedger({
+      customerId: selectedCustomerId,
+      bills,
+      payments,
+      advancePayments,
+      period: ledgerPeriod,
+      settings
     })
-
-    customerPayments.forEach((payment) => {
-      const d = payment.date ? new Date(payment.date) : null
-      if (range && d && (d < range.start || d > range.end)) return
-      const excess = Number(payment.excessCredit || 0)
-      const isRefund = Number(payment.totalPaid || 0) < 0 || payment.paymentType === 'refund' || payment.isRefund
-      const creditAmt = Number(payment.totalPaid || 0) + excess
-
-      let paymentSub = isRefund 
-        ? `Refunded via ${Number(payment.cashAmount || 0) < 0 ? 'Cash' : 'UPI'} ₹${Math.abs(Number(payment.totalPaid || 0)).toFixed(2)}`
-        : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(payment.upiAmount || 0).toFixed(2)}`
-      
-      if (!isRefund) {
-        const appliedAmt = Number(payment.totalPaid || 0)
-        let parts = []
-        if (appliedAmt > 0) parts.push(`₹${appliedAmt.toFixed(2)} bill payment`)
-        if (excess > 0) parts.push(`₹${excess.toFixed(2)} advance`)
-        if (parts.length > 0) {
-          paymentSub += ` (${parts.join(' + ')})`
-        }
-      }
-
-      entries.push({
-        type: isRefund ? 'refund' : 'payment',
-        date: payment.date,
-        id: payment.id,
-        description: isRefund ? `Refund — Bill #${payment.billId}` : `Payment — ${payment.billId || 'General'}`,
-        subtext: paymentSub,
-        debit: isRefund ? Math.abs(creditAmt) : 0,
-        credit: isRefund ? 0 : creditAmt,
-      })
-    })
-
-    customerAdvances.forEach((adv) => {
-      const d = adv.date ? new Date(adv.date) : null
-      if (range && d && (d < range.start || d > range.end)) return
-      const isReturn = adv.isReturn || adv.amount < 0
-      const amt = Number(adv.amount)
-      entries.push({
-        type: isReturn ? 'advance_return' : 'advance',
-        date: adv.date,
-        id: adv.id,
-        description: isReturn ? `Advance Return` : `Advance Deposit`,
-        subtext: `Ref: ${adv.id} · Cash ₹${Number(Math.abs(adv.cashAmount || 0)).toFixed(2)} · UPI ₹${Number(Math.abs(adv.upiAmount || 0)).toFixed(2)}${adv.notes ? ` · ${adv.notes}` : ''}`,
-        debit: 0,
-        credit: 0,
-        advanceIn: isReturn ? 0 : amt,
-        advanceReturn: isReturn ? Math.abs(amt) : 0,
-      })
-    })
-
-    entries.sort((a, b) => {
-      const d1 = new Date(a.date)
-      const d2 = new Date(b.date)
-      const y1 = d1.getFullYear(), m1 = d1.getMonth(), day1 = d1.getDate()
-      const y2 = d2.getFullYear(), m2 = d2.getMonth(), day2 = d2.getDate()
-      if (y1 !== y2 || m1 !== m2 || day1 !== day2) {
-        return d1 - d2
-      }
-      const typePriority = { opening_balance: 0, bill: 1, payment: 2, refund: 2, advance: 3 }
-      const p1 = typePriority[a.type] ?? 99
-      const p2 = typePriority[b.type] ?? 99
-      if (p1 !== p2) {
-        return p1 - p2
-      }
-      return d1 - d2
-    })
-
-    let runningBalance = openingBalance
-    const mapped = entries.map((entry) => {
-      // Bank statement style: payments/advances increase credit balance (+), billing/charges subtract from credit (-)
-      runningBalance += (entry.credit || 0) + (entry.advanceIn || 0) - (entry.debit || 0) - (entry.advanceReturn || 0)
-      return { ...entry, balance: runningBalance }
-    })
-
-    if (range) {
-      return [
-        {
-          type: 'opening_balance',
-          date: range.start.toISOString().slice(0, 10),
-          id: 'OPENING',
-          description: 'Opening Balance',
-          subtext: 'Balance brought forward from previous transactions',
-          debit: 0,
-          credit: 0,
-          balance: openingBalance,
-        },
-        ...mapped
-      ]
-    }
-    return mapped
-  }, [customerBills, customerPayments, customerAdvances, ledgerPeriod])
+    return res.entries
+  }, [bills, payments, advancePayments, selectedCustomerId, ledgerPeriod, settings])
 
   const handleApplyPayment = () => {
     const cash = Number(payCash || 0)
@@ -268,8 +123,13 @@ const CustomerLedger = () => {
   }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
-  const totalPaid = customerPayments.reduce((s, p) => s + Number(p.totalPaid || 0) + Number(p.excessCredit || 0), 0)
-  const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => a.amount > 0 || !a.isReturn).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
+  // Separate gross payments and refund payments for clear display
+  const nonRefundPayments = customerPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+  const refundPaymentsList = customerPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+  const totalGrossPaid = nonRefundPayments.reduce((s, p) => s + Number(p.totalPaid || 0) + Number(p.excessCredit || 0), 0)
+  const totalRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+  const totalPaid = totalGrossPaid - totalRefunded // net paid after refunds
+  const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => (a.amount > 0 || !a.isReturn) && !a.isRefundCredit).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
   const totalAdvanceReturned = useMemo(() => customerAdvances.filter(a => a.amount < 0 || a.isReturn).reduce((s, a) => s + Math.abs(Number(a.amount || 0)), 0), [customerAdvances])
   const totalAdvanceUsed = customerBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
   const totalDiscount = customerBills.reduce((s, b) => s + Number(b.discountValue || 0), 0)
@@ -512,6 +372,8 @@ const CustomerLedger = () => {
     if (type === 'advance_return') return 'var(--warning)'
     if (type === 'opening_balance') return 'var(--text-secondary)'
     if (type === 'refund') return 'var(--warning)'
+    if (type === 'group_settlement') return '#818cf8'
+    if (type === 'group_payment_behalf') return 'var(--error)'
     return 'var(--success)'
   }
   const typeLabel = (type) => {
@@ -520,6 +382,9 @@ const CustomerLedger = () => {
     if (type === 'advance_return') return 'Advance Return'
     if (type === 'opening_balance') return 'Opening'
     if (type === 'refund') return 'Refund'
+    if (type === 'group_settlement') return 'Settled Group'
+    if (type === 'group_payment') return 'Group Payment'
+    if (type === 'group_payment_behalf') return 'Paid Behalf'
     return 'Payment'
   }
 
@@ -613,8 +478,10 @@ const CustomerLedger = () => {
             <div style={{ display: 'grid', gap: '10px' }}>
               {[
                 { label: 'Total Billed', value: totalBilled, color: 'var(--error)' },
-                { label: 'Total Paid', value: totalPaid, color: 'var(--success)' },
-                { label: 'Outstanding Balance', value: outstanding, color: 'var(--warning)' },
+                { label: 'Gross Paid (Before Refunds)', value: totalGrossPaid, color: 'var(--success)' },
+                { label: 'Total Refunded', value: totalRefunded, color: 'var(--warning)' },
+                { label: 'Net Paid (After Refunds)', value: totalPaid, color: 'var(--info)' },
+                { label: 'Outstanding Balance', value: outstanding, color: 'var(--error)' },
                 { label: 'Total GST Charged', value: totalGstBilled, color: '#818cf8' },
                 { label: 'Total Discounts Given', value: totalDiscount, color: 'var(--accent)' },
                 { label: 'Advance Deposited', value: totalAdvanceIn, color: 'var(--info)' },
@@ -915,6 +782,62 @@ const CustomerLedger = () => {
           )}
         </div>
       </div>
+
+      {/* ── Split Settlement View ── */}
+      {customerSettlements.length > 0 && (
+        <div className="card" style={{ marginTop: '24px', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', color: '#818cf8' }}>
+            <ArrowLeftRight size={18} /> Split Settlement View
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {customerSettlements.map((settle) => {
+              const payerName = customers.find(c => c.id === settle.customerId)?.name || 'Unknown'
+              const isPayer = settle.customerId === selectedCustomerId
+              
+              const groupBillsList = bills.filter(b => b.groupBillId === settle.groupBillId && !b.deleted && !b.isGroupParent)
+              const groupTotal = groupBillsList.reduce((sum, b) => sum + b.total, 0)
+
+              return (
+                <div key={settle.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '14px', background: 'rgba(255,255,255,0.01)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: '12px', fontSize: '13px', marginBottom: '12px' }}>
+                    <div>
+                      <span style={{ color: '#71717a' }}>Group ID:</span> <strong style={{ color: 'var(--accent)' }}>{settle.groupBillId}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#71717a' }}>Total Amount:</span> <strong>₹{groupTotal.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#71717a' }}>Actual Payer:</span> <strong style={{ color: isPayer ? '#10b981' : '#fff' }}>{payerName} {isPayer ? '(You)' : ''}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#71717a' }}>Payment Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{settle.id}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#71717a' }}>Status:</span> <strong style={{ color: '#10b981' }}>Completed</strong>
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', marginBottom: '6px' }}>Members Settled:</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#fff' }}>
+                        <span>{payerName} (Payer Share)</span>
+                        <span>₹{Number(groupBillsList.find(b => b.customerId === settle.customerId)?.total || 0).toFixed(2)}</span>
+                      </div>
+                      {(settle.groupSettlements || []).map((s, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: s.customerId === selectedCustomerId ? '#a3e635' : '#a1a1aa' }}>
+                          <span>{s.customerName} (Settled Share) {s.customerId === selectedCustomerId ? '(You)' : ''}</span>
+                          <span>₹{Number(s.amount).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

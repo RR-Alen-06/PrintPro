@@ -22,17 +22,34 @@ const Accounting = () => {
   const stats = useMemo(() => {
     const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
 
+    // Separate normal payments from refund payments
+    const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+    const refundPaymentsList = (payments || []).filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+
+    // Realized Revenue = sum of amountPaid on active bills
+    // After the ADD_PAYMENT refund fix, bill.amountPaid is already net of refunds.
     const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+
+    // Total refund outflow
+    const totalRefundOutflow = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+
     const totalExpenses = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
+
+    // Net Profit = Net Revenue - Total Expenses
+    const netProfit = realizedRevenue - totalExpenses
     
     const totalCustomerAdvance = customers
       .filter((c) => !c.deleted)
       .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
 
-    const pInflow = payments
+    // Cash inflow from payments (refund payments have negative cashAmount, naturally reduces sum)
+    const pInflow = (payments || [])
       .filter((p) => !p.notes?.includes('from advance deposit'))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const advInflow = (advancePayments || []).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    // Advance inflow EXCLUDING refund-credit advance deposits (those are internal transfers)
+    const advInflow = (advancePayments || [])
+      .filter(ap => !ap.isRefundCredit)
+      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     const totalCashInflow = pInflow + advInflow
 
     const netCashFlow = totalCashInflow - totalExpenses
@@ -40,19 +57,28 @@ const Accounting = () => {
       .filter((b) => b.status !== 'paid')
       .reduce((s, b) => s + Number(b.balance || 0), 0)
 
-    // Cash/UPI from payments + positive advance payments
-    const cashFromPayments = payments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiFromPayments = payments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
-    const cashCollected = cashFromPayments + cashFromAdvances
-    const upiCollected = upiFromPayments + upiFromAdvances
+    // Cash/UPI collected from NORMAL payments only (not refunds)
+    const cashFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const upiFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    // Cash/UPI refunded out
+    const cashRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const upiRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
+    // Net cash/UPI collected (gross - refunds)
+    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashCollected = cashFromNormalPayments + cashFromAdvances  // gross cash received
+    const upiCollected = upiFromNormalPayments + upiFromAdvances      // gross UPI received
 
     // Cash/UPI from expenses
     const cashSpent = (expenses || []).reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiSpent = (expenses || []).reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    return { realizedRevenue, totalExpenses, netCashFlow, pendingReceivables, cashCollected, upiCollected, cashSpent, upiSpent, totalCustomerAdvance, totalCashInflow }
+    return {
+      realizedRevenue, totalExpenses, netCashFlow, pendingReceivables,
+      cashCollected, upiCollected, cashSpent, upiSpent,
+      totalCustomerAdvance, totalCashInflow,
+      netProfit, totalRefundOutflow, cashRefunded, upiRefunded
+    }
   }, [bills, payments, expenses, advancePayments, customers])
 
   const refundStats = useMemo(() => {
@@ -190,11 +216,22 @@ const Accounting = () => {
           <div className="stat-card-header">
             <div className="stat-card-icon success"><DollarSign /></div>
             <div>
-              <div className="stat-card-label">Realized Revenue</div>
+              <div className="stat-card-label">Net Revenue</div>
               <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.realizedRevenue.toFixed(2)}</div>
             </div>
           </div>
-          <div className="stat-card-sub">Total collected from bills.</div>
+          <div className="stat-card-sub">Total collected (after refunds).</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-card-icon error" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}><DollarSign /></div>
+            <div>
+              <div className="stat-card-label">Refund Outflows</div>
+              <div className="stat-card-value" style={{ color: 'var(--warning)' }}>₹{stats.totalRefundOutflow.toFixed(2)}</div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Already deducted from Net Revenue.</div>
         </div>
 
         <div className="stat-card">
@@ -216,7 +253,7 @@ const Accounting = () => {
               <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.totalCashInflow.toFixed(2)}</div>
             </div>
           </div>
-          <div className="stat-card-sub">Total cash inflow collected.</div>
+          <div className="stat-card-sub">Net cash received (refund credits excluded).</div>
         </div>
 
         <div className="stat-card">
@@ -232,6 +269,19 @@ const Accounting = () => {
 
         <div className="stat-card">
           <div className="stat-card-header">
+            <div className={`stat-card-icon ${stats.netProfit >= 0 ? 'success' : 'error'}`}><TrendingUp /></div>
+            <div>
+              <div className="stat-card-label">Net Profit</div>
+              <div className="stat-card-value" style={{ color: stats.netProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                ₹{stats.netProfit.toFixed(2)}
+              </div>
+            </div>
+          </div>
+          <div className="stat-card-sub">Net Revenue − Expenses.</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
             <div className={`stat-card-icon ${stats.netCashFlow >= 0 ? 'success' : 'error'}`}><TrendingUp /></div>
             <div>
               <div className="stat-card-label">Net Cash Flow</div>
@@ -240,7 +290,7 @@ const Accounting = () => {
               </div>
             </div>
           </div>
-          <div className="stat-card-sub">Total Inflow minus expenses.</div>
+          <div className="stat-card-sub">Cash Inflow minus Expenses.</div>
         </div>
 
         <div className="stat-card">
@@ -260,7 +310,7 @@ const Accounting = () => {
         <h2 style={{ marginBottom: '16px' }}>Cash vs UPI Breakdown</h2>
         <div className="grid-2" style={{ gap: '16px' }}>
           <div>
-            <h4 style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Collected (Revenue)</h4>
+            <h4 style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Collected (Gross from Customers)</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Collected</span>
@@ -269,6 +319,14 @@ const Accounting = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Collected</span>
                 <span style={{ fontWeight: 700, color: 'var(--info)' }}>₹{stats.upiCollected.toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Refunded Out</span>
+                <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.cashRefunded.toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Refunded Out</span>
+                <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiRefunded.toFixed(2)}</span>
               </div>
             </div>
           </div>

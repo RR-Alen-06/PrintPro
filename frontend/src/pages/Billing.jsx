@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
+import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
 
 
@@ -21,7 +22,7 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -317,6 +318,50 @@ const Billing = () => {
       return
     }
 
+    // Check if this customer has already used this promo code
+    const currentEmail = customerEmail ? customerEmail.trim().toLowerCase() : (customers.find(c => c.id === customerId)?.email || '').trim().toLowerCase()
+    const currentPhone = customerPhone ? customerPhone.replace(/[^0-9]/g, '') : (customers.find(c => c.id === customerId)?.phone || '').replace(/[^0-9]/g, '')
+    const currentId = customerId
+
+    const hasRedeemed = bills.some(b => {
+      if (b.deleted) return false
+      if (b.promoCode !== code) return false
+
+      // Check if customer ID matches
+      if (b.customerId === currentId) return true
+
+      // Find customer details for that bill
+      const billCust = customers.find(c => c.id === b.customerId)
+      if (!billCust) return false
+
+      // Check Email
+      if (currentEmail && billCust.email && currentEmail === billCust.email.trim().toLowerCase()) {
+        return true
+      }
+
+      // Check Phone/Loyalty
+      if (currentPhone && billCust.phone && currentPhone === billCust.phone.replace(/[^0-9]/g, '')) {
+        return true
+      }
+
+      return false
+    })
+
+    if (hasRedeemed) {
+      setPromoError('This promo code has already been used by this customer and cannot be applied again.')
+      // Record attempt in audit logs
+      recordAuditLog({
+        action: 'PROMO_BLOCK',
+        promoCode: code,
+        customerId: currentId || 'GUEST',
+        customerName: customerName || (customers.find(c => c.id === currentId)?.name || 'Guest'),
+        customerEmail: currentEmail,
+        customerPhone: currentPhone,
+        details: `Attempted duplicate redemption of ${code}`
+      })
+      return
+    }
+
     // Date validity check
     const billDate = date || new Date().toISOString().slice(0, 10)
     if (promo.startDate && billDate < promo.startDate) {
@@ -362,38 +407,8 @@ const Billing = () => {
       showToast('Sharing message without PDF link due to upload issue.', 'warning')
     }
 
-    const itemLines = bill.items.map(item => `• ${item.itemName || item.name} (${item.qty} qty) - ₹${Number(item.amount).toFixed(2)}`).join('%0A')
-    const gstLines = (settings.showGstBreakdown !== false && bill.gstAmount > 0)
-      ? `*CGST:* ₹${(bill.gstAmount / 2).toFixed(2)}%0A*SGST:* ₹${(bill.gstAmount / 2).toFixed(2)}%0A`
-      : ''
-    const loyaltyLines = (settings.loyaltyEnabled !== false)
-      ? `*Loyalty Points Added:* +${bill.loyaltyPointsEarned || 0}%0A*Loyalty Balance:* ${bill.customerTotalLoyaltyPoints || 0} pts%0A`
-      : ''
-    const discountLine = bill.discountAmount > 0 ? `*Discount:* -₹${bill.discountAmount.toFixed(2)}%0A` : ''
-    const loyaltyDiscountLine = Number(bill.loyaltyPointsRedeemed) > 0
-      ? `*Loyalty Discount:* -₹${(bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)}%0A`
-      : ''
-    const pdfUrlLine = pdfUrl ? `*Download PDF Receipt:* ${pdfUrl}%0A` : ''
-
-    const text = `*Invoice from ${business?.shopName || 'PrintPro'}*%0A` +
-      `*Bill ID:* ${bill.id}%0A` +
-      `*Date:* ${bill.date}%0A` +
-      `*Customer:* ${bill.customerName}%0A` +
-      `------------------------%0A` +
-      `${itemLines}%0A` +
-      `------------------------%0A` +
-      `*Subtotal:* ₹${bill.subtotal.toFixed(2)}%0A` +
-      gstLines +
-      discountLine +
-      loyaltyDiscountLine +
-      `*Total:* *₹${bill.total.toFixed(2)}*%0A` +
-      `*Paid:* ₹${bill.amountPaid.toFixed(2)}%0A` +
-      (bill.balance > 0 ? `*Balance Due:* *₹${bill.balance.toFixed(2)}*%0A` : `*Status:* PAID%0A`) +
-      `------------------------%0A` +
-      loyaltyLines +
-      pdfUrlLine +
-      `%0AThank you for your business!`
-
+    const receiptText = formatWhatsAppReceipt(bill, settings, business, pdfUrl)
+    const text = encodeURIComponent(receiptText)
     const cleanPhone = phone.replace(/[^0-9]/g, '')
     const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
     window.open(url, '_blank')

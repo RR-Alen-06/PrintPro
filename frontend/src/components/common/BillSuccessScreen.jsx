@@ -69,7 +69,7 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
         ...prev,
         amountPaid: nextAmountPaid,
         balance: Math.max(prev.total - nextAmountPaid, 0),
-        status: nextAmountPaid >= prev.total ? 'paid' : 'partial',
+        status: nextAmountPaid >= prev.total ? 'paid' : (nextAmountPaid > 0 ? 'partial' : 'unpaid'),
         paymentMethod: {
           ...prev.paymentMethod,
           cash: Number(((prev.paymentMethod?.cash || 0) + cash).toFixed(2)),

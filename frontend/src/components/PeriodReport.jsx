@@ -60,20 +60,35 @@ const PeriodReport = () => {
     const periodExpenses = (expenses || []).filter(e => e.date && e.date.startsWith(periodKey))
     const periodBills = bills.filter(b => !b.deleted && !b.isGroupParent && b.date && b.date.startsWith(periodKey))
 
-    const revenue = periodPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const cashRevenue = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiRevenue = periodPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    // Separate normal payments from refund payments
+    const normalPayments = periodPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+    const refundPayments = periodPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
 
-    const advanceCollected = periodAdvances.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const cashAdvance = periodAdvances.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiAdvance = periodAdvances.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    // Revenue = sum of amountPaid on bills (already net of refunds after the ADD_PAYMENT fix)
+    const revenue = periodBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+    const cashRevenue = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const upiRevenue = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+
+    // Refund totals for period
+    const refundTotal = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const cashRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const upiRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
+
+    // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
+    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
+    const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
+    const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
 
     const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
     const cashExpenses = periodExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiExpenses = periodExpenses.reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    const totalCashInflow = revenue + advanceCollected
+    // pInflow from all period payments (refund payments have negative cashAmount that reduces sum naturally)
+    const pInflow = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const totalCashInflow = pInflow + Math.max(0, advanceCollected)
     const netCashFlow = totalCashInflow - totalExpenses
+    const netProfit = revenue - totalExpenses
 
     // Print type breakdown
     const printCounts = {
@@ -95,6 +110,9 @@ const PeriodReport = () => {
       revenue,
       cashRevenue,
       upiRevenue,
+      refundTotal,
+      cashRefunded,
+      upiRefunded,
       advanceCollected,
       cashAdvance,
       upiAdvance,
@@ -103,7 +121,12 @@ const PeriodReport = () => {
       upiExpenses,
       totalCashInflow,
       netCashFlow,
+      netProfit,
       billsCount: periodBills.length,
+      refundedBillsCount: periodPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0).reduce((acc, p) => {
+        acc.add(p.billId)
+        return acc
+      }, new Set()).size,
       printCounts,
     }
   }, [bills, payments, expenses, advancePayments, periodKey])
@@ -113,13 +136,17 @@ const PeriodReport = () => {
     const shopName = business?.shopName || 'PrintPro'
     return `*** ${shopName} Report - ${periodLabel} ***
 ---------------------------------
-Realized Revenue: ₹${reportData.revenue.toFixed(2)} (Cash ₹${reportData.cashRevenue.toFixed(2)} | UPI ₹${reportData.upiRevenue.toFixed(2)})
+Net Revenue (after refunds): ₹${reportData.revenue.toFixed(2)}
+  Cash: ₹${reportData.cashRevenue.toFixed(2)} | UPI: ₹${reportData.upiRevenue.toFixed(2)}
+Total Refunds Issued: ₹${reportData.refundTotal.toFixed(2)}
 Net Advance Collected: ₹${reportData.advanceCollected.toFixed(2)}
 Total Cash Inflow: ₹${reportData.totalCashInflow.toFixed(2)}
 Total Expenses: ₹${reportData.totalExpenses.toFixed(2)}
+Net Profit (Revenue - Expenses): ₹${reportData.netProfit.toFixed(2)}
 Net Cash Flow: ₹${reportData.netCashFlow.toFixed(2)}
 ---------------------------------
 Bills Processed: ${reportData.billsCount}
+Refunded Bills: ${reportData.refundedBillsCount || 0}
 Generated on: ${new Date().toLocaleDateString()}`
   }, [business, periodLabel, reportData])
 
@@ -219,6 +246,8 @@ Generated on: ${new Date().toLocaleDateString()}`
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     text(`Total Bills Processed: ${reportData.billsCount}`, 20, y)
+    y += 6
+    text(`Refunded Bills: ${reportData.refundedBillsCount || 0}`, 20, y)
     y += 6
 
     Object.entries(reportData.printCounts).forEach(([type, count]) => {
@@ -324,10 +353,12 @@ Generated on: ${new Date().toLocaleDateString()}`
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
             {[
-              { label: 'Realized Revenue (paid bills)', val: reportData.revenue, sub: `Cash: ₹${reportData.cashRevenue.toFixed(2)} | UPI: ₹${reportData.upiRevenue.toFixed(2)}`, color: 'var(--success)' },
+              { label: 'Net Revenue (after refunds)', val: reportData.revenue, sub: `Cash: ₹${reportData.cashRevenue.toFixed(2)} | UPI: ₹${reportData.upiRevenue.toFixed(2)}`, color: 'var(--success)' },
+              { label: 'Total Refunds Issued', val: reportData.refundTotal, sub: `Cash: ₹${(reportData.cashRefunded || 0).toFixed(2)} | UPI: ₹${(reportData.upiRefunded || 0).toFixed(2)}`, color: 'var(--warning)' },
               { label: 'Net Advance Deposited', val: reportData.advanceCollected, sub: `Cash: ₹${reportData.cashAdvance.toFixed(2)} | UPI: ₹${reportData.upiAdvance.toFixed(2)}`, color: 'var(--info)' },
-              { label: 'Total Inflow (Revenue + Advance)', val: reportData.totalCashInflow, sub: 'Combined cash/UPI receipts', color: 'var(--success)', highlight: true },
+              { label: 'Total Inflow (Revenue + Advance)', val: reportData.totalCashInflow, sub: 'Combined net cash/UPI receipts', color: 'var(--success)', highlight: true },
               { label: 'Total Expenses Paid', val: reportData.totalExpenses, sub: `Cash: ₹${reportData.cashExpenses.toFixed(2)} | UPI: ₹${reportData.upiExpenses.toFixed(2)}`, color: 'var(--error)' },
+              { label: 'Net Profit (Revenue − Expenses)', val: reportData.netProfit, sub: 'Refunds already deducted from Revenue', color: reportData.netProfit >= 0 ? 'var(--success)' : 'var(--error)', highlight: reportData.netProfit >= 0 },
             ].map((item, idx) => (
               <div key={idx} style={{ padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: item.highlight ? '1px solid var(--success)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{item.label}</div>
@@ -351,6 +382,10 @@ Generated on: ${new Date().toLocaleDateString()}`
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px solid var(--border)' }}>
             <span className="text-muted">Total Orders Processed</span>
             <strong>{reportData.billsCount}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px solid var(--border)', color: reportData.refundedBillsCount > 0 ? 'var(--error)' : 'inherit' }}>
+            <span className="text-muted">Refunded Orders</span>
+            <strong>{reportData.refundedBillsCount || 0}</strong>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
