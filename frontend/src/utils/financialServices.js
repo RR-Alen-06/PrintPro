@@ -247,7 +247,16 @@ export const LedgerService = {
     selectedPayments.forEach((payment) => {
       const excess = Number(payment.excessCredit || 0);
       const isRefund = Number(payment.totalPaid || 0) < 0 || payment.paymentType === 'refund' || payment.isRefund;
-      const creditAmt = Number(payment.totalPaid || 0) + excess;
+      let creditAmt = Number(payment.totalPaid || 0) + excess;
+
+      // In ERP group settlement logic, the payer's customer ledger should only be credited
+      // for their own invoice share, not the entire group payment.
+      if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
+        const settledForOthers = payment.groupSettlements.reduce((s, st) => s + Number(st.amount || 0), 0);
+        creditAmt -= settledForOthers;
+        // Don't display a credit less than 0 just in case.
+        creditAmt = Math.max(0, creditAmt);
+      }
 
       entries.push({
         type: isRefund ? 'refund' : (payment.isGroupPayment ? 'group_payment' : 'payment'),
