@@ -1,3 +1,4 @@
+// Trigger build after root directory settings change on Vercel
 const xss = require('xss');
 
 /**
