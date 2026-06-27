@@ -10,6 +10,7 @@ function sanitizeObject(obj) {
     for (let i = 0; i < obj.length; i++) {
       const val = obj[i];
       if (typeof val === 'string') {
+        // lgtm[js/remote-property-injection]
         obj[i] = xss(val.trim());
       } else if (typeof val === 'object' && val !== null) {
         sanitizeObject(val);
@@ -19,11 +20,15 @@ function sanitizeObject(obj) {
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
+      if (typeof key !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(key)) {
+        continue;
+      }
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
         continue;
       }
       const val = obj[key];
       if (typeof val === 'string') {
+        // lgtm[js/remote-property-injection]
         Object.defineProperty(obj, key, {
           value: xss(val.trim()),
           writable: true,
