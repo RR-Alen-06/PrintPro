@@ -76,7 +76,7 @@ const PeriodReport = () => {
 
     // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
     const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
-    const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
+    const advanceCollected = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.amount || 0), 0)
     const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
     const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
 
