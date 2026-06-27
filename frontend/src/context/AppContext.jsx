@@ -71,7 +71,7 @@ const initialState = {
     { code: 'BULK50', type: 'flat', value: 50, minAmount: 500 },
     { code: 'WELCOME20', type: 'flat', value: 20, minAmount: 150 },
   ],
-  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0 },
+  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
 const loadState = () => {
@@ -480,8 +480,9 @@ const baseReducer = (state, action) => {
         return { ...c, advanceBalance: newAdvance, creditBalance: newAdvance };
       });
       // Record a payment entry for audit purposes
+      const payCountPAY_GROUP = (state.idCounters?.PAY || 0) + 1
       const paymentRecord = {
-        id: generateId('PAY'),
+        id: `PAY${String(payCountPAY_GROUP).padStart(4, '0')}`,
         groupBillId,
         memberId,
         customerId,
@@ -611,15 +612,16 @@ const reducer = (state, action) => {
   return nextState
 }
 
-const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
+// Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
+// const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
 
 // Sequential ID generator using state counters
 const generateSeqId = (state, type) => {
   const counters = state.idCounters || {}
   const current = counters[type] || 0
   const next = current + 1
-  const padded = String(next).padStart(3, '0')
-  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
+  const padded = String(next).padStart(4, '0')
+  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
   return `${prefixMap[type] || type}${padded}`
 }
 
@@ -959,8 +961,9 @@ export const AppProvider = ({ children }) => {
         bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
         bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
 
+        const _payIdx1 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
         paymentRecords.push({
-          id: generateId('PAY'),
+          id: `PAY${String(_payIdx1).padStart(4, '0')}`,
           billId: bill.id,
           customerId: bill.customerId,
           date: new Date().toISOString(),
@@ -1000,8 +1003,9 @@ export const AppProvider = ({ children }) => {
       lastRec.cashAmount += R_cash
       lastRec.upiAmount += R_upi
     } else if (overpaid > 0) {
+      const _payIdxExcess = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
       paymentRecords.push({
-        id: generateId('PAY'),
+        id: `PAY${String(_payIdxExcess).padStart(4, '0')}`,
         billId: billId,
         customerId: billData.customerId,
         date: new Date().toISOString(),
@@ -1032,7 +1036,7 @@ export const AppProvider = ({ children }) => {
         creditUsed: billsToPay.find(b => b.id === billId).creditUsed,
         advanceUsed: billsToPay.find(b => b.id === billId).advanceUsed,
         notification: {
-          id: generateId('NOTE'),
+          id: `NOTE${String((state.idCounters?.NOTE || 0) + 1).padStart(4, '0')}`,
           title: `Bill ${billId} created`,
           message: `New bill for ${customerName} is ${billsToPay.find(b => b.id === billId).status}.`,
           date: new Date().toISOString().slice(0, 10),
@@ -1121,8 +1125,9 @@ export const AppProvider = ({ children }) => {
         bill.balance = Math.max(bill.total - bill.amountPaid, 0)
         bill.status = bill.amountPaid >= bill.total ? 'paid' : 'partial'
 
+        const _payIdxFifo = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
         paymentRecords.push({
-          id: generateId('PAY'),
+          id: `PAY${String(_payIdxFifo).padStart(4, '0')}`,
           billId: bill.id,
           customerId: paymentData.customerId,
           date: new Date().toISOString(),
@@ -1143,8 +1148,9 @@ export const AppProvider = ({ children }) => {
       lastRec.cashAmount += R_cash
       lastRec.upiAmount += R_upi
     } else if (excess > 0) {
+      const _payIdxExcess2 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
       paymentRecords.push({
-        id: generateId('PAY'),
+        id: `PAY${String(_payIdxExcess2).padStart(4, '0')}`,
         billId: paymentData.billId || 'General',
         customerId: paymentData.customerId,
         date: new Date().toISOString(),
@@ -1207,10 +1213,12 @@ export const AppProvider = ({ children }) => {
       },
     })
 
+    const _specPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
     dispatch({
       type: 'ADD_PAYMENT',
       payload: {
-        id: generateId('PAY'),
+        id: _specPayId,
         billId,
         customerId,
         date: new Date().toISOString(),
@@ -1230,12 +1238,14 @@ export const AppProvider = ({ children }) => {
     const grpId = generateSeqId(state, grpCounterKey)
     dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
 
+    // Read current BILL counter once; increment locally per member so each bill gets a unique ID
+    let billCounterOffset = state.idCounters?.BILL || 0
     const memberBillIds = []
 
     for (const member of groupData.members) {
-      const billCounterKey = 'BILL'
-      const billId = generateSeqId(state, billCounterKey)
-      dispatch({ type: 'INCREMENT_COUNTER', payload: billCounterKey })
+      billCounterOffset += 1
+      const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
@@ -1293,12 +1303,13 @@ export const AppProvider = ({ children }) => {
         customerTotalLoyaltyPoints: customer ? customer.loyaltyPoints : 0,
       }
 
+      const noteCounterOffset = (state.idCounters?.NOTE || 0) + memberBillIds.length + 1
       dispatch({
         type: 'ADD_BILL',
         payload: {
           ...newBill,
           notification: {
-            id: generateId('NOTE'),
+            id: `NOTE${String(noteCounterOffset).padStart(4, '0')}`,
             title: `Group Bill ${grpId} — ${billId}`,
             message: `Bill for ${customerName} created under group ${grpId} (${billStatus}).`,
             date: new Date().toISOString().slice(0, 10),
@@ -1311,58 +1322,8 @@ export const AppProvider = ({ children }) => {
       memberBillIds.push(billId)
     }
 
-    if (groupData.type === 'split') {
-      const parentBillId = `GRP-${grpId}`
-      const parentGst = groupData.members.reduce((sum, m) => sum + Number(m.gstAmount || 0), 0)
-      const parentTotal = (groupData.splitTotal || 0) + parentGst
-      
-      const parentBill = {
-        id: parentBillId,
-        customerId: 'GROUP-PARENT',
-        customerName: `Split Group ${grpId}`,
-        customerType: 'regular',
-        date: groupData.date || new Date().toISOString().slice(0, 10),
-        dueDate: groupData.dueDate || '',
-        items: groupData.members[0]?.items || [],
-        subtotal: groupData.splitTotal || 0,
-        discountType: 'flat',
-        discountValue: 0,
-        discountAmount: 0,
-        gstAmount: parentGst,
-        cgst: parentGst / 2,
-        sgst: parentGst / 2,
-        total: parentTotal,
-        amountPaid: 0,
-        balance: parentTotal,
-        status: 'unpaid',
-        advanceUsed: 0,
-        creditUsed: 0,
-        paymentMethod: { cash: 0, upi: 0 },
-        rounding: 0,
-        notes: groupData.notes || '',
-        deleted: false,
-        groupBillId: grpId,
-        groupRole: 'parent',
-        isGroupParent: true,
-      }
-      
-      dispatch({
-        type: 'ADD_BILL',
-        payload: {
-          ...parentBill,
-          notification: {
-            id: generateId('NOTE'),
-            title: `Group Parent Bill ${grpId}`,
-            message: `Parent bill created for group ${grpId}.`,
-            date: new Date().toISOString().slice(0, 10),
-            type: 'info',
-            read: false,
-          }
-        }
-      })
-    }
-
-    // Store group meta record
+    // Store group meta record — no separate parent bill needed;
+    // group totals are always computed live from member bills
     dispatch({
       type: 'ADD_GROUP_BILL',
       payload: {
@@ -1371,7 +1332,7 @@ export const AppProvider = ({ children }) => {
         memberBillIds,
         createdAt: new Date().toISOString(),
         roundingMode: groupData.roundingMode || null,
-        totalAmount: groupData.splitTotal || null,
+        totalAmount: null, // deprecated — computed live from member bills
         splitCount: groupData.splitCount || null,
         notes: groupData.notes || '',
         date: groupData.date || new Date().toISOString().slice(0, 10),
@@ -1381,15 +1342,136 @@ export const AppProvider = ({ children }) => {
     return grpId
   }
 
+  // (duplicate body removed — addGroupBill above is the canonical version)
+
+  // ── recordSplitGroupPayment: one customer pays part or all of a split group ──
+  // Distributes payment proportionally across all unpaid member bills.
+  // The payer's ledger only reflects their own share; other shares are settled
+  // using the payment amount as a group-level settlement (no inter-customer transfer).
+  const recordSplitGroupPayment = ({ payerBillId, payerCustomerId, cashAmount, upiAmount, groupBillId }) => {
+    const cash = Number(cashAmount || 0)
+    const upi = Number(upiAmount || 0)
+    let remaining = cash + upi
+    if (remaining <= 0) return
+
+    // Find the group record and all unpaid member bills
+    const grp = state.groupBills.find(g => g.id === groupBillId)
+    if (!grp) return
+
+    const memberBills = (grp.memberBillIds || [])
+      .map(id => state.bills.find(b => b.id === id && !b.deleted))
+      .filter(Boolean)
+      .filter(b => b.balance > 0)
+      .sort((a, b) => a.id.localeCompare(b.id)) // deterministic order
+
+    if (!memberBills.length) return
+
+    // Build settlement distribution
+    const settlements = []
+    for (const bill of memberBills) {
+      if (remaining <= 0) break
+      const apply = Math.min(remaining, bill.balance)
+      const ratio = (cash + upi) > 0 ? cash / (cash + upi) : 1
+      const applyCash = Number((apply * ratio).toFixed(2))
+      const applyUpi = Number((apply - applyCash).toFixed(2))
+      settlements.push({ bill, apply, applyCash, applyUpi })
+      remaining -= apply
+    }
+
+    // Generate a group-level audit payment ID
+    const grpPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+
+    // Settle each member bill
+    let payIdxOffset = 1
+    for (const { bill, apply, applyCash, applyUpi } of settlements) {
+      const newAmountPaid = bill.amountPaid + apply
+      const newBalance = Math.max(bill.total - newAmountPaid, 0)
+      const newStatus = newAmountPaid >= bill.total ? 'paid' : 'partial'
+      const isByPayer = bill.id === payerBillId
+
+      // Update each member bill status
+      dispatch({
+        type: 'UPDATE_BILL',
+        payload: {
+          id: bill.id,
+          updates: {
+            amountPaid: newAmountPaid,
+            balance: newBalance,
+            status: newStatus,
+            paymentMethod: {
+              cash: Number(bill.paymentMethod?.cash || 0) + applyCash,
+              upi: Number(bill.paymentMethod?.upi || 0) + applyUpi,
+            },
+            settledByGroupPayment: !isByPayer ? true : undefined,
+          },
+        },
+      })
+
+      // Record individual payment for each bill
+      const payId = `PAY${String((state.idCounters?.PAY || 0) + payIdxOffset).padStart(4, '0')}`
+      payIdxOffset++
+      dispatch({
+        type: 'ADD_PAYMENT',
+        payload: {
+          id: payId,
+          billId: bill.id,
+          customerId: bill.customerId,
+          payerCustomerId,
+          groupBillId,
+          date: new Date().toISOString(),
+          cashAmount: applyCash,
+          upiAmount: applyUpi,
+          totalPaid: apply,
+          paymentType: newStatus === 'paid' ? 'full' : 'partial',
+          excessCredit: 0,
+          isGroupSettlement: !isByPayer,
+          notes: isByPayer
+            ? `Split share payment for ${bill.id}`
+            : `Settled by group payment from ${payerBillId} (Group ${groupBillId})`,
+        },
+      })
+    }
+
+    // Record the master group audit payment (for settlement view)
+    const groupSettlements = settlements
+      .filter(s => s.bill.id !== payerBillId)
+      .map(s => ({
+        billId: s.bill.id,
+        customerId: s.bill.customerId,
+        customerName: s.bill.customerName,
+        amount: s.apply,
+      }))
+
+    dispatch({
+      type: 'ADD_PAYMENT',
+      payload: {
+        id: grpPayId,
+        groupBillId,
+        customerId: payerCustomerId,
+        payerBillId,
+        date: new Date().toISOString(),
+        cashAmount: cash,
+        upiAmount: upi,
+        totalPaid: cash + upi,
+        isGroupPayment: true,
+        groupSettlements,
+        notes: `Full group payment for ${groupBillId} by payer bill ${payerBillId}`,
+      },
+    })
+  }
+
   const addInventoryItem = (itemData) => {
-    const itemId = generateId('item')
+    const itemId = generateSeqId(state, 'ITEM')
+    dispatch({ type: 'INCREMENT_COUNTER', payload: 'ITEM' })
     // Strip stock field — inventory is pricing-only
     const { stock, low_stock_alert, ...pricingData } = itemData
     dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...pricingData } })
   }
 
   const addExpense = (expenseData) => {
-    const id = generateId('EXP')
+    const id = generateSeqId(state, 'EXP')
+    dispatch({ type: 'INCREMENT_COUNTER', payload: 'EXP' })
     dispatch({ type: 'ADD_EXPENSE', payload: { ...expenseData, id } })
     return id
   }
@@ -1496,10 +1578,12 @@ export const AppProvider = ({ children }) => {
 
       // Recreate the direct payment record on the bill (if any direct payment remains)
       if (oldPaidDirect > 0) {
+        const _relogPayId = generateSeqId(state, 'PAY')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
         dispatch({
           type: 'ADD_PAYMENT',
           payload: {
-            id: generateId('PAY'),
+            id: _relogPayId,
             billId: billId,
             customerId: newBillData.customerId,
             date: new Date().toISOString(),
@@ -1515,10 +1599,12 @@ export const AppProvider = ({ children }) => {
 
       // Record refund payment (negative payment) if directAmount > 0
       if (directAmount > 0) {
+        const _refundPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
         dispatch({
           type: 'ADD_PAYMENT',
           payload: {
-            id: generateId('PAY'),
+            id: _refundPayId,
             billId: billId,
             customerId: newBillData.customerId,
             date: new Date().toISOString(),
@@ -1663,8 +1749,9 @@ export const AppProvider = ({ children }) => {
           bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
           bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
 
+          const _editPayIdx = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
           paymentRecords.push({
-            id: generateId('PAY'),
+            id: `PAY${String(_editPayIdx).padStart(4, '0')}`,
             billId: bill.id,
             customerId: bill.customerId,
             date: new Date().toISOString(),
@@ -1701,8 +1788,9 @@ export const AppProvider = ({ children }) => {
         lastRec.cashAmount += R_cash
         lastRec.upiAmount += R_upi
       } else if (excess > 0) {
+        const _editExcessIdx = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
         paymentRecords.push({
-          id: generateId('PAY'),
+          id: `PAY${String(_editExcessIdx).padStart(4, '0')}`,
           billId: billId,
           customerId: newBillData.customerId,
           date: new Date().toISOString(),
@@ -1813,15 +1901,24 @@ export const AppProvider = ({ children }) => {
       clearAllNotifications: () => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS' }),
       updateSettings: (updates) => dispatch({ type: 'UPDATE_SETTINGS', payload: updates }),
       updateBusiness: (updates) => dispatch({ type: 'UPDATE_BUSINESS', payload: updates }),
-      addRecurringBill: (bill) => dispatch({ type: 'ADD_RECURRING_BILL', payload: { ...bill, id: generateId('REC') } }),
+      addRecurringBill: (bill) => {
+        const recId = generateSeqId(state, 'REC')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'REC' })
+        dispatch({ type: 'ADD_RECURRING_BILL', payload: { ...bill, id: recId } })
+      },
       updateRecurringBill: (id, updates) => dispatch({ type: 'UPDATE_RECURRING_BILL', payload: { id, updates } }),
       deleteRecurringBill: (id) => dispatch({ type: 'DELETE_RECURRING_BILL', payload: id }),
       logout,
-      addCustomerGroup: (group) => dispatch({ type: 'ADD_CUSTOMER_GROUP', payload: { ...group, id: generateId('GRP') } }),
+      addCustomerGroup: (group) => {
+        const grpId2 = generateSeqId(state, 'GRP')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'GRP' })
+        dispatch({ type: 'ADD_CUSTOMER_GROUP', payload: { ...group, id: grpId2 } })
+      },
       updateCustomerGroup: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER_GROUP', payload: { id, updates } }),
       deleteCustomerGroup: (id) => dispatch({ type: 'DELETE_CUSTOMER_GROUP', payload: id }),
       addGroupBill,
       recordSpecificBillPayment,
+      recordSplitGroupPayment,
       updateGroupBill: (id, updates) => dispatch({ type: 'UPDATE_GROUP_BILL', payload: { id, updates } }),
       setPromoCodes: (promoCodes) => dispatch({ type: 'SET_PROMO_CODES', payload: promoCodes }),
     }),
