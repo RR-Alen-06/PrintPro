@@ -59,6 +59,8 @@ jobs:
     name: Vercel Production
     runs-on: ubuntu-latest
     needs: [ci-gate]
+    permissions:
+      contents: write
     environment:
       name: production
       url: ${{ steps.deploy.outputs.production_url }}
