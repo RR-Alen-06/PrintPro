@@ -44,11 +44,9 @@ jobs:
 
       - name: Pull Vercel environment (preview)
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: frontend
 
       - name: Build project (via Vercel)
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: frontend
 
       - name: Deploy to Vercel (preview)
         id: deploy
@@ -56,7 +54,6 @@ jobs:
           vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }} --yes > deployment_url.txt
           URL=$(tail -n 1 deployment_url.txt | tr -d '\n\r')
           echo "preview_url=$URL" >> $GITHUB_OUTPUT
-        working-directory: frontend
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v7
