@@ -1532,8 +1532,14 @@ export const AppProvider = ({ children }) => {
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
-    window.location.href = '/auth'
+    try {
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.warn('Supabase signOut error:', err)
+    } finally {
+      dispatch({ type: 'SET_CURRENT_USER', payload: null })
+      window.location.href = '/auth'
+    }
   }
 
   const editBill = (billId, newBillData, refundAction = null) => {
