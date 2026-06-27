@@ -1533,6 +1533,7 @@ export const AppProvider = ({ children }) => {
 
   const logout = async () => {
     await supabase.auth.signOut()
+    window.location.href = '/auth'
   }
 
   const editBill = (billId, newBillData, refundAction = null) => {
