@@ -76,7 +76,7 @@ const PeriodReport = () => {
 
     // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
     const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
-    const advanceCollected = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.amount || 0), 0)
+    const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
     const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
     const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
 
@@ -86,7 +86,7 @@ const PeriodReport = () => {
 
     // pInflow from all period payments (refund payments have negative cashAmount that reduces sum naturally)
     const pInflow = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const totalCashInflow = pInflow + Math.max(0, advanceCollected)
+    const totalCashInflow = pInflow + advanceCollected
     const netCashFlow = totalCashInflow - totalExpenses
     const netProfit = revenue - totalExpenses
 
