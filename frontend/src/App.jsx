@@ -1,5 +1,5 @@
 import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAppContext } from './context/AppContext'
 import Sidebar from './components/layout/Sidebar'
 import Header from './components/layout/Header'
@@ -26,6 +26,7 @@ import Refunds from './pages/Refunds'
 
 function App() {
   const { currentUser } = useAppContext()
+  const location = useLocation()
 
   React.useEffect(() => {
     const handleWheel = (e) => {
@@ -39,8 +40,8 @@ function App() {
     }
   }, [])
 
-  // Check if we are handling OAuth redirect callback
-  const isAuthCallback = window.location.pathname === '/auth/callback'
+  // Reactively check if we are handling OAuth redirect callback
+  const isAuthCallback = location.pathname === '/auth/callback'
 
   // Show login page if not authenticated
   if (!currentUser && !isAuthCallback) {
