@@ -6,6 +6,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   console.log('=== VITE BUILD-TIME ENVIRONMENT VARIABLES ===')
   console.log('Available VITE_ keys:', Object.keys(env).filter(k => k.startsWith('VITE_')))
+  console.log('VITE_SUPABASE_URL length:', env.VITE_SUPABASE_URL ? env.VITE_SUPABASE_URL.length : 0)
+  console.log('VITE_SUPABASE_ANON_KEY length:', env.VITE_SUPABASE_ANON_KEY ? env.VITE_SUPABASE_ANON_KEY.length : 0)
   console.log('============================================')
 
   return {
