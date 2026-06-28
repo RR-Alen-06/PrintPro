@@ -42,8 +42,10 @@ jobs:
         working-directory: ./mobile-app
 
       - name: Build APK (Debug)
-        run: ./gradlew assembleDebug
         working-directory: ./mobile-app/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
