@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">PrintPro</string>
-    <string name="title_activity_main">PrintPro</string>
-    <string name="package_name">com.printpro.app</string>
-    <string name="custom_url_scheme">com.printpro.app</string>
-</resources>
