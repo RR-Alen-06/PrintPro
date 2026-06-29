@@ -109,6 +109,20 @@ const loadState = () => {
 const saveState = (state) => {
   try {
     const { currentUser, users, ...rest } = state
+    
+    // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
+    const stored = localStorage.getItem('printpro-state')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
+      const wasStoredPopulated = (parsed.bills && parsed.bills.length > 0) || (parsed.customers && parsed.customers.length > 0)
+      
+      if (isIncomingEmpty && wasStoredPopulated) {
+        console.warn('Prevented saving empty state over populated local state.')
+        return
+      }
+    }
+    
     localStorage.setItem('printpro-state', JSON.stringify(rest))
   } catch (error) {
     console.error('Failed to save state', error)
@@ -288,14 +302,30 @@ const baseReducer = (state, action) => {
     }
     case 'SYNC_CLOUD_DATA': {
       const { bills, customers, payments, inventory, expenses, business } = action.payload
+      
+      const mergeById = (localArr, cloudArr) => {
+        if (!cloudArr || cloudArr.length === 0) return localArr || [];
+        const cloudMap = new Map(cloudArr.map(item => [item.id, item]));
+        const merged = [...cloudArr];
+        
+        if (localArr) {
+          localArr.forEach(item => {
+            if (!cloudMap.has(item.id)) {
+              merged.push(item);
+            }
+          });
+        }
+        return merged;
+      };
+
       return {
         ...state,
-        bills: bills || state.bills,
-        customers: customers || state.customers,
-        payments: payments || state.payments,
-        inventory: inventory || state.inventory,
-        expenses: expenses || state.expenses,
-        business: business || state.business,
+        bills: mergeById(state.bills, bills),
+        customers: mergeById(state.customers, customers),
+        payments: mergeById(state.payments, payments),
+        inventory: mergeById(state.inventory, inventory),
+        expenses: mergeById(state.expenses, expenses),
+        business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
     case 'ADD_ADVANCE_PAYMENT': {

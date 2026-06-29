@@ -333,6 +333,14 @@ const Analytics = () => {
     }
   }, [filteredPayments, filteredAdvPayments])
 
+  const totalExpenses = useMemo(() => {
+    return filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  }, [filteredExpenses])
+
+  const netCashFlow = useMemo(() => {
+    return totalCashInflow - totalExpenses
+  }, [totalCashInflow, totalExpenses])
+
   // ── Monthly cash vs UPI trend (last 6 months) ─────────────────────────────
   const monthlyCashUpi = useMemo(() => {
     const months = {}
@@ -451,6 +459,14 @@ const Analytics = () => {
         <div className="stat-card">
           <div className="stat-card-label">Total Cash Inflow</div>
           <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{totalCashInflow.toFixed(2)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-label">Total Expenses</div>
+          <div className="stat-card-value" style={{ color: 'var(--error)' }}>₹{totalExpenses.toFixed(2)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-label">Net Cash Flow</div>
+          <div className="stat-card-value" style={{ color: netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>₹{netCashFlow.toFixed(2)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-label">Refund Outflows</div>
