@@ -14,6 +14,7 @@ export const syncEntityToCloud = async (action, payload) => {
     switch (action) {
       case 'ADD_CUSTOMER':
         await createCustomer({
+          id: payload.id,
           name: payload.name,
           phone: payload.phone,
           email: payload.email,
@@ -75,6 +76,7 @@ export const syncEntityToCloud = async (action, payload) => {
           }));
 
           await createBill({
+            id: payload.id,
             customer_id: payload.customerId,
             date: payload.date || new Date().toISOString().slice(0, 10),
             due_date: payload.dueDate || null,
