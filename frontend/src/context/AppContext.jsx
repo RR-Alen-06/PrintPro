@@ -714,8 +714,15 @@ export const AppProvider = ({ children }) => {
 
   const dispatch = (action) => {
     rawDispatch(action)
-    // Synchronously fire the background sync, catching errors silently
-    syncEntityToCloud(action.type, action.payload).catch(console.error)
+    // Synchronously fire the background sync, logging success and displaying errors to the user
+    syncEntityToCloud(action.type, action.payload)
+      .then(() => {
+        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
+      })
+      .catch((err) => {
+        console.error(`Sync error: Database write failed for action ${action.type}`, err)
+        showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
+      })
   }
 
   const [toast, setToast] = useState(null)
@@ -740,10 +747,17 @@ export const AppProvider = ({ children }) => {
     saveState(state)
   }, [state])
 
-  // Sync Supabase Authentication State
+  // Sync Supabase Authentication State & Log Session Info
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
+        console.log('=== AUTHENTICATION DIAGNOSTICS ===')
+        console.log('User ID:', session.user.id)
+        console.log('Email:', session.user.email)
+        console.log('Session Token Present:', !!session.access_token)
+        console.log('Role:', 'owner')
+        console.log('==================================')
+        
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -756,12 +770,18 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
+        console.log('=== AUTHENTICATION DIAGNOSTICS: NO ACTIVE SESSION ===')
         dispatch({ type: 'SET_CURRENT_USER', payload: null });
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
+        console.log('=== AUTHENTICATION CHANGE DETECTED ===')
+        console.log('User ID:', session.user.id)
+        console.log('Email:', session.user.email)
+        console.log('======================================')
+        
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -783,126 +803,166 @@ export const AppProvider = ({ children }) => {
     };
   }, []);
 
-  // Fetch all business manager data from database when user is authenticated
+  // Fetch all business manager data from database when user is authenticated, and keep it in sync periodically
   useEffect(() => {
-    if (state.currentUser) {
-      const syncFromCloud = async () => {
-        try {
-          const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
-            getBills(),
-            getCustomers(),
-            getPayments(),
-            getItems(),
-            getPurchases(),
-            getProfile()
-          ])
+    let intervalId = null
+    let realtimeChannel = null
 
-          const fetchedBills = billsRes.data?.data || []
-          const fetchedCustomers = customersRes.data?.data || []
-          const fetchedPayments = paymentsRes.data?.data || []
-          const fetchedInventory = inventoryRes.data?.data || []
-          const fetchedPurchases = purchasesRes.data?.data || []
-          const fetchedProfile = profileRes.data?.data || {}
+    const syncFromCloud = async () => {
+      if (!state.currentUser) return
+      try {
+        const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
+          getBills(),
+          getCustomers(),
+          getPayments(),
+          getItems(),
+          getPurchases(),
+          getProfile()
+        ])
 
-          const mappedCustomers = fetchedCustomers.map(c => ({
-            id: c.id,
-            type: c.type || 'regular',
-            name: c.name || '',
-            phone: c.phone || '',
-            email: c.email || '',
-            address: c.address || '',
-            creditBalance: Number(c.credit_balance || 0),
-            creditLimit: Number(c.credit_limit || 0),
-            loyaltyPoints: Number(c.loyalty_points || 0),
-            createdAt: c.created_at || new Date().toISOString()
+        const fetchedBills = billsRes.data?.data || []
+        const fetchedCustomers = customersRes.data?.data || []
+        const fetchedPayments = paymentsRes.data?.data || []
+        const fetchedInventory = inventoryRes.data?.data || []
+        const fetchedPurchases = purchasesRes.data?.data || []
+        const fetchedProfile = profileRes.data?.data || {}
+
+        const mappedCustomers = fetchedCustomers.map(c => ({
+          id: c.id,
+          type: c.type || 'regular',
+          name: c.name || '',
+          phone: c.phone || '',
+          email: c.email || '',
+          address: c.address || '',
+          creditBalance: Number(c.credit_balance || 0),
+          creditLimit: Number(c.credit_limit || 0),
+          loyaltyPoints: Number(c.loyalty_points || 0),
+          createdAt: c.created_at || new Date().toISOString()
+        }))
+
+        const mappedBills = fetchedBills.map(b => ({
+          id: b.id,
+          customerId: b.customer_id,
+          customerName: b.customer_name || '',
+          date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+          dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
+          subtotal: Number(b.subtotal || 0),
+          discountType: b.discount_type || 'flat',
+          discountValue: Number(b.discount_value || 0),
+          gstPercent: Number(b.gst_percent || 0),
+          gstAmount: Number(b.gst_amount || 0),
+          total: Number(b.total || 0),
+          amountPaid: Number(b.amount_paid || 0),
+          balance: Number(b.balance || 0),
+          status: b.status || 'unpaid',
+          notes: b.notes || '',
+          deleted: !!b.deleted_at,
+          items: (b.items || []).map(item => ({
+            name: item.item_name,
+            printType: item.print_type,
+            sides: item.sides,
+            qty: Number(item.qty || 0),
+            unitPrice: Number(item.unit_price || 0),
+            amount: Number(item.amount || 0)
           }))
+        }))
 
-          const mappedBills = fetchedBills.map(b => ({
-            id: b.id,
-            customerId: b.customer_id,
-            customerName: b.customer_name || '',
-            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
-            dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-            subtotal: Number(b.subtotal || 0),
-            discountType: b.discount_type || 'flat',
-            discountValue: Number(b.discount_value || 0),
-            gstPercent: Number(b.gst_percent || 0),
-            gstAmount: Number(b.gst_amount || 0),
-            total: Number(b.total || 0),
-            amountPaid: Number(b.amount_paid || 0),
-            balance: Number(b.balance || 0),
-            status: b.status || 'unpaid',
-            notes: b.notes || '',
-            deleted: !!b.deleted_at,
-            items: (b.items || []).map(item => ({
-              name: item.item_name,
-              printType: item.print_type,
-              sides: item.sides,
-              qty: Number(item.qty || 0),
-              unitPrice: Number(item.unit_price || 0),
-              amount: Number(item.amount || 0)
-            }))
-          }))
+        const mappedPayments = fetchedPayments.map(p => ({
+          id: p.id,
+          billId: p.bill_id,
+          customerId: p.customer_id,
+          date: p.date || new Date().toISOString(),
+          cashAmount: Number(p.cash_amount || 0),
+          upiAmount: Number(p.upi_amount || 0),
+          totalPaid: Number(p.total_paid || 0),
+          paymentType: p.payment_type || 'partial',
+          notes: p.notes || ''
+        }))
 
-          const mappedPayments = fetchedPayments.map(p => ({
-            id: p.id,
-            billId: p.bill_id,
-            customerId: p.customer_id,
-            date: p.date || new Date().toISOString(),
-            cashAmount: Number(p.cash_amount || 0),
-            upiAmount: Number(p.upi_amount || 0),
-            totalPaid: Number(p.total_paid || 0),
-            paymentType: p.payment_type || 'partial',
-            notes: p.notes || ''
-          }))
+        const mappedInventory = fetchedInventory.map(i => ({
+          id: i.id,
+          name: i.name,
+          colorSingle: Number(i.color_single || 0),
+          colorDouble: Number(i.color_double || 0),
+          bwSingle: Number(i.bw_single || 0),
+          bwDouble: Number(i.bw_double || 0),
+          stock: Number(i.stock || 0),
+          lowStockAlert: Number(i.low_stock_alert || 50)
+        }))
 
-          const mappedInventory = fetchedInventory.map(i => ({
-            id: i.id,
-            name: i.name,
-            colorSingle: Number(i.color_single || 0),
-            colorDouble: Number(i.color_double || 0),
-            bwSingle: Number(i.bw_single || 0),
-            bwDouble: Number(i.bw_double || 0),
-            stock: Number(i.stock || 0),
-            lowStockAlert: Number(i.low_stock_alert || 50)
-          }))
+        const mappedExpenses = fetchedPurchases.map(exp => ({
+          id: String(exp.id),
+          date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
+          itemName: exp.item_name || '',
+          category: exp.category || 'General',
+          qty: Number(exp.qty || 0),
+          unitCost: Number(exp.unit_cost || 0),
+          amount: Number(exp.total || 0),
+          notes: exp.notes || ''
+        }))
 
-          const mappedExpenses = fetchedPurchases.map(exp => ({
-            id: String(exp.id),
-            date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
-            itemName: exp.item_name || '',
-            category: exp.category || 'General',
-            qty: Number(exp.qty || 0),
-            unitCost: Number(exp.unit_cost || 0),
-            amount: Number(exp.total || 0),
-            notes: exp.notes || ''
-          }))
+        const mappedBusiness = {
+          shopName: fetchedProfile.shop_name || '',
+          ownerName: fetchedProfile.owner_name || '',
+          phone: fetchedProfile.phone || '',
+          address: fetchedProfile.address || '',
+          gstin: fetchedProfile.gstin || '',
+          upiId: fetchedProfile.upi_id || ''
+        }
 
-          const mappedBusiness = {
-            shopName: fetchedProfile.shop_name || '',
-            ownerName: fetchedProfile.owner_name || '',
-            phone: fetchedProfile.phone || '',
-            address: fetchedProfile.address || '',
-            gstin: fetchedProfile.gstin || '',
-            upiId: fetchedProfile.upi_id || ''
+        rawDispatch({
+          type: 'SYNC_CLOUD_DATA',
+          payload: {
+            bills: mappedBills,
+            customers: mappedCustomers,
+            payments: mappedPayments,
+            inventory: mappedInventory,
+            expenses: mappedExpenses,
+            business: mappedBusiness
           }
+        })
+      } catch (error) {
+        console.error('Failed to sync state from cloud:', error)
+      }
+    }
 
-          rawDispatch({
-            type: 'SYNC_CLOUD_DATA',
-            payload: {
-              bills: mappedBills,
-              customers: mappedCustomers,
-              payments: mappedPayments,
-              inventory: mappedInventory,
-              expenses: mappedExpenses,
-              business: mappedBusiness
-            }
-          })
-        } catch (error) {
-          console.error('Failed to sync state from cloud:', error)
+    if (state.currentUser) {
+      // 1. Fetch immediately on login/auth change
+      syncFromCloud()
+
+      // 2. Setup periodic sync polling (every 10 seconds)
+      intervalId = setInterval(syncFromCloud, 10000)
+
+      // 3. Setup window focus/visibility sync triggers
+      const handleSyncTrigger = () => {
+        if (document.visibilityState === 'visible') {
+          syncFromCloud()
         }
       }
-      syncFromCloud()
+      window.addEventListener('focus', syncFromCloud)
+      window.addEventListener('visibilitychange', handleSyncTrigger)
+
+      // 4. Enable Realtime Postgres Subscription for change events
+      realtimeChannel = supabase
+        .channel('realtime-db-sync')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public' },
+          (payload) => {
+            console.log('Real-time database sync triggered: change detected on', payload.table)
+            syncFromCloud()
+          }
+        )
+        .subscribe((status) => {
+          console.log(`Supabase Realtime channel status: ${status}`)
+        })
+
+      return () => {
+        if (intervalId) clearInterval(intervalId)
+        if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+        window.removeEventListener('focus', syncFromCloud)
+        window.removeEventListener('visibilitychange', handleSyncTrigger)
+      }
     }
   }, [state.currentUser])
 
