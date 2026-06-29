@@ -1,9 +1,13 @@
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
 
-// Dynamically choose base URL: Use relative path in production, and env configuration in local development
-const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-const baseURL = isLocal ? (import.meta.env.VITE_API_BASE_URL || '/api') : '/api';
+// Dynamically choose base URL: Use VITE_API_BASE_URL if defined, otherwise check hostname
+const isLocal = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1' || 
+  window.location.hostname === '[::1]'
+);
+const baseURL = import.meta.env.VITE_API_BASE_URL || (isLocal ? '/api' : 'https://api.printpro.app/api');
 
 const api = axios.create({
   baseURL,
