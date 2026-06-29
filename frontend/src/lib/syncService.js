@@ -20,6 +20,8 @@ export const syncEntityToCloud = async (action, payload) => {
           email: payload.email,
           address: payload.address,
           type: payload.type || 'regular',
+          credit_balance: payload.creditBalance || 0,
+          credit_limit: payload.creditLimit || 0
         });
         break;
 
