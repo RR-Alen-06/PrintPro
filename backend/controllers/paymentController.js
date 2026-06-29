@@ -203,8 +203,23 @@ async function getPaymentsByCustomer(req, res, next) {
   }
 }
 
+// GET / - Get all payments for the user
+async function listAllPayments(req, res, next) {
+  try {
+    const pool = getPool();
+    const [payments] = await pool.query(
+      'SELECT * FROM payments WHERE user_id = ? ORDER BY date DESC',
+      [req.user.id]
+    );
+    res.json({ success: true, data: payments });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getPaymentsForBill,
   recordPayment,
-  getPaymentsByCustomer
+  getPaymentsByCustomer,
+  listAllPayments
 };

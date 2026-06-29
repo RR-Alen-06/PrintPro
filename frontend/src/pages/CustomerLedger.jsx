@@ -399,7 +399,7 @@ const CustomerLedger = () => {
         <p>Complete transaction history including bills, payments, and advance deposits.</p>
       </div>
 
-      <div className="ledger-layout-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', alignItems: 'start' }}>
+      <div className="ledger-layout-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '24px', alignItems: 'start' }}>
         {/* Left Control Panel: Selector, Details, and Payment Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Customer Selector */}
@@ -822,7 +822,7 @@ const CustomerLedger = () => {
 
               return (
                 <div key={settle.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '14px', background: 'rgba(255,255,255,0.01)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: '12px', fontSize: '13px', marginBottom: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 135px), 1fr))', gap: '12px', fontSize: '13px', marginBottom: '12px' }}>
                     <div>
                       <span style={{ color: '#71717a' }}>Group ID:</span> <strong style={{ color: 'var(--accent)' }}>{settle.groupBillId}</strong>
                     </div>

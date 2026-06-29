@@ -144,7 +144,7 @@ const Refunds = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginBottom: '24px' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', marginBottom: '24px' }}>
         <div className="stat-card">
           <div className="stat-card-header">
             <div className="stat-card-icon error" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}><RefreshCw /></div>

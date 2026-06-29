@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import PeriodReport from '../components/PeriodReport'
 import { Banknote, Smartphone, Tag, ShieldAlert } from 'lucide-react'
 
-const PERIODS = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'all']
+const PERIODS = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom', 'all']
 
 const getPeriodRange = (period) => {
   const now = new Date()
@@ -25,7 +25,7 @@ const getPeriodRange = (period) => {
   if (period === 'yearly') {
     return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31) }
   }
-  return null // 'all'
+  return null // 'all' or 'custom'
 }
 
 const filterByDate = (items, dateKey, range) => {
@@ -33,15 +33,34 @@ const filterByDate = (items, dateKey, range) => {
   return items.filter((item) => {
     const d = item[dateKey] ? new Date(item[dateKey]) : null
     if (!d) return false
-    return d >= range.start && d <= range.end
+    const afterStart = range.start ? d >= range.start : true
+    const beforeEnd = range.end ? d <= range.end : true
+    return afterStart && beforeEnd
   })
 }
 
 const Analytics = () => {
   const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs } = useAppContext()
   const [period, setPeriod] = useState('monthly')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
 
-  const range = useMemo(() => getPeriodRange(period), [period])
+  const range = useMemo(() => {
+    if (period === 'custom') {
+      let start = null
+      if (customStartDate) {
+        const [y, m, d] = customStartDate.split('-').map(Number)
+        start = new Date(y, m - 1, d, 0, 0, 0, 0)
+      }
+      let end = null
+      if (customEndDate) {
+        const [y, m, d] = customEndDate.split('-').map(Number)
+        end = new Date(y, m - 1, d, 23, 59, 59, 999)
+      }
+      return { start, end }
+    }
+    return getPeriodRange(period)
+  }, [period, customStartDate, customEndDate])
 
   const filteredBills = useMemo(() => filterByDate(bills.filter(b => !b.deleted && !b.isGroupParent), 'date', range), [bills, range])
   const filteredPayments = useMemo(() => filterByDate(payments || [], 'date', range), [payments, range])
@@ -369,23 +388,50 @@ const Analytics = () => {
         </div>
       </div>
 
-      {/* Period selector */}
-      <div style={{ display: 'flex', gap: '4px', background: 'var(--surface)', padding: '4px', borderRadius: '10px', marginBottom: '24px', width: 'fit-content', border: '1px solid rgba(255,255,255,0.08)' }}>
-        {PERIODS.map((p) => (
-          <button
-            key={p} type="button"
-            onClick={() => setPeriod(p)}
-            style={{
-              padding: '7px 16px', borderRadius: '7px', border: 'none', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 600, transition: 'all 0.2s',
-              background: period === p ? 'var(--accent)' : 'transparent',
-              color: period === p ? '#fff' : '#71717a',
-            }}
-          >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
-        ))}
+      {/* Period selector & Custom Date Range inputs */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '4px', background: 'var(--surface)', padding: '4px', borderRadius: '10px', width: 'fit-content', border: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
+          {PERIODS.map((p) => (
+            <button
+              key={p} type="button"
+              onClick={() => setPeriod(p)}
+              style={{
+                padding: '7px 16px', borderRadius: '7px', border: 'none', cursor: 'pointer',
+                fontSize: '13px', fontWeight: 600, transition: 'all 0.2s',
+                background: period === p ? 'var(--accent)' : 'transparent',
+                color: period === p ? '#fff' : '#71717a',
+              }}
+            >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+          ))}
+        </div>
+
+        {period === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>From:</label>
+              <input
+                type="date"
+                className="form-input"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                style={{ padding: '6px 12px', fontSize: '13px', width: '160px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>To:</label>
+              <input
+                type="date"
+                className="form-input"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                style={{ padding: '6px 12px', fontSize: '13px', width: '160px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '20px' }}>
         <div className="stat-card">
           <div className="stat-card-label">Total Revenue</div>
           <div className="stat-card-value">₹{salesSummary.totalRevenue.toFixed(2)}</div>

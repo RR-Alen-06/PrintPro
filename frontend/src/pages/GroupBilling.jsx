@@ -1735,7 +1735,7 @@ const GroupBillsHistory = () => {
                     <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <CheckCircle size={14} /> Split Settlement View
                     </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', fontSize: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '10px', fontSize: '12px' }}>
                       <div><span style={{ color: '#a1a1aa' }}>Group ID:</span> <strong>{grp.id}</strong></div>
                       <div><span style={{ color: '#a1a1aa' }}>Total:</span> <strong>₹{totalAmount.toFixed(2)}</strong></div>
                       <div><span style={{ color: '#a1a1aa' }}>Actual Payer:</span> <strong>{customers.find(c => c.id === groupPayment.customerId)?.name || 'Unknown'}</strong></div>

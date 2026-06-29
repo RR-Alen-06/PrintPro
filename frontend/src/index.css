@@ -1987,6 +1987,8 @@ h5 { font-size: 1rem; font-weight: 500; }
 
   .main-wrapper {
     margin-left: 0;
+    min-width: 0;
+    overflow-x: hidden;
   }
 
   .header {

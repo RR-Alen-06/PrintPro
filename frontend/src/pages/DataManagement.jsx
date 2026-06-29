@@ -459,7 +459,7 @@ const DataManagement = () => {
       {/* Guide */}
       <div className="card" style={{ marginTop: '24px' }}>
         <h2 style={{ marginBottom: '16px' }}>Backup Guide</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '16px' }}>
           {[
             { title: 'Regular Backups', desc: 'Create a JSON backup weekly. It includes all bills, customers, payments, expenses, and settings.' },
             { title: 'CSV Exports', desc: 'Export individual modules for Excel analysis. Each file includes all relevant columns.' },
