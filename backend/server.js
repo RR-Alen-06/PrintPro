@@ -72,7 +72,7 @@ app.use(sanitize);
 // Apply rate limiting to all API requests
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 5000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

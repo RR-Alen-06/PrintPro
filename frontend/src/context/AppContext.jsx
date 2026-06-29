@@ -331,6 +331,15 @@ const baseReducer = (state, action) => {
         deletedPayments: deletedPayments || []
       }
     }
+    case 'UPDATE_ENTITY_ID': {
+      const { entityType, tempId, dbId } = action.payload
+      return {
+        ...state,
+        [entityType]: state[entityType].map((item) =>
+          item.id === tempId ? { ...item, id: dbId } : item
+        ),
+      }
+    }
     case 'ADD_ADVANCE_PAYMENT': {
       const adv = action.payload
       return {
@@ -722,7 +731,7 @@ export const AppProvider = ({ children }) => {
 
     // Track pending ID if it is a creation action
     let entityId = null
-    if (action.type === 'ADD_CUSTOMER' || action.type === 'ADD_BILL' || action.type === 'ADD_PAYMENT' || action.type === 'ADD_EXPENSE' || action.type === 'ADD_ADVANCE_PAYMENT') {
+    if (action.type === 'ADD_CUSTOMER' || action.type === 'ADD_BILL' || action.type === 'ADD_PAYMENT' || action.type === 'ADD_EXPENSE' || action.type === 'ADD_ADVANCE_PAYMENT' || action.type === 'ADD_INVENTORY_ITEM') {
       entityId = action.payload?.id
       if (entityId) {
         pendingSyncs.current.add(entityId)
@@ -731,8 +740,28 @@ export const AppProvider = ({ children }) => {
 
     // Synchronously fire the background sync, logging success and displaying errors to the user
     syncEntityToCloud(action.type, action.payload)
-      .then(() => {
+      .then((res) => {
         console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
+        
+        // Handle ID reconciliation for serial/autoincrement database IDs
+        if (res?.data?.data?.id) {
+          const dbId = res.data.data.id
+          const tempId = action.payload?.id
+          if (tempId && dbId !== tempId) {
+            let entityType = null
+            if (action.type === 'ADD_INVENTORY_ITEM') entityType = 'inventory'
+            if (action.type === 'ADD_PAYMENT') entityType = 'payments'
+            if (action.type === 'ADD_EXPENSE') entityType = 'expenses'
+            
+            if (entityType) {
+              rawDispatch({
+                type: 'UPDATE_ENTITY_ID',
+                payload: { entityType, tempId, dbId }
+              })
+              pendingSyncs.current.delete(tempId)
+            }
+          }
+        }
       })
       .catch((err) => {
         console.error(`Sync error: Database write failed for action ${action.type}`, err)

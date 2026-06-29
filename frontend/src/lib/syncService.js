@@ -13,7 +13,7 @@ export const syncEntityToCloud = async (action, payload) => {
   try {
     switch (action) {
       case 'ADD_CUSTOMER':
-        await createCustomer({
+        return await createCustomer({
           id: payload.id,
           name: payload.name,
           phone: payload.phone,
@@ -23,7 +23,6 @@ export const syncEntityToCloud = async (action, payload) => {
           credit_balance: payload.creditBalance || 0,
           credit_limit: payload.creditLimit || 0
         });
-        break;
 
       case 'UPDATE_CUSTOMER':
         if (payload.id) {
@@ -44,7 +43,7 @@ export const syncEntityToCloud = async (action, payload) => {
         break;
 
       case 'ADD_INVENTORY_ITEM':
-        await createItem({
+        return await createItem({
           name: payload.name,
           color_single: payload.colorSingle,
           color_double: payload.colorDouble,
@@ -52,7 +51,6 @@ export const syncEntityToCloud = async (action, payload) => {
           bw_double: payload.bwDouble,
           stock: payload.stock || 0,
         });
-        break;
 
       case 'UPDATE_INVENTORY_ITEM':
         if (payload.id) {
@@ -77,7 +75,7 @@ export const syncEntityToCloud = async (action, payload) => {
             unit_price: item.unitPrice || item.rate || 0,
           }));
 
-          await createBill({
+          return await createBill({
             id: payload.id,
             customer_id: payload.customerId,
             date: payload.date || new Date().toISOString().slice(0, 10),
@@ -121,7 +119,7 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'ADD_PAYMENT':
         if (payload.billId && payload.customerId) {
-          await createPayment({
+          return await createPayment({
             bill_id: payload.billId,
             customer_id: payload.customerId,
             cash_amount: payload.cashAmount || 0,
@@ -140,7 +138,7 @@ export const syncEntityToCloud = async (action, payload) => {
         break;
 
       case 'ADD_EXPENSE':
-        await createPurchase({
+        return await createPurchase({
           date: payload.date || new Date().toISOString().slice(0, 10),
           item_name: payload.itemName || '',
           category: payload.category || 'General',
@@ -149,7 +147,6 @@ export const syncEntityToCloud = async (action, payload) => {
           total: payload.amount || 0,
           notes: payload.notes || ''
         });
-        break;
 
       case 'DELETE_EXPENSE':
         await deletePurchase(payload);
@@ -171,5 +168,6 @@ export const syncEntityToCloud = async (action, payload) => {
     }
   } catch (err) {
     console.error('Failed to sync entity to cloud backend:', action, err);
+    throw err;
   }
 };
