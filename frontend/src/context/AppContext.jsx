@@ -298,17 +298,33 @@ const baseReducer = (state, action) => {
         customerGroups, groupBills, deletedPayments
       } = action.payload
 
+      const pending = action.pendingSyncs
+
+      // Helper to prevent database syncs from deleting local entities whose database writes are in-flight
+      const mergePending = (cloudArr, localArr) => {
+        if (!localArr || !pending || pending.size === 0) return cloudArr || []
+        const cloudMap = new Map(cloudArr.map(item => [item.id, item]))
+        const merged = [...cloudArr]
+        
+        localArr.forEach(item => {
+          if (pending.has(item.id) && !cloudMap.has(item.id)) {
+            merged.push(item)
+          }
+        })
+        return merged
+      }
+
       return {
         ...state,
-        bills: bills || [],
-        customers: customers || [],
-        payments: payments || [],
+        bills: mergePending(bills || [], state.bills),
+        customers: mergePending(customers || [], state.customers),
+        payments: mergePending(payments || [], state.payments),
         inventory: inventory || [],
-        expenses: expenses || [],
+        expenses: mergePending(expenses || [], state.expenses),
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
         settings: settings && Object.keys(settings).length > 0 ? { ...state.settings, ...settings } : state.settings,
         idCounters: idCounters && Object.keys(idCounters).length > 0 ? { ...state.idCounters, ...idCounters } : state.idCounters,
-        advancePayments: advancePayments || [],
+        advancePayments: mergePending(advancePayments || [], state.advancePayments),
         recurringBills: recurringBills || [],
         customerGroups: customerGroups || [],
         groupBills: groupBills || [],
@@ -699,9 +715,20 @@ const calcLoyaltyPoints = (total, tiers) => {
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
   const isSyncingFromCloud = useRef(false)
+  const pendingSyncs = useRef(new Set())
 
   const dispatch = (action) => {
     rawDispatch(action)
+
+    // Track pending ID if it is a creation action
+    let entityId = null
+    if (action.type === 'ADD_CUSTOMER' || action.type === 'ADD_BILL' || action.type === 'ADD_PAYMENT' || action.type === 'ADD_EXPENSE' || action.type === 'ADD_ADVANCE_PAYMENT') {
+      entityId = action.payload?.id
+      if (entityId) {
+        pendingSyncs.current.add(entityId)
+      }
+    }
+
     // Synchronously fire the background sync, logging success and displaying errors to the user
     syncEntityToCloud(action.type, action.payload)
       .then(() => {
@@ -710,6 +737,14 @@ export const AppProvider = ({ children }) => {
       .catch((err) => {
         console.error(`Sync error: Database write failed for action ${action.type}`, err)
         showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
+      })
+      .finally(() => {
+        if (entityId) {
+          // Allow real-time web socket reload event to propagate and finish, then clear pending state
+          setTimeout(() => {
+            pendingSyncs.current.delete(entityId)
+          }, 1500)
+        }
       })
   }
 
@@ -962,6 +997,7 @@ export const AppProvider = ({ children }) => {
         isSyncingFromCloud.current = true
         rawDispatch({
           type: 'SYNC_CLOUD_DATA',
+          pendingSyncs: pendingSyncs.current,
           payload: {
             bills: mappedBills,
             customers: mappedCustomers,
