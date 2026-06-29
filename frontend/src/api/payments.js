@@ -7,3 +7,6 @@ export const createPayment = (data) => api.post('/payments', data)
 export const getCustomerPayments = (customerId) => api.get(`/customers/${customerId}/payments`)
 
 export const getPayments = () => api.get('/payments')
+
+export const deletePayment = (id) => api.delete(`/payments/${id}`)
+

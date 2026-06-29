@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
@@ -6,7 +6,7 @@ import { getCustomers } from '../api/customers'
 import { getPayments } from '../api/payments'
 import { getItems } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
-import { getProfile } from '../api/profile'
+import { getProfile, updateProfile } from '../api/profile'
 
 const AppContext = createContext(null)
 
@@ -82,25 +82,16 @@ const initialState = {
 
 const loadState = () => {
   try {
-    const stored = localStorage.getItem('printpro-state')
+    const stored = localStorage.getItem('printpro-local-settings')
     if (!stored) return initialState
     const parsed = JSON.parse(stored)
-    
-    // Force users and currentUser to be initialized correctly
-    const { currentUser, users, ...sanitized } = parsed;
-
-    // Deep merge settings
-    const mergedSettings = {
-      ...initialState.settings,
-      ...parsed.settings,
-      staffPermissions: {
-        ...initialState.settings.staffPermissions,
-        ...(parsed.settings?.staffPermissions || {})
+    return {
+      ...initialState,
+      settings: {
+        ...initialState.settings,
+        viewMode: parsed.viewMode || initialState.settings.viewMode
       }
     }
-
-    // Merge with initialState so any newly added top-level keys are present
-    return { ...initialState, ...sanitized, settings: mergedSettings }
   } catch (error) {
     return initialState
   }
@@ -108,30 +99,17 @@ const loadState = () => {
 
 const saveState = (state) => {
   try {
-    const { currentUser, users, ...rest } = state
+    const { currentUser } = state
     if (!currentUser) {
-      localStorage.removeItem('printpro-state')
+      localStorage.removeItem('printpro-local-settings')
       return
     }
-
-    const storageKey = `printpro-state-${currentUser.id}`
-    
-    // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
-    const stored = localStorage.getItem(storageKey)
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
-      const wasStoredPopulated = (parsed.bills && parsed.bills.length > 0) || (parsed.customers && parsed.customers.length > 0)
-      
-      if (isIncomingEmpty && wasStoredPopulated) {
-        console.warn('Prevented saving empty state over populated local state.')
-        return
-      }
+    const localSettings = {
+      viewMode: state.settings?.viewMode || 'monthly'
     }
-    
-    localStorage.setItem(storageKey, JSON.stringify(rest))
+    localStorage.setItem('printpro-local-settings', JSON.stringify(localSettings))
   } catch (error) {
-    console.error('Failed to save state', error)
+    console.error('Failed to save local settings', error)
   }
 }
 
@@ -308,59 +286,33 @@ const baseReducer = (state, action) => {
           currentUser: null,
         }
       }
-      try {
-        const stored = localStorage.getItem(`printpro-state-${user.id}`)
-        if (stored) {
-          const parsed = JSON.parse(stored)
-          const mergedSettings = {
-            ...initialState.settings,
-            ...parsed.settings,
-            staffPermissions: {
-              ...initialState.settings.staffPermissions,
-              ...(parsed.settings?.staffPermissions || {})
-            }
-          }
-          return {
-            ...initialState,
-            ...parsed,
-            settings: mergedSettings,
-            currentUser: user,
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load user-specific state', e)
-      }
       return {
-        ...initialState,
+        ...state,
         currentUser: user,
       }
     }
     case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, business } = action.payload
-      
-      const mergeById = (localArr, cloudArr) => {
-        if (!cloudArr || cloudArr.length === 0) return localArr || [];
-        const cloudMap = new Map(cloudArr.map(item => [item.id, item]));
-        const merged = [...cloudArr];
-        
-        if (localArr) {
-          localArr.forEach(item => {
-            if (!cloudMap.has(item.id)) {
-              merged.push(item);
-            }
-          });
-        }
-        return merged;
-      };
+      const { 
+        bills, customers, payments, inventory, expenses, business,
+        settings, idCounters, advancePayments, recurringBills,
+        customerGroups, groupBills, deletedPayments
+      } = action.payload
 
       return {
         ...state,
-        bills: mergeById(state.bills, bills),
-        customers: mergeById(state.customers, customers),
-        payments: mergeById(state.payments, payments),
-        inventory: mergeById(state.inventory, inventory),
-        expenses: mergeById(state.expenses, expenses),
+        bills: bills || [],
+        customers: customers || [],
+        payments: payments || [],
+        inventory: inventory || [],
+        expenses: expenses || [],
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
+        settings: settings && Object.keys(settings).length > 0 ? { ...state.settings, ...settings } : state.settings,
+        idCounters: idCounters && Object.keys(idCounters).length > 0 ? { ...state.idCounters, ...idCounters } : state.idCounters,
+        advancePayments: advancePayments || [],
+        recurringBills: recurringBills || [],
+        customerGroups: customerGroups || [],
+        groupBills: groupBills || [],
+        deletedPayments: deletedPayments || []
       }
     }
     case 'ADD_ADVANCE_PAYMENT': {
@@ -746,6 +698,7 @@ const calcLoyaltyPoints = (total, tiers) => {
 
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
+  const isSyncingFromCloud = useRef(false)
 
   const dispatch = (action) => {
     rawDispatch(action)
@@ -781,6 +734,49 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     saveState(state)
   }, [state])
+
+  // Sync profile-level settings, counters, and lists to cloud database
+  useEffect(() => {
+    if (!state.currentUser) return
+    if (isSyncingFromCloud.current) return
+
+    const syncMetadata = async () => {
+      try {
+        await updateProfile({
+          settings: state.settings,
+          id_counters: state.idCounters,
+          advance_payments: state.advancePayments,
+          recurring_bills: state.recurringBills,
+          customer_groups: state.customerGroups,
+          group_bills: state.groupBills,
+          deleted_payments: state.deletedPayments,
+          shop_name: state.business.shopName,
+          owner_name: state.business.ownerName,
+          phone: state.business.phone,
+          address: state.business.address,
+          gstin: state.business.gstin,
+          upi_id: state.business.upiId
+        })
+        console.log('Sync confirmed: Profile metadata write succeeded.')
+      } catch (err) {
+        console.error('Failed to sync profile metadata to database:', err)
+      }
+    }
+
+    // Debounce metadata sync by 500ms to batch rapid successive counter or settings updates
+    const timer = setTimeout(syncMetadata, 500)
+    return () => clearTimeout(timer)
+  }, [
+    state.currentUser,
+    state.settings,
+    state.idCounters,
+    state.advancePayments,
+    state.recurringBills,
+    state.customerGroups,
+    state.groupBills,
+    state.deletedPayments,
+    state.business
+  ])
 
   // Sync Supabase Authentication State & Log Session Info
   useEffect(() => {
@@ -842,6 +838,16 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     let intervalId = null
     let realtimeChannel = null
+
+    const safeJsonParse = (val, fallback) => {
+      if (val === null || val === undefined) return fallback
+      if (typeof val === 'object') return val
+      try {
+        return JSON.parse(val)
+      } catch (e) {
+        return fallback
+      }
+    }
 
     const syncFromCloud = async () => {
       if (!state.currentUser) return
@@ -945,6 +951,15 @@ export const AppProvider = ({ children }) => {
           upiId: fetchedProfile.upi_id || ''
         }
 
+        const parsedSettings = safeJsonParse(fetchedProfile.settings, {})
+        const parsedCounters = safeJsonParse(fetchedProfile.id_counters, {})
+        const parsedAdvances = safeJsonParse(fetchedProfile.advance_payments, [])
+        const parsedRecurring = safeJsonParse(fetchedProfile.recurring_bills, [])
+        const parsedGroups = safeJsonParse(fetchedProfile.customer_groups, [])
+        const parsedGroupBills = safeJsonParse(fetchedProfile.group_bills, [])
+        const parsedDeletedPayments = safeJsonParse(fetchedProfile.deleted_payments, [])
+
+        isSyncingFromCloud.current = true
         rawDispatch({
           type: 'SYNC_CLOUD_DATA',
           payload: {
@@ -953,9 +968,19 @@ export const AppProvider = ({ children }) => {
             payments: mappedPayments,
             inventory: mappedInventory,
             expenses: mappedExpenses,
-            business: mappedBusiness
+            business: mappedBusiness,
+            settings: parsedSettings,
+            idCounters: parsedCounters,
+            advancePayments: parsedAdvances,
+            recurringBills: parsedRecurring,
+            customerGroups: parsedGroups,
+            groupBills: parsedGroupBills,
+            deletedPayments: parsedDeletedPayments
           }
         })
+        setTimeout(() => {
+          isSyncingFromCloud.current = false
+        }, 300)
       } catch (error) {
         console.error('Failed to sync state from cloud:', error)
       }

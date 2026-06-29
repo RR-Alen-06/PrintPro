@@ -1,7 +1,7 @@
 import { createBill, updateBill, deleteBill, restoreBill } from '../api/bills';
 import { createCustomer, updateCustomer, deleteCustomer } from '../api/customers';
 import { createItem, updateItem } from '../api/inventory';
-import { createPayment } from '../api/payments';
+import { createPayment, deletePayment } from '../api/payments';
 import { createPurchase, deletePurchase } from '../api/purchases';
 import { updateProfile } from '../api/profile';
 
@@ -128,6 +128,12 @@ export const syncEntityToCloud = async (action, payload) => {
             payment_type: payload.paymentType || 'partial',
             notes: payload.notes || ''
           });
+        }
+        break;
+
+      case 'DELETE_PAYMENT':
+        if (payload) {
+          await deletePayment(payload);
         }
         break;
 
