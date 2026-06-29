@@ -1,8 +1,12 @@
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
 
+// Dynamically choose base URL: Use relative path in production, and env configuration in local development
+const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const baseURL = isLocal ? (import.meta.env.VITE_API_BASE_URL || '/api') : '/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
