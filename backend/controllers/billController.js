@@ -148,18 +148,22 @@ async function createBill(req, res, next) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
-    // Generate bill ID
-    const [maxBill] = await conn.query(
-      `SELECT id FROM bills WHERE user_id = ? ORDER BY CAST(split_part(id, '-', 2) AS INTEGER) DESC LIMIT 1`,
-      [req.user.id]
-    );
+    // Use client-provided ID if sent (reconciliation), otherwise generate one
+    let billId = req.body.id;
+    if (!billId) {
+      const [maxBill] = await conn.query(
+        `SELECT id FROM bills WHERE user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        [req.user.id]
+      );
 
-    let nextNum = 1;
-    if (maxBill.length > 0) {
-      const lastNum = parseInt(maxBill[0].id.split('-')[1], 10);
-      nextNum = lastNum + 1;
+      let nextNum = 1;
+      if (maxBill.length > 0) {
+        const lastId = maxBill[0].id;
+        const numPart = lastId.replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      billId = `BILL-${String(nextNum).padStart(4, '0')}`;
     }
-    const billId = `BILL-${String(nextNum).padStart(4, '0')}`;
 
     // Calculate subtotal from items
     let subtotal = 0;

@@ -76,21 +76,24 @@ async function createCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    // Generate ID based on type
-    const prefix = type === 'regular' ? 'RC' : 'RND';
-    const [maxRows] = await pool.query(
-      `SELECT id FROM customers WHERE type = ? AND user_id = ? ORDER BY CAST(split_part(id, '-', 2) AS INTEGER) DESC LIMIT 1`,
-      [type, req.user.id]
-    );
+    // Use client-provided ID if sent (reconciliation), otherwise generate one
+    let customerId = req.body.id;
+    if (!customerId) {
+      const prefix = type === 'regular' ? 'RC' : 'RND';
+      const [maxRows] = await pool.query(
+        `SELECT id FROM customers WHERE type = ? AND user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        [type, req.user.id]
+      );
 
-    let nextNum = 1;
-    if (maxRows.length > 0) {
-      const lastId = maxRows[0].id;
-      const parts = lastId.split('-');
-      nextNum = parseInt(parts[parts.length - 1], 10) + 1;
+      let nextNum = 1;
+      if (maxRows.length > 0) {
+        const lastId = maxRows[0].id;
+        const numPart = lastId.replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+
+      customerId = `${prefix}-${String(nextNum).padStart(3, '0')}`;
     }
-
-    const customerId = `${prefix}-${String(nextNum).padStart(3, '0')}`;
 
     await pool.query(
       `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit)
