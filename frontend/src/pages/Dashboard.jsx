@@ -87,6 +87,14 @@ const Dashboard = () => {
     return pInflow + advInflow
   }, [payments, advancePayments])
 
+  const totalExpenses = useMemo(() => {
+    return (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  }, [expenses])
+
+  const netCashFlow = useMemo(() => {
+    return totalCashInflow - totalExpenses
+  }, [totalCashInflow, totalExpenses])
+
   const overdueBills = useMemo(
     () => activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < today),
     [activeBills]
@@ -137,7 +145,7 @@ const Dashboard = () => {
           <span style={{ width: '4px', height: '14px', background: 'var(--gradient-accent)', borderRadius: '2px', display: 'inline-block' }} />
           Financial Performance
         </h3>
-        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '20px' }}>
           <div className="stat-card">
             <div className="stat-card-header">
               <div className="stat-card-icon indigo"><TrendingUp /></div>
@@ -181,6 +189,21 @@ const Dashboard = () => {
             </div>
             <div className="stat-card-sub">Outstanding customer credits</div>
           </div>
+
+          <div className="stat-card">
+            <div className="stat-card-header">
+              <div className={`stat-card-icon ${netCashFlow >= 0 ? 'success' : 'error'}`} style={{ background: netCashFlow >= 0 ? 'var(--success-bg)' : 'var(--error-bg)', color: netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                {netCashFlow >= 0 ? <TrendingUp /> : <XCircle />}
+              </div>
+              <div>
+                <div className="stat-card-label">Net Cash Flow</div>
+                <div className="stat-card-value" style={{ color: netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                  ₹{netCashFlow.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <div className="stat-card-sub">Inflow (₹{totalCashInflow.toFixed(2)}) - Expenses (₹{totalExpenses.toFixed(2)})</div>
+          </div>
         </div>
       </div>
 
@@ -190,7 +213,7 @@ const Dashboard = () => {
           <span style={{ width: '4px', height: '14px', background: 'var(--gradient-accent)', borderRadius: '2px', display: 'inline-block' }} />
           Operations & Receivables
         </h3>
-        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
           <div className="stat-card">
             <div className="stat-card-header">
               <div className="stat-card-icon warning"><CreditCard /></div>
@@ -326,7 +349,7 @@ const Dashboard = () => {
           </select>
         </div>
 
-        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', border: 'none', padding: 0 }}>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', border: 'none', padding: 0 }}>
           <div style={{ padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Realized Revenue</div>
             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--success)' }}>₹{fyStats.revenue.toFixed(2)}</div>

@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet, BookOpen, RefreshCw, GitMerge } from 'lucide-react'
+import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, Lock, TrendingUp, Wallet, BookOpen, RefreshCw, GitMerge, X } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
 // permKey = key in staffPermissions; undefined means always show (e.g. Dashboard, Notifications)
@@ -12,7 +12,7 @@ const navItems = [
   { label: 'Advance Payments', path: '/advance-payments',  icon: Wallet,       permKey: 'advancePayments' },
   { label: 'Accounting',       path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
   { label: 'Refunds',          path: '/refunds',           icon: RefreshCw,    permKey: 'accounting' },
-  { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'analytics' },
+  { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'accounting' },
   { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
   { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },
   { label: 'Customer Bills',   path: '/customer-bills',    icon: FileText,     permKey: 'customers' },
@@ -26,7 +26,7 @@ const navItems = [
   { label: 'Settings',         path: '/settings',          icon: Settings,     permKey: 'settings' },
 ]
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   const { currentUser, settings } = useAppContext()
   // Since there is only one merchant/owner role, any logged-in user gets full access
   const isMerchant = !!currentUser
@@ -42,29 +42,36 @@ const Sidebar = () => {
   })
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
-          <Printer size={20} />
+    <>
+      {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+        <button className="sidebar-close" onClick={onClose} aria-label="Close menu">
+          <X size={20} />
+        </button>
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">
+            <Printer size={20} />
+          </div>
+          <div className="sidebar-logo-text">PrintPro</div>
         </div>
-        <div className="sidebar-logo-text">PrintPro</div>
-      </div>
-      <nav className="sidebar-nav">
-        {visibleItems.map((item) => {
-          const Icon = item.icon
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
-            >
-              <Icon />
-              <span>{item.label}</span>
-            </NavLink>
-          )
-        })}
-      </nav>
-    </aside>
+        <nav className="sidebar-nav">
+          {visibleItems.map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+                onClick={onClose}
+              >
+                <Icon />
+                <span>{item.label}</span>
+              </NavLink>
+            )
+          })}
+        </nav>
+      </aside>
+    </>
   )
 }
 
