@@ -90,18 +90,32 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // ── Health check (public) ────────────────────────────────────────────────────
 const startedAt = new Date();
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   const uptimeSec = Math.floor(process.uptime());
   const uptimeStr = `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m ${uptimeSec % 60}s`;
 
+  let dbStatus = 'ok';
+  let dbError = null;
+  try {
+    const pool = getPool();
+    await pool.query('SELECT 1');
+  } catch (err) {
+    dbStatus = 'error';
+    dbError = err.message;
+  }
+
   res.json({
-    status:    'ok',
+    status:    dbStatus === 'ok' ? 'ok' : 'error',
     service:   'printpro-api',
     version:   process.env.npm_package_version || '1.0.0',
     env:       ENV,
     timestamp: new Date().toISOString(),
     started:   startedAt.toISOString(),
     uptime:    uptimeStr,
+    database: {
+      status: dbStatus,
+      error: dbError
+    }
   });
 });
 
