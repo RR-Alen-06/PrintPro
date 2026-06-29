@@ -220,3 +220,16 @@ CREATE POLICY "Users can manage their own purchases" ON purchases
 
 CREATE POLICY "Users can manage their own audit logs" ON audit_log
   FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── Enable Realtime Replication ──────────────────────────────────────────────
+-- Add public tables to the supabase_realtime publication to enable broadcast events
+ALTER PUBLICATION supabase_realtime ADD TABLE 
+  business_profile, 
+  customers, 
+  inventory_items, 
+  bills, 
+  bill_items, 
+  payments, 
+  purchases, 
+  audit_log;
+

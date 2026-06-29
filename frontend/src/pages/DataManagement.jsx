@@ -6,7 +6,7 @@ import { createFullBackup, exportBillsToCSV, exportCustomersToCSV, exportInvento
 import { importFromJSON, importCustomersFromCSV, importInventoryFromCSV, importFromCSV, validateBackupFile, restoreFromBackup } from '../utils/dataImport'
 
 const DataManagement = () => {
-  const { business, customers, inventory, bills, payments, expenses, settings, addCustomer, addInventoryItem } = useAppContext()
+  const { business, customers, inventory, bills, payments, expenses, settings, addCustomer, addInventoryItem, currentUser } = useAppContext()
   const [exportMessage, setExportMessage] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const [importType, setImportType] = useState('backup')
@@ -61,7 +61,8 @@ const DataManagement = () => {
         if (!validateBackupFile(data)) throw new Error('Invalid backup file format')
         const restored = restoreFromBackup(data)
         showImport('Backup restored — reloading in 2s…')
-        localStorage.setItem('printpro-state', JSON.stringify(restored))
+        const storageKey = currentUser ? `printpro-state-${currentUser.id}` : 'printpro-state'
+        localStorage.setItem(storageKey, JSON.stringify(restored))
         setTimeout(() => window.location.reload(), 2000)
       } else if (importType === 'customers') {
         const data = await importFromCSV(file)

@@ -7,7 +7,7 @@ const os        = require('os');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { initializeDatabase } = require('./config/db');
+const { initializeDatabase, getPool } = require('./config/db');
 const logger        = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler  = require('./middleware/errorHandler');
