@@ -109,9 +109,15 @@ const loadState = () => {
 const saveState = (state) => {
   try {
     const { currentUser, users, ...rest } = state
+    if (!currentUser) {
+      localStorage.removeItem('printpro-state')
+      return
+    }
+
+    const storageKey = `printpro-state-${currentUser.id}`
     
     // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
-    const stored = localStorage.getItem('printpro-state')
+    const stored = localStorage.getItem(storageKey)
     if (stored) {
       const parsed = JSON.parse(stored)
       const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
@@ -123,7 +129,7 @@ const saveState = (state) => {
       }
     }
     
-    localStorage.setItem('printpro-state', JSON.stringify(rest))
+    localStorage.setItem(storageKey, JSON.stringify(rest))
   } catch (error) {
     console.error('Failed to save state', error)
   }
@@ -295,9 +301,38 @@ const baseReducer = (state, action) => {
       }
     }
     case 'SET_CURRENT_USER': {
+      const user = action.payload
+      if (!user) {
+        return {
+          ...initialState,
+          currentUser: null,
+        }
+      }
+      try {
+        const stored = localStorage.getItem(`printpro-state-${user.id}`)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          const mergedSettings = {
+            ...initialState.settings,
+            ...parsed.settings,
+            staffPermissions: {
+              ...initialState.settings.staffPermissions,
+              ...(parsed.settings?.staffPermissions || {})
+            }
+          }
+          return {
+            ...initialState,
+            ...parsed,
+            settings: mergedSettings,
+            currentUser: user,
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load user-specific state', e)
+      }
       return {
-        ...state,
-        currentUser: action.payload,
+        ...initialState,
+        currentUser: user,
       }
     }
     case 'SYNC_CLOUD_DATA': {

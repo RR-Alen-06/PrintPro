@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, currentUser } = useAppContext()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -192,7 +192,8 @@ const Settings = () => {
       'Clear All Data',
       'This permanently erases ALL data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
       () => {
-        localStorage.removeItem('printpro-state')
+        const storageKey = currentUser ? `printpro-state-${currentUser.id}` : 'printpro-state'
+        localStorage.removeItem(storageKey)
         window.location.reload()
       }
     )
