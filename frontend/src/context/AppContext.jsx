@@ -303,28 +303,14 @@ const baseReducer = (state, action) => {
     case 'SYNC_CLOUD_DATA': {
       const { bills, customers, payments, inventory, expenses, business } = action.payload
       
-      const mergeById = (localArr, cloudArr) => {
-        if (!cloudArr || cloudArr.length === 0) return localArr || [];
-        const cloudMap = new Map(cloudArr.map(item => [item.id, item]));
-        const merged = [...cloudArr];
-        
-        if (localArr) {
-          localArr.forEach(item => {
-            if (!cloudMap.has(item.id)) {
-              merged.push(item);
-            }
-          });
-        }
-        return merged;
-      };
-
+      // Database is the single source of truth when authenticated. Overwrite local state arrays.
       return {
         ...state,
-        bills: mergeById(state.bills, bills),
-        customers: mergeById(state.customers, customers),
-        payments: mergeById(state.payments, payments),
-        inventory: mergeById(state.inventory, inventory),
-        expenses: mergeById(state.expenses, expenses),
+        bills: bills || [],
+        customers: customers || [],
+        payments: payments || [],
+        inventory: inventory || [],
+        expenses: expenses || [],
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
