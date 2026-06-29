@@ -202,7 +202,6 @@ const Dashboard = () => {
                 </div>
               </div>
             </div>
-            <div className="stat-card-sub">Inflow (₹{totalCashInflow.toFixed(2)}) - Expenses (₹{totalExpenses.toFixed(2)})</div>
           </div>
         </div>
       </div>
