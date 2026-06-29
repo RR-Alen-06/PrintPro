@@ -27,6 +27,7 @@ import Refunds from './pages/Refunds'
 function App() {
   const { currentUser } = useAppContext()
   const location = useLocation()
+  const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   React.useEffect(() => {
     const handleWheel = (e) => {
@@ -55,9 +56,9 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-wrapper">
-        <Header />
+        <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />

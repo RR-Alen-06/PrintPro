@@ -38,6 +38,22 @@ async function listBills(req, res, next) {
     sql += ' ORDER BY b.created_at DESC';
 
     const [rows] = await pool.query(sql, params);
+    
+    // Fetch and map associated bill items
+    if (rows.length > 0) {
+      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = ?', [req.user.id]);
+      const itemsMap = {};
+      allItems.forEach(item => {
+        if (!itemsMap[item.bill_id]) {
+          itemsMap[item.bill_id] = [];
+        }
+        itemsMap[item.bill_id].push(item);
+      });
+      rows.forEach(bill => {
+        bill.items = itemsMap[bill.id] || [];
+      });
+    }
+
     res.json({ success: true, data: rows });
   } catch (err) {
     next(err);
@@ -55,6 +71,22 @@ async function listDeletedBills(req, res, next) {
        ORDER BY b.deleted_at DESC`,
       [req.user.id]
     );
+
+    // Fetch and map associated bill items
+    if (rows.length > 0) {
+      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = ?', [req.user.id]);
+      const itemsMap = {};
+      allItems.forEach(item => {
+        if (!itemsMap[item.bill_id]) {
+          itemsMap[item.bill_id] = [];
+        }
+        itemsMap[item.bill_id].push(item);
+      });
+      rows.forEach(bill => {
+        bill.items = itemsMap[bill.id] || [];
+      });
+    }
+
     res.json({ success: true, data: rows });
   } catch (err) {
     next(err);

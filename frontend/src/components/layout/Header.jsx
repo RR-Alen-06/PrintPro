@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
-import { Search, Bell, PlusSquare, LogOut, User } from 'lucide-react'
+import { Search, Bell, PlusSquare, LogOut, User, Menu } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useNavigate } from 'react-router-dom'
 
-const Header = () => {
+const Header = ({ onMenuClick }) => {
   const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } = useAppContext()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -24,8 +24,8 @@ const Header = () => {
   return (
     <header className="header">
       <div className="header-left">
-        <button className="header-menu-btn" type="button" aria-label="Toggle menu">
-          <PlusSquare size={18} />
+        <button className="header-menu-btn" type="button" aria-label="Toggle menu" onClick={onMenuClick}>
+          <Menu size={18} />
         </button>
         <div className="header-title">PrintPro Business Manager</div>
       </div>
@@ -63,6 +63,7 @@ const Header = () => {
                 border: '1px solid var(--border-accent)',
                 borderRadius: 'var(--radius-xl)',
                 width: '340px',
+                maxWidth: 'calc(100vw - 32px)',
                 zIndex: 1000,
                 boxShadow: '0 0 20px rgba(99, 102, 241, 0.15), 0 8px 32px rgba(0,0,0,0.6)',
                 display: 'flex',

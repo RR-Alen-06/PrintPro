@@ -211,7 +211,7 @@ const Accounting = () => {
       </div>
 
       {/* Summary stats */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: '24px' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', marginBottom: '24px' }}>
         <div className="stat-card">
           <div className="stat-card-header">
             <div className="stat-card-icon success"><DollarSign /></div>
@@ -349,7 +349,7 @@ const Accounting = () => {
       {/* Refunds & Reversals Summary */}
       <div className="card" style={{ marginBottom: '24px' }}>
         <h2 style={{ marginBottom: '16px' }}>Refunds & Reversals Summary</h2>
-        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', border: 'none', padding: 0 }}>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '16px', border: 'none', padding: 0 }}>
           <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Bill Refunds</h4>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>

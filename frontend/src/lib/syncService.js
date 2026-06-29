@@ -1,7 +1,9 @@
-import { createBill } from '../api/bills';
-import { createCustomer } from '../api/customers';
-import { createItem } from '../api/inventory';
+import { createBill, updateBill, deleteBill, restoreBill } from '../api/bills';
+import { createCustomer, updateCustomer, deleteCustomer } from '../api/customers';
+import { createItem, updateItem } from '../api/inventory';
 import { createPayment } from '../api/payments';
+import { createPurchase, deletePurchase } from '../api/purchases';
+import { updateProfile } from '../api/profile';
 
 /**
  * Pushes locally created entities to the cloud backend.
@@ -20,6 +22,24 @@ export const syncEntityToCloud = async (action, payload) => {
         });
         break;
 
+      case 'UPDATE_CUSTOMER':
+        if (payload.id) {
+          await updateCustomer(payload.id, {
+            name: payload.updates.name,
+            phone: payload.updates.phone,
+            email: payload.updates.email,
+            address: payload.updates.address,
+            type: payload.updates.type || 'regular',
+            credit_balance: payload.updates.creditBalance || 0,
+            credit_limit: payload.updates.creditLimit || 0
+          });
+        }
+        break;
+
+      case 'DELETE_CUSTOMER':
+        await deleteCustomer(payload);
+        break;
+
       case 'ADD_INVENTORY_ITEM':
         await createItem({
           name: payload.name,
@@ -29,6 +49,19 @@ export const syncEntityToCloud = async (action, payload) => {
           bw_double: payload.bwDouble,
           stock: payload.stock || 0,
         });
+        break;
+
+      case 'UPDATE_INVENTORY_ITEM':
+        if (payload.id) {
+          await updateItem(payload.id, {
+            name: payload.updates.name,
+            color_single: payload.updates.colorSingle,
+            color_double: payload.updates.colorDouble,
+            bw_single: payload.updates.bwSingle,
+            bw_double: payload.updates.bwDouble,
+            stock: payload.updates.stock || 0
+          });
+        }
         break;
 
       case 'ADD_BILL':
@@ -54,6 +87,34 @@ export const syncEntityToCloud = async (action, payload) => {
         }
         break;
 
+      case 'UPDATE_BILL':
+        if (payload.id) {
+          await updateBill(payload.id, {
+            customer_id: payload.updates.customerId,
+            date: payload.updates.date,
+            due_date: payload.updates.dueDate,
+            subtotal: payload.updates.subtotal,
+            discount_type: payload.updates.discountType,
+            discount_value: payload.updates.discountValue,
+            gst_percent: payload.updates.gstPercent,
+            gst_amount: payload.updates.gstAmount,
+            total: payload.updates.total,
+            amount_paid: payload.updates.amountPaid,
+            balance: payload.updates.balance,
+            status: payload.updates.status,
+            notes: payload.updates.notes
+          });
+        }
+        break;
+
+      case 'DELETE_BILL':
+        await deleteBill(payload);
+        break;
+
+      case 'RESTORE_BILL':
+        await restoreBill(payload);
+        break;
+
       case 'ADD_PAYMENT':
         if (payload.billId && payload.customerId) {
           await createPayment({
@@ -66,6 +127,33 @@ export const syncEntityToCloud = async (action, payload) => {
             notes: payload.notes || ''
           });
         }
+        break;
+
+      case 'ADD_EXPENSE':
+        await createPurchase({
+          date: payload.date || new Date().toISOString().slice(0, 10),
+          item_name: payload.itemName || '',
+          category: payload.category || 'General',
+          qty: payload.qty || 1,
+          unit_cost: payload.unitCost || payload.amount || 0,
+          total: payload.amount || 0,
+          notes: payload.notes || ''
+        });
+        break;
+
+      case 'DELETE_EXPENSE':
+        await deletePurchase(payload);
+        break;
+
+      case 'UPDATE_BUSINESS':
+        await updateProfile({
+          shop_name: payload.shopName,
+          owner_name: payload.ownerName,
+          phone: payload.phone,
+          address: payload.address,
+          gstin: payload.gstin,
+          upi_id: payload.upiId
+        });
         break;
         
       default:
