@@ -21,6 +21,13 @@ CREATE TABLE business_profile (
   gstin VARCHAR(20) DEFAULT '',
   logo_path VARCHAR(255) DEFAULT '',
   upi_id VARCHAR(100) DEFAULT '',
+  settings JSONB DEFAULT '{}'::jsonb,
+  id_counters JSONB DEFAULT '{}'::jsonb,
+  advance_payments JSONB DEFAULT '[]'::jsonb,
+  recurring_bills JSONB DEFAULT '[]'::jsonb,
+  customer_groups JSONB DEFAULT '[]'::jsonb,
+  group_bills JSONB DEFAULT '[]'::jsonb,
+  deleted_payments JSONB DEFAULT '[]'::jsonb,
   PRIMARY KEY (id, user_id),
   CONSTRAINT unique_user_profile UNIQUE (user_id)
 );
