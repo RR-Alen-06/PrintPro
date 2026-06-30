@@ -66,7 +66,7 @@ export const createBill = async (data) => {
     gst_amount: data.gst_amount || 0,
     total: data.total || 0,
     amount_paid: data.amount_paid || 0,
-    balance: data.balance || 0,
+    balance: data.balance !== undefined ? data.balance : (data.total || 0),
     status: data.status || 'unpaid',
     notes: data.notes || ''
   };
@@ -107,21 +107,20 @@ export const createBill = async (data) => {
 export const updateBill = async (id, data) => {
   const { data: { user } } = await supabase.auth.getUser();
   
-  const billData = {
-    customer_id: data.customer_id,
-    date: data.date,
-    due_date: data.due_date,
-    subtotal: data.subtotal || 0,
-    discount_type: data.discount_type,
-    discount_value: data.discount_value,
-    gst_percent: data.gst_percent,
-    gst_amount: data.gst_amount,
-    total: data.total,
-    amount_paid: data.amount_paid,
-    balance: data.balance,
-    status: data.status,
-    notes: data.notes
-  };
+  const billData = {};
+  if (data.customer_id !== undefined) billData.customer_id = data.customer_id;
+  if (data.date !== undefined) billData.date = data.date;
+  if (data.due_date !== undefined) billData.due_date = data.due_date;
+  if (data.subtotal !== undefined) billData.subtotal = data.subtotal;
+  if (data.discount_type !== undefined) billData.discount_type = data.discount_type;
+  if (data.discount_value !== undefined) billData.discount_value = data.discount_value;
+  if (data.gst_percent !== undefined) billData.gst_percent = data.gst_percent;
+  if (data.gst_amount !== undefined) billData.gst_amount = data.gst_amount;
+  if (data.total !== undefined) billData.total = data.total;
+  if (data.amount_paid !== undefined) billData.amount_paid = data.amount_paid;
+  if (data.balance !== undefined) billData.balance = data.balance;
+  if (data.status !== undefined) billData.status = data.status;
+  if (data.notes !== undefined) billData.notes = data.notes;
   
   const { data: bill, error: billError } = await supabase
     .from('bills')

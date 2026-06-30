@@ -73,15 +73,14 @@ export const createCustomer = async (data) => {
 }
 
 export const updateCustomer = async (id, data) => {
-  const updateData = {
-    name: data.name,
-    phone: data.phone || '',
-    email: data.email || '',
-    address: data.address || '',
-    type: data.type,
-    credit_balance: data.credit_balance || 0,
-    credit_limit: data.credit_limit || 0
-  };
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.phone !== undefined) updateData.phone = data.phone;
+  if (data.email !== undefined) updateData.email = data.email;
+  if (data.address !== undefined) updateData.address = data.address;
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.credit_balance !== undefined) updateData.credit_balance = data.credit_balance;
+  if (data.credit_limit !== undefined) updateData.credit_limit = data.credit_limit;
   const { data: updated, error } = await supabase.from('customers').update(updateData).eq('id', id).select().single();
   if (error) {
     logSupabaseError('customers', 'UPDATE', { id, updateData }, error);
