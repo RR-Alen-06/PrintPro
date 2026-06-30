@@ -7,7 +7,7 @@
 
   "buildCommand": "npm run build:frontend",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm ci --prefer-offline",
+  "installCommand": "npm install --prefix frontend",
   "framework": "vite",
 
   "headers": [
