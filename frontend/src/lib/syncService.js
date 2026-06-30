@@ -131,13 +131,6 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'ADD_PAYMENT':
         if (payload.billId && payload.customerId) {
-          if (payload.excessCredit > 0) {
-            const { data: custData } = await supabase.from('customers').select('credit_balance').eq('id', payload.customerId).single();
-            if (custData) {
-              const newBal = Number(custData.credit_balance || 0) + Number(payload.excessCredit);
-              await supabase.from('customers').update({ credit_balance: newBal }).eq('id', payload.customerId);
-            }
-          }
           return await createPayment({
             bill_id: payload.billId,
             customer_id: payload.customerId,
