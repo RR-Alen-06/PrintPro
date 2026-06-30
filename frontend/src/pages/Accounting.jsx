@@ -18,37 +18,64 @@ const Accounting = () => {
   const [expError, setExpError] = useState('')
   const [expSuccess, setExpSuccess] = useState(false)
 
+  // ── Refund Stats ──────────────────────────────────────────────────────────
+  const refundStats = useMemo(() => {
+    // 1. Bill Refunds (negative payments)
+    const billRefundsList = (payments || []).filter((p) => Number(p.totalPaid) < 0 || p.isRefund || p.paymentType === 'refund')
+    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const billRefundsCash = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
+
+    // 2. Payment Deletions (deleted payments)
+    const delPaymentsList = deletedPayments || []
+    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
+
+    // 3. Advance Returns (negative advance payments)
+    const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount) < 0 || ap.isReturn)
+    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
+    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.cashAmount || 0)), 0)
+    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.upiAmount || 0)), 0)
+
+    return {
+      billRefundsTotal, billRefundsCash, billRefundsUpi, billRefundsList,
+      delPaymentsTotal, delPaymentsCash, delPaymentsUpi, delPaymentsList,
+      advReturnsTotal, advReturnsCash, advReturnsUpi, advReturnsList,
+      totalRefundOutflow: billRefundsTotal + delPaymentsTotal + advReturnsTotal,
+      totalCashRefunded: billRefundsCash + delPaymentsCash + advReturnsCash,
+      totalUpiRefunded: billRefundsUpi + delPaymentsUpi + advReturnsUpi
+    }
+  }, [payments, deletedPayments, advancePayments])
+
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
 
     // Separate normal payments from refund payments
     const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
-    const refundPaymentsList = (payments || []).filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
 
     // Realized Revenue = sum of amountPaid on active bills
-    // After the ADD_PAYMENT refund fix, bill.amountPaid is already net of refunds.
     const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
 
-    // Total refund outflow
-    const totalRefundOutflow = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    // Total refund outflow (all 3 sources: bills, advance returns, deleted payments)
+    const totalRefundOutflow = refundStats.totalRefundOutflow
 
     const totalExpenses = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
 
-    // Net Profit = Net Revenue - Total Expenses
+    // Net Profit = Realized Revenue - Total Expenses
     const netProfit = realizedRevenue - totalExpenses
     
     const totalCustomerAdvance = customers
       .filter((c) => !c.deleted)
-      .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
+      .reduce((sum, c) => sum + Number(c.advanceBalance !== undefined ? c.advanceBalance : (c.creditBalance || 0)), 0)
 
-    // Cash inflow from payments (refund payments have negative cashAmount, naturally reduces sum)
+    // Cash inflow from positive incoming payments and deposits
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.notes?.includes('from advance deposit') && !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    // Advance inflow EXCLUDING refund-credit advance deposits (those are internal transfers)
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     const totalCashInflow = pInflow + advInflow
 
@@ -60,14 +87,13 @@ const Accounting = () => {
     // Cash/UPI collected from NORMAL payments only (not refunds)
     const cashFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const upiFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-    // Cash/UPI refunded out
-    const cashRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
-    const upiRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
-    // Net cash/UPI collected (gross - refunds)
-    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
-    const cashCollected = cashFromNormalPayments + cashFromAdvances  // gross cash received
-    const upiCollected = upiFromNormalPayments + upiFromAdvances      // gross UPI received
+    const cashFromAdvances = (advancePayments || []).filter(ap => Number(ap.amount) > 0 && !ap.isRefundCredit && !ap.isReturn).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiFromAdvances = (advancePayments || []).filter(ap => Number(ap.amount) > 0 && !ap.isRefundCredit && !ap.isReturn).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashCollected = cashFromNormalPayments + cashFromAdvances
+    const upiCollected = upiFromNormalPayments + upiFromAdvances
+
+    const cashRefunded = refundStats.totalCashRefunded
+    const upiRefunded = refundStats.totalUpiRefunded
 
     // Cash/UPI from expenses
     const cashSpent = (expenses || []).reduce((s, e) => s + Number(e.cashAmount || 0), 0)
@@ -79,44 +105,7 @@ const Accounting = () => {
       totalCustomerAdvance, totalCashInflow,
       netProfit, totalRefundOutflow, cashRefunded, upiRefunded
     }
-  }, [bills, payments, expenses, advancePayments, customers])
-
-  const refundStats = useMemo(() => {
-    // 1. Bill Refunds (negative payments)
-    const billRefundsList = payments.filter((p) => p.totalPaid < 0 || p.isRefund)
-    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-
-    // 2. Payment Deletions (deleted payments)
-    const delPaymentsList = deletedPayments || []
-    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-
-    // 3. Advance Returns (negative advance payments)
-    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
-    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
-
-    return {
-      billRefundsTotal: Math.abs(billRefundsTotal),
-      billRefundsCash: Math.abs(billRefundsCash),
-      billRefundsUpi: Math.abs(billRefundsUpi),
-      billRefundsList,
-
-      delPaymentsTotal: Math.abs(delPaymentsTotal),
-      delPaymentsCash: Math.abs(delPaymentsCash),
-      delPaymentsUpi: Math.abs(delPaymentsUpi),
-      delPaymentsList,
-
-      advReturnsTotal: Math.abs(advReturnsTotal),
-      advReturnsCash: Math.abs(advReturnsCash),
-      advReturnsUpi: Math.abs(advReturnsUpi),
-      advReturnsList,
-    }
-  }, [payments, deletedPayments, advancePayments])
+  }, [bills, payments, expenses, advancePayments, customers, refundStats])
 
   const refundLogs = useMemo(() => {
     const logs = []
