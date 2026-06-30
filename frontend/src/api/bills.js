@@ -71,11 +71,48 @@ export const createBill = async (data) => {
     notes: data.notes || ''
   };
   
-  const { data: bill, error: billError } = await supabase
+  let bill = null;
+  let billError = null;
+
+  const res = await supabase
     .from('bills')
     .insert([billData])
     .select()
     .single();
+  bill = res.data;
+  billError = res.error;
+
+  if (billError && (billError.code === '23505' || (billError.message && (billError.message.toLowerCase().includes('duplicate key') || billError.message.toLowerCase().includes('unique constraint'))))) {
+    console.warn(`Duplicate bill ID ${billData.id} detected on cloud sync. Auto-reconciling ID...`);
+    const { data: latestBills } = await supabase
+      .from('bills')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    let maxNum = 0;
+    (latestBills || []).forEach(b => {
+      if (b && b.id && typeof b.id === 'string') {
+        const m = b.id.match(/^BILL(\d+)$/i);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        }
+      }
+    });
+
+    const newId = `BILL${String(maxNum + 1).padStart(4, '0')}`;
+    billData.id = newId;
+    data.id = newId;
+
+    const retryRes = await supabase
+      .from('bills')
+      .insert([billData])
+      .select()
+      .single();
+    bill = retryRes.data;
+    billError = retryRes.error;
+  }
     
   if (billError) {
     logSupabaseError('bills', 'INSERT', billData, billError);
