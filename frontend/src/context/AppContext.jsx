@@ -813,8 +813,25 @@ export const AppProvider = ({ children }) => {
       }
     }
 
+    const runSync = async () => {
+      if (action.type === 'ADD_PAYMENT') {
+        const billId = action.payload?.billId
+        const customerId = action.payload?.customerId
+        while ((billId && pendingSyncs.current.has(billId)) || (customerId && pendingSyncs.current.has(customerId))) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      if (action.type === 'ADD_BILL') {
+        const customerId = action.payload?.customerId
+        while (customerId && pendingSyncs.current.has(customerId)) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      return await syncEntityToCloud(action.type, action.payload)
+    }
+
     // Synchronously fire the background sync, logging success and displaying errors to the user
-    syncEntityToCloud(action.type, action.payload)
+    runSync()
       .then((res) => {
         console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
         
@@ -1093,6 +1110,50 @@ export const AppProvider = ({ children }) => {
           paymentType: p.payment_type || 'partial',
           notes: p.notes || ''
         }))
+
+        // Self-heal: Synthesize payments for bills that show paid amount but have no payment records
+        fetchedBills.forEach(b => {
+          if (b.deleted_at) return
+          const billPayments = fetchedPayments.filter(p => p.bill_id === b.id)
+          const sumPaid = billPayments.reduce((sum, p) => sum + Number(p.total_paid || 0), 0)
+          const amountPaid = Number(b.amount_paid || 0)
+          
+          if (amountPaid > 0 && sumPaid < amountPaid) {
+            const missingAmount = amountPaid - sumPaid
+            const synthId = `PAY_SYN_${b.id}_${Date.now()}`
+            const synthPayment = {
+              id: synthId,
+              billId: b.id,
+              customerId: b.customer_id,
+              date: b.date || new Date().toISOString().slice(0, 10),
+              cashAmount: missingAmount,
+              upiAmount: 0,
+              totalPaid: missingAmount,
+              paymentType: amountPaid >= Number(b.total || 0) ? 'full' : 'partial',
+              notes: 'Self-healed payment for missing record'
+            }
+            mappedPayments.push(synthPayment)
+
+            // Trigger background sync to create this missing record in the cloud DB
+            supabase.auth.getUser().then(({ data: { user } }) => {
+              if (!user) return
+              supabase.from('payments').insert([{
+                user_id: user.id,
+                bill_id: b.id,
+                customer_id: b.customer_id,
+                cash_amount: missingAmount,
+                upi_amount: 0,
+                total_paid: missingAmount,
+                payment_type: synthPayment.paymentType,
+                notes: synthPayment.notes
+              }]).then(() => {
+                console.log(`Self-healed payment record created in cloud for bill ${b.id}`)
+              }).catch(err => {
+                console.error(`Failed to sync self-healed payment for bill ${b.id}:`, err)
+              })
+            })
+          }
+        })
 
         const mappedInventory = fetchedInventory.map(i => ({
           id: i.id,
