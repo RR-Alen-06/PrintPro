@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf'
 import { Calendar, Download, Share2, Copy, Check, MessageSquare, Mail } from 'lucide-react'
 
 const PeriodReport = () => {
-  const { bills, payments, expenses, advancePayments, business } = useAppContext()
+  const { bills, payments, expenses, advancePayments, deletedPayments, business } = useAppContext()
 
   const [reportType, setReportType] = useState('monthly') // 'monthly' | 'yearly'
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear().toString())
@@ -55,37 +55,45 @@ const PeriodReport = () => {
   // ── Computations for selected period ──
   const reportData = useMemo(() => {
     // Filter payments, advances, expenses, bills in period
-    const periodPayments = payments.filter(p => p.date && p.date.startsWith(periodKey))
+    const periodPayments = (payments || []).filter(p => p.date && p.date.startsWith(periodKey))
     const periodAdvances = (advancePayments || []).filter(ap => ap.date && ap.date.startsWith(periodKey))
     const periodExpenses = (expenses || []).filter(e => e.date && e.date.startsWith(periodKey))
     const periodBills = bills.filter(b => !b.deleted && !b.isGroupParent && b.date && b.date.startsWith(periodKey))
+    const periodDelPayments = (deletedPayments || []).filter(p => (p.deletedAt || p.date) && (p.deletedAt || p.date).startsWith(periodKey))
 
     // Separate normal payments from refund payments
     const normalPayments = periodPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
     const refundPayments = periodPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+    const advReturns = periodAdvances.filter(ap => ap.isReturn || Number(ap.amount || 0) < 0)
 
-    // Revenue = sum of amountPaid on bills (already net of refunds after the ADD_PAYMENT fix)
+    // Revenue = sum of amountPaid on bills
     const revenue = periodBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
     const cashRevenue = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const upiRevenue = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
 
-    // Refund totals for period
-    const refundTotal = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
-    const cashRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
-    const upiRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
+    // Refund totals for period across all 3 sources
+    const billRefundTotal = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const delRefundTotal = periodDelPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const advReturnTotal = advReturns.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
+    const refundTotal = billRefundTotal + delRefundTotal + advReturnTotal
 
-    // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
-    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
+    const cashRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0) + periodDelPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0) + advReturns.reduce((s, ap) => s + Math.abs(Number(ap.cashAmount || 0)), 0)
+    const upiRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0) + periodDelPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0) + advReturns.reduce((s, ap) => s + Math.abs(Number(ap.upiAmount || 0)), 0)
+
+    // Advance collected - EXCLUDE refund-credit advance deposits and advance returns
+    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
     const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashAdvance = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiAdvance = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
 
     const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
     const cashExpenses = periodExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiExpenses = periodExpenses.reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    // pInflow from all period payments (refund payments have negative cashAmount that reduces sum naturally)
-    const pInflow = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    // Cash inflow from positive incoming payments and deposits
+    const pInflow = normalPayments
+      .filter((p) => !p.notes?.includes('from advance deposit') && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
+      .reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const totalCashInflow = pInflow + advanceCollected
     const netCashFlow = totalCashInflow - totalExpenses
     const netProfit = revenue - totalExpenses

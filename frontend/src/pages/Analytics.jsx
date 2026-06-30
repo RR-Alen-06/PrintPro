@@ -40,7 +40,7 @@ const filterByDate = (items, dateKey, range) => {
 }
 
 const Analytics = () => {
-  const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs } = useAppContext()
+  const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs, deletedPayments } = useAppContext()
   const [period, setPeriod] = useState('monthly')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -66,20 +66,21 @@ const Analytics = () => {
   const filteredPayments = useMemo(() => filterByDate(payments || [], 'date', range), [payments, range])
   const filteredExpenses = useMemo(() => filterByDate(expenses || [], 'date', range), [expenses, range])
   const filteredAdvPayments = useMemo(() => filterByDate(advancePayments || [], 'date', range), [advancePayments, range])
+  const filteredDelPayments = useMemo(() => filterByDate(deletedPayments || [], 'deletedAt', range), [deletedPayments, range])
 
   const totalAdvanceCollected = useMemo(() => {
-    return filteredAdvPayments.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    return filteredAdvPayments.filter(ap => !ap.isReturn && Number(ap.amount || 0) > 0 && !ap.isRefundCredit).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
   }, [filteredAdvPayments])
 
   const totalCustomerAdvance = useMemo(() => {
-    return customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
+    return customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance !== undefined ? c.advanceBalance : (c.creditBalance || 0)), 0)
   }, [customers])
 
   const totalCashInflow = useMemo(() => {
     const pInflow = filteredPayments
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.notes?.includes('from advance deposit') && !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const advInflow = filteredAdvPayments.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    const advInflow = filteredAdvPayments.filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0).reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     return pInflow + advInflow
   }, [filteredPayments, filteredAdvPayments])
 
@@ -318,20 +319,24 @@ const Analytics = () => {
 
   const refundOutflows = useMemo(() => {
     const billRefunds = filteredPayments
-      .filter((p) => p.totalPaid < 0 || p.isRefund)
-      .reduce((sum, p) => sum + Number(p.totalPaid || 0), 0)
+      .filter((p) => Number(p.totalPaid) < 0 || p.isRefund || p.paymentType === 'refund')
+      .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
     
     const advReturns = filteredAdvPayments
-      .filter((ap) => ap.amount < 0 || ap.isReturn)
-      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      .filter((ap) => Number(ap.amount) < 0 || ap.isReturn)
+      .reduce((sum, ap) => sum + Math.abs(Number(ap.amount || 0)), 0)
     
-    const totalRefunds = Math.abs(billRefunds) + Math.abs(advReturns)
+    const delPayRefunds = filteredDelPayments
+      .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    
+    const totalRefunds = billRefunds + advReturns + delPayRefunds
     return {
-      billRefunds: Math.abs(billRefunds),
-      advReturns: Math.abs(advReturns),
+      billRefunds,
+      advReturns,
+      delPayRefunds,
       totalRefunds,
     }
-  }, [filteredPayments, filteredAdvPayments])
+  }, [filteredPayments, filteredAdvPayments, filteredDelPayments])
 
   const totalExpenses = useMemo(() => {
     return filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
