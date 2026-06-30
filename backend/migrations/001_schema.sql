@@ -240,3 +240,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE
   purchases, 
   audit_log;
 
+-- ── Grant Table Permissions to Supabase Roles ────────────────────────────────
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, anon, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, anon, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, anon, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated, anon, service_role;
+
+
