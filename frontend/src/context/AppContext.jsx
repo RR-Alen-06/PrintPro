@@ -289,12 +289,11 @@ const baseReducer = (state, action) => {
         GRP: [...(state.customerGroups || []), ...(state.groupBills || [])],
         NOTE: state.notifications || [],
       };
-      const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
       (listsMap[type] || []).forEach(item => {
-        if (item && item.id && typeof item.id === 'string') {
-          const m = item.id.match(regex);
-          if (m) {
-            const n = parseInt(m[1], 10);
+        if (item && item.id && typeof item.id === 'string' && item.id.toLowerCase().startsWith(prefix.toLowerCase())) {
+          const remainder = item.id.slice(prefix.length);
+          if (/^\d+$/.test(remainder)) {
+            const n = parseInt(remainder, 10);
             if (!isNaN(n) && n > maxNum) maxNum = n;
           }
         }
@@ -739,14 +738,13 @@ const getMaxCounterFromState = (state, type) => {
   }
 
   const items = itemsMap[type] || []
-  const regex = new RegExp(`^${prefix}(\\d+)$`, 'i')
   for (const item of items) {
-    if (item && item.id && typeof item.id === 'string') {
-      const match = item.id.match(regex)
-      if (match) {
-        const num = parseInt(match[1], 10)
+    if (item && item.id && typeof item.id === 'string' && item.id.toLowerCase().startsWith(prefix.toLowerCase())) {
+      const remainder = item.id.slice(prefix.length);
+      if (/^\d+$/.test(remainder)) {
+        const num = parseInt(remainder, 10);
         if (!isNaN(num) && num > maxNum) {
-          maxNum = num
+          maxNum = num;
         }
       }
     }
