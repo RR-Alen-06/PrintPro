@@ -731,7 +731,7 @@ export const AppProvider = ({ children }) => {
 
     // Track pending ID if it is a creation action
     let entityId = null
-    if (action.type === 'ADD_CUSTOMER' || action.type === 'ADD_BILL' || action.type === 'ADD_PAYMENT' || action.type === 'ADD_EXPENSE' || action.type === 'ADD_ADVANCE_PAYMENT' || action.type === 'ADD_INVENTORY_ITEM') {
+    if (action.type === 'ADD_CUSTOMER' || action.type === 'ADD_BILL' || action.type === 'ADD_PAYMENT' || action.type === 'ADD_EXPENSE' || action.type === 'ADD_ADVANCE_PAYMENT' || action.type === 'RETURN_ADVANCE_PAYMENT' || action.type === 'ADD_INVENTORY_ITEM') {
       entityId = action.payload?.id
       if (entityId) {
         pendingSyncs.current.add(entityId)
@@ -932,37 +932,27 @@ export const AppProvider = ({ children }) => {
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
 
-        const mappedCustomers = fetchedCustomers.map(c => ({
-          id: c.id,
-          type: c.type || 'regular',
-          name: c.name || '',
-          phone: c.phone || '',
-          email: c.email || '',
-          address: c.address || '',
-          creditBalance: Number(c.credit_balance || 0),
-          creditLimit: Number(c.credit_limit || 0),
-          loyaltyPoints: Number(c.loyalty_points || 0),
-          createdAt: c.created_at || new Date().toISOString()
-        }))
+        const mappedCustomers = fetchedCustomers.map(c => {
+          const existingCustomer = state.customers.find(local => local.id === c.id) || {}
+          const creditBal = Number(c.credit_balance !== undefined && c.credit_balance !== null ? c.credit_balance : (existingCustomer.creditBalance || 0))
+          return {
+            id: c.id,
+            type: c.type || existingCustomer.type || 'regular',
+            name: c.name || existingCustomer.name || '',
+            phone: c.phone || existingCustomer.phone || '',
+            email: c.email || existingCustomer.email || '',
+            address: c.address || existingCustomer.address || '',
+            creditBalance: creditBal,
+            advanceBalance: creditBal,
+            creditLimit: Number(c.credit_limit || existingCustomer.creditLimit || 0),
+            loyaltyPoints: existingCustomer.loyaltyPoints !== undefined ? existingCustomer.loyaltyPoints : Number(c.loyalty_points || 0),
+            createdAt: c.created_at || existingCustomer.createdAt || new Date().toISOString()
+          }
+        })
 
-        const mappedBills = fetchedBills.map(b => ({
-          id: b.id,
-          customerId: b.customer_id,
-          customerName: b.customer_name || '',
-          date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
-          dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-          subtotal: Number(b.subtotal || 0),
-          discountType: b.discount_type || 'flat',
-          discountValue: Number(b.discount_value || 0),
-          gstPercent: Number(b.gst_percent || 0),
-          gstAmount: Number(b.gst_amount || 0),
-          total: Number(b.total || 0),
-          amountPaid: Number(b.amount_paid || 0),
-          balance: Number(b.balance || 0),
-          status: b.status || 'unpaid',
-          notes: b.notes || '',
-          deleted: !!b.deleted_at,
-          items: (b.items || []).map(item => ({
+        const mappedBills = fetchedBills.map(b => {
+          const existingBill = state.bills.find(local => local.id === b.id) || {}
+          const items = (b.items || []).map(item => ({
             name: item.item_name,
             printType: item.print_type,
             sides: item.sides,
@@ -970,7 +960,45 @@ export const AppProvider = ({ children }) => {
             unitPrice: Number(item.unit_price || 0),
             amount: Number(item.amount || 0)
           }))
-        }))
+          const itemsSubtotal = items.reduce((sum, i) => sum + i.amount, 0)
+          const subtotal = Number(b.subtotal || itemsSubtotal || existingBill.subtotal || 0)
+          const discountVal = Number(b.discount_value !== undefined && b.discount_value !== null ? b.discount_value : (existingBill.discountValue || 0))
+          const gstAmt = Number(b.gst_amount !== undefined && b.gst_amount !== null ? b.gst_amount : (existingBill.gstAmount || 0))
+          
+          let total = Number(b.total)
+          if (!total || total === 0) {
+            total = existingBill.total || (subtotal - discountVal + gstAmt)
+          }
+
+          const billPayments = fetchedPayments.filter(p => p.bill_id === b.id)
+          const sumPaid = billPayments.reduce((sum, p) => sum + Number(p.total_paid || 0), 0)
+          const amountPaid = Math.max(Number(b.amount_paid || 0), sumPaid, existingBill.amountPaid || 0)
+          const balance = Math.max(0, total - amountPaid)
+          const status = amountPaid >= total && total > 0 ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid')
+
+          return {
+            id: b.id,
+            customerId: b.customer_id,
+            customerName: b.customer_name || existingBill.customerName || '',
+            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : (existingBill.date || ''),
+            dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : (existingBill.dueDate || null),
+            subtotal,
+            discountType: b.discount_type || existingBill.discountType || 'flat',
+            discountValue: discountVal,
+            gstPercent: Number(b.gst_percent !== undefined && b.gst_percent !== null ? b.gst_percent : (existingBill.gstPercent || 0)),
+            gstAmount: gstAmt,
+            total,
+            amountPaid,
+            balance,
+            status,
+            notes: b.notes || existingBill.notes || '',
+            deleted: !!b.deleted_at,
+            advanceUsed: existingBill.advanceUsed !== undefined ? existingBill.advanceUsed : 0,
+            creditUsed: existingBill.creditUsed !== undefined ? existingBill.creditUsed : 0,
+            paymentMethod: existingBill.paymentMethod || { cash: amountPaid, upi: 0 },
+            items
+          }
+        })
 
         const mappedPayments = fetchedPayments.map(p => ({
           id: p.id,

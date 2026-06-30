@@ -37,15 +37,14 @@ export const createItem = async (data) => {
 }
 
 export const updateItem = async (id, data) => {
-  const updateData = {
-    name: data.name,
-    color_single: data.color_single,
-    color_double: data.color_double,
-    bw_single: data.bw_single,
-    bw_double: data.bw_double,
-    stock: data.stock,
-    low_stock_alert: data.low_stock_alert
-  };
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.color_single !== undefined) updateData.color_single = data.color_single;
+  if (data.color_double !== undefined) updateData.color_double = data.color_double;
+  if (data.bw_single !== undefined) updateData.bw_single = data.bw_single;
+  if (data.bw_double !== undefined) updateData.bw_double = data.bw_double;
+  if (data.stock !== undefined) updateData.stock = data.stock;
+  if (data.low_stock_alert !== undefined) updateData.low_stock_alert = data.low_stock_alert;
   const { data: updated, error } = await supabase
     .from('inventory_items')
     .update(updateData)
