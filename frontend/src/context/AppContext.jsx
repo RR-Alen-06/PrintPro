@@ -437,18 +437,9 @@ const baseReducer = (state, action) => {
           },
         }
       })
-      const customerCreditUpdate = state.customers.map((customer) => {
-        if (customer.id !== payment.customerId) return customer
-        if (payment.excessCredit) {
-          const newBal = Number(customer.advanceBalance || customer.creditBalance || 0) + Number(payment.excessCredit)
-          return { ...customer, creditBalance: newBal, advanceBalance: newBal }
-        }
-        return customer
-      })
       return {
         ...state,
         bills: updatedBills,
-        customers: customerCreditUpdate,
         payments: [...state.payments, payment],
       }
     }
@@ -1038,6 +1029,10 @@ export const AppProvider = ({ children }) => {
 
         const mappedBills = fetchedBills.map(b => {
           const existingBill = state.bills.find(local => local.id === b.id) || {}
+          const cust = mappedCustomers.find(c => c.id === b.customer_id)
+          const customerName = cust?.name || b.customer_name || existingBill.customerName || 'Walk-in Customer'
+          const customerType = cust?.type || existingBill.customerType || 'random'
+
           const items = (b.items || []).map(item => ({
             name: item.item_name,
             printType: item.print_type,
@@ -1065,7 +1060,8 @@ export const AppProvider = ({ children }) => {
           return {
             id: b.id,
             customerId: b.customer_id,
-            customerName: b.customer_name || existingBill.customerName || '',
+            customerName,
+            customerType,
             date: b.date ? new Date(b.date).toISOString().slice(0, 10) : (existingBill.date || ''),
             dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : (existingBill.dueDate || null),
             subtotal,
@@ -1540,6 +1536,27 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
 
+    if (overpaid > 0) {
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: billData.customerId,
+          customerName: customerName,
+          amount: overpaid,
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          date: billData.date || new Date().toISOString().slice(0, 10),
+          paymentMethod: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
+          notes: 'Excess payment from bill ' + billId,
+          createdAt: new Date().toISOString()
+        }
+      })
+    }
+
     if (overpaid > 0 && billData.returnChangeUpi > 0) {
       const retAmt = Math.min(overpaid, billData.returnChangeUpi)
       const nextCount = (state.idCounters?.ADV || 0) + 1
@@ -1673,6 +1690,27 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
 
+    if (excess > 0) {
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: paymentData.customerId,
+          customerName: customer?.name || 'Customer',
+          amount: excess,
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          date: paymentData.date || new Date().toISOString().slice(0, 10),
+          paymentMethod: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
+          notes: paymentData.notes || 'Advance deposit via payment',
+          createdAt: new Date().toISOString()
+        }
+      })
+    }
+
     if (excess > 0 && paymentData.returnChangeUpi > 0) {
       const retAmt = Math.min(excess, paymentData.returnChangeUpi)
       const nextCount = (state.idCounters?.ADV || 0) + 1
@@ -1754,6 +1792,30 @@ export const AppProvider = ({ children }) => {
         notes: paymentData.notes || `Targeted payment for bill ${billId}`,
       },
     })
+
+    if (excessAmt > 0) {
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      const excessCash = Math.max(0, cash - applyCash)
+      const excessUpi = Math.max(0, upi - applyUpi)
+      const customer = state.customers.find((c) => c.id === customerId)
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId,
+          customerName: customer?.name || 'Customer',
+          amount: excessAmt,
+          cashAmount: excessCash,
+          upiAmount: excessUpi,
+          date: new Date().toISOString().slice(0, 10),
+          paymentMethod: excessCash > 0 && excessUpi > 0 ? 'split' : (excessUpi > 0 ? 'upi' : 'cash'),
+          notes: paymentData.notes || `Excess payment from bill ${billId}`,
+          createdAt: new Date().toISOString()
+        }
+      })
+    }
   }
 
   // ── Add Group Bill (creates individual bills + a group record) ──────────────
