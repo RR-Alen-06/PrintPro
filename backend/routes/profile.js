@@ -51,4 +51,24 @@ router.put('/', validateProfile, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// DELETE /api/profile/data
+router.delete('/data', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    await pool.query('DELETE FROM bill_items WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM payments WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM bills WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM customers WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM inventory_items WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM purchases WHERE user_id = ?', [req.user.id]);
+    await pool.query('DELETE FROM audit_log WHERE user_id = ?', [req.user.id]);
+    await pool.query(
+      `UPDATE business_profile SET settings = '{}'::jsonb, id_counters = '{}'::jsonb, advance_payments = '[]'::jsonb, recurring_bills = '[]'::jsonb, customer_groups = '[]'::jsonb, group_bills = '[]'::jsonb, deleted_payments = '[]'::jsonb WHERE user_id = ?`,
+      [req.user.id]
+    );
+    res.json({ success: true, message: 'All user data cleared successfully' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
+
