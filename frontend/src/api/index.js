@@ -7,7 +7,7 @@ const isLocal = typeof window !== 'undefined' && (
   window.location.hostname === '127.0.0.1' || 
   window.location.hostname === '[::1]'
 );
-const baseURL = import.meta.env.VITE_API_BASE_URL || (isLocal ? '/api' : 'https://api.printpro.app/api');
+const baseURL = import.meta.env.VITE_API_BASE_URL || (isLocal ? 'http://localhost:5000/api' : 'https://api.printpro.app/api');
 
 const api = axios.create({
   baseURL,
