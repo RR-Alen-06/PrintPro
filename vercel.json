@@ -66,16 +66,12 @@
 
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "/api/index.js"
-    },
-    {
       "source": "/assets/:path*",
       "destination": "/assets/:path*"
     },
     {
       "source": "/:path*",
-      "destination": "/index"
+      "destination": "/index.html"
     }
   ]
 }
