@@ -64,7 +64,41 @@ export const createCustomer = async (data) => {
     credit_limit: data.credit_limit || 0
   };
   
-  const { data: inserted, error } = await supabase.from('customers').insert([insertData]).select().single();
+  let inserted = null;
+  let error = null;
+
+  const res = await supabase.from('customers').insert([insertData]).select().single();
+  inserted = res.data;
+  error = res.error;
+
+  if (error && (error.code === '23505' || (error.message && (error.message.toLowerCase().includes('duplicate key') || error.message.toLowerCase().includes('unique constraint'))))) {
+    console.warn(`Duplicate customer ID ${insertData.id} detected on cloud sync. Auto-reconciling ID...`);
+    const { data: latestCust } = await supabase
+      .from('customers')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    let maxNum = 0;
+    (latestCust || []).forEach(c => {
+      if (c && c.id && typeof c.id === 'string') {
+        const m = c.id.match(/^RC(\d+)$/i);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        }
+      }
+    });
+
+    const newId = `RC${String(maxNum + 1).padStart(4, '0')}`;
+    insertData.id = newId;
+    data.id = newId;
+
+    const retryRes = await supabase.from('customers').insert([insertData]).select().single();
+    inserted = retryRes.data;
+    error = retryRes.error;
+  }
+
   if (error) {
     logSupabaseError('customers', 'INSERT', insertData, error);
     throw error;

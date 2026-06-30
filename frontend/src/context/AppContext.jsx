@@ -273,9 +273,35 @@ const baseReducer = (state, action) => {
       }
     }
     case 'INCREMENT_COUNTER': {
+      const type = action.payload;
+      const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' };
+      const prefix = prefixMap[type] || type;
+      let maxNum = state.idCounters?.[type] || 0;
+      const listsMap = {
+        BILL: state.bills || [],
+        RC: state.customers || [],
+        PAY: [...(state.payments || []), ...(state.deletedPayments || [])],
+        EXP: state.expenses || [],
+        ADV: state.advancePayments || [],
+        REC: state.recurringBills || [],
+        ITEM: state.inventory || [],
+        item: state.inventory || [],
+        GRP: [...(state.customerGroups || []), ...(state.groupBills || [])],
+        NOTE: state.notifications || [],
+      };
+      const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
+      (listsMap[type] || []).forEach(item => {
+        if (item && item.id && typeof item.id === 'string') {
+          const m = item.id.match(regex);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (!isNaN(n) && n > maxNum) maxNum = n;
+          }
+        }
+      });
       return {
         ...state,
-        idCounters: { ...state.idCounters, [action.payload]: (state.idCounters?.[action.payload] || 0) + 1 },
+        idCounters: { ...state.idCounters, [type]: maxNum + 1 },
       }
     }
     case 'SET_CURRENT_USER': {
@@ -333,12 +359,18 @@ const baseReducer = (state, action) => {
     }
     case 'UPDATE_ENTITY_ID': {
       const { entityType, tempId, dbId } = action.payload
-      return {
+      let nextState = {
         ...state,
-        [entityType]: state[entityType].map((item) =>
+        [entityType]: (state[entityType] || []).map((item) =>
           item.id === tempId ? { ...item, id: dbId } : item
         ),
       }
+      if (entityType === 'bills') {
+        nextState.payments = (nextState.payments || []).map(p =>
+          p.billId === tempId ? { ...p, billId: dbId } : p
+        )
+      }
+      return nextState
     }
     case 'ADD_ADVANCE_PAYMENT': {
       const adv = action.payload
@@ -687,14 +719,68 @@ const reducer = (state, action) => {
 // Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
 // const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
 
-// Sequential ID generator using state counters
-const generateSeqId = (state, type) => {
-  const counters = state.idCounters || {}
-  const current = counters[type] || 0
-  const next = current + 1
-  const padded = String(next).padStart(4, '0')
+// Helper to scan state for highest numerical suffix of an ID prefix
+const getMaxCounterFromState = (state, type) => {
   const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
-  return `${prefixMap[type] || type}${padded}`
+  const prefix = prefixMap[type] || type
+  let maxNum = state.idCounters?.[type] || 0
+
+  const itemsMap = {
+    BILL: state.bills || [],
+    RC: state.customers || [],
+    PAY: [...(state.payments || []), ...(state.deletedPayments || [])],
+    EXP: state.expenses || [],
+    ADV: state.advancePayments || [],
+    REC: state.recurringBills || [],
+    ITEM: state.inventory || [],
+    item: state.inventory || [],
+    GRP: [...(state.customerGroups || []), ...(state.groupBills || [])],
+    NOTE: state.notifications || [],
+  }
+
+  const items = itemsMap[type] || []
+  const regex = new RegExp(`^${prefix}(\\d+)$`, 'i')
+  for (const item of items) {
+    if (item && item.id && typeof item.id === 'string') {
+      const match = item.id.match(regex)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num
+        }
+      }
+    }
+  }
+  return maxNum
+}
+
+// Sequential ID generator using state counters and active state reconciliation
+const generateSeqId = (state, type) => {
+  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
+  const prefix = prefixMap[type] || type
+  const maxNum = getMaxCounterFromState(state, type)
+  let next = maxNum + 1
+
+  const itemsMap = {
+    BILL: state.bills || [],
+    RC: state.customers || [],
+    PAY: [...(state.payments || []), ...(state.deletedPayments || [])],
+    EXP: state.expenses || [],
+    ADV: state.advancePayments || [],
+    REC: state.recurringBills || [],
+    ITEM: state.inventory || [],
+    item: state.inventory || [],
+    GRP: [...(state.customerGroups || []), ...(state.groupBills || [])],
+    NOTE: state.notifications || [],
+  }
+  const existingSet = new Set((itemsMap[type] || []).map(x => x && x.id))
+
+  let candidate = `${prefix}${String(next).padStart(4, '0')}`
+  while (existingSet.has(candidate)) {
+    next++
+    candidate = `${prefix}${String(next).padStart(4, '0')}`
+  }
+  return candidate
 }
 
 // Tiered loyalty points calculator
@@ -749,6 +835,8 @@ export const AppProvider = ({ children }) => {
           const tempId = action.payload?.id
           if (tempId && dbId !== tempId) {
             let entityType = null
+            if (action.type === 'ADD_BILL') entityType = 'bills'
+            if (action.type === 'ADD_CUSTOMER') entityType = 'customers'
             if (action.type === 'ADD_INVENTORY_ITEM') entityType = 'inventory'
             if (action.type === 'ADD_PAYMENT') entityType = 'payments'
             if (action.type === 'ADD_EXPENSE') entityType = 'expenses'
