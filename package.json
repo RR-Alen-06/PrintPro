@@ -7,24 +7,10 @@
     "dev:backend": "npm run dev --prefix backend",
     "build:frontend": "npm run build --prefix frontend",
     "start:backend": "npm run start --prefix backend",
-    "postinstall": "node -e \"const { execSync } = require('child_process'); try { execSync('npm install --prefix frontend', { stdio: 'inherit' }); execSync('npm install --prefix backend', { stdio: 'inherit' }); } catch (e) { console.warn('Skipping postinstall sub-package installs in local development environment'); }\"",
+    "postinstall": "npm install --prefix frontend && npm install --prefix backend",
     "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
     "lint:fix": "npm run lint:fix --prefix backend && npm run lint:fix --prefix frontend",
     "audit-check": "npm run audit-check --prefix backend && npm run audit-check --prefix frontend",
     "security-check": "npm run lint && npm run audit-check"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "express-rate-limit": "^8.5.2",
-    "express-validator": "^7.2.1",
-    "helmet": "^8.2.0",
-    "jsonwebtoken": "^9.0.3",
-    "jwks-rsa": "^4.0.1",
-    "multer": "^1.4.5-lts.1",
-    "pg": "^8.21.0",
-    "xss": "^1.0.15"
   }
 }
