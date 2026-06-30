@@ -68,7 +68,7 @@ const CustomerLedger = () => {
   )
 
   const customerBills = useMemo(
-    () => bills.filter((b) => b.customerId === selectedCustomerId && !b.deleted),
+    () => bills.filter((b) => b.customerId === selectedCustomerId && !b.deleted && !b.isGroupParent),
     [bills, selectedCustomerId]
   )
 
@@ -90,8 +90,6 @@ const CustomerLedger = () => {
     })
   }, [payments, selectedCustomerId])
 
-  // Build full ledger timeline with period filter
-  // Build full ledger timeline with period filter
   // Build full ledger timeline with period filter using LedgerService
   const ledgerEntries = useMemo(() => {
     const res = LedgerService.calculateLedger({
@@ -132,15 +130,15 @@ const CustomerLedger = () => {
   const totalGrossPaid = nonRefundPayments.reduce((s, p) => s + Number(p.totalPaid || 0) + Number(p.excessCredit || 0), 0)
   const totalRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
   const totalPaid = totalGrossPaid - totalRefunded // net paid after refunds
-  const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => (a.amount > 0 || !a.isReturn) && !a.isRefundCredit).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
-  const totalAdvanceReturned = useMemo(() => customerAdvances.filter(a => a.amount < 0 || a.isReturn).reduce((s, a) => s + Math.abs(Number(a.amount || 0)), 0), [customerAdvances])
+  const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => !a.isReturn && Number(a.amount || 0) > 0 && !a.isRefundCredit).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
+  const totalAdvanceReturned = useMemo(() => customerAdvances.filter(a => a.isReturn || Number(a.amount || 0) < 0).reduce((s, a) => s + Math.abs(Number(a.amount || 0)), 0), [customerAdvances])
   const totalAdvanceUsed = customerBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
   const totalDiscount = customerBills.reduce((s, b) => s + Number(b.discountValue || 0), 0)
   const totalGstBilled = customerBills.reduce((s, b) => s + Number(b.gstAmount || 0), 0)
   const outstanding = customerBills.reduce((s, b) => s + Number(b.balance || 0), 0)
   const finalBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0
   const totalDebits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.debit || 0), 0), [ledgerEntries])
-  const totalCredits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.credit || 0) + (e.advanceIn || 0), 0), [ledgerEntries])
+  const totalCredits = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.credit || 0), 0), [ledgerEntries])
   const periodAdvanceReturned = useMemo(() => ledgerEntries.reduce((s, e) => s + (e.advanceReturn || 0), 0), [ledgerEntries])
   const totalGroupSettled = useMemo(() => ledgerEntries.filter(e => e.type === 'group_settlement').reduce((s, e) => s + (e.credit || 0), 0), [ledgerEntries])
 
