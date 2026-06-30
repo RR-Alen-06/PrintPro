@@ -13,41 +13,41 @@ const Refunds = () => {
   // 1. Calculate Refund Stats
   const refundStats = useMemo(() => {
     // Bill Refunds (negative payments)
-    const billRefundsList = (payments || []).filter((p) => p.totalPaid < 0 || p.isRefund)
-    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const billRefundsList = (payments || []).filter((p) => Number(p.totalPaid) < 0 || p.isRefund || p.paymentType === 'refund')
+    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const billRefundsCash = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
 
     // Payment Deletions (deleted payments)
     const delPaymentsList = deletedPayments || []
-    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
+    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
 
     // Advance Returns (negative advance payments)
-    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
-    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount) < 0 || ap.isReturn)
+    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
+    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.cashAmount || 0)), 0)
+    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.upiAmount || 0)), 0)
 
-    const grandTotal = Math.abs(billRefundsTotal) + Math.abs(delPaymentsTotal) + Math.abs(advReturnsTotal)
-    const grandCash = Math.abs(billRefundsCash) + Math.abs(delPaymentsCash) + Math.abs(advReturnsCash)
-    const grandUpi = Math.abs(billRefundsUpi) + Math.abs(delPaymentsUpi) + Math.abs(advReturnsUpi)
+    const grandTotal = billRefundsTotal + delPaymentsTotal + advReturnsTotal
+    const grandCash = billRefundsCash + delPaymentsCash + advReturnsCash
+    const grandUpi = billRefundsUpi + delPaymentsUpi + advReturnsUpi
 
     return {
-      billRefundsTotal: Math.abs(billRefundsTotal),
-      billRefundsCash: Math.abs(billRefundsCash),
-      billRefundsUpi: Math.abs(billRefundsUpi),
+      billRefundsTotal,
+      billRefundsCash,
+      billRefundsUpi,
       billRefundsList,
 
-      delPaymentsTotal: Math.abs(delPaymentsTotal),
-      delPaymentsCash: Math.abs(delPaymentsCash),
-      delPaymentsUpi: Math.abs(delPaymentsUpi),
+      delPaymentsTotal,
+      delPaymentsCash,
+      delPaymentsUpi,
       delPaymentsList,
 
-      advReturnsTotal: Math.abs(advReturnsTotal),
-      advReturnsCash: Math.abs(advReturnsCash),
-      advReturnsUpi: Math.abs(advReturnsUpi),
+      advReturnsTotal,
+      advReturnsCash,
+      advReturnsUpi,
       advReturnsList,
 
       grandTotal,
@@ -66,6 +66,14 @@ const Refunds = () => {
       return c ? c.name : 'Unknown Customer'
     }
 
+    const getMethod = (cash, upi) => {
+      const absC = Math.abs(Number(cash || 0))
+      const absU = Math.abs(Number(upi || 0))
+      if (absC > 0 && absU === 0) return 'cash'
+      if (absU > 0 && absC === 0) return 'upi'
+      return 'split'
+    }
+
     // Add bill refunds
     refundStats.billRefundsList.forEach(r => {
       logs.push({
@@ -75,11 +83,11 @@ const Refunds = () => {
         customerId: r.customerId,
         customerName: getCustomerName(r.customerId),
         description: `Refund for Bill #${r.billId}`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.totalPaid || 0),
+        cash: Math.abs(Number(r.cashAmount || 0)),
+        upi: Math.abs(Number(r.upiAmount || 0)),
+        total: Math.abs(Number(r.totalPaid || 0)),
         notes: r.notes || '',
-        method: r.cashAmount < 0 ? 'cash' : (r.upiAmount < 0 ? 'upi' : 'split')
+        method: getMethod(r.cashAmount, r.upiAmount)
       })
     })
 
@@ -92,11 +100,11 @@ const Refunds = () => {
         customerId: r.customerId,
         customerName: getCustomerName(r.customerId),
         description: `Deleted Payment for Bill #${r.billId}`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.totalPaid || 0),
-        notes: `Deleted on ${new Date(r.deletedAt).toLocaleDateString()}`,
-        method: r.cashAmount > 0 ? 'cash' : (r.upiAmount > 0 ? 'upi' : 'split')
+        cash: Math.abs(Number(r.cashAmount || 0)),
+        upi: Math.abs(Number(r.upiAmount || 0)),
+        total: Math.abs(Number(r.totalPaid || 0)),
+        notes: `Deleted on ${new Date(r.deletedAt || r.date).toLocaleDateString()}`,
+        method: getMethod(r.cashAmount, r.upiAmount)
       })
     })
 
@@ -109,11 +117,11 @@ const Refunds = () => {
         customerId: r.customerId,
         customerName: getCustomerName(r.customerId),
         description: `Returned Advance to Customer`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.amount || 0),
+        cash: Math.abs(Number(r.cashAmount || 0)),
+        upi: Math.abs(Number(r.upiAmount || 0)),
+        total: Math.abs(Number(r.amount || 0)),
         notes: r.notes || '',
-        method: r.cashAmount < 0 ? 'cash' : (r.upiAmount < 0 ? 'upi' : 'split')
+        method: getMethod(r.cashAmount, r.upiAmount)
       })
     })
 
@@ -245,6 +253,7 @@ const Refunds = () => {
               <option value="all">All Methods</option>
               <option value="cash">Cash Mode</option>
               <option value="upi">UPI Mode</option>
+              <option value="split">Split Mode</option>
             </select>
           </div>
         </div>
