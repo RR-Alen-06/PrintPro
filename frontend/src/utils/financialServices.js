@@ -349,15 +349,22 @@ export const ReportService = {
  * Computes centralized widgets for the main dashboard view.
  */
 export const DashboardService = {
-  getSummaryWidgets: ({ bills = [], payments = [], expenses = [], customers = [], inventory = [] }) => {
+  getSummaryWidgets: ({ bills = [], payments = [], advancePayments = [], deletedPayments = [], expenses = [], customers = [], inventory = [] }) => {
     const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
+    const totalRevenue = activeBills.reduce((sum, b) => sum + Number(b.total || 0), 0);
+    const totalCollected = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
-    const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
-    const totalRefunds = payments.filter((p) => p.totalPaid < 0 || p.isRefund).reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
-    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
+
+    const billRefunds = payments.filter((p) => Number(p.totalPaid) < 0 || p.isRefund || p.paymentType === 'refund').reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
+    const advReturns = advancePayments.filter((ap) => Number(ap.amount) < 0 || ap.isReturn).reduce((sum, ap) => sum + Math.abs(Number(ap.amount || 0)), 0);
+    const delPayRefunds = deletedPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
+    const totalRefunds = billRefunds + advReturns + delPayRefunds;
+
+    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance !== undefined ? c.advanceBalance : (c.creditBalance || 0)), 0);
 
     return {
-      netRevenue: grossRevenue,
+      netRevenue: totalRevenue,
+      totalCollected,
       pendingAmount,
       totalRefunds,
       totalCustomerAdvance,

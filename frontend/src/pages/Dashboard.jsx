@@ -6,7 +6,7 @@ import EmptyState from '../components/common/EmptyState'
 import { DashboardService } from '../utils/financialServices'
 
 const Dashboard = () => {
-  const { bills, customers, advancePayments, payments, expenses } = useAppContext()
+  const { bills, customers, advancePayments, payments, deletedPayments, expenses } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
 
@@ -28,18 +28,21 @@ const Dashboard = () => {
       return d >= startDate && d <= endDate
     }
 
-    // 1. Realized Revenue: sum of active bills' amountPaid in this FY
+    // 1. Total Invoiced Revenue: sum of active bills' total in this FY
     const fyBills = (bills || []).filter(b => !b.deleted && isDateInFY(b.date) && !b.isGroupParent)
-    const revenue = fyBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0)
+    const revenue = fyBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
 
-    // 2. Refunds: sum of payments in this FY where totalPaid < 0 or isRefund is true
-    const fyRefundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0) && isDateInFY(p.date))
-    const refunds = fyRefundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    // 2. Refunds: sum of payments and advance returns in this FY
+    const fyRefundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid) < 0) && isDateInFY(p.date))
+    const pRefunds = fyRefundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    const fyAdvReturns = (advancePayments || []).filter(ap => (Number(ap.amount) < 0 || ap.isReturn) && isDateInFY(ap.date))
+    const advRefunds = fyAdvReturns.reduce((sum, ap) => sum + Math.abs(Number(ap.amount || 0)), 0)
+    const refunds = pRefunds + advRefunds
 
-    // 3. Cash Inflow: payments + advance deposits in this FY
-    const fyPayments = (payments || []).filter(p => !p.notes?.includes('from advance deposit') && isDateInFY(p.date))
+    // 3. Cash Inflow: positive payments + advance deposits in this FY
+    const fyPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
     const pInflow = fyPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const fyAdvances = (advancePayments || []).filter(ap => isDateInFY(ap.date))
+    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
     const advInflow = fyAdvances.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     const cashInflow = pInflow + advInflow
 
@@ -58,31 +61,27 @@ const Dashboard = () => {
     }
   }, [bills, payments, advancePayments, expenses, selectedFY])
 
-  const activeBills = useMemo(() => bills.filter((b) => !b.deleted && !b.isGroupParent), [bills])
+  const activeBills = useMemo(() => (bills || []).filter((b) => !b.deleted && !b.isGroupParent), [bills])
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
 
   // Centralized calculations using DashboardService
   const dashboardStats = useMemo(() => {
-    return DashboardService.getSummaryWidgets({ bills, payments, expenses, customers, inventory: [] })
-  }, [bills, payments, expenses, customers])
+    return DashboardService.getSummaryWidgets({ bills, payments, advancePayments, deletedPayments, expenses, customers, inventory: [] })
+  }, [bills, payments, advancePayments, deletedPayments, expenses, customers])
 
   const netRevenue = dashboardStats.netRevenue
   const pendingAmount = dashboardStats.pendingAmount
   const totalRefunds = dashboardStats.totalRefunds
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
-  const refundPayments = useMemo(() => {
-    return (payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
-  }, [payments])
-
   const totalCashInflow = useMemo(() => {
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
+      .filter(ap => !ap.isRefundCredit && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     return pInflow + advInflow
   }, [payments, advancePayments])
@@ -154,7 +153,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{netRevenue.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">{paidBills.length} bills fully collected</div>
+            <div className="stat-card-sub">₹{dashboardStats.totalCollected?.toFixed(2) || '0.00'} collected ({activeBills.length} invoices generated)</div>
           </div>
 
           <div className="stat-card">
@@ -165,7 +164,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{totalCashInflow.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">Net cash inflow collected</div>
+            <div className="stat-card-sub">Net cash & UPI inflow collected</div>
           </div>
 
           <div className="stat-card">
@@ -176,7 +175,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{totalRefunds.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">{refundPayments.length} refund transactions</div>
+            <div className="stat-card-sub">Total refund adjustments processed</div>
           </div>
 
           <div className="stat-card">
