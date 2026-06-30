@@ -49,7 +49,7 @@ const Receipt = () => {
   }
 
   const filteredBills = bills
-    .filter((b) => !b.deleted)
+    .filter((b) => !b.deleted && !b.isGroupParent)
     .filter((b) =>
       b.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.customerName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -228,16 +228,16 @@ const Receipt = () => {
     y += 5
 
     doc.setFont('helvetica', 'normal')
-    bill.items.forEach((item) => {
+    ;(bill.items || []).forEach((item) => {
       checkNewPage(8)
       const name = item.itemName || item.name || '-'
       const shortName = name.length > 28 ? name.slice(0, 26) + '…' : name
       txt(shortName, col.item, y)
       txt(item.printType === 'color' ? 'Color' : 'B/W', col.type, y)
       txt(item.sides === 'single' ? 'Single' : 'Double', col.sides, y)
-      txt(String(item.qty), col.qty, y)
-      txt(`Rs.${Number(item.unitPrice).toFixed(2)}`, col.unit, y)
-      txt(`Rs.${Number(item.amount).toFixed(2)}`, col.amt, y)
+      txt(String(item.qty || 0), col.qty, y)
+      txt(`Rs.${Number(item.unitPrice || 0).toFixed(2)}`, col.unit, y)
+      txt(`Rs.${Number(item.amount || 0).toFixed(2)}`, col.amt, y)
       y += 6
     })
 
@@ -254,15 +254,15 @@ const Receipt = () => {
     checkNewPage(30)
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
-    txt('Subtotal:', labelX, y); txt(`Rs.${bill.subtotal.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Subtotal:', labelX, y); txt(`Rs.${Number(bill.subtotal || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
-    if (settings.showGstBreakdown !== false && bill.gstAmount > 0) {
-      txt('CGST:', labelX, y); txt(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
-      txt('SGST:', labelX, y); txt(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    if (settings.showGstBreakdown !== false && Number(bill.gstAmount || 0) > 0) {
+      txt('CGST:', labelX, y); txt(`Rs.${(Number(bill.gstAmount || 0) / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('SGST:', labelX, y); txt(`Rs.${(Number(bill.gstAmount || 0) / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
     if (bill.promoCode) {
-      const promoD = bill.promoDiscount || bill.discountAmount || 0
+      const promoD = Number(bill.promoDiscount || bill.discountAmount || 0)
       if (promoD > 0) {
         txt(`Promo Code (${bill.promoCode}):`, labelX, y); txt(`-Rs.${promoD.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       }
@@ -271,21 +271,21 @@ const Receipt = () => {
     }
 
     if (Number(bill.loyaltyPointsRedeemed) > 0) {
-      const loyaltyDisc = bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))
+      const loyaltyDisc = Number(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150)))
       txt(`Loyalty Discount (${bill.loyaltyPointsRedeemed} pts):`, labelX, y); txt(`-Rs.${loyaltyDisc.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(rgb.r, rgb.g, rgb.b)
-    txt('Total:', labelX, y); txt(`Rs.${bill.total.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Total:', labelX, y); txt(`Rs.${Number(bill.total || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(50, 50, 50)
-    txt('Amount Paid:', labelX, y); txt(`Rs.${bill.amountPaid.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Amount Paid:', labelX, y); txt(`Rs.${Number(bill.amountPaid || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
-    if (bill.balance > 0) {
+    if (Number(bill.balance || 0) > 0) {
       doc.setTextColor(239, 68, 68)
-      txt('Balance Due:', labelX, y); txt(`Rs.${bill.balance.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('Balance Due:', labelX, y); txt(`Rs.${Number(bill.balance || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
     }
 
@@ -607,14 +607,14 @@ const Receipt = () => {
                 </tr>
               </thead>
               <tbody>
-                {selectedBill.items.map((item, idx) => (
+                {(selectedBill.items || []).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '4px 0' }}>{item.itemName || item.name}</td>
                     <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
                     <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
-                    <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice).toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount).toFixed(2)}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty || 0}</td>
+                    <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                    <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -625,16 +625,16 @@ const Receipt = () => {
             {/* Totals */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: '12px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', gap: '24px' }}>
-                <span>Subtotal:</span><span>₹{selectedBill.subtotal.toFixed(2)}</span>
+                <span>Subtotal:</span><span>₹{Number(selectedBill.subtotal || 0).toFixed(2)}</span>
               </div>
               
-              {settings.showGstBreakdown !== false && selectedBill.gstAmount > 0 && (
+              {settings.showGstBreakdown !== false && Number(selectedBill.gstAmount || 0) > 0 && (
                 <>
                   <div style={{ display: 'flex', gap: '24px' }}>
-                    <span>CGST:</span><span>₹{(selectedBill.gstAmount / 2).toFixed(2)}</span>
+                    <span>CGST:</span><span>₹{(Number(selectedBill.gstAmount || 0) / 2).toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '24px' }}>
-                    <span>SGST:</span><span>₹{(selectedBill.gstAmount / 2).toFixed(2)}</span>
+                    <span>SGST:</span><span>₹{(Number(selectedBill.gstAmount || 0) / 2).toFixed(2)}</span>
                   </div>
                 </>
               )}
@@ -642,7 +642,7 @@ const Receipt = () => {
               {selectedBill.promoCode ? (
                 <div style={{ display: 'flex', gap: '24px' }}>
                   <span>Promo Code ({selectedBill.promoCode}):</span>
-                  <span>-₹{(selectedBill.promoDiscount || selectedBill.discountAmount || 0).toFixed(2)}</span>
+                  <span>-₹{Number(selectedBill.promoDiscount || selectedBill.discountAmount || 0).toFixed(2)}</span>
                 </div>
               ) : Number(selectedBill.discountAmount || selectedBill.discountValue) > 0 ? (
                 <div style={{ display: 'flex', gap: '24px' }}>
@@ -653,19 +653,19 @@ const Receipt = () => {
               {Number(selectedBill.loyaltyPointsRedeemed) > 0 && (
                 <div style={{ display: 'flex', gap: '24px' }}>
                   <span>Loyalty Discount ({selectedBill.loyaltyPointsRedeemed} pts):</span>
-                  <span>-₹{(selectedBill.loyaltyDiscount || (selectedBill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5)) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)}</span>
+                  <span>-₹{Number(selectedBill.loyaltyDiscount || (selectedBill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5)) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)}</span>
                 </div>
               )}
 
               <div style={{ display: 'flex', gap: '24px', fontWeight: 'bold', fontSize: '13px', borderTop: '1px solid #ccc', paddingTop: '4px', marginTop: '2px', color: settings.primaryColor || '#111' }}>
-                <span>Total:</span><span>₹{selectedBill.total.toFixed(2)}</span>
+                <span>Total:</span><span>₹{Number(selectedBill.total || 0).toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', gap: '24px' }}>
-                <span>Amount Paid:</span><span>₹{selectedBill.amountPaid.toFixed(2)}</span>
+                <span>Amount Paid:</span><span>₹{Number(selectedBill.amountPaid || 0).toFixed(2)}</span>
               </div>
-              {selectedBill.balance > 0 && (
+              {Number(selectedBill.balance || 0) > 0 && (
                 <div style={{ display: 'flex', gap: '24px', color: '#d32f2f', fontWeight: 'bold' }}>
-                  <span>Balance Due:</span><span>₹{selectedBill.balance.toFixed(2)}</span>
+                  <span>Balance Due:</span><span>₹{Number(selectedBill.balance || 0).toFixed(2)}</span>
                 </div>
               )}
             </div>

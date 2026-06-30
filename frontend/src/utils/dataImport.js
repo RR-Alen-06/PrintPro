@@ -71,13 +71,23 @@ const parseCSVLine = (line) => {
   return result
 }
 
+const safeFloat = (val) => {
+  const n = parseFloat(val)
+  return isNaN(n) ? 0 : n
+}
+
+const safeInt = (val) => {
+  const n = parseInt(val, 10)
+  return isNaN(n) ? 0 : n
+}
+
 export const importCustomersFromCSV = (data) => {
   return data.map((row) => ({
     type: row['Type'] || row['type'] || 'regular',
     name: row['Name'] || row['name'] || 'Unnamed',
     phone: row['Phone'] || row['phone'] || '',
     email: row['Email'] || row['email'] || '',
-    creditBalance: parseFloat(row['Credit Balance'] || row['creditBalance'] || 0),
+    creditBalance: safeFloat(row['Credit Balance'] || row['creditBalance'] || 0),
     status: row['Status'] || row['status'] || 'active',
   }))
 }
@@ -85,11 +95,11 @@ export const importCustomersFromCSV = (data) => {
 export const importInventoryFromCSV = (data) => {
   return data.map((row) => ({
     name: row['Name'] || row['name'] || 'Unnamed Item',
-    colorSingle: parseFloat(row['Color Single'] || row['colorSingle'] || 0),
-    colorDouble: parseFloat(row['Color Double'] || row['colorDouble'] || 0),
-    bwSingle: parseFloat(row['B/W Single'] || row['bwSingle'] || 0),
-    bwDouble: parseFloat(row['B/W Double'] || row['bwDouble'] || 0),
-    stock: parseInt(row['Stock'] || row['stock'] || 0, 10),
+    colorSingle: safeFloat(row['Color Single'] || row['colorSingle'] || 0),
+    colorDouble: safeFloat(row['Color Double'] || row['colorDouble'] || 0),
+    bwSingle: safeFloat(row['B/W Single'] || row['bwSingle'] || 0),
+    bwDouble: safeFloat(row['B/W Double'] || row['bwDouble'] || 0),
+    stock: safeInt(row['Stock'] || row['stock'] || 0),
   }))
 }
 

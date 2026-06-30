@@ -27,7 +27,7 @@ const DataManagement = () => {
   }
 
   const handleExportBills = () => {
-    const active = bills.filter((b) => !b.deleted)
+    const active = bills.filter((b) => !b.deleted && !b.isGroupParent)
     exportBillsToCSV(active)
     showExport(`${active.length} bills exported to CSV`)
   }
@@ -145,7 +145,7 @@ const DataManagement = () => {
   }
 
   const getReportData = (type) => {
-    if (type === 'bills') return filterByPeriod(bills.filter(b => !b.deleted), 'date')
+    if (type === 'bills') return filterByPeriod(bills.filter(b => !b.deleted && !b.isGroupParent), 'date')
     if (type === 'customers') return filterByPeriod(customers, 'createdAt')
     if (type === 'payments') return filterByPeriod(payments, 'date')
     if (type === 'expenses') return filterByPeriod(expenses || [], 'date')
@@ -341,7 +341,7 @@ const DataManagement = () => {
   }
 
   const exportItems = [
-    { label: 'Bills', type: 'bills', count: bills.filter((b) => !b.deleted).length, action: handleExportBills, desc: 'All active bills with full details' },
+    { label: 'Bills', type: 'bills', count: bills.filter((b) => !b.deleted && !b.isGroupParent).length, action: handleExportBills, desc: 'All active bills with full details' },
     { label: 'Customers', type: 'customers', count: customers.length, action: handleExportCustomers, desc: 'All customers with contact & balance info' },
     { label: 'Payments', type: 'payments', count: payments.length, action: handleExportPayments, desc: 'All payment records with cash/UPI split' },
     { label: 'Expenses', type: 'expenses', count: (expenses || []).length, action: handleExportExpenses, desc: 'All expenses with cash/UPI breakdown' },
