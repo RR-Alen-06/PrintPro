@@ -8,3 +8,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const logSupabaseError = (table, action, payload, error) => {
+  console.error('=== SUPABASE TRANSACTION FAILED ===');
+  console.error(`Table:       ${table}`);
+  console.error(`Operation:   ${action}`);
+  console.error(`Payload:     `, payload);
+  if (error) {
+    console.error(`Error Code:  ${error.code}`);
+    console.error(`Message:     ${error.message}`);
+    console.error(`Details:     ${error.details}`);
+  }
+  console.error('===================================');
+};
+
