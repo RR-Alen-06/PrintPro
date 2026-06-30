@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2, X } from 'lucide-react'
 import { clearUserData } from '../api/profile'
 
 
@@ -189,19 +189,25 @@ const Settings = () => {
     setTimeout(() => setAcctSaved(false), 3000)
   }
 
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [clearConfirmText, setClearConfirmText] = useState('')
+  const [clearingData, setClearingData] = useState(false)
+
   const handleClearData = () => {
-    showConfirm(
-      'Clear All Data',
-      'This permanently erases ALL data: bills, customers, payments, expenses, and settings from your cloud database. This cannot be undone. Are you absolutely sure?',
-      async () => {
-        try {
-          await clearUserData()
-          window.location.reload()
-        } catch (err) {
-          console.error('Failed to clear data:', err)
-        }
-      }
-    )
+    setClearConfirmText('')
+    setShowClearModal(true)
+  }
+
+  const confirmAndClearAllData = async () => {
+    if (clearConfirmText !== 'DELETE ALL') return
+    setClearingData(true)
+    try {
+      await clearUserData()
+      window.location.reload()
+    } catch (err) {
+      console.error('Failed to clear data:', err)
+      setClearingData(false)
+    }
   }
 
   return (
@@ -939,6 +945,58 @@ const Settings = () => {
           </div>
         </div>
       </div>
+
+      {/* Clear All Data Modal with DELETE ALL safeguard */}
+      {showClearModal && (
+        <div className="modal-overlay" onClick={() => !clearingData && setShowClearModal(false)}>
+          <div className="modal" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={20} /> Permanent Data Erasure Warning
+              </h3>
+              <button className="modal-close btn-icon" onClick={() => !clearingData && setShowClearModal(false)} type="button">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.5 }}>
+                This action will permanently wipe **ALL** business records (bills, customers, payments, expenses, and ledger history) from your Supabase cloud database. This cannot be undone.
+              </p>
+              <div className="form-group">
+                <label style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px', display: 'block' }}>
+                  To confirm erasure, type <span style={{ color: 'var(--error)', fontFamily: 'monospace', fontWeight: 'bold' }}>DELETE ALL</span> below:
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Type DELETE ALL to confirm"
+                  value={clearConfirmText}
+                  onChange={(e) => setClearConfirmText(e.target.value)}
+                  disabled={clearingData}
+                />
+              </div>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowClearModal(false)}
+                disabled={clearingData}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={confirmAndClearAllData}
+                disabled={clearConfirmText !== 'DELETE ALL' || clearingData}
+              >
+                {clearingData ? 'Erasing Cloud Data...' : 'Permanently Erase All Data'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
