@@ -204,10 +204,34 @@ export const AccountingService = {
  * ── LedgerService ────────────────────────────────────────────────────────────
  * Rebuilds chronological and mathematically correct customer ledgers.
  */
+const getPeriodRange = (period) => {
+  if (!period || period === 'all') return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === 'daily') return { start: today, end: new Date(today.getTime() + 86400000 - 1) };
+  if (period === 'weekly') {
+    const day = today.getDay();
+    const mon = new Date(today); mon.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6, 23, 59, 59, 999);
+    return { start: mon, end: sun };
+  }
+  if (period === 'monthly') {
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999) };
+  }
+  if (period === 'quarterly') {
+    const q = Math.floor(now.getMonth() / 3);
+    return { start: new Date(now.getFullYear(), q * 3, 1), end: new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999) };
+  }
+  if (period === 'yearly') {
+    return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999) };
+  }
+  return null;
+};
+
 export const LedgerService = {
   calculateLedger: ({ customerId, bills = [], payments = [], advancePayments = [], period = 'all', settings = {} }) => {
     const entries = [];
-    const selectedBills = bills.filter(b => b.customerId === customerId && !b.deleted);
+    const selectedBills = bills.filter(b => b.customerId === customerId && !b.deleted && !b.isGroupParent);
     const selectedPayments = payments.filter(p => p.customerId === customerId && !p.notes?.includes('advance deposit'));
     const selectedAdvances = (advancePayments || []).filter(a => a.customerId === customerId);
 
@@ -249,12 +273,9 @@ export const LedgerService = {
       const isRefund = Number(payment.totalPaid || 0) < 0 || payment.paymentType === 'refund' || payment.isRefund;
       let creditAmt = Number(payment.totalPaid || 0) + excess;
 
-      // In ERP group settlement logic, the payer's customer ledger should only be credited
-      // for their own invoice share, not the entire group payment.
       if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
         const settledForOthers = payment.groupSettlements.reduce((s, st) => s + Number(st.amount || 0), 0);
         creditAmt -= settledForOthers;
-        // Don't display a credit less than 0 just in case.
         creditAmt = Math.max(0, creditAmt);
       }
 
@@ -288,6 +309,8 @@ export const LedgerService = {
         subtext: `Ref: ${adv.id}${adv.notes ? ` · ${adv.notes}` : ''}`,
         debit: isReturn ? Math.abs(amt) : 0,
         credit: isReturn ? 0 : amt,
+        advanceReturn: isReturn ? Math.abs(amt) : 0,
+        advanceIn: isReturn ? 0 : amt,
         balance: 0
       });
     });
@@ -297,14 +320,50 @@ export const LedgerService = {
 
     // Calculate rolling balances
     let rolling = 0;
-    const finalEntries = entries.map((entry) => {
-      rolling = Number((rolling + entry.credit - entry.debit).toFixed(2));
+    const allEntries = entries.map((entry) => {
+      rolling = Number((rolling + (entry.credit || 0) - (entry.debit || 0)).toFixed(2));
       return { ...entry, balance: rolling };
     });
 
+    const range = getPeriodRange(period);
+    if (!range) {
+      return {
+        entries: allEntries,
+        closingBalance: rolling
+      };
+    }
+
+    // Filter by period range
+    const startMs = range.start.getTime();
+    const endMs = range.end.getTime();
+
+    const priorEntries = allEntries.filter(e => new Date(e.date).getTime() < startMs);
+    const periodEntries = allEntries.filter(e => {
+      const t = new Date(e.date).getTime();
+      return t >= startMs && t <= endMs;
+    });
+
+    const openingBalance = priorEntries.length > 0 ? priorEntries[priorEntries.length - 1].balance : 0;
+
+    const filteredResult = [];
+    if (openingBalance !== 0 || priorEntries.length > 0) {
+      filteredResult.push({
+        type: 'opening_balance',
+        date: range.start.toISOString(),
+        id: 'OPENING',
+        description: `Opening Balance (${period})`,
+        subtext: `Balance carried forward prior to ${range.start.toLocaleDateString()}`,
+        debit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+        credit: openingBalance > 0 ? openingBalance : 0,
+        balance: openingBalance
+      });
+    }
+
+    filteredResult.push(...periodEntries);
+
     return {
-      entries: finalEntries,
-      closingBalance: rolling
+      entries: filteredResult,
+      closingBalance: filteredResult.length > 0 ? filteredResult[filteredResult.length - 1].balance : 0
     };
   }
 };
