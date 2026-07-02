@@ -40,10 +40,17 @@ const Dashboard = () => {
     const refunds = pRefunds + advRefunds
 
     // 3. Cash Inflow: positive payments + advance deposits in this FY
-    const fyPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
+    const fyPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund'
+      && !(p.notes && p.notes.includes('from advance deposit'))
+      && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+      && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
     const pInflow = fyPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
-    const advInflow = fyAdvances.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
+    const advInflow = fyAdvances.reduce((sum, ap) => {
+      const cash = Number(ap.cashAmount || 0)
+      const upi = Number(ap.upiAmount || 0)
+      return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+    }, 0)
     const cashInflow = pInflow + advInflow
 
     // 4. Expenses: sum of expenses in this FY
@@ -77,12 +84,22 @@ const Dashboard = () => {
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
   const totalCashInflow = useMemo(() => {
+    // Only count payments where actual cash/UPI was collected (exclude FIFO from advance deposits)
     const pInflow = (payments || [])
-      .filter((p) => !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
+      .filter((p) => !p.isRefund && p.paymentType !== 'refund'
+        && !(p.notes && p.notes.includes('from advance deposit'))
+        && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    // Count advance deposits using their actual cash+UPI (not the total amount which may differ)
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit && Number(ap.amount || 0) > 0)
-      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .reduce((sum, ap) => {
+        const cash = Number(ap.cashAmount || 0)
+        const upi = Number(ap.upiAmount || 0)
+        // If cash+upi breakdown is available, use it; otherwise fall back to amount
+        return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+      }, 0)
     return pInflow + advInflow
   }, [payments, advancePayments])
 
