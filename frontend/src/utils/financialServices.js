@@ -411,7 +411,11 @@ export const DashboardService = {
   getSummaryWidgets: ({ bills = [], payments = [], advancePayments = [], deletedPayments = [], expenses = [], customers = [], inventory = [] }) => {
     const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
     const totalRevenue = activeBills.reduce((sum, b) => sum + Number(b.total || 0), 0);
-    const totalCollected = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
+    
+    // totalCollected = actual cash+UPI from non-refund payment records
+    const normalPayments = payments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0);
+    const totalCollected = normalPayments.reduce((sum, p) => sum + Number(p.totalPaid || 0), 0);
+    
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
 
     const billRefunds = payments.filter((p) => Number(p.totalPaid) < 0 || p.isRefund || p.paymentType === 'refund').reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
