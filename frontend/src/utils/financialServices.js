@@ -269,9 +269,9 @@ export const LedgerService = {
 
     // Initial pass of payments
     selectedPayments.forEach((payment) => {
-      const excess = Number(payment.excessCredit || 0);
       const isRefund = Number(payment.totalPaid || 0) < 0 || payment.paymentType === 'refund' || payment.isRefund;
-      let creditAmt = Number(payment.totalPaid || 0) + excess;
+      // Don't add excessCredit here — it is already recorded as a separate advance entry
+      let creditAmt = Number(payment.totalPaid || 0);
 
       if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
         const settledForOthers = payment.groupSettlements.reduce((s, st) => s + Number(st.amount || 0), 0);
@@ -380,8 +380,8 @@ export const ReportService = {
     const gstCollected = activeBills.reduce((s, b) => s + (b.gstAmount || 0), 0);
     const netSales = grossSales - discounts;
 
-    const cashPayments = payments.filter(p => !p.notes?.includes('advance deposit'));
-    const totalRevenue = cashPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0);
+    // Revenue = SUM(Invoice Grand Totals) — never from payments
+    const totalRevenue = activeBills.reduce((s, b) => s + Number(b.total || 0), 0);
 
     const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
     const refunds = payments.filter(p => p.totalPaid < 0 || p.isRefund).reduce((s, p) => s + Math.abs(p.totalPaid), 0);
@@ -398,7 +398,8 @@ export const ReportService = {
       totalExpenses: Number(totalExpenses.toFixed(2)),
       refunds: Number(refunds.toFixed(2)),
       inventoryValue: Number(inventoryVal.toFixed(2)),
-      netProfit: Number((netSales - totalExpenses - refunds).toFixed(2))
+      // Net Profit = Total Revenue - Total Expenses
+      netProfit: Number((totalRevenue - totalExpenses).toFixed(2))
     };
   }
 };
