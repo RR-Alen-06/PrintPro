@@ -55,8 +55,8 @@ const Accounting = () => {
     // Separate normal payments from refund payments
     const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
 
-    // Realized Revenue = sum of amountPaid on active bills
-    const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+    // Revenue = SUM(Invoice Grand Totals) — never from payments
+    const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.total || 0), 0)
 
     // Total refund outflow (all 3 sources: bills, advance returns, deleted payments)
     const totalRefundOutflow = refundStats.totalRefundOutflow
@@ -72,14 +72,22 @@ const Accounting = () => {
 
     // Cash inflow from positive incoming payments and deposits
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit') && !p.isRefund && p.paymentType !== 'refund' && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
+      .filter((p) => !p.notes?.includes('from advance deposit')
+        && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+        && !p.isRefund && p.paymentType !== 'refund'
+        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const advInflow = (advancePayments || [])
       .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
-      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      .reduce((sum, ap) => {
+        const cash = Number(ap.cashAmount || 0)
+        const upi = Number(ap.upiAmount || 0)
+        return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+      }, 0)
     const totalCashInflow = pInflow + advInflow
 
-    const netCashFlow = totalCashInflow - totalExpenses
+    // Net Cash Flow = Total Cash Inflow - Total Expenses - Total Refunds
+    const netCashFlow = totalCashInflow - totalExpenses - totalRefundOutflow
     const pendingReceivables = activeBills
       .filter((b) => b.status !== 'paid')
       .reduce((s, b) => s + Number(b.balance || 0), 0)
@@ -205,11 +213,11 @@ const Accounting = () => {
           <div className="stat-card-header">
             <div className="stat-card-icon success"><DollarSign /></div>
             <div>
-              <div className="stat-card-label">Net Revenue</div>
+              <div className="stat-card-label">Total Revenue</div>
               <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.realizedRevenue.toFixed(2)}</div>
             </div>
           </div>
-          <div className="stat-card-sub">Total collected (after refunds).</div>
+          <div className="stat-card-sub">Total invoiced revenue ({bills.filter(b => !b.deleted && !b.isGroupParent).length} invoices)</div>
         </div>
 
         <div className="stat-card">

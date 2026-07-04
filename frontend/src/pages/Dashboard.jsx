@@ -57,7 +57,8 @@ const Dashboard = () => {
     const fyExpenses = (expenses || []).filter(e => isDateInFY(e.date))
     const fyExpTotal = fyExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
 
-    const netCashFlow = cashInflow - fyExpTotal
+    // Net Cash Flow = Cash Inflow - Expenses - Refunds
+    const netCashFlow = cashInflow - fyExpTotal - refunds
 
     return {
       revenue,
@@ -108,8 +109,9 @@ const Dashboard = () => {
   }, [expenses])
 
   const netCashFlow = useMemo(() => {
-    return totalCashInflow - totalExpenses
-  }, [totalCashInflow, totalExpenses])
+    // Net Cash Flow = Total Cash Inflow - Total Expenses - Total Refunds
+    return totalCashInflow - totalExpenses - totalRefunds
+  }, [totalCashInflow, totalExpenses, totalRefunds])
 
   const overdueBills = useMemo(
     () => activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < today),
