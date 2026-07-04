@@ -1133,25 +1133,6 @@ export const AppProvider = ({ children }) => {
               notes: 'Self-healed payment for missing record'
             }
             mappedPayments.push(synthPayment)
-
-            // Trigger background sync to create this missing record in the cloud DB
-            supabase.auth.getUser().then(({ data: { user } }) => {
-              if (!user) return
-              supabase.from('payments').insert([{
-                user_id: user.id,
-                bill_id: b.id,
-                customer_id: b.customer_id,
-                cash_amount: missingAmount,
-                upi_amount: 0,
-                total_paid: missingAmount,
-                payment_type: synthPayment.paymentType,
-                notes: synthPayment.notes
-              }]).then(() => {
-                console.log(`Self-healed payment record created in cloud for bill ${b.id}`)
-              }).catch(err => {
-                console.error(`Failed to sync self-healed payment for bill ${b.id}:`, err)
-              })
-            })
           }
         })
 
