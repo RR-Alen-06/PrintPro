@@ -119,6 +119,11 @@ export const createBill = async (data) => {
     throw billError;
   }
   
+  // Align database ID (reconciled/auto-assigned) to the payload ID
+  if (bill && bill.id) {
+    data.id = bill.id;
+  }
+  
   if (data.items && data.items.length > 0) {
     const itemsData = data.items.map(item => ({
       user_id: user?.id,

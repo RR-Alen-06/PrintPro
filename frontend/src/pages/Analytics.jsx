@@ -95,11 +95,14 @@ const Analytics = () => {
 
   const salesSummary = useMemo(() => {
     const totalRevenue = filteredBills.reduce((sum, bill) => sum + Number(bill.total || 0), 0)
-    const totalPaid = filteredBills.reduce((sum, bill) => sum + Number(bill.amountPaid || 0), 0)
-    const outstanding = filteredBills.reduce((sum, bill) => sum + Number(bill.balance || 0), 0)
+    // Amount Collected = SUM(min(Payment, Outstanding Invoice)) — use payment records, not bill cached field
+    const totalPaid = filteredPayments
+      .filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+      .reduce((sum, p) => sum + Number(p.totalPaid || 0), 0)
+    const outstanding = filteredBills.reduce((sum, bill) => sum + Math.max(0, Number(bill.balance || 0)), 0)
     const count = filteredBills.length
     return { totalRevenue, totalPaid, outstanding, count }
-  }, [filteredBills])
+  }, [filteredBills, filteredPayments])
 
   const revenueByCustomer = useMemo(() => {
     const revenue = {}
@@ -252,12 +255,14 @@ const Analytics = () => {
 
   const averageOrder = salesSummary.count ? salesSummary.totalRevenue / salesSummary.count : 0
 
-  // ── Payment method summary ─────────────────────────────────────────────
+  // ── Payment method summary ─────────────────────────────────────────────────────────
   const paymentMethodSummary = useMemo(() => {
-    const cashFromPayments = filteredPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiFromPayments = filteredPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-    const cashFromAdvances = (filteredAdvPayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiFromAdvances = (filteredAdvPayments || []).filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    // Exclude refund payments from collected totals
+    const normalPayments = filteredPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+    const cashFromPayments = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
+    const upiFromPayments = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const cashFromAdvances = (filteredAdvPayments || []).filter(ap => Number(ap.amount) > 0 && !ap.isRefundCredit && !ap.isReturn).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiFromAdvances = (filteredAdvPayments || []).filter(ap => Number(ap.amount) > 0 && !ap.isRefundCredit && !ap.isReturn).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
     const cashCollected = cashFromPayments + cashFromAdvances
     const upiCollected = upiFromPayments + upiFromAdvances
     const cashExpenses = filteredExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)
@@ -352,8 +357,9 @@ const Analytics = () => {
   }, [filteredExpenses])
 
   const netCashFlow = useMemo(() => {
-    return totalCashInflow - totalExpenses
-  }, [totalCashInflow, totalExpenses])
+    // Net Cash Flow = Total Cash Inflow - Total Expenses - Total Refunds
+    return totalCashInflow - totalExpenses - refundOutflows.totalRefunds
+  }, [totalCashInflow, totalExpenses, refundOutflows])
 
   // ── Monthly cash vs UPI trend (last 6 months) ─────────────────────────────
   const monthlyCashUpi = useMemo(() => {
