@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search as SearchIcon } from 'lucide-react';
 import { apiRequest } from '../api/apiClient';
@@ -45,7 +45,7 @@ export default function Search() {
 
   const filteredCustomers = (customers || []).filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone.includes(searchQuery)
+    (c.phone || '').includes(searchQuery)
   );
 
   const filteredInventory = (inventory || []).filter((item) =>
@@ -202,10 +202,10 @@ export default function Search() {
                   {filteredInventory.map((item) => (
                     <tr key={item._id} className="hover:bg-slate-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{item.name}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${item.currentStock <= item.reorderLevel ? 'text-red-600' : 'text-slate-700'}`}>
-                        {item.currentStock} {item.unit}
+                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${(item.currentStock || 0) <= (item.reorderLevel || 0) ? 'text-red-600' : 'text-slate-700'}`}>
+                        {item.currentStock || 0} {item.unit || ''}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.reorderLevel} {item.unit}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.reorderLevel || 0} {item.unit || ''}</td>
                     </tr>
                   ))}
                 </tbody>

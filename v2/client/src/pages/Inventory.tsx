@@ -10,6 +10,9 @@ export interface InventoryItem {
   colorDouble: number;
   bwSingle: number;
   bwDouble: number;
+  unit?: string;
+  reorderLevel?: number;
+  currentStock?: number;
 }
 
 export default function Inventory() {
