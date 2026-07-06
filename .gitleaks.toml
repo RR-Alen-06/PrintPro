@@ -1,0 +1,15 @@
+# =============================================================================
+# Gitleaks Configuration – PrintPro
+# https://github.com/gitleaks/gitleaks#configuration
+# =============================================================================
+
+title = "PrintPro Gitleaks Config"
+
+# Allow placeholder values in example env files
+[allowlist]
+  description = "Allow placeholder values in example/template files"
+  paths = [
+    '''\.env\.example$''',
+    '''\.env\.sample$''',
+    '''README\.md$''',
+  ]
