@@ -227,6 +227,7 @@ export class BillingService {
       amountPaid,
       balance,
       status,
+      advanceUsed,
       items: computedItems,
       businessId: bId,
     });
@@ -478,5 +479,173 @@ export class BillingService {
       notes: data.notes || 'Group consolidated invoice',
     });
     return parentBill.save();
+  }
+
+  async getCustomerBills(businessId: string, customerId: string): Promise<Bill[]> {
+    const bId = new Types.ObjectId(businessId);
+    const cId = new Types.ObjectId(customerId);
+    return this.billModel
+      .find({ businessId: bId, customerId: cId, deleted: { $ne: true } })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async getDeletedBills(businessId: string): Promise<Bill[]> {
+    const bId = new Types.ObjectId(businessId);
+    return this.billModel
+      .find({ businessId: bId, deleted: true })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async softDeleteBill(businessId: string, billId: string): Promise<Bill> {
+    const bId = new Types.ObjectId(businessId);
+    const bill = await this.billModel
+      .findOne({ _id: new Types.ObjectId(billId), businessId: bId })
+      .exec();
+    if (!bill) throw new NotFoundException('Bill not found');
+    if (bill.deleted) return bill;
+
+    // 1. Revert loyalty points and advance credit
+    const customer = await this.customerModel
+      .findOne({ _id: bill.customerId, businessId: bId })
+      .exec();
+
+    if (customer) {
+      // Revert loyalty points
+      const pointsEarned = Math.floor(bill.total / 30);
+      customer.loyaltyPoints = Math.max(0, (customer.loyaltyPoints || 0) - pointsEarned);
+
+      // Revert advance used
+      const advanceUsed = bill.advanceUsed || 0;
+      if (advanceUsed > 0) {
+        customer.advanceBalance = Number(((customer.advanceBalance || 0) + advanceUsed).toFixed(2));
+        customer.creditBalance = Number(((customer.creditBalance || 0) + advanceUsed).toFixed(2));
+      }
+
+      // Revert outstanding balance added to customer's credit balance
+      if (bill.balance > 0) {
+        customer.creditBalance = Number(
+          Math.max(0, (customer.creditBalance || 0) - bill.balance).toFixed(2),
+        );
+      }
+
+      await customer.save();
+    }
+
+    // 2. Remove associated payments
+    await this.paymentModel.deleteMany({ billId: bill._id, businessId: bId });
+
+    bill.deleted = true;
+    return bill.save();
+  }
+
+  async restoreBill(businessId: string, billId: string): Promise<Bill> {
+    const bId = new Types.ObjectId(businessId);
+    const bill = await this.billModel
+      .findOne({ _id: new Types.ObjectId(billId), businessId: bId })
+      .exec();
+    if (!bill) throw new NotFoundException('Bill not found');
+    if (!bill.deleted) return bill;
+
+    // 1. Re-apply loyalty points and advance credit
+    const customer = await this.customerModel
+      .findOne({ _id: bill.customerId, businessId: bId })
+      .exec();
+
+    if (customer) {
+      // Re-apply loyalty points
+      const pointsEarned = Math.floor(bill.total / 30);
+      customer.loyaltyPoints = (customer.loyaltyPoints || 0) + pointsEarned;
+
+      // Re-apply advance used
+      const advanceUsed = bill.advanceUsed || 0;
+      if (advanceUsed > 0) {
+        customer.advanceBalance = Number(
+          Math.max(0, (customer.advanceBalance || 0) - advanceUsed).toFixed(2),
+        );
+        customer.creditBalance = customer.advanceBalance; // Assuming credit matches advance in this flow
+      }
+
+      // Re-apply outstanding balance
+      if (bill.balance > 0) {
+        customer.creditBalance = Number(((customer.creditBalance || 0) + bill.balance).toFixed(2));
+      }
+
+      await customer.save();
+    }
+
+    // Restore associated payments? Soft-deleted payments are hard to restore if we deleted them.
+    // In V1, payments weren't hard deleted. We should probably create a new payment or just leave it.
+    // Let's create a new payment if there was amountPaid > 0.
+    if (bill.amountPaid > 0) {
+      const pCount = await this.paymentModel.countDocuments({ businessId: bId }).exec();
+      const paymentNo = `PAY-${String(pCount + 1).padStart(4, '0')}`;
+      const payment = new this.paymentModel({
+        paymentNo,
+        billId: bill._id,
+        customerId: bill.customerId,
+        date: bill.date,
+        totalPaid: bill.amountPaid,
+        cashAmount: bill.amountPaid,
+        upiAmount: 0,
+        paymentType: 'payment',
+        businessId: bId,
+        notes: `Restored payment for invoice ${bill.billNo}`,
+      });
+      await payment.save();
+    }
+
+    bill.deleted = false;
+    return bill.save();
+  }
+
+  async searchInvoices(
+    businessId: string,
+    query: any,
+  ): Promise<Bill[]> {
+    const bId = new Types.ObjectId(businessId);
+    const filter: any = { businessId: bId, deleted: { $ne: true } };
+
+    if (query.q) {
+      const regex = new RegExp(query.q, 'i');
+      filter.$or = [
+        { billNo: regex },
+        { customerName: regex },
+        { notes: regex },
+      ];
+    }
+    if (query.status) filter.status = query.status;
+    if (query.customerId) filter.customerId = new Types.ObjectId(query.customerId);
+    if (query.dateFrom || query.dateTo) {
+      filter.date = {};
+      if (query.dateFrom) filter.date.$gte = query.dateFrom;
+      if (query.dateTo) filter.date.$lte = query.dateTo;
+    }
+    if (query.minAmount || query.maxAmount) {
+      filter.total = {};
+      if (query.minAmount) filter.total.$gte = Number(query.minAmount);
+      if (query.maxAmount) filter.total.$lte = Number(query.maxAmount);
+    }
+
+    return this.billModel.find(filter).sort({ createdAt: -1 }).exec();
+  }
+
+  async updateBillMetadata(
+    businessId: string,
+    billId: string,
+    updates: any,
+  ): Promise<Bill> {
+    const bId = new Types.ObjectId(businessId);
+    const bill = await this.billModel
+      .findOne({ _id: new Types.ObjectId(billId), businessId: bId })
+      .exec();
+    if (!bill) throw new NotFoundException('Bill not found');
+
+    if (updates.notes !== undefined) bill.notes = updates.notes;
+    if (updates.dueDate !== undefined) bill.dueDate = updates.dueDate;
+    if (updates.date !== undefined) bill.date = updates.date;
+
+    return bill.save();
   }
 }

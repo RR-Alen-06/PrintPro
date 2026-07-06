@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
 import { Plus, Search, Edit3, Trash2, BookOpen } from 'lucide-react';
 
-interface Customer {
+export interface Customer {
   _id: string;
   name: string;
   phone?: string;

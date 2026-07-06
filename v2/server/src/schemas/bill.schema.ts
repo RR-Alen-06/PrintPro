@@ -88,6 +88,9 @@ export class Bill extends Document {
   @Prop({ required: true, type: [BillItem] })
   items: BillItem[];
 
+  @Prop({ required: false, default: 0 })
+  advanceUsed?: number;
+
   @Prop({ type: Types.ObjectId, ref: 'Business', required: true })
   businessId: Types.ObjectId;
 
@@ -99,6 +102,9 @@ export class Bill extends Document {
 
   @Prop({ required: false, default: false })
   deleted?: boolean;
+
+  @Prop({ required: false })
+  notes?: string;
 }
 
 export const BillSchema = SchemaFactory.createForClass(Bill);

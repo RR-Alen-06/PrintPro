@@ -1,4 +1,4 @@
-import { Printer, Home, Users, BookOpen, Settings, LogOut, FileText, Layers, Wallet, DollarSign, RotateCcw, BarChart3, TrendingUp, Clock } from 'lucide-react';
+import { Printer, Home, Users, BookOpen, Settings, LogOut, FileText, Layers, Wallet, DollarSign, RotateCcw, BarChart3, TrendingUp, Clock, Search, Receipt } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 
 interface SidebarProps {
@@ -11,9 +11,13 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'billing', label: 'Billing', icon: FileText },
+    { id: 'search', label: 'Search', icon: Search },
+    { id: 'billing', label: 'Billing', icon: Receipt },
+    { id: 'receipts', label: 'Receipts', icon: Printer },
     { id: 'group-billing', label: 'Group Billing', icon: Users },
+    { id: 'customer-bills', label: 'Customer Bills', icon: FileText },
     { id: 'recurring', label: 'Recurring Bills', icon: Clock },
+    { id: 'deleted-bills', label: 'Deleted Bills', icon: RotateCcw },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'advance', label: 'Advance Payments', icon: Wallet },
     { id: 'expenses', label: 'Expenses', icon: DollarSign },

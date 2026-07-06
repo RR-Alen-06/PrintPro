@@ -18,15 +18,21 @@ interface BillItem {
   gstRate: number;
 }
 
-interface Invoice {
+export interface Invoice {
   _id: string;
   billNo: string;
   customerName: string;
   date: string;
+  subtotal: number;
+  discountAmount: number;
+  gstAmount: number;
   total: number;
   amountPaid: number;
   balance: number;
+  advanceUsed?: number;
   status: string;
+  isGroupParent?: boolean;
+  items: any[];
 }
 
 export default function Billing() {

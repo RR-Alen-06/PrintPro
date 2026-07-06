@@ -57,4 +57,50 @@ export class BillingController {
     const businessId = req.user.businessId;
     return this.billingService.createGroupInvoice(businessId, body);
   }
+
+  @Get('search')
+  searchInvoices(
+    @Request() req: AuthenticatedRequest,
+    @Request() request: any,
+  ) {
+    const businessId = req.user.businessId;
+    return this.billingService.searchInvoices(businessId, request.query);
+  }
+
+  @Get('deleted')
+  getDeletedBills(@Request() req: AuthenticatedRequest) {
+    const businessId = req.user.businessId;
+    return this.billingService.getDeletedBills(businessId);
+  }
+
+  @Get('customer/:customerId/bills')
+  getCustomerBills(
+    @Request() req: AuthenticatedRequest,
+    @Param('customerId') customerId: string,
+  ) {
+    const businessId = req.user.businessId;
+    return this.billingService.getCustomerBills(businessId, customerId);
+  }
+
+  @Post('invoices/:id/restore')
+  restoreBill(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+    const businessId = req.user.businessId;
+    return this.billingService.restoreBill(businessId, id);
+  }
+
+  @Post('invoices/:id/delete') // Or DELETE 'invoices/:id'
+  softDeleteBill(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+    const businessId = req.user.businessId;
+    return this.billingService.softDeleteBill(businessId, id);
+  }
+
+  @Post('invoices/:id/metadata')
+  updateBillMetadata(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    const businessId = req.user.businessId;
+    return this.billingService.updateBillMetadata(businessId, id, body);
+  }
 }
