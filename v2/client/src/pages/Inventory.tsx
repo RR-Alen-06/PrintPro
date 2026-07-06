@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
 import { Plus, Check, Edit3, Trash2, X } from 'lucide-react';
 
-interface InventoryItem {
+export interface InventoryItem {
   _id: string;
   name: string;
   colorSingle: number;

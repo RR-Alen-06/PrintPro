@@ -6,11 +6,15 @@ import Billing from './pages/Billing';
 import GroupBilling from './pages/GroupBilling';
 import RecurringBills from './pages/RecurringBills';
 import Customers from './pages/Customers';
+import DeletedBills from './pages/DeletedBills';
+import Receipt from './pages/Receipt';
+import CustomerBills from './pages/CustomerBills';
 import CustomerLedger from './pages/CustomerLedger';
 import AdvancePayments from './pages/AdvancePayments';
 import Expenses from './pages/Expenses';
 import Refunds from './pages/Refunds';
 import Accounting from './pages/Accounting';
+import Search from './pages/Search';
 import Analytics from './pages/Analytics';
 import Inventory from './pages/Inventory';
 import Settings from './pages/Settings';
@@ -44,7 +48,11 @@ function App() {
       
       <main className="flex-1 overflow-y-auto">
         {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'search' && <Search />}
+        {activeTab === 'receipts' && <Receipt />}
+        {activeTab === 'customer-bills' && <CustomerBills />}
         {activeTab === 'billing' && <Billing />}
+        {activeTab === 'deleted-bills' && <DeletedBills />}
         {activeTab === 'group-billing' && <GroupBilling />}
         {activeTab === 'recurring' && <RecurringBills />}
         {activeTab === 'customers' && <Customers onViewLedger={handleViewLedger} />}

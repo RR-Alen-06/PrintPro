@@ -7,6 +7,7 @@ import {
   RecurringBillSchema,
 } from '../schemas/recurring-bill.schema';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: RecurringBill.name, schema: RecurringBillSchema },
     ]),
     AuthModule,
+    BillingModule,
   ],
   controllers: [RecurringBillsController],
   providers: [RecurringBillsService],
