@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { jsPDF } from 'jspdf';
 import { Printer, Download, Search as SearchIcon, FileText } from 'lucide-react';
 import { apiRequest } from '../api/apiClient';
 import type { Invoice } from './Billing';
-import { useAuthStore } from '../hooks/useAuthStore';
 
 export default function Receipt() {
-  const { user } = useAuthStore();
   const [selectedBill, setSelectedBill] = useState<Invoice | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -208,7 +206,7 @@ export default function Receipt() {
     }
     doc.setTextColor(0, 0, 0);
 
-    const totalPages = doc.internal.getNumberOfPages();
+    const totalPages = (doc.internal as any).getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       addFooter(i, totalPages);

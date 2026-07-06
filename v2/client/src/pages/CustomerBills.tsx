@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Trash2, Edit3, FileText } from 'lucide-react';
+import { Trash2, FileText } from 'lucide-react';
 import { apiRequest } from '../api/apiClient';
 import type { Invoice } from './Billing';
 import type { Customer } from './Customers';
