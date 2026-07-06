@@ -26,6 +26,14 @@ export default function Expenses() {
   const [category, setCategory] = useState('paper');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
+  const [vendorId, setVendorId] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState('');
+
+  // Fetch vendors
+  const { data: vendors = [] } = useQuery<any[]>({
+    queryKey: ['vendors'],
+    queryFn: () => apiRequest<any[]>('/vendors'),
+  });
 
   const { data: expenses = [], isLoading } = useQuery<ExpenseRecord[]>({
     queryKey: ['expenses'],
@@ -55,6 +63,8 @@ export default function Expenses() {
     setCategory('paper');
     setDate(new Date().toISOString().slice(0, 10));
     setDescription('');
+    setVendorId('');
+    setReceiptUrl('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -66,6 +76,8 @@ export default function Expenses() {
       category,
       date,
       description,
+      vendorId,
+      receiptUrl,
     });
   };
 
@@ -196,6 +208,37 @@ export default function Expenses() {
               />
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase mb-1.5 tracking-wider">
+                  Associate Print Vendor (Optional)
+                </label>
+                <select
+                  value={vendorId}
+                  onChange={(e) => setVendorId(e.target.value)}
+                  className="w-full bg-[#13121a] border border-gray-800 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500 transition-all text-sm cursor-pointer"
+                >
+                  <option value="">-- No Vendor / Cash Purchase --</option>
+                  {vendors.map((v) => (
+                    <option key={v._id} value={v._id}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase mb-1.5 tracking-wider">
+                  Receipt Attachment / Image URL
+                </label>
+                <input
+                  type="text"
+                  value={receiptUrl}
+                  onChange={(e) => setReceiptUrl(e.target.value)}
+                  placeholder="e.g. https://supabase.co/storage/receipt1.jpg"
+                  className="w-full bg-[#13121a] border border-gray-800 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500 transition-all text-sm"
+                />
+              </div>
+            </div>
+
             <div className="flex justify-end pt-2">
               <button
                 type="submit"
@@ -246,7 +289,19 @@ export default function Expenses() {
                         <span>UPI: ₹{exp.upiAmount?.toFixed(2) || '0.00'}</span>
                       </td>
                       <td className="p-6 text-red-400 font-bold">₹{exp.amount.toFixed(2)}</td>
-                      <td className="p-6 text-xs text-gray-500">{exp.description || '—'}</td>
+                      <td className="p-6 text-xs text-gray-500">
+                        <div>{exp.description || (exp as any).notes || '—'}</div>
+                        {(exp as any).receiptUrl && (
+                          <a
+                            href={(exp as any).receiptUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-purple-400 hover:underline text-[10px] mt-1 block font-semibold"
+                          >
+                            View Receipt ↗
+                          </a>
+                        )}
+                      </td>
                     </tr>
                   ))}
 

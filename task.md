@@ -1,0 +1,10 @@
+- `[x]` Module 1: GST & Financial Reports
+  - `[x]` Add report aggregation service endpoints in `v2/server/src/accounting/`
+  - `[x]` Create client `Reports.tsx` tax logs page and wired it in navigation
+- `[x]` Module 2: Customer Notifications & Alerts
+  - `[x]` Create `v2/server/src/schemas/notification.schema.ts`
+  - `[x]` Trigger notifications from Job status updates and low wallet balances
+  - `[x]` Expose NestJS endpoints for notification logs
+- `[x]` Module 3: Interactive Dashboard Charts
+  - `[x]` Install `recharts` / SVG charting engine on React client
+  - `[x]` Create area/bar chart components in `Dashboard.tsx` displaying weekly sales trends

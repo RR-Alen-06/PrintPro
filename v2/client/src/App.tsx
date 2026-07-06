@@ -19,6 +19,9 @@ import Analytics from './pages/Analytics';
 import Inventory from './pages/Inventory';
 import Settings from './pages/Settings';
 import DataManagement from './pages/DataManagement';
+import Estimates from './pages/Estimates';
+import JobBoard from './pages/JobBoard';
+import Vendors from './pages/Vendors';
 import Sidebar from './components/Sidebar';
 import Notifications from './components/Notifications';
 
@@ -52,15 +55,18 @@ function App() {
         <Notifications />
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'search' && <Search />}
+        {activeTab === 'jobs' && <JobBoard />}
         {activeTab === 'receipts' && <Receipt />}
         {activeTab === 'customer-bills' && <CustomerBills />}
         {activeTab === 'billing' && <Billing />}
+        {activeTab === 'estimates' && <Estimates />}
         {activeTab === 'deleted-bills' && <DeletedBills />}
         {activeTab === 'group-billing' && <GroupBilling />}
         {activeTab === 'recurring' && <RecurringBills />}
         {activeTab === 'customers' && <Customers onViewLedger={handleViewLedger} />}
         {activeTab === 'advance' && <AdvancePayments />}
         {activeTab === 'expenses' && <Expenses />}
+        {activeTab === 'vendors' && <Vendors />}
         {activeTab === 'refunds' && <Refunds />}
         {activeTab === 'accounting' && <Accounting />}
         {activeTab === 'analytics' && <Analytics />}

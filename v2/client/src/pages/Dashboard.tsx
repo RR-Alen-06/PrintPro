@@ -167,7 +167,140 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Third Row: Recent Activity Table */}
+      {/* Third Row: Analytics SVG Chart */}
+      <div className="bg-[#0c0b11] border border-gray-800/80 rounded-2xl p-8 shadow-lg mb-8 relative z-10">
+        <h2 className="text-xl font-bold text-white mb-1">Weekly Invoice Sales Trend</h2>
+        <p className="text-sm text-gray-500 mb-6">Aggregated gross revenue of recent prints over calendar days.</p>
+
+        {(() => {
+          // Group recent bills by date
+          const dateMap: Record<string, number> = {};
+          data.recentBills.forEach(b => {
+            const date = b.date;
+            dateMap[date] = (dateMap[date] || 0) + b.total;
+          });
+
+          const sortedDates = Object.keys(dateMap).sort();
+          if (sortedDates.length < 2) {
+            return (
+              <div className="h-48 flex items-center justify-center text-xs text-gray-600 border border-dashed border-gray-800 rounded-xl">
+                Not enough date intervals to plot trend line. Create more invoices to view charts.
+              </div>
+            );
+          }
+
+          const values = sortedDates.map(d => dateMap[d]);
+          const maxValue = Math.max(...values, 1000);
+          
+          // Chart dimensions
+          const width = 800;
+          const height = 200;
+          const paddingLeft = 50;
+          const paddingBottom = 30;
+          const paddingTop = 10;
+          const paddingRight = 20;
+
+          const chartWidth = width - paddingLeft - paddingRight;
+          const chartHeight = height - paddingTop - paddingBottom;
+
+          // Map points
+          const points = sortedDates.map((date, idx) => {
+            const x = paddingLeft + (idx / (sortedDates.length - 1)) * chartWidth;
+            const y = height - paddingBottom - (dateMap[date] / maxValue) * chartHeight;
+            return { x, y, date, val: dateMap[date] };
+          });
+
+          // SVG paths
+          const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+          const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - paddingBottom} L ${points[0].x} ${height - paddingBottom} Z`;
+
+          return (
+            <div className="w-full overflow-x-auto">
+              <div className="min-w-[600px] relative">
+                <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto text-xs">
+                  <defs>
+                    <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="rgb(147, 51, 234)" stopOpacity="0.25" />
+                      <stop offset="100%" stopColor="rgb(147, 51, 234)" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Horizontal gridlines */}
+                  {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                    const y = paddingTop + ratio * chartHeight;
+                    const val = maxValue * (1 - ratio);
+                    return (
+                      <g key={idx}>
+                        <line
+                          x1={paddingLeft}
+                          y1={y}
+                          x2={width - paddingRight}
+                          y2={y}
+                          stroke="#1f2937"
+                          strokeDasharray="4 4"
+                          strokeWidth={1}
+                        />
+                        <text x={paddingLeft - 10} y={y + 4} textAnchor="end" fill="#4b5563" className="font-mono text-[9px]">
+                          ₹{Math.round(val)}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Gradient Area */}
+                  <path d={areaPath} fill="url(#chartGrad)" />
+
+                  {/* Trend Line */}
+                  <path d={linePath} fill="none" stroke="rgb(168, 85, 247)" strokeWidth={2.5} />
+
+                  {/* Grid Date Points & Labels */}
+                  {points.map((p, idx) => (
+                    <g key={idx} className="group cursor-pointer">
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={4}
+                        fill="rgb(168, 85, 247)"
+                        stroke="#07060a"
+                        strokeWidth={1.5}
+                      />
+                      {/* Tooltip trigger hover circle */}
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={12}
+                        fill="transparent"
+                        className="peer"
+                      />
+                      {/* Tooltip box */}
+                      <g className="opacity-0 peer-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                        <rect
+                          x={p.x - 45}
+                          y={p.y - 32}
+                          width={90}
+                          height={24}
+                          rx={6}
+                          fill="#0c0b11"
+                          stroke="#374151"
+                          strokeWidth={1}
+                        />
+                        <text x={p.x} y={p.y - 16} textAnchor="middle" fill="#fff" className="font-bold text-[9px]">
+                          ₹{p.val.toFixed(0)}
+                        </text>
+                      </g>
+                      <text x={p.x} y={height - 10} textAnchor="middle" fill="#4b5563" className="text-[9px]">
+                        {p.date.substring(5)}
+                      </text>
+                    </g>
+                  ))}
+                </svg>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Fourth Row: Recent Activity Table */}
       <div className="bg-[#0c0b11] border border-gray-800/80 rounded-2xl p-8 shadow-lg relative z-10">
         <div className="flex justify-between items-center mb-6">
           <div>

@@ -66,4 +66,43 @@ export class CustomersController {
     const businessId = req.user.businessId;
     return this.customersService.deleteCustomer(businessId, id);
   }
+
+  @Get(':id/wallet-transactions')
+  getWalletTransactions(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const businessId = req.user.businessId;
+    return this.customersService.getWalletTransactions(businessId, id);
+  }
+
+  @Post(':id/wallet-deposit')
+  depositToWallet(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: { amount: number; notes?: string },
+  ) {
+    const businessId = req.user.businessId;
+    return this.customersService.depositToWallet(businessId, id, body.amount, body.notes);
+  }
+
+  @Post(':id/wallet-deduct')
+  deductFromWallet(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: { amount: number; referenceId?: string; notes?: string },
+  ) {
+    const businessId = req.user.businessId;
+    return this.customersService.deductFromWallet(businessId, id, body.amount, body.referenceId, body.notes);
+  }
+
+  @Post(':id/loyalty-points')
+  updateLoyaltyPoints(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: { points: number },
+  ) {
+    const businessId = req.user.businessId;
+    return this.customersService.updateLoyaltyPoints(businessId, id, body.points);
+  }
 }

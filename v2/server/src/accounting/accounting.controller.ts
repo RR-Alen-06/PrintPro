@@ -43,4 +43,18 @@ export class AccountingController {
       endDate,
     );
   }
+
+  @Get('gst-report')
+  getGstReport(
+    @Request() req: AuthenticatedRequest,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const businessId = req.user.businessId;
+    return this.accountingService.getGstReport(
+      businessId,
+      startDate,
+      endDate,
+    );
+  }
 }
