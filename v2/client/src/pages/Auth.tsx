@@ -3,7 +3,7 @@ import { Printer, ShieldCheck, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 import type { User, Business } from '../hooks/useAuthStore';
 import { apiRequest } from '../api/apiClient';
-
+import { supabase } from '../lib/supabase';
 interface AuthResponse {
   accessToken: string;
   user: User;
@@ -30,19 +30,37 @@ export default function Auth() {
     setError('');
 
     try {
+      let sessionToken = '';
+
       if (isLogin) {
-        const response = await apiRequest<AuthResponse>('/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ email, password }),
+        const { data, error: supaError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
-        setAuth(response.accessToken, response.user, response.business);
+        if (supaError) throw supaError;
+        if (!data.session) throw new Error('No session returned');
+        sessionToken = data.session.access_token;
       } else {
-        const response = await apiRequest<AuthResponse>('/auth/register', {
-          method: 'POST',
-          body: JSON.stringify({ email, password, shopName, ownerName }),
+        const { data, error: supaError } = await supabase.auth.signUp({
+          email,
+          password,
         });
-        setAuth(response.accessToken, response.user, response.business);
+        if (supaError) throw supaError;
+        if (!data.session) throw new Error('No session returned. Check your email to verify.');
+        sessionToken = data.session.access_token;
       }
+
+      // Sync with our backend to get role and business data
+      const response = await apiRequest<AuthResponse>('/auth/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ shopName, ownerName }), // Optional, for initial registration
+      });
+      
+      setAuth(sessionToken, response.user, response.business);
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please try again.');
     } finally {

@@ -53,22 +53,22 @@ export default function Search() {
   );
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Advanced Search</h1>
-        <p className="text-slate-500">Find bills, customers, and inventory items with powerful filters.</p>
+    <div className="p-8 max-w-7xl mx-auto animate-fadeIn text-gray-200">
+      <div className="mb-8">
+        <h1 className="text-3xl font-black tracking-tight text-white">Advanced Search</h1>
+        <p className="text-gray-400 mt-2">Find bills, customers, and inventory items with powerful filters.</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-6">
-        <div className="flex border-b border-slate-200">
+      <div className="bg-[#0c0b11] rounded-2xl shadow-lg border border-gray-800 overflow-hidden mb-6">
+        <div className="flex border-b border-gray-800 bg-[#13121a]">
           {['bills', 'customers', 'inventory'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as any)}
-              className={`px-6 py-3 font-medium text-sm capitalize transition-colors ${
+              className={`px-6 py-4 font-bold text-sm capitalize transition-all cursor-pointer ${
                 activeTab === tab
-                  ? 'border-b-2 border-indigo-600 text-indigo-600'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'border-b-2 border-purple-500 text-purple-400 bg-purple-500/5'
+                  : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'
               }`}
             >
               {tab}
@@ -76,15 +76,15 @@ export default function Search() {
           ))}
         </div>
 
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-4 items-center">
+        <div className="p-5 border-b border-gray-800 flex flex-wrap gap-4 items-center">
           <div className="relative flex-1 min-w-[300px]">
-            <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-slate-400" />
+            <SearchIcon className="absolute left-3 top-3 h-5 w-5 text-gray-500" />
             <input
               type="text"
               placeholder={`Search ${activeTab}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full pl-10 pr-4 py-2.5 bg-[#13121a] border border-gray-800 rounded-xl focus:outline-none focus:border-purple-500 transition-all text-sm text-white"
             />
           </div>
 
@@ -93,7 +93,7 @@ export default function Search() {
               <select
                 value={billStatus}
                 onChange={(e) => setBillStatus(e.target.value)}
-                className="py-2 px-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                className="py-2.5 px-4 bg-[#13121a] border border-gray-800 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-white"
               >
                 <option value="">All Statuses</option>
                 <option value="paid">Paid</option>
@@ -104,48 +104,48 @@ export default function Search() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="py-2 px-3 border border-slate-300 rounded-md"
+                className="py-2.5 px-4 bg-[#13121a] border border-gray-800 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-white"
               />
-              <span className="text-slate-400">to</span>
+              <span className="text-gray-500 font-medium">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="py-2 px-3 border border-slate-300 rounded-md"
+                className="py-2.5 px-4 bg-[#13121a] border border-gray-800 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-white"
               />
             </>
           )}
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-[#0c0b11] rounded-2xl shadow-lg border border-gray-800 overflow-hidden">
         {activeTab === 'bills' && (
           <div className="overflow-x-auto">
             {isLoadingBills ? (
-              <div className="p-8 text-center text-slate-500">Loading bills...</div>
+              <div className="p-8 text-center text-gray-500 font-medium">Loading bills...</div>
             ) : bills && bills.length > 0 ? (
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-gray-800">
+                <thead className="bg-[#13121a]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Bill No</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Total</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Bill No</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Date</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Total</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="divide-y divide-gray-800">
                   {bills.map((bill) => (
-                    <tr key={bill._id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{bill.billNo}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{bill.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{bill.customerName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">₹{bill.total.toFixed(2)}</td>
+                    <tr key={bill._id} className="hover:bg-gray-800/20 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-white">{bill.billNo}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{bill.date}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{bill.customerName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white font-bold">₹{bill.total.toFixed(2)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          bill.status === 'paid' ? 'bg-green-100 text-green-800' :
-                          bill.status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
+                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg ${
+                          bill.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                          bill.status === 'partial' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                          'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         }`}>
                           {bill.status}
                         </span>
@@ -155,7 +155,7 @@ export default function Search() {
                 </tbody>
               </table>
             ) : (
-              <div className="p-8 text-center text-slate-500">No matching bills found.</div>
+              <div className="p-8 text-center text-gray-500 font-medium">No matching bills found.</div>
             )}
           </div>
         )}
@@ -163,26 +163,26 @@ export default function Search() {
         {activeTab === 'customers' && (
           <div className="overflow-x-auto">
             {filteredCustomers.length > 0 ? (
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-gray-800">
+                <thead className="bg-[#13121a]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Phone</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Phone</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Type</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="divide-y divide-gray-800">
                   {filteredCustomers.map((customer) => (
-                    <tr key={customer._id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{customer.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{customer.phone}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 capitalize">{customer.type}</td>
+                    <tr key={customer._id} className="hover:bg-gray-800/20 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-white">{customer.name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{customer.phone}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 capitalize">{customer.type}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
-              <div className="p-8 text-center text-slate-500">No matching customers found.</div>
+              <div className="p-8 text-center text-gray-500 font-medium">No matching customers found.</div>
             )}
           </div>
         )}
@@ -190,28 +190,26 @@ export default function Search() {
         {activeTab === 'inventory' && (
           <div className="overflow-x-auto">
             {filteredInventory.length > 0 ? (
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-gray-800">
+                <thead className="bg-[#13121a]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Item Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Current Stock</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Reorder Level</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Item Name</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Current Stock</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Reorder Level</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="divide-y divide-gray-800">
                   {filteredInventory.map((item) => (
-                    <tr key={item._id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{item.name}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${(item.currentStock || 0) <= (item.reorderLevel || 0) ? 'text-red-600' : 'text-slate-700'}`}>
-                        {item.currentStock || 0} {item.unit || ''}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.reorderLevel || 0} {item.unit || ''}</td>
+                    <tr key={item._id} className="hover:bg-gray-800/20 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-white">{item.name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{item.currentStock || 0}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{item.reorderLevel || 0}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
-              <div className="p-8 text-center text-slate-500">No matching inventory items found.</div>
+              <div className="p-8 text-center text-gray-500 font-medium">No matching inventory items found.</div>
             )}
           </div>
         )}

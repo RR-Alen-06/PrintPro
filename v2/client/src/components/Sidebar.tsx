@@ -1,4 +1,4 @@
-import { Printer, Home, Users, BookOpen, Settings, LogOut, FileText, Layers, Wallet, DollarSign, RotateCcw, BarChart3, TrendingUp, Clock, Search, Receipt } from 'lucide-react';
+import { Printer, Home, Users, BookOpen, Settings, LogOut, FileText, Layers, Wallet, DollarSign, RotateCcw, BarChart3, TrendingUp, Clock, Search, Receipt, Download } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 
 interface SidebarProps {
@@ -27,6 +27,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'ledger', label: 'Customer Ledger', icon: BookOpen },
     { id: 'inventory', label: 'Inventory', icon: Layers },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'data-management', label: 'Data', icon: Download },
   ];
 
   return (

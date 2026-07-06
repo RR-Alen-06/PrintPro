@@ -36,7 +36,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     set({ token, user, business });
   },
-  logout: () => {
+  logout: async () => {
+    try {
+      // Lazy import supabase to avoid circular dependencies if any, or just import at top
+      const { supabase } = await import('../lib/supabase');
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out of Supabase:', e);
+    }
     localStorage.removeItem('printpro-auth-token');
     localStorage.removeItem('printpro-auth-user');
     localStorage.removeItem('printpro-auth-business');

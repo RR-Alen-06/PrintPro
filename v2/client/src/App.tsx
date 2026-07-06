@@ -18,7 +18,9 @@ import Search from './pages/Search';
 import Analytics from './pages/Analytics';
 import Inventory from './pages/Inventory';
 import Settings from './pages/Settings';
+import DataManagement from './pages/DataManagement';
 import Sidebar from './components/Sidebar';
+import Notifications from './components/Notifications';
 
 function App() {
   const { token, initialize } = useAuthStore();
@@ -46,7 +48,8 @@ function App() {
     <div className="flex bg-[#07060a] min-h-screen text-gray-100 font-sans">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto relative">
+        <Notifications />
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'search' && <Search />}
         {activeTab === 'receipts' && <Receipt />}
@@ -69,6 +72,7 @@ function App() {
         )}
         {activeTab === 'inventory' && <Inventory />}
         {activeTab === 'settings' && <Settings />}
+        {activeTab === 'data-management' && <DataManagement />}
       </main>
     </div>
   );

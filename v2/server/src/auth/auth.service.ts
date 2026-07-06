@@ -94,5 +94,59 @@ export class AuthService {
           }
         : null,
     };
+  async syncUser(payload: any, shopName?: string, ownerName?: string) {
+    const supabaseId = payload.userId; // We mapped this in JwtStrategy or from req.user
+    const email = payload.email;
+
+    if (!supabaseId || !email) {
+      throw new UnauthorizedException('Invalid token payload missing email or sub');
+    }
+
+    let user = await this.userModel.findOne({ supabaseId }).exec();
+
+    if (!user) {
+      // Maybe user exists by email from V1?
+      user = await this.userModel.findOne({ email }).exec();
+      if (user) {
+        user.supabaseId = supabaseId;
+        await user.save();
+      }
+    }
+
+    // If still no user, this is a brand new signup from Supabase
+    if (!user) {
+      const business = new this.businessModel({
+        shopName: shopName || 'My Print Shop',
+        ownerName: ownerName || email.split('@')[0],
+      });
+      const savedBusiness = await business.save();
+
+      user = new this.userModel({
+        email,
+        supabaseId,
+        passwordHash: 'supabase', // dummy
+        businessId: savedBusiness._id,
+        role: 'owner',
+      });
+      await user.save();
+    }
+
+    const business = await this.businessModel.findById(user.businessId).exec();
+
+    return {
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        role: user.role,
+        businessId: user.businessId.toString(),
+      },
+      business: business
+        ? {
+            id: business._id.toString(),
+            shopName: business.shopName,
+            ownerName: business.ownerName,
+          }
+        : null,
+    };
   }
 }
