@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
-import { Plus, Search, Edit3, Trash2, BookOpen } from 'lucide-react';
+import { Plus, Search, Edit3, Trash2, BookOpen, Wallet } from 'lucide-react';
 
 export interface Customer {
   _id: string;
@@ -23,6 +23,13 @@ export default function Customers({ onViewLedger }: CustomersProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+  // Wallet Modal states
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [activeWalletCustomer, setActiveWalletCustomer] = useState<Customer | null>(null);
+  const [walletAmount, setWalletAmount] = useState<number>(0);
+  const [walletNotes, setWalletNotes] = useState('');
+  const [walletTxType, setWalletTxType] = useState<'deposit' | 'deduct'>('deposit');
 
   // Form states
   const [name, setName] = useState('');
@@ -68,6 +75,37 @@ export default function Customers({ onViewLedger }: CustomersProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
+  });
+
+  // Wallet Query & Mutations
+  const { data: walletTransactions = [], refetch: refetchWalletTx } = useQuery<any[]>({
+    queryKey: ['walletTransactions', activeWalletCustomer?._id],
+    queryFn: () => apiRequest<any[]>(`/customers/${activeWalletCustomer?._id}/wallet-transactions`),
+    enabled: !!activeWalletCustomer?._id,
+  });
+
+  const walletMutation = useMutation({
+    mutationFn: ({ customerId, amount, notes, type }: { customerId: string; amount: number; notes: string; type: 'deposit' | 'deduct' }) => {
+      const endpoint = type === 'deposit' ? 'wallet-deposit' : 'wallet-deduct';
+      return apiRequest<Customer>(`/customers/${customerId}/${endpoint}`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, notes }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      refetchWalletTx();
+      setWalletAmount(0);
+      setWalletNotes('');
+      // Update active wallet customer details so balance reflects instantly
+      if (activeWalletCustomer) {
+        const updated = customers.find(c => c._id === activeWalletCustomer._id);
+        if (updated) setActiveWalletCustomer(updated);
+      }
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Transaction failed.');
+    }
   });
 
   const openAddModal = () => {
@@ -191,6 +229,16 @@ export default function Customers({ onViewLedger }: CustomersProps) {
                     <td className="p-6 font-medium text-gray-400">{c.loyaltyPoints} pts</td>
                     <td className="p-6 text-right">
                       <div className="flex justify-end gap-2.5">
+                        <button
+                          onClick={() => {
+                            setActiveWalletCustomer(c);
+                            setShowWalletModal(true);
+                          }}
+                          className="p-2 bg-gray-900 hover:bg-emerald-600/20 hover:text-emerald-400 border border-gray-800 rounded-lg transition-all cursor-pointer"
+                          title="Manage Wallet & Loyalty"
+                        >
+                          <Wallet size={16} />
+                        </button>
                         <button
                           onClick={() => onViewLedger(c._id)}
                           className="p-2 bg-gray-900 hover:bg-purple-600/20 hover:text-purple-400 border border-gray-800 rounded-lg transition-all cursor-pointer"
@@ -331,6 +379,137 @@ export default function Customers({ onViewLedger }: CustomersProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet Management Modal */}
+      {showWalletModal && activeWalletCustomer && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 z-50 animate-fadeIn">
+          <div className="bg-[#0c0b11] border border-gray-800 rounded-3xl w-full max-w-4xl p-8 shadow-2xl relative flex flex-col lg:flex-row gap-8 max-h-[90vh] overflow-y-auto">
+            {/* Left Column: Form Adjustments */}
+            <div className="flex-1 space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-white">Wallet & Loyalty Control</h2>
+                <p className="text-xs text-gray-500 mt-1">Client: <span className="font-bold text-white">{activeWalletCustomer.name}</span></p>
+              </div>
+
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-[#13121a] border border-gray-800 rounded-2xl p-4">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Wallet Balance</div>
+                  <div className="text-2xl font-black text-emerald-400 mt-1">₹{(activeWalletCustomer.advanceBalance || 0).toFixed(2)}</div>
+                </div>
+                <div className="bg-[#13121a] border border-gray-800 rounded-2xl p-4">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Loyalty Points</div>
+                  <div className="text-2xl font-black text-purple-400 mt-1">{activeWalletCustomer.loyaltyPoints || 0} pts</div>
+                </div>
+              </div>
+
+              {/* Adjust Balance Form */}
+              <div className="bg-[#13121a] border border-gray-800 rounded-2xl p-5 space-y-4">
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Adjust Wallet Balance</h3>
+                
+                <div className="flex gap-2 p-1 bg-[#0c0b11] border border-gray-850 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setWalletTxType('deposit')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                      walletTxType === 'deposit' ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Deposit Advance
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWalletTxType('deduct')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                      walletTxType === 'deduct' ? 'bg-rose-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Deduct Balance
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Amount (₹)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={walletAmount || ''}
+                      onChange={(e) => setWalletAmount(Number(e.target.value))}
+                      placeholder="0.00"
+                      className="w-full bg-[#0c0b11] border border-gray-800 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Notes / Description</label>
+                    <input
+                      type="text"
+                      value={walletNotes}
+                      onChange={(e) => setWalletNotes(e.target.value)}
+                      placeholder="e.g. Monthly cash advance deposit"
+                      className="w-full bg-[#0c0b11] border border-gray-800 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => walletMutation.mutate({
+                      customerId: activeWalletCustomer._id,
+                      amount: walletAmount,
+                      notes: walletNotes,
+                      type: walletTxType
+                    })}
+                    disabled={walletMutation.isPending || walletAmount <= 0}
+                    className={`w-full py-3 rounded-xl text-white font-bold text-sm cursor-pointer transition-all shadow-md ${
+                      walletTxType === 'deposit' 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10' 
+                        : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/10'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    Apply Adjustment
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowWalletModal(false);
+                    setActiveWalletCustomer(null);
+                  }}
+                  className="px-5 py-3 border border-gray-800 rounded-xl text-gray-400 hover:text-white transition-all text-sm font-semibold cursor-pointer"
+                >
+                  Close Panel
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Transaction Logs */}
+            <div className="w-full lg:w-96 flex flex-col border-t lg:border-t-0 lg:border-l border-gray-800/80 lg:pl-8 pt-6 lg:pt-0">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-4">Transaction History</h3>
+              <div className="flex-1 overflow-y-auto space-y-3 max-h-[50vh] pr-1">
+                {walletTransactions.map((tx: any) => (
+                  <div key={tx._id} className="bg-[#13121a] border border-gray-800/60 rounded-xl p-3.5 space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className={`font-bold capitalize ${tx.amount > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {tx.type} ({tx.amount > 0 ? '+' : ''}₹{tx.amount.toFixed(2)})
+                      </span>
+                      <span className="text-[10px] text-gray-500">{new Date(tx.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    {tx.notes && <p className="text-gray-400 leading-relaxed">{tx.notes}</p>}
+                  </div>
+                ))}
+
+                {walletTransactions.length === 0 && (
+                  <div className="text-center py-12 text-gray-600 text-sm">
+                    No transactions recorded.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

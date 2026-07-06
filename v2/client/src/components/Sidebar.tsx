@@ -12,7 +12,9 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'search', label: 'Search', icon: Search },
+    { id: 'jobs', label: 'Jobs', icon: Layers },
     { id: 'billing', label: 'Billing', icon: Receipt },
+    { id: 'estimates', label: 'Estimates', icon: FileText },
     { id: 'receipts', label: 'Receipts', icon: Printer },
     { id: 'group-billing', label: 'Group Billing', icon: Users },
     { id: 'customer-bills', label: 'Customer Bills', icon: FileText },
@@ -21,6 +23,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'advance', label: 'Advance Payments', icon: Wallet },
     { id: 'expenses', label: 'Expenses', icon: DollarSign },
+    { id: 'vendors', label: 'Vendors', icon: Users },
     { id: 'refunds', label: 'Refunds', icon: RotateCcw },
     { id: 'accounting', label: 'Accounting', icon: BarChart3 },
     { id: 'analytics', label: 'Analytics', icon: TrendingUp },

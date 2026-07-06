@@ -29,6 +29,12 @@ export class Expense extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'Business', required: true })
   businessId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Vendor', required: false })
+  vendorId?: Types.ObjectId;
+
+  @Prop({ required: false })
+  receiptUrl?: string;
 }
 
 export const ExpenseSchema = SchemaFactory.createForClass(Expense);

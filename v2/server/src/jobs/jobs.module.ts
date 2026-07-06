@@ -1,23 +1,23 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { CustomersService } from './customers.service';
-import { CustomersController } from './customers.controller';
+import { JobsService } from './jobs.service';
+import { JobsController } from './jobs.controller';
+import { Job, JobSchema } from '../schemas/job.schema';
 import { Customer, CustomerSchema } from '../schemas/customer.schema';
-import { WalletTransaction, WalletTransactionSchema } from '../schemas/wallet-transaction.schema';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
+      { name: Job.name, schema: JobSchema },
       { name: Customer.name, schema: CustomerSchema },
-      { name: WalletTransaction.name, schema: WalletTransactionSchema },
     ]),
     AuthModule,
     NotificationsModule,
   ],
-  controllers: [CustomersController],
-  providers: [CustomersService],
-  exports: [CustomersService],
+  controllers: [JobsController],
+  providers: [JobsService],
+  exports: [JobsService],
 })
-export class CustomersModule {}
+export class JobsModule {}

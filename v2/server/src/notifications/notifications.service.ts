@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Bill } from '../schemas/bill.schema';
 import { Inventory } from '../schemas/inventory.schema';
 import { Customer } from '../schemas/customer.schema';
+import { Notification } from '../schemas/notification.schema';
 
 @Injectable()
 export class NotificationsService {
@@ -11,7 +12,29 @@ export class NotificationsService {
     @InjectModel(Bill.name) private readonly billModel: Model<Bill>,
     @InjectModel(Inventory.name) private readonly inventoryModel: Model<Inventory>,
     @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
+    @InjectModel(Notification.name) private readonly notificationModel: Model<Notification>,
   ) {}
+
+  async createNotification(
+    businessId: string,
+    customerId: string,
+    type: 'job_status' | 'wallet_alert',
+    message: string,
+  ): Promise<Notification> {
+    const bId = new Types.ObjectId(businessId);
+    const cId = new Types.ObjectId(customerId);
+    const customer = await this.customerModel.findById(cId).exec();
+    const customerName = customer ? customer.name : 'Valued Client';
+
+    const notif = new this.notificationModel({
+      businessId: bId,
+      customerId: cId,
+      customerName,
+      type,
+      message,
+    });
+    return notif.save();
+  }
 
   async getNotifications(businessId: string) {
     const notifications = [];
@@ -69,6 +92,25 @@ export class NotificationsService {
         });
       }
     }
+
+    // 3. Fetch database notifications
+    const dbNotifs = await this.notificationModel
+      .find({ businessId: bId, deleted: { $ne: true } })
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .lean()
+      .exec();
+
+    dbNotifs.forEach((dn) => {
+      notifications.push({
+        id: `db-${dn._id.toString()}`,
+        title: dn.type === 'job_status' ? 'Print Production Alert' : 'Wallet & Loyalty Alert',
+        message: `${dn.customerName}: ${dn.message}`,
+        type: dn.type === 'job_status' ? 'success' : 'warning',
+        read: dn.read || false,
+        date: dn.createdAt.toISOString().slice(0, 10),
+      });
+    });
 
     return notifications;
   }

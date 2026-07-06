@@ -8,6 +8,7 @@ import { Model, Types } from 'mongoose';
 import { Bill } from '../schemas/bill.schema';
 import { Customer } from '../schemas/customer.schema';
 import { Payment } from '../schemas/payment.schema';
+import { WalletTransaction } from '../schemas/wallet-transaction.schema';
 
 export class CreateBillItem {
   name!: string;
@@ -54,12 +55,17 @@ export class CreateGroupInvoiceDto {
   members!: CreateGroupInvoiceMemberDto[];
 }
 
+import { WalletTransaction } from '../schemas/wallet-transaction.schema';
+import { JobsService } from '../jobs/jobs.service';
+
 @Injectable()
 export class BillingService {
   constructor(
     @InjectModel(Bill.name) private readonly billModel: Model<Bill>,
     @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
     @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
+    @InjectModel(WalletTransaction.name) private readonly walletTransactionModel: Model<WalletTransaction>,
+    private readonly jobsService: JobsService,
   ) {}
 
   async getInvoices(businessId: string): Promise<Bill[]> {
@@ -233,6 +239,18 @@ export class BillingService {
     });
     const savedBill = await bill.save();
 
+    if (advanceUsed > 0) {
+      const transaction = new this.walletTransactionModel({
+        businessId: bId,
+        customerId: cId,
+        amount: -advanceUsed,
+        type: 'purchase',
+        referenceId: savedBill._id,
+        notes: `Paid invoice ${billNo} using wallet balance`,
+      });
+      await transaction.save();
+    }
+
     // 6. Create Payment Record if amountPaid > 0
     if (amountPaid > 0) {
       const pCount = await this.paymentModel
@@ -253,6 +271,11 @@ export class BillingService {
         notes: `Initial payment for invoice ${billNo}`,
       });
       await payment.save();
+    // 7. Auto-create Production Job tracking card
+    try {
+      await this.jobsService.createJobFromBill(businessId, savedBill);
+    } catch (e) {
+      console.error('Failed to create job tracking card:', e);
     }
 
     return savedBill;

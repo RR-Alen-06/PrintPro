@@ -154,4 +154,82 @@ export class AccountingService {
       },
     };
   }
+
+  async getGstReport(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<any> {
+    const bId = new Types.ObjectId(businessId);
+    const dateFilter: Record<string, string> = {};
+    if (startDate) {
+      dateFilter['$gte'] = startDate;
+    }
+    if (endDate) {
+      dateFilter['$lte'] = endDate;
+    }
+
+    const queryFilter: Record<string, any> = {
+      businessId: bId,
+      deleted: { $ne: true },
+    };
+    if (startDate || endDate) {
+      queryFilter['date'] = dateFilter;
+    }
+
+    const bills = await this.billModel.find(queryFilter).exec();
+
+    const rateGroups: Record<
+      number,
+      { taxableAmount: number; gstAmount: number }
+    > = {};
+    let totalTaxable = 0;
+    let totalGst = 0;
+
+    bills.forEach((bill) => {
+      // Exclude group parent bills (which are aggregates)
+      if (bill.isGroupParent) return;
+
+      const items = bill.items || [];
+      items.forEach((item) => {
+        const rate = Number(item.gstRate || 0);
+        const netSub = Number(item.netSubtotal || 0);
+        const lineGst = Number(item.lineGst || 0);
+
+        if (!rateGroups[rate]) {
+          rateGroups[rate] = { taxableAmount: 0, gstAmount: 0 };
+        }
+        rateGroups[rate].taxableAmount = Number(
+          (rateGroups[rate].taxableAmount + netSub).toFixed(2),
+        );
+        rateGroups[rate].gstAmount = Number(
+          (rateGroups[rate].gstAmount + lineGst).toFixed(2),
+        );
+
+        totalTaxable = Number((totalTaxable + netSub).toFixed(2));
+        totalGst = Number((totalGst + lineGst).toFixed(2));
+      });
+    });
+
+    const rates = Object.keys(rateGroups).map((r) => {
+      const rateNum = Number(r);
+      return {
+        rate: rateNum,
+        taxableAmount: rateGroups[rateNum].taxableAmount,
+        gstAmount: rateGroups[rateNum].gstAmount,
+        total: Number(
+          (
+            rateGroups[rateNum].taxableAmount + rateGroups[rateNum].gstAmount
+          ).toFixed(2),
+        ),
+      };
+    });
+
+    return {
+      rates,
+      totalTaxable,
+      totalGst,
+      grandTotal: Number((totalTaxable + totalGst).toFixed(2)),
+    };
+  }
 }
