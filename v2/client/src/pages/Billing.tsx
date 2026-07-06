@@ -59,6 +59,13 @@ export default function Billing() {
     queryFn: () => apiRequest<Customer[]>('/customers'),
   });
 
+  const { data: settings } = useQuery<any>({
+    queryKey: ['settings'],
+    queryFn: () => apiRequest<any>('/settings'),
+  });
+
+  const defaultGstRate = settings?.gstRate ?? 18;
+
   const { data: invoices = [] } = useQuery<Invoice[]>({
     queryKey: ['invoices'],
     queryFn: () => apiRequest<Invoice[]>('/billing/invoices'),
@@ -82,7 +89,7 @@ export default function Billing() {
 
   const resetBillingForm = () => {
     setCustomerId('');
-    setItems([{ name: 'A4 Printing', qty: 10, unitPrice: 5, discountValue: 0, discountType: 'flat', gstRate: 18 }]);
+    setItems([{ name: 'A4 Printing', qty: 10, unitPrice: 5, discountValue: 0, discountType: 'flat', gstRate: defaultGstRate }]);
     setDiscountValue(0);
     setAmountPaid(0);
     setCashPaid(0);
@@ -91,7 +98,7 @@ export default function Billing() {
   };
 
   const addItemRow = () => {
-    setItems([...items, { name: '', qty: 1, unitPrice: 0, discountValue: 0, discountType: 'flat', gstRate: 18 }]);
+    setItems([...items, { name: '', qty: 1, unitPrice: 0, discountValue: 0, discountType: 'flat', gstRate: defaultGstRate }]);
   };
 
   const removeItemRow = (index: number) => {

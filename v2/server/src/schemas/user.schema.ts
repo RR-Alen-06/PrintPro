@@ -6,8 +6,11 @@ export class User extends Document {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
-  passwordHash: string;
+  @Prop({ required: false })
+  passwordHash?: string;
+
+  @Prop({ required: false, unique: true, sparse: true })
+  supabaseId?: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Business', required: true })
   businessId: Types.ObjectId;

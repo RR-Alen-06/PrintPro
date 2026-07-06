@@ -29,7 +29,7 @@ export default function GroupBilling() {
 
   // Shared print job items
   const [items, setItems] = useState<{ name: string; qty: number; unitPrice: number; gstRate: number }[]>([
-    { name: '', qty: 1, unitPrice: 0, gstRate: 0 }
+    { name: 'A4 Printing', qty: 10, unitPrice: 5, gstRate: 18 }
   ]);
 
   // Group members
@@ -42,7 +42,12 @@ export default function GroupBilling() {
     queryFn: () => apiRequest<Customer[]>('/customers'),
   });
 
+  const { data: settings } = useQuery<any>({
+    queryKey: ['settings'],
+    queryFn: () => apiRequest<any>('/settings'),
+  });
 
+  const defaultGstRate = settings?.gstRate ?? 18;
 
   const groupMutation = useMutation({
     mutationFn: (payload: any) =>
@@ -61,12 +66,12 @@ export default function GroupBilling() {
   });
 
   const resetPage = () => {
-    setItems([{ name: '', qty: 1, unitPrice: 0, gstRate: 0 }]);
+    setItems([{ name: 'A4 Printing', qty: 10, unitPrice: 5, gstRate: defaultGstRate }]);
     setMembers([{ id: 'm-1', customerId: '', discountValue: 0, discountType: 'flat', useAdvance: false, cashPaid: 0, upiPaid: 0 }]);
   };
 
   const handleAddItemRow = () => {
-    setItems([...items, { name: '', qty: 1, unitPrice: 0, gstRate: 0 }]);
+    setItems([...items, { name: '', qty: 1, unitPrice: 0, gstRate: defaultGstRate }]);
   };
 
   const handleRemoveItemRow = (idx: number) => {

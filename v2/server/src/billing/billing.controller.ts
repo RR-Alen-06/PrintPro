@@ -13,6 +13,8 @@ import {
   CreateGroupInvoiceDto,
 } from './billing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 interface AuthenticatedRequest {
   user: {
@@ -24,7 +26,7 @@ interface AuthenticatedRequest {
 }
 
 @Controller('api/billing')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
@@ -83,12 +85,14 @@ export class BillingController {
   }
 
   @Post('invoices/:id/restore')
+  @Roles('owner', 'manager')
   restoreBill(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const businessId = req.user.businessId;
     return this.billingService.restoreBill(businessId, id);
   }
 
   @Post('invoices/:id/delete') // Or DELETE 'invoices/:id'
+  @Roles('owner', 'manager')
   softDeleteBill(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const businessId = req.user.businessId;
     return this.billingService.softDeleteBill(businessId, id);

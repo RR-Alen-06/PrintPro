@@ -2,6 +2,8 @@ import { Controller, Get, Put, Body, UseGuards, Request } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Settings } from '../schemas/settings.schema';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 interface AuthenticatedRequest {
   user: {
@@ -13,7 +15,7 @@ interface AuthenticatedRequest {
 }
 
 @Controller('api/settings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
@@ -24,6 +26,7 @@ export class SettingsController {
   }
 
   @Put()
+  @Roles('owner', 'manager')
   updateSettings(
     @Request() req: AuthenticatedRequest,
     @Body() body: Partial<Settings>,

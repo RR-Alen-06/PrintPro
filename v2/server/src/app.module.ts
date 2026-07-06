@@ -29,6 +29,8 @@ import {
   RecurringBill,
   RecurringBillSchema,
 } from './schemas/recurring-bill.schema';
+import { DataManagementModule } from './data-management/data-management.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -69,6 +71,8 @@ import {
     AccountingModule,
     AnalyticsModule,
     RecurringBillsModule,
+    DataManagementModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
