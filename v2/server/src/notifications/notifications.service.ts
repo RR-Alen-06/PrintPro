@@ -53,7 +53,7 @@ export class NotificationsService {
       .lean()
       .exec();
 
-    // Attach customer names manually since no strict rel in Mongoose is defined with populate here
+    // Attach customer names manually
     for (const bill of overdueBills) {
       let customerName = 'Customer';
       if (bill.customerId) {
@@ -70,30 +70,7 @@ export class NotificationsService {
       });
     }
 
-    // 2. Fetch low stock items
-    const inventory = await this.inventoryModel
-      .find({ businessId: bId })
-      .lean()
-      .exec();
-
-    for (const item of inventory) {
-      // V2 Inventory items might not have lowStockAlert explicitly, but if they do:
-      const stock = item.currentStock || item.stock || 0;
-      const alertLevel = item.reorderLevel || 50;
-      
-      if (stock <= alertLevel) {
-        notifications.push({
-          id: `stock-${item._id.toString()}`,
-          title: `Low stock: ${item.name}`,
-          message: `Only ${stock} units left (alert threshold: ${alertLevel})`,
-          type: 'info',
-          read: false,
-          date: todayStr,
-        });
-      }
-    }
-
-    // 3. Fetch database notifications
+    // 2. Fetch database notifications
     const dbNotifs = await this.notificationModel
       .find({ businessId: bId, deleted: { $ne: true } })
       .sort({ createdAt: -1 })
@@ -101,14 +78,14 @@ export class NotificationsService {
       .lean()
       .exec();
 
-    dbNotifs.forEach((dn) => {
+    dbNotifs.forEach((dn: any) => {
       notifications.push({
         id: `db-${dn._id.toString()}`,
         title: dn.type === 'job_status' ? 'Print Production Alert' : 'Wallet & Loyalty Alert',
         message: `${dn.customerName}: ${dn.message}`,
         type: dn.type === 'job_status' ? 'success' : 'warning',
         read: dn.read || false,
-        date: dn.createdAt.toISOString().slice(0, 10),
+        date: dn.createdAt ? new Date(dn.createdAt).toISOString().slice(0, 10) : todayStr,
       });
     });
 

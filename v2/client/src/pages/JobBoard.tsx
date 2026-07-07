@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
-import { Trash2, AlertCircle, Clock, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Clock } from 'lucide-react';
 
 interface Job {
   _id: string;
@@ -35,16 +35,6 @@ export default function JobBoard() {
       apiRequest<Job>(`/jobs/${id}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiRequest<any>(`/jobs/${id}`, {
-        method: 'DELETE',
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });

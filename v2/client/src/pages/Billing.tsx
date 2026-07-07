@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
-import { Plus, Trash2, Save, FileText, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, CheckCircle, Printer } from 'lucide-react';
+import { generateDocumentPDF } from '../lib/pdfGenerator';
 
 interface Customer {
   _id: string;
@@ -449,13 +450,22 @@ export default function Billing() {
             <div key={inv._id} className="bg-[#0c0b11] border border-gray-800/60 rounded-xl p-4 space-y-2">
               <div className="flex justify-between items-start">
                 <span className="font-mono text-purple-400 font-bold text-xs">{inv.billNo}</span>
-                <span className={`px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full ${
-                  inv.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' :
-                  inv.status === 'partial' ? 'bg-amber-500/10 text-amber-400' :
-                  'bg-red-500/10 text-red-400'
-                }`}>
-                  {inv.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => generateDocumentPDF('invoice', inv)}
+                    className="p-1 bg-[#13121a] hover:bg-gray-800 border border-gray-800 rounded text-gray-400 hover:text-white transition-all cursor-pointer"
+                    title="Download PDF"
+                  >
+                    <Printer size={12} />
+                  </button>
+                  <span className={`px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full ${
+                    inv.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' :
+                    inv.status === 'partial' ? 'bg-amber-500/10 text-amber-400' :
+                    'bg-red-500/10 text-red-400'
+                  }`}>
+                    {inv.status}
+                  </span>
+                </div>
               </div>
               <div className="text-sm font-bold text-white truncate">{inv.customerName}</div>
               <div className="flex justify-between items-center text-xs text-gray-400 pt-1 border-t border-gray-800/20">

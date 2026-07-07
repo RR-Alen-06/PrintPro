@@ -75,6 +75,8 @@ export class CustomersService {
       throw new NotFoundException('Customer not found.');
     }
     return customer;
+  }
+
   async getWalletTransactions(businessId: string, customerId: string): Promise<WalletTransaction[]> {
     const bId = new Types.ObjectId(businessId);
     const cId = new Types.ObjectId(customerId);
