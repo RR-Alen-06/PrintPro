@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Trash2, FileText } from 'lucide-react';
+import { Trash2, FileText, Printer } from 'lucide-react';
 import { apiRequest } from '../api/apiClient';
 import type { Invoice } from './Billing';
 import type { Customer } from './Customers';
+import { generateDocumentPDF } from '../lib/pdfGenerator';
 
 export default function CustomerBills({ customerId, onBack }: { customerId?: string, onBack?: () => void }) {
   const queryClient = useQueryClient();
@@ -102,6 +103,13 @@ export default function CustomerBills({ customerId, onBack }: { customerId?: str
                       </td>
                       <td className="p-6 text-right">
                         <div className="flex justify-end gap-2.5">
+                          <button
+                            onClick={() => generateDocumentPDF('invoice', bill)}
+                            className="p-2 bg-gray-900 hover:bg-purple-500/15 hover:text-purple-400 border border-gray-800 rounded-lg transition-all cursor-pointer"
+                            title="Download PDF Invoice"
+                          >
+                            <Printer size={16} />
+                          </button>
                           <button
                             onClick={() => {
                               if (window.confirm(`Are you sure you want to soft delete ${bill.billNo}?`)) {

@@ -26,7 +26,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('sync')
-  sync(@Request() req, @Body() body: { shopName?: string; ownerName?: string }) {
+  sync(@Request() req: any, @Body() body: { shopName?: string; ownerName?: string }) {
     // req.user has the payload from JwtStrategy
     return this.authService.syncUser(req.user, body.shopName, body.ownerName);
   }

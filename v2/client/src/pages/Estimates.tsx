@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../api/apiClient';
-import { Plus, Trash2, Save, FileText, CheckCircle, FileUp } from 'lucide-react';
+import { Plus, Trash2, Save, CheckCircle, FileUp, Printer } from 'lucide-react';
 import type { Customer } from './Customers';
+import { generateDocumentPDF } from '../lib/pdfGenerator';
 
 interface EstimateItem {
   name: string;
@@ -63,7 +64,7 @@ export default function Estimates() {
 
   const defaultGstRate = settings?.gstRate ?? 18;
 
-  const { data: estimates = [], isLoading } = useQuery<Estimate[]>({
+  const { data: estimates = [] } = useQuery<Estimate[]>({
     queryKey: ['estimates'],
     queryFn: () => apiRequest<Estimate[]>('/estimates'),
   });
@@ -433,6 +434,13 @@ export default function Estimates() {
                             <FileUp size={14} /> Invoice Job
                           </button>
                         )}
+                        <button
+                          onClick={() => generateDocumentPDF('estimate', est)}
+                          className="p-2 bg-gray-900 hover:bg-purple-500/15 hover:text-purple-400 border border-gray-800 rounded-lg transition-all cursor-pointer"
+                          title="Download PDF Estimate"
+                        >
+                          <Printer size={15} />
+                        </button>
                         <button
                           onClick={() => {
                             if (window.confirm('Delete this estimate?')) {

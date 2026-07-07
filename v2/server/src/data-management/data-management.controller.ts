@@ -11,12 +11,12 @@ export class DataManagementController {
   constructor(private readonly dataManagementService: DataManagementService) {}
 
   @Get('export')
-  exportData(@Request() req) {
+  exportData(@Request() req: any) {
     return this.dataManagementService.exportData(req.user.businessId);
   }
 
   @Post('import')
-  importData(@Request() req, @Body() payload: any) {
+  importData(@Request() req: any, @Body() payload: any) {
     return this.dataManagementService.importData(req.user.businessId, payload);
   }
 }

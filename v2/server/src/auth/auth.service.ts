@@ -63,7 +63,7 @@ export class AuthService {
 
     const match = await bcrypt.compare(
       password || 'password123',
-      user.passwordHash,
+      user.passwordHash || '',
     );
     if (!match) {
       throw new UnauthorizedException('Invalid credentials.');
@@ -74,7 +74,7 @@ export class AuthService {
     const payload = {
       sub: user._id.toString(),
       email: user.email,
-      businessId: user.businessId.toString(),
+      businessId: user.businessId?.toString() || '',
       role: user.role,
     };
 
@@ -94,6 +94,8 @@ export class AuthService {
           }
         : null,
     };
+  }
+
   async syncUser(payload: any, shopName?: string, ownerName?: string) {
     const supabaseId = payload.userId; // We mapped this in JwtStrategy or from req.user
     const email = payload.email;
@@ -138,7 +140,7 @@ export class AuthService {
         id: user._id.toString(),
         email: user.email,
         role: user.role,
-        businessId: user.businessId.toString(),
+        businessId: user.businessId?.toString() || '',
       },
       business: business
         ? {

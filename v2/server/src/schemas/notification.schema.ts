@@ -23,6 +23,8 @@ export class Notification extends Document {
 
   @Prop({ required: false, default: false })
   deleted?: boolean;
+
+  createdAt?: Date;
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);

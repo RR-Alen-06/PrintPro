@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, AlertTriangle, Info, X } from 'lucide-react';
+import { Bell, AlertTriangle, Info } from 'lucide-react';
 import { apiRequest } from '../api/apiClient';
 
 interface Notification {

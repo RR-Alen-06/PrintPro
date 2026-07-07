@@ -55,7 +55,6 @@ export class CreateGroupInvoiceDto {
   members!: CreateGroupInvoiceMemberDto[];
 }
 
-import { WalletTransaction } from '../schemas/wallet-transaction.schema';
 import { JobsService } from '../jobs/jobs.service';
 
 @Injectable()
@@ -271,6 +270,8 @@ export class BillingService {
         notes: `Initial payment for invoice ${billNo}`,
       });
       await payment.save();
+    }
+
     // 7. Auto-create Production Job tracking card
     try {
       await this.jobsService.createJobFromBill(businessId, savedBill);
