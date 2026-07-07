@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
+import { clearUserData } from '../api/profile'
+
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, currentUser } = useAppContext()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -190,10 +192,14 @@ const Settings = () => {
   const handleClearData = () => {
     showConfirm(
       'Clear All Data',
-      'This permanently erases ALL data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
-      () => {
-        localStorage.removeItem('printpro-state')
-        window.location.reload()
+      'This permanently erases ALL data: bills, customers, payments, expenses, and settings from your cloud database. This cannot be undone. Are you absolutely sure?',
+      async () => {
+        try {
+          await clearUserData()
+          window.location.reload()
+        } catch (err) {
+          console.error('Failed to clear data:', err)
+        }
       }
     )
   }

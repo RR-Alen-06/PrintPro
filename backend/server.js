@@ -7,7 +7,7 @@ const os        = require('os');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { initializeDatabase } = require('./config/db');
+const { initializeDatabase, getPool } = require('./config/db');
 const logger        = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler  = require('./middleware/errorHandler');
@@ -72,7 +72,7 @@ app.use(sanitize);
 // Apply rate limiting to all API requests
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 5000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
