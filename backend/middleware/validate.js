@@ -104,7 +104,7 @@ const validateBill = [
   body('items')
     .isArray({ min: 1 })
     .withMessage('At least one item is required in the bill'),
-  body('items.*.name')
+  body('items.*.item_name')
     .trim()
     .notEmpty()
     .withMessage('Item name is required'),
@@ -120,9 +120,6 @@ const validateBill = [
   body('items.*.unit_price')
     .isFloat({ min: 0 })
     .withMessage('Unit price must be a positive number'),
-  body('items.*.amount')
-    .isFloat({ min: 0 })
-    .withMessage('Item total amount must be a positive number'),
   handleValidationErrors,
 ];
 
