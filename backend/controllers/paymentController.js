@@ -217,9 +217,25 @@ async function listAllPayments(req, res, next) {
   }
 }
 
+// DELETE /:id - Delete a payment
+async function deletePayment(req, res, next) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const [result] = await pool.query('DELETE FROM payments WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, error: 'Payment not found' });
+    }
+    res.json({ success: true, message: 'Payment deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getPaymentsForBill,
   recordPayment,
   getPaymentsByCustomer,
-  listAllPayments
+  listAllPayments,
+  deletePayment
 };

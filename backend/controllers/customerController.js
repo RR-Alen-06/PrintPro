@@ -70,7 +70,7 @@ async function getCustomer(req, res, next) {
 async function createCustomer(req, res, next) {
   try {
     const pool = getPool();
-    const { type, name, phone, email, address, credit_limit } = req.body;
+    const { type, name, phone, email, address, credit_limit, credit_balance } = req.body;
 
     if (!type || !name) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
@@ -96,9 +96,9 @@ async function createCustomer(req, res, next) {
     }
 
     await pool.query(
-      `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [customerId, req.user.id, type, name, phone || '', email || '', address || '', credit_limit || 0]
+      `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit, credit_balance)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [customerId, req.user.id, type, name, phone || '', email || '', address || '', credit_limit || 0, credit_balance || 0]
     );
 
     // Audit log
