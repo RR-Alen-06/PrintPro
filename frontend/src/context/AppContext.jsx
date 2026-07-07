@@ -302,29 +302,48 @@ const baseReducer = (state, action) => {
     }
     case 'SYNC_CLOUD_DATA': {
       const { bills, customers, payments, inventory, expenses, business } = action.payload
-      
-      const mergeById = (localArr, cloudArr) => {
-        if (!cloudArr || cloudArr.length === 0) return localArr || [];
-        const cloudMap = new Map(cloudArr.map(item => [item.id, item]));
-        const merged = [...cloudArr];
+      const pending = action.pendingSyncs
+
+      const mergeSafe = (localArr, cloudArr) => {
+        if (!cloudArr) return localArr || [];
+        const cloudMap = new Map(cloudArr.map(item => [String(item.id), item]));
+        const localMap = new Map((localArr || []).map(item => [String(item.id), item]));
         
+        const merged = [];
+        
+        // 1. Process cloud items (database is source of truth unless locally dirty/pending sync)
+        cloudArr.forEach(cloudItem => {
+          const itemIdStr = String(cloudItem.id);
+          if (pending && pending.has(itemIdStr)) {
+            const localItem = localMap.get(itemIdStr);
+            merged.push(localItem || cloudItem);
+          } else {
+            merged.push(cloudItem);
+          }
+        });
+        
+        // 2. Process local items not in cloud (keep them if they are pending sync, otherwise they were deleted)
         if (localArr) {
-          localArr.forEach(item => {
-            if (!cloudMap.has(item.id)) {
-              merged.push(item);
+          localArr.forEach(localItem => {
+            const itemIdStr = String(localItem.id);
+            if (!cloudMap.has(itemIdStr)) {
+              if (pending && pending.has(itemIdStr)) {
+                merged.push(localItem);
+              }
             }
           });
         }
+        
         return merged;
       };
 
       return {
         ...state,
-        bills: mergeById(state.bills, bills),
-        customers: mergeById(state.customers, customers),
-        payments: mergeById(state.payments, payments),
-        inventory: mergeById(state.inventory, inventory),
-        expenses: mergeById(state.expenses, expenses),
+        bills: mergeSafe(state.bills, bills),
+        customers: mergeSafe(state.customers, customers),
+        payments: mergeSafe(state.payments, payments),
+        inventory: mergeSafe(state.inventory, inventory),
+        expenses: mergeSafe(state.expenses, expenses),
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -711,17 +730,57 @@ const calcLoyaltyPoints = (total, tiers) => {
 
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
+  const pendingSyncs = useRef(new Set())
 
   const dispatch = (action) => {
     rawDispatch(action)
+
+    let entityId = null
+    if (action.payload && (action.payload.id || typeof action.payload === 'string' || typeof action.payload === 'number')) {
+      entityId = action.payload.id || action.payload
+    }
+
+    if (action.type.startsWith('ADD_') || action.type.startsWith('UPDATE_') || action.type.startsWith('DELETE_') || action.type === 'RESTORE_BILL') {
+      if (entityId) {
+        pendingSyncs.current.add(String(entityId))
+      }
+    }
+
     // Synchronously fire the background sync, logging success and displaying errors to the user
     syncEntityToCloud(action.type, action.payload)
-      .then(() => {
+      .then((res) => {
         console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
+        
+        // Handle ID reconciliation for serial/autoincrement database IDs
+        if (res?.data?.data?.id) {
+          const dbId = res.data.data.id
+          const tempId = action.payload?.id
+          if (tempId && dbId !== tempId) {
+            let entityType = null
+            if (action.type === 'ADD_INVENTORY_ITEM') entityType = 'inventory'
+            if (action.type === 'ADD_PAYMENT') entityType = 'payments'
+            if (action.type === 'ADD_EXPENSE') entityType = 'expenses'
+            
+            if (entityType) {
+              rawDispatch({
+                type: 'UPDATE_ENTITY_ID',
+                payload: { entityType, tempId, dbId }
+              })
+            }
+          }
+        }
       })
       .catch((err) => {
         console.error(`Sync error: Database write failed for action ${action.type}`, err)
         showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
+      })
+      .finally(() => {
+        if (entityId) {
+          // Allow real-time web socket reload event to propagate and finish, then clear pending state
+          setTimeout(() => {
+            pendingSyncs.current.delete(String(entityId))
+          }, 1500)
+        }
       })
   }
 
@@ -919,7 +978,8 @@ export const AppProvider = ({ children }) => {
             inventory: mappedInventory,
             expenses: mappedExpenses,
             business: mappedBusiness
-          }
+          },
+          pendingSyncs: pendingSyncs.current
         })
       } catch (error) {
         console.error('Failed to sync state from cloud:', error)
