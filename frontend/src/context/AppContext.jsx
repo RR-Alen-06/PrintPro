@@ -942,20 +942,60 @@ export const AppProvider = ({ children }) => {
       window.addEventListener('focus', syncFromCloud)
       window.addEventListener('visibilitychange', handleSyncTrigger)
 
-      // 4. Enable Realtime Postgres Subscription for change events
+      // 4. Enable Realtime Postgres Subscription for change events on individual tables
       realtimeChannel = supabase
         .channel('realtime-db-sync')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public' },
+          { event: '*', schema: 'public', table: 'business_profile' },
           (payload) => {
-            console.log('Real-time database sync triggered: change detected on', payload.table)
-            syncFromCloud()
+            console.log('Real-time sync: change detected on business_profile', payload);
+            syncFromCloud();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'customers' },
+          (payload) => {
+            console.log('Real-time sync: change detected on customers', payload);
+            syncFromCloud();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'inventory_items' },
+          (payload) => {
+            console.log('Real-time sync: change detected on inventory_items', payload);
+            syncFromCloud();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'bills' },
+          (payload) => {
+            console.log('Real-time sync: change detected on bills', payload);
+            syncFromCloud();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'payments' },
+          (payload) => {
+            console.log('Real-time sync: change detected on payments', payload);
+            syncFromCloud();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'purchases' },
+          (payload) => {
+            console.log('Real-time sync: change detected on purchases', payload);
+            syncFromCloud();
           }
         )
         .subscribe((status) => {
-          console.log(`Supabase Realtime channel status: ${status}`)
-        })
+          console.log(`Supabase Realtime channel status: ${status}`);
+        });
 
       return () => {
         if (intervalId) clearInterval(intervalId)
