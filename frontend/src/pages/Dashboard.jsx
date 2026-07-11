@@ -106,21 +106,62 @@ const Dashboard = () => {
 
   const totalCashInflow = useMemo(() => {
     const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
-    // Only count payments where actual cash/UPI was collected (exclude FIFO from advance deposits)
-    const pInflow = (payments || [])
-      .filter((p) => !p.isRefund && p.paymentType !== 'refund'
-        && !(p.notes && p.notes.includes('from advance deposit'))
-        && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
-        && !deletedBillIds.has(String(p.billId))
-        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
-      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    // Count advance deposits using their actual cash+UPI (not the total amount which may differ)
+    const billMap = new Map((bills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    
+    const billPaymentsMap = new Map()
+    let unlinkedCashTotal = 0
+    let unlinkedUpiTotal = 0
+
+    const validPayments = (payments || []).filter((p) => 
+      !p.isRefund && p.paymentType !== 'refund' 
+      && !(p.notes && p.notes.includes('from advance deposit'))
+      && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+      && !deletedBillIds.has(String(p.billId))
+      && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0
+    )
+
+    validPayments.forEach(p => {
+      const bId = String(p.billId || '')
+      const cash = Number(p.cashAmount || 0)
+      const upi = Number(p.upiAmount || 0)
+      const total = cash + upi
+      if (bId && billMap.has(bId)) {
+        if (!billPaymentsMap.has(bId)) {
+          billPaymentsMap.set(bId, { cash: 0, upi: 0, total: 0 })
+        }
+        const curr = billPaymentsMap.get(bId)
+        curr.cash += cash
+        curr.upi += upi
+        curr.total += total
+      } else {
+        unlinkedCashTotal += cash
+        unlinkedUpiTotal += upi
+      }
+    })
+
+    let pInflowCash = unlinkedCashTotal
+    let pInflowUpi = unlinkedUpiTotal
+
+    billPaymentsMap.forEach((pData, bId) => {
+      const billTotal = billMap.get(bId)
+      if (pData.total > billTotal && billTotal > 0) {
+        const ratio = billTotal / pData.total
+        pInflowCash += Number((pData.cash * ratio).toFixed(2))
+        pInflowUpi += Number((pData.upi * ratio).toFixed(2))
+      } else {
+        pInflowCash += pData.cash
+        pInflowUpi += pData.upi
+      }
+    })
+
+    const pInflow = pInflowCash + pInflowUpi
+
+    // Count advance deposits EXCLUDING excess credits (already handled or capped in pInflow)
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => {
         const cash = Number(ap.cashAmount || 0)
         const upi = Number(ap.upiAmount || 0)
-        // If cash+upi breakdown is available, use it; otherwise fall back to amount
         return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
       }, 0)
     return pInflow + advInflow
