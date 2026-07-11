@@ -21,6 +21,13 @@ CREATE TABLE business_profile (
   gstin VARCHAR(20) DEFAULT '',
   logo_path VARCHAR(255) DEFAULT '',
   upi_id VARCHAR(100) DEFAULT '',
+  settings JSONB DEFAULT '{}'::jsonb,
+  id_counters JSONB DEFAULT '{}'::jsonb,
+  advance_payments JSONB DEFAULT '[]'::jsonb,
+  recurring_bills JSONB DEFAULT '[]'::jsonb,
+  customer_groups JSONB DEFAULT '[]'::jsonb,
+  group_bills JSONB DEFAULT '[]'::jsonb,
+  deleted_payments JSONB DEFAULT '[]'::jsonb,
   PRIMARY KEY (id, user_id),
   CONSTRAINT unique_user_profile UNIQUE (user_id)
 );
@@ -220,3 +227,24 @@ CREATE POLICY "Users can manage their own purchases" ON purchases
 
 CREATE POLICY "Users can manage their own audit logs" ON audit_log
   FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── Enable Realtime Replication ──────────────────────────────────────────────
+-- Add public tables to the supabase_realtime publication to enable broadcast events
+ALTER PUBLICATION supabase_realtime ADD TABLE 
+  business_profile, 
+  customers, 
+  inventory_items, 
+  bills, 
+  bill_items, 
+  payments, 
+  purchases, 
+  audit_log;
+
+-- ── Grant Table Permissions to Supabase Roles ────────────────────────────────
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, anon, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, anon, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, anon, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated, anon, service_role;
+
+
