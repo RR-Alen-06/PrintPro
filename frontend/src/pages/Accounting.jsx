@@ -71,10 +71,12 @@ const Accounting = () => {
       .reduce((sum, c) => sum + Number(c.advanceBalance !== undefined ? c.advanceBalance : (c.creditBalance || 0)), 0)
 
     // Cash inflow from positive incoming payments and deposits
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
     const pInflow = (payments || [])
       .filter((p) => !p.notes?.includes('from advance deposit')
         && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
         && !p.isRefund && p.paymentType !== 'refund'
+        && !deletedBillIds.has(String(p.billId))
         && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const advInflow = (advancePayments || [])

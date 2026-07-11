@@ -44,7 +44,10 @@ const Dashboard = () => {
       && !(p.notes && p.notes.includes('from advance deposit'))
       && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
       && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
-    const pInflow = fyPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
+    const pInflow = fyPayments
+      .filter(p => !deletedBillIds.has(String(p.billId)))
+      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
     const advInflow = fyAdvances.reduce((sum, ap) => {
       const cash = Number(ap.cashAmount || 0)
@@ -85,11 +88,13 @@ const Dashboard = () => {
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
   const totalCashInflow = useMemo(() => {
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
     // Only count payments where actual cash/UPI was collected (exclude FIFO from advance deposits)
     const pInflow = (payments || [])
       .filter((p) => !p.isRefund && p.paymentType !== 'refund'
         && !(p.notes && p.notes.includes('from advance deposit'))
         && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+        && !deletedBillIds.has(String(p.billId))
         && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     // Count advance deposits using their actual cash+UPI (not the total amount which may differ)

@@ -30,37 +30,21 @@ export default function Auth() {
     setError('');
 
     try {
-      let sessionToken = '';
-
       if (isLogin) {
-        const { data, error: supaError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+        const response = await apiRequest<AuthResponse>('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
         });
-        if (supaError) throw supaError;
-        if (!data.session) throw new Error('No session returned');
-        sessionToken = data.session.access_token;
+        setAuth(response.accessToken, response.user, response.business);
       } else {
-        const { data, error: supaError } = await supabase.auth.signUp({
-          email,
-          password,
+        const response = await apiRequest<AuthResponse>('/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, shopName, ownerName }),
         });
-        if (supaError) throw supaError;
-        if (!data.session) throw new Error('No session returned. Check your email to verify.');
-        sessionToken = data.session.access_token;
+        setAuth(response.accessToken, response.user, response.business);
       }
-
-      // Sync with our backend to get role and business data
-      const response = await apiRequest<AuthResponse>('/auth/sync', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sessionToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ shopName, ownerName }), // Optional, for initial registration
-      });
-      
-      setAuth(sessionToken, response.user, response.business);
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please try again.');
     } finally {

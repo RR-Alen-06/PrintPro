@@ -90,9 +90,10 @@ const PeriodReport = () => {
     const cashExpenses = periodExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiExpenses = periodExpenses.reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    // Cash inflow from positive incoming payments and deposits
+    // pInflow from all period payments (refund payments have negative cashAmount that reduces sum naturally)
+    const deletedBillIds = new Set(bills.filter(b => b.deleted).map(b => String(b.id)))
     const pInflow = normalPayments
-      .filter((p) => !p.notes?.includes('from advance deposit') && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
+      .filter((p) => !p.notes?.includes('from advance deposit') && !deletedBillIds.has(String(p.billId)) && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0) > 0))
       .reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const totalCashInflow = pInflow + advanceCollected
     const netCashFlow = totalCashInflow - totalExpenses
