@@ -303,36 +303,43 @@ const baseReducer = (state, action) => {
     case 'SYNC_CLOUD_DATA': {
       const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
 
-      const mergeById = (localArr, cloudArr) => {
-        if (!cloudArr) cloudArr = []
-        const cloudMap = new Map(cloudArr.map(item => [String(item.id), item]))
-        const merged = [...cloudArr]
-        
-        if (localArr) {
-          localArr.forEach(item => {
-            const localIdStr = String(item.id)
-            // If it's a local unsynced item (e.g. BILL001) and not in cloud, keep it.
-            // If it's a UUID (synced item) and NOT in the cloud, it was deleted in the cloud, so do NOT keep it.
-            const isUnsyncedLocal = !localIdStr.includes('-')
-            
-            if (!cloudMap.has(localIdStr) && isUnsyncedLocal) {
-              merged.push(item)
-            }
-          })
-        }
-        return merged
+      // Deduplicate arrays by unique ID and remove identical exact duplicate payment entries caused by earlier sync loops
+      const dedupe = (arr) => {
+        if (!arr) return []
+        const seenIds = new Set()
+        return arr.filter(item => {
+          const idKey = String(item.id)
+          if (seenIds.has(idKey)) return false
+          seenIds.add(idKey)
+          return true
+        })
       }
 
-      // FIX: Replace state directly with cloud data. Do NOT merge.
-      // Merging local IDs (PAY001) with cloud UUIDs caused double-counting in accounting.
+      const dedupePayments = (arr) => {
+        if (!arr) return []
+        const seenIds = new Set()
+        const seenDuplicateKey = new Set()
+        return arr.filter(p => {
+          const idKey = String(p.id)
+          if (seenIds.has(idKey)) return false
+          seenIds.add(idKey)
+          
+          // Deduplicate exact same payment (same bill, customer, amount, type, date exact minute) from auto-upload storm
+          const dupKey = `${p.billId}_${p.customerId}_${p.totalPaid}_${String(p.date || '').slice(0, 16)}_${p.paymentType}`
+          if (seenDuplicateKey.has(dupKey)) return false
+          seenDuplicateKey.add(dupKey)
+          return true
+        })
+      }
+
       return {
         ...state,
-        bills: bills || state.bills,
-        customers: customers || state.customers,
-        payments: payments || state.payments,
-        inventory: inventory || state.inventory,
-        expenses: expenses || state.expenses,
-        advancePayments: advancePayments && advancePayments.length > 0 ? advancePayments : state.advancePayments,
+        bills: dedupe(bills) || state.bills,
+        customers: dedupe(customers) || state.customers,
+        payments: dedupePayments(payments) || state.payments,
+        inventory: dedupe(inventory) || state.inventory,
+        expenses: dedupe(expenses) || state.expenses,
+        advancePayments: advancePayments && advancePayments.length > 0 ? dedupe(advancePayments) : state.advancePayments,
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -842,176 +849,91 @@ export const AppProvider = ({ children }) => {
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
 
-        // === AUTO-UPLOAD OFFLINE RECORDS ===
-        // If a local record has no UUID (meaning it hasn't reached the cloud yet) and is missing from the cloud fetch, upload it now.
-        if (state.customers && state.customers.length > 0) {
-          const cloudCustIds = new Set(fetchedCustomers.map(c => String(c.id)))
-          state.customers.forEach(localCust => {
-            const localIdStr = String(localCust.id)
-            if (!localIdStr.includes('-') && !localCust.deleted && !cloudCustIds.has(localIdStr)) {
-              console.log('Auto-syncing offline customer:', localCust.id)
-              syncEntityToCloud('ADD_CUSTOMER', localCust).catch(console.error)
-            }
-          })
-        }
-
-        if (state.bills && state.bills.length > 0) {
-          const cloudBillIds = new Set(fetchedBills.map(b => String(b.id)))
-          state.bills.forEach(localBill => {
-            const localIdStr = String(localBill.id)
-            if (!localIdStr.includes('-') && !localBill.deleted && !cloudBillIds.has(localIdStr)) {
-              console.log('Auto-syncing offline bill:', localBill.id)
-              syncEntityToCloud('ADD_BILL', localBill).catch(console.error)
-            }
-          })
-        }
-
-        if (state.payments && state.payments.length > 0) {
-          const cloudPaymentIds = new Set(fetchedPayments.map(p => String(p.id)))
-          state.payments.forEach(localPay => {
-            const localIdStr = String(localPay.id)
-            if (!localIdStr.includes('-') && !cloudPaymentIds.has(localIdStr)) {
-              console.log('Auto-syncing offline payment:', localPay.id)
-              syncEntityToCloud('ADD_PAYMENT', localPay).catch(console.error)
-            }
-          })
-        }
-
-        if (state.expenses && state.expenses.length > 0) {
-          const cloudExpenseIds = new Set(fetchedPurchases.map(e => String(e.id)))
-          state.expenses.forEach(localExp => {
-            const localIdStr = String(localExp.id)
-            if (!localIdStr.includes('-') && !cloudExpenseIds.has(localIdStr)) {
-              console.log('Auto-syncing offline expense:', localExp.id)
-              syncEntityToCloud('ADD_EXPENSE', localExp).catch(console.error)
-            }
-          })
-        }
-
-        if (state.inventory && state.inventory.length > 0) {
-          const cloudInvIds = new Set(fetchedInventory.map(i => String(i.id)))
-          state.inventory.forEach(localInv => {
-            const localIdStr = String(localInv.id)
-            if (!localIdStr.includes('-') && !cloudInvIds.has(localIdStr)) {
-              console.log('Auto-syncing offline inventory item:', localInv.name)
-              syncEntityToCloud('ADD_INVENTORY_ITEM', localInv).catch(console.error)
-            }
-          })
-        }
-        // === END AUTO-UPLOAD ===
-
-        // === ONE-TIME MIGRATION: Upload local data to database (runs once per device) ===
+        // Guard: If the cloud database already has existing customers, bills, or payments, migration has already occurred.
+        // We immediately mark migration as done on this device/session so old local storage never re-uploads or duplicates.
         const migrationDone = localStorage.getItem('printpro-migration-v2-done')
         if (!migrationDone) {
-          console.log('=== ONE-TIME MIGRATION: Uploading local data to database ===')
-          const migrationErrors = []
+          if (fetchedCustomers.length > 0 || fetchedBills.length > 0 || fetchedPayments.length > 0) {
+            console.log('=== Cloud database already contains live data. Marking migration as done to prevent duplicates. ===')
+            localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
+          } else if ((state.customers && state.customers.length > 0) || (state.bills && state.bills.length > 0)) {
+            console.log('=== ONE-TIME MIGRATION: Uploading local data to blank database ===')
+            const migrationErrors = []
 
-          // Migrate local customers
-          if (state.customers && state.customers.length > 0) {
-            const cloudCustIds = new Set(fetchedCustomers.map(c => String(c.id)))
-            for (const localCust of state.customers) {
-              if (!localCust.deleted && !cloudCustIds.has(String(localCust.id))) {
-                try {
-                  console.log('Migrating customer:', localCust.id, localCust.name)
-                  await syncEntityToCloud('ADD_CUSTOMER', localCust)
-                } catch (err) {
-                  console.error('Failed to migrate customer:', localCust.id, err)
-                  migrationErrors.push(`Customer ${localCust.name}: ${err.message}`)
+            if (state.customers && state.customers.length > 0) {
+              for (const localCust of state.customers) {
+                if (!localCust.deleted) {
+                  try {
+                    await syncEntityToCloud('ADD_CUSTOMER', localCust)
+                  } catch (err) {
+                    migrationErrors.push(`Customer ${localCust.name}: ${err.message}`)
+                  }
                 }
               }
             }
-          }
 
-          // Migrate local bills
-          if (state.bills && state.bills.length > 0) {
-            const cloudBillIds = new Set(fetchedBills.map(b => String(b.id)))
-            for (const localBill of state.bills) {
-              if (!localBill.deleted && !cloudBillIds.has(String(localBill.id))) {
-                try {
-                  console.log('Migrating bill:', localBill.id)
-                  await syncEntityToCloud('ADD_BILL', localBill)
-                } catch (err) {
-                  console.error('Failed to migrate bill:', localBill.id, err)
-                  migrationErrors.push(`Bill ${localBill.id}: ${err.message}`)
+            if (state.bills && state.bills.length > 0) {
+              for (const localBill of state.bills) {
+                if (!localBill.deleted) {
+                  try {
+                    await syncEntityToCloud('ADD_BILL', localBill)
+                  } catch (err) {
+                    migrationErrors.push(`Bill ${localBill.id}: ${err.message}`)
+                  }
                 }
               }
             }
-          }
 
-          // Migrate local payments
-          if (state.payments && state.payments.length > 0) {
-            const cloudPayIds = new Set(fetchedPayments.map(p => String(p.id)))
-            for (const localPay of state.payments) {
-              if (!cloudPayIds.has(String(localPay.id))) {
+            if (state.payments && state.payments.length > 0) {
+              for (const localPay of state.payments) {
                 try {
-                  console.log('Migrating payment:', localPay.id)
                   await syncEntityToCloud('ADD_PAYMENT', localPay)
                 } catch (err) {
-                  console.error('Failed to migrate payment:', localPay.id, err)
                   migrationErrors.push(`Payment ${localPay.id}: ${err.message}`)
                 }
               }
             }
-          }
 
-          // Migrate local expenses
-          if (state.expenses && state.expenses.length > 0) {
-            const cloudExpIds = new Set(fetchedPurchases.map(e => String(e.id)))
-            for (const localExp of state.expenses) {
-              if (!cloudExpIds.has(String(localExp.id))) {
+            if (state.expenses && state.expenses.length > 0) {
+              for (const localExp of state.expenses) {
                 try {
-                  console.log('Migrating expense:', localExp.id)
                   await syncEntityToCloud('ADD_EXPENSE', localExp)
                 } catch (err) {
-                  console.error('Failed to migrate expense:', localExp.id, err)
                   migrationErrors.push(`Expense ${localExp.id}: ${err.message}`)
                 }
               }
             }
-          }
 
-          // Migrate local inventory
-          if (state.inventory && state.inventory.length > 0) {
-            const cloudInvIds = new Set(fetchedInventory.map(i => String(i.id || i.name)))
-            for (const localInv of state.inventory) {
-              if (!cloudInvIds.has(String(localInv.id || localInv.name))) {
+            if (state.inventory && state.inventory.length > 0) {
+              for (const localInv of state.inventory) {
                 try {
-                  console.log('Migrating inventory:', localInv.name)
                   await syncEntityToCloud('ADD_INVENTORY_ITEM', localInv)
                 } catch (err) {
-                  console.error('Failed to migrate inventory:', localInv.name, err)
                   migrationErrors.push(`Inventory ${localInv.name}: ${err.message}`)
                 }
               }
             }
+
+            localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
+            console.log('=== MIGRATION COMPLETE ===', migrationErrors.length > 0 ? `Errors: ${migrationErrors.length}` : 'Success')
+
+            const [billsRes2, customersRes2, paymentsRes2, inventoryRes2, purchasesRes2] = await Promise.all([
+              getBills(), getCustomers(), getPayments(), getItems(), getPurchases()
+            ])
+            fetchedBills.length = 0
+            fetchedBills.push(...(billsRes2.data?.data || []))
+            fetchedCustomers.length = 0
+            fetchedCustomers.push(...(customersRes2.data?.data || []))
+            fetchedPayments.length = 0
+            fetchedPayments.push(...(paymentsRes2.data?.data || []))
+            fetchedInventory.length = 0
+            fetchedInventory.push(...(inventoryRes2.data?.data || []))
+            fetchedPurchases.length = 0
+            fetchedPurchases.push(...(purchasesRes2.data?.data || []))
+          } else {
+            localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
           }
-
-          // Mark migration as done on this device
-          localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
-          console.log('=== MIGRATION COMPLETE ===', migrationErrors.length > 0 ? `Errors: ${migrationErrors.length}` : 'All data uploaded successfully')
-
-          if (migrationErrors.length > 0) {
-            showToast(`Migration completed with ${migrationErrors.length} error(s). Check console for details.`, 'error')
-          } else if (state.customers?.length > 0 || state.bills?.length > 0) {
-            showToast('Local data migrated to cloud successfully!', 'success')
-          }
-
-          // Re-fetch after migration so we get the updated database state
-          const [billsRes2, customersRes2, paymentsRes2, inventoryRes2, purchasesRes2] = await Promise.all([
-            getBills(), getCustomers(), getPayments(), getItems(), getPurchases()
-          ])
-          fetchedBills.length = 0
-          fetchedBills.push(...(billsRes2.data?.data || []))
-          fetchedCustomers.length = 0
-          fetchedCustomers.push(...(customersRes2.data?.data || []))
-          fetchedPayments.length = 0
-          fetchedPayments.push(...(paymentsRes2.data?.data || []))
-          fetchedInventory.length = 0
-          fetchedInventory.push(...(inventoryRes2.data?.data || []))
-          fetchedPurchases.length = 0
-          fetchedPurchases.push(...(purchasesRes2.data?.data || []))
         }
-        // === END ONE-TIME MIGRATION ===
 
         const mappedCustomers = fetchedCustomers.map(c => ({
           id: c.id,
