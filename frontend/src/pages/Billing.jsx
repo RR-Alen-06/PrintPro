@@ -1419,7 +1419,7 @@ const Billing = () => {
           onCreateNew={() => setLastBillId(null)}
         />
       ) : (
-        <form className="card" onSubmit={handleSubmit}>
+        <form className="card" onSubmit={handleSubmit} autoComplete="off">
         <div className="bill-view-header">
           <div>
             {isEditing ? (

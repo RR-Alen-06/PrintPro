@@ -607,7 +607,7 @@ const CustomerBills = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveChanges}>
+            <form onSubmit={handleSaveChanges} autoComplete="off">
               <div className="modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
                 {duplicateWarning && (
                   <div style={{

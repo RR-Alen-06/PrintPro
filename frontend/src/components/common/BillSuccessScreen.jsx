@@ -304,7 +304,7 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
             </div>
           )}
 
-          <form onSubmit={handleRecordSuccessPayment} style={{
+          <form onSubmit={handleRecordSuccessPayment} autoComplete="off" style={{
             display: 'flex',
             gap: '12px',
             alignItems: 'flex-end',
