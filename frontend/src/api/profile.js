@@ -1,5 +1,28 @@
-import api from './index'
+import { supabase, logSupabaseError } from '../lib/supabase'
 
-export const getProfile = () => api.get('/profile')
+export const getProfile = async () => {
+  const { data, error } = await supabase
+    .from('business_profile')
+    .select('*')
+    .single();
 
-export const updateProfile = (data) => api.put('/profile', data)
+  if (error) {
+    logSupabaseError('business_profile', 'SELECT_ONE', {}, error);
+    throw error;
+  }
+  return { data: { data } };
+}
+
+export const updateProfile = async (data) => {
+  const { data: updated, error } = await supabase
+    .from('business_profile')
+    .update(data)
+    .select()
+    .single();
+
+  if (error) {
+    logSupabaseError('business_profile', 'UPDATE', data, error);
+    throw error;
+  }
+  return { data: { data: updated } };
+}
