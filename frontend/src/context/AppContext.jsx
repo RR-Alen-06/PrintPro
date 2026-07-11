@@ -816,11 +816,7 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   // Fetch all business manager data from database when user is authenticated, and keep it in sync periodically
-  useEffect(() => {
-    let intervalId = null
-    let realtimeChannel = null
-
-    const syncFromCloud = async () => {
+  const syncFromCloud = async () => {
       if (!state.currentUser) return
       try {
         const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
@@ -1121,6 +1117,11 @@ export const AppProvider = ({ children }) => {
         showToast(`Failed to sync state from cloud: ${error.message || 'Network error'}`, 'error')
       }
     }
+  }
+
+  useEffect(() => {
+    let intervalId = null
+    let realtimeChannel = null
 
     if (state.currentUser) {
       // 1. Fetch immediately on login/auth change
@@ -1335,6 +1336,37 @@ export const AppProvider = ({ children }) => {
         notes: data.notes || 'Advance returned to customer',
         createdAt: new Date().toISOString(),
         isReturn: true
+      },
+    })
+    return id
+  }
+
+  const processRefund = (data) => {
+    const counterKey = 'ADV'
+    const currentCount = state.idCounters?.[counterKey] || 0
+    const nextCount = currentCount + 1
+    const id = `ADV${String(nextCount).padStart(3, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    const amt = Number(data.amount) // Positive value
+    const cash = Number(data.cashAmount || 0)
+    const upi = Number(data.upiAmount || 0)
+
+    dispatch({
+      type: 'RETURN_ADVANCE_PAYMENT',
+      payload: {
+        id,
+        customerId: data.customerId,
+        customerName: data.customerName || '',
+        amount: -amt, // Negative to represent return in history
+        cashAmount: -cash,
+        upiAmount: -upi,
+        date: data.date || new Date().toISOString().slice(0, 10),
+        paymentMethod: data.paymentMethod || 'cash',
+        notes: data.notes || 'Refund processed',
+        createdAt: new Date().toISOString(),
+        isRefundCredit: true, // Tagged explicitly as refund
+        isReturn: false // Explicitly not a return to separate the logic if needed
       },
     })
     return id
@@ -2406,11 +2438,13 @@ export const AppProvider = ({ children }) => {
       addBill,
       addAdvancePayment,
       returnAdvancePayment,
+      processRefund,
       addCustomer,
       recordPayment,
       addInventoryItem,
       addExpense,
       deleteExpense,
+      syncFromCloud,
       signInWithGoogle,
       signInWithGitHub,
       updateBill,
