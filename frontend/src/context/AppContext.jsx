@@ -949,11 +949,13 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }))
 
-        const mappedBills = fetchedBills.map(b => ({
-          id: b.id,
-          customerId: b.customer_id,
-          customerName: b.customer_name || '',
-          date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+        const mappedBills = fetchedBills.map(b => {
+          const cust = mappedCustomers.find(c => String(c.id) === String(b.customer_id))
+          return {
+            id: b.id,
+            customerId: b.customer_id,
+            customerName: cust?.name || b.customer_name || 'Walk-in Customer',
+            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
           dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
           subtotal: Number(b.subtotal || 0),
           discountType: b.discount_type || 'flat',
@@ -974,7 +976,8 @@ export const AppProvider = ({ children }) => {
             unitPrice: Number(item.unit_price || 0),
             amount: Number(item.amount || 0)
           }))
-        }))
+        }
+      })
 
         const mappedPayments = fetchedPayments.map(p => ({
           id: p.id,
