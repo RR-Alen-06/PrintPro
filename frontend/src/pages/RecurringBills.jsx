@@ -79,7 +79,7 @@ const RecurringBills = () => {
         <div className="card" style={{ marginBottom: '24px' }}>
           <h2>Add Recurring Bill</h2>
 
-          <form onSubmit={handleSubmit} style={{ marginTop: '16px' }}>
+          <form onSubmit={handleSubmit} autoComplete="off" style={{ marginTop: '16px' }}>
             <div className="grid-2" style={{ gap: '16px' }}>
               <div className="form-group">
                 <label className="form-label">Customer</label>

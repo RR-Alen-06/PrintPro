@@ -51,16 +51,16 @@ const CustomerLedger = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
   const [ledgerPeriod, setLedgerPeriod] = useState('all')
   
-  const [payCash, setPayCash] = useState(0)
-  const [payUpi, setPayUpi] = useState(0)
+  const [payCash, setPayCash] = useState('')
+  const [payUpi, setPayUpi] = useState('')
   const [returnChange, setReturnChange] = useState(false)
   const [paySuccess, setPaySuccess] = useState(false)
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
 
   // Refund State
   const [showRefundModal, setShowRefundModal] = useState(false)
-  const [refundCash, setRefundCash] = useState(0)
-  const [refundUpi, setRefundUpi] = useState(0)
+  const [refundCash, setRefundCash] = useState('')
+  const [refundUpi, setRefundUpi] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
 
   const copyUpiLink = (link) => {
@@ -124,8 +124,8 @@ const CustomerLedger = () => {
       returnChangeUpi: returnChange ? Math.max(0, (cash + upi) - outstanding) : 0
     })
 
-    setPayCash(0)
-    setPayUpi(0)
+    setPayCash('')
+    setPayUpi('')
     setReturnChange(false)
     setPaySuccess(true)
     setTimeout(() => setPaySuccess(false), 3500)
@@ -153,8 +153,8 @@ const CustomerLedger = () => {
       notes: refundNotes || 'Refund from credit balance'
     })
 
-    setRefundCash(0)
-    setRefundUpi(0)
+    setRefundCash('')
+    setRefundUpi('')
     setRefundNotes('')
     setShowRefundModal(false)
     showToast('Refund processed successfully', 'success')
@@ -805,8 +805,8 @@ const CustomerLedger = () => {
                   className="btn btn-secondary"
                   onClick={() => {
                     setShowRefundModal(false)
-                    setRefundCash(0)
-                    setRefundUpi(0)
+                    setRefundCash('')
+                    setRefundUpi('')
                   }}
                   style={{ flex: 1 }}
                 >

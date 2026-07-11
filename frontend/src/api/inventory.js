@@ -26,11 +26,11 @@ export const createItem = async (data) => {
   };
   const { data: inserted, error } = await supabase
     .from('inventory_items')
-    .insert([insertData])
+    .upsert([insertData])
     .select()
     .single();
   if (error) {
-    logSupabaseError('inventory_items', 'INSERT', insertData, error);
+    logSupabaseError('inventory_items', 'UPSERT', insertData, error);
     throw error;
   }
   return { data: { data: inserted } };

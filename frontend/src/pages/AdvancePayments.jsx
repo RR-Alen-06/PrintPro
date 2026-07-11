@@ -234,7 +234,7 @@ const AdvancePayments = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} autoComplete="off">
             {/* Customer selection/mode toggle */}
             <div className="form-group">
               <label className="form-label">Customer</label>
