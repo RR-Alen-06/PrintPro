@@ -978,6 +978,7 @@ export const AppProvider = ({ children }) => {
         })
       } catch (error) {
         console.error('Failed to sync state from cloud:', error)
+        showToast(`Failed to sync state from cloud: ${error.message || 'Network error'}`, 'error')
       }
     }
 
