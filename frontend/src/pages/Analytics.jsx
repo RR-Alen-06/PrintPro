@@ -76,15 +76,57 @@ const Analytics = () => {
   }, [customers])
 
   const totalCashInflow = useMemo(() => {
-    const pInflow = filteredPayments
-      .filter((p) => !p.isRefund && p.paymentType !== 'refund'
-        && !p.notes?.includes('from advance deposit')
-        && !p.notes?.includes('FIFO payment')
-        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
-      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const billMap = new Map((filteredBills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    
+    const billPaymentsMap = new Map()
+    let unlinkedCashTotal = 0
+    let unlinkedUpiTotal = 0
+
+    const validPayments = (filteredPayments || []).filter((p) => 
+      !p.isRefund && p.paymentType !== 'refund' 
+      && !p.notes?.includes('from advance deposit') 
+      && !p.notes?.includes('FIFO payment')
+      && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0
+    )
+
+    validPayments.forEach(p => {
+      const bId = String(p.billId || '')
+      const cash = Number(p.cashAmount || 0)
+      const upi = Number(p.upiAmount || 0)
+      const total = cash + upi
+      if (bId && billMap.has(bId)) {
+        if (!billPaymentsMap.has(bId)) {
+          billPaymentsMap.set(bId, { cash: 0, upi: 0, total: 0 })
+        }
+        const curr = billPaymentsMap.get(bId)
+        curr.cash += cash
+        curr.upi += upi
+        curr.total += total
+      } else {
+        unlinkedCashTotal += cash
+        unlinkedUpiTotal += upi
+      }
+    })
+
+    let pInflowCash = unlinkedCashTotal
+    let pInflowUpi = unlinkedUpiTotal
+
+    billPaymentsMap.forEach((pData, bId) => {
+      const billTotal = billMap.get(bId)
+      if (pData.total > billTotal && billTotal > 0) {
+        const ratio = billTotal / pData.total
+        pInflowCash += Number((pData.cash * ratio).toFixed(2))
+        pInflowUpi += Number((pData.upi * ratio).toFixed(2))
+      } else {
+        pInflowCash += pData.cash
+        pInflowUpi += pData.upi
+      }
+    })
+
+    const pInflow = pInflowCash + pInflowUpi
       
     const advInflow = filteredAdvPayments
-      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => {
         const cash = Number(ap.cashAmount || 0)
         const upi = Number(ap.upiAmount || 0)
@@ -92,7 +134,7 @@ const Analytics = () => {
       }, 0)
       
     return pInflow + advInflow
-  }, [filteredPayments, filteredAdvPayments])
+  }, [filteredPayments, filteredAdvPayments, filteredBills])
 
   const salesSummary = useMemo(() => {
     const totalRevenue = filteredBills.reduce((sum, bill) => sum + Number(bill.total || 0), 0)
