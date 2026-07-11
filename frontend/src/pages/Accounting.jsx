@@ -26,9 +26,9 @@ const Accounting = () => {
     const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
     const refundPaymentsList = (payments || []).filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
 
-    // Realized Revenue = sum of amountPaid on active bills
-    // After the ADD_PAYMENT refund fix, bill.amountPaid is already net of refunds.
-    const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+    // Net Revenue = sum of total on active bills
+    // (We use b.total so it represents invoiced revenue, matching Dashboard logic)
+    const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.total || 0), 0)
 
     // Total refund outflow
     const totalRefundOutflow = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
@@ -42,17 +42,29 @@ const Accounting = () => {
       .filter((c) => !c.deleted)
       .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
 
-    // Cash inflow from payments (refund payments have negative cashAmount, naturally reduces sum)
+    // Cash inflow from payments (exclude FIFO advance transfers)
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.isRefund && p.paymentType !== 'refund' 
+        && !p.notes?.includes('from advance deposit') 
+        && !p.notes?.includes('FIFO payment')
+        && !deletedBillIds.has(String(p.billId))
+        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    // Advance inflow EXCLUDING refund-credit advance deposits (those are internal transfers)
+      
+    // Advance inflow EXCLUDING refund-credit advance deposits and advance returns
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
-      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .reduce((sum, ap) => {
+        const cash = Number(ap.cashAmount || 0)
+        const upi = Number(ap.upiAmount || 0)
+        return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+      }, 0)
+      
     const totalCashInflow = pInflow + advInflow
 
-    const netCashFlow = totalCashInflow - totalExpenses
+    // Net Cash Flow = Total Inflow - Expenses - Refunds
+    const netCashFlow = totalCashInflow - totalExpenses - totalRefundOutflow
     const pendingReceivables = activeBills
       .filter((b) => b.status !== 'paid')
       .reduce((s, b) => s + Number(b.balance || 0), 0)
