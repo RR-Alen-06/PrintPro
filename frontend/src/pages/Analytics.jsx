@@ -77,9 +77,20 @@ const Analytics = () => {
 
   const totalCashInflow = useMemo(() => {
     const pInflow = filteredPayments
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.isRefund && p.paymentType !== 'refund'
+        && !p.notes?.includes('from advance deposit')
+        && !p.notes?.includes('FIFO payment')
+        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const advInflow = filteredAdvPayments.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      
+    const advInflow = filteredAdvPayments
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .reduce((sum, ap) => {
+        const cash = Number(ap.cashAmount || 0)
+        const upi = Number(ap.upiAmount || 0)
+        return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+      }, 0)
+      
     return pInflow + advInflow
   }, [filteredPayments, filteredAdvPayments])
 
@@ -318,8 +329,8 @@ const Analytics = () => {
 
   const refundOutflows = useMemo(() => {
     const billRefunds = filteredPayments
-      .filter((p) => p.totalPaid < 0 || p.isRefund)
-      .reduce((sum, p) => sum + Number(p.totalPaid || 0), 0)
+      .filter((p) => p.totalPaid < 0 || p.isRefund || p.paymentType === 'refund')
+      .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
     
     const advReturns = filteredAdvPayments
       .filter((ap) => ap.amount < 0 || ap.isReturn)

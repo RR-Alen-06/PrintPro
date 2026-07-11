@@ -1644,24 +1644,22 @@ export const AppProvider = ({ children }) => {
     }
 
     const excess = R_cash + R_upi
-    if (excess > 0 && paymentRecords.length > 0) {
-      const lastRec = paymentRecords[paymentRecords.length - 1]
-      lastRec.excessCredit = excess
-      lastRec.cashAmount += R_cash
-      lastRec.upiAmount += R_upi
-    } else if (excess > 0) {
-      const _payIdxExcess2 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-      paymentRecords.push({
-        id: `PAY${String(_payIdxExcess2).padStart(4, '0')}`,
-        billId: paymentData.billId || 'General',
-        customerId: paymentData.customerId,
-        date: new Date().toISOString(),
-        cashAmount: R_cash,
-        upiAmount: R_upi,
-        totalPaid: 0,
-        paymentType: 'full',
-        excessCredit: excess,
-        notes: 'Advance deposit via payment',
+    if (excess > 0) {
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: paymentData.customerId,
+          amount: excess,
+          date: new Date().toISOString(),
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          paymentMode: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
+          notes: paymentData.notes || 'Excess payment converted to advance deposit'
+        }
       })
     }
 
@@ -1734,12 +1732,12 @@ export const AppProvider = ({ children }) => {
       },
     })
 
-    const _specPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+    const _payIdx = (state.idCounters?.PAY || 0) + 1
     dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
     dispatch({
       type: 'ADD_PAYMENT',
       payload: {
-        id: _specPayId,
+        id: `PAY${String(_payIdx).padStart(4, '0')}`,
         billId,
         customerId,
         date: new Date().toISOString(),
@@ -1747,10 +1745,32 @@ export const AppProvider = ({ children }) => {
         upiAmount: applyUpi,
         totalPaid: applyAmt,
         paymentType: newStatus === 'paid' ? 'full' : 'partial',
-        excessCredit: excessAmt > 0 ? excessAmt : 0,
+        excessCredit: 0,
         notes: paymentData.notes || `Targeted payment for bill ${billId}`,
       },
     })
+    
+    if (excessAmt > 0) {
+      const excessCash = cash > 0 ? (applyCash < cash ? cash - applyCash : 0) : 0
+      const excessUpi = upi > 0 ? (applyUpi < upi ? upi - applyUpi : 0) : 0
+      
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: customerId,
+          amount: excessAmt,
+          date: new Date().toISOString(),
+          cashAmount: excessCash,
+          upiAmount: excessUpi,
+          paymentMode: excessCash > 0 && excessUpi > 0 ? 'split' : (excessUpi > 0 ? 'upi' : 'cash'),
+          notes: 'Excess targeted payment converted to advance deposit'
+        }
+      })
+    }
   }
 
   // ── Add Group Bill (creates individual bills + a group record) ──────────────
@@ -2293,24 +2313,22 @@ export const AppProvider = ({ children }) => {
         dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
       }
 
-      if (excess > 0 && paymentRecords.length > 0) {
-        const lastRec = paymentRecords[paymentRecords.length - 1]
-        lastRec.excessCredit = excess
-        lastRec.cashAmount += R_cash
-        lastRec.upiAmount += R_upi
-      } else if (excess > 0) {
-        const _editExcessIdx = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-        paymentRecords.push({
-          id: `PAY${String(_editExcessIdx).padStart(4, '0')}`,
-          billId: billId,
-          customerId: newBillData.customerId,
-          date: new Date().toISOString(),
-          cashAmount: R_cash,
-          upiAmount: R_upi,
-          totalPaid: 0,
-          paymentType: 'full',
-          excessCredit: excess,
-          notes: 'Excess payment from edit added to credit',
+      if (excess > 0) {
+        const nextCount = (state.idCounters?.ADV || 0) + 1
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+        const advId = `ADV${String(nextCount).padStart(3, '0')}`
+        dispatch({
+          type: 'ADD_ADVANCE_PAYMENT',
+          payload: {
+            id: advId,
+            customerId: newBillData.customerId,
+            amount: excess,
+            date: new Date().toISOString(),
+            cashAmount: R_cash,
+            upiAmount: R_upi,
+            paymentMode: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
+            notes: 'Excess payment from edit converted to advance deposit'
+          }
         })
       }
 
