@@ -337,7 +337,7 @@ const baseReducer = (state, action) => {
         bills: mergeSafe(state.bills, bills),
         customers: mergeSafe(state.customers, customers),
         payments: mergeSafe(state.payments, payments),
-        inventory: inventory || [],
+        inventory: mergeSafe(state.inventory, inventory),
         expenses: mergeSafe(state.expenses, expenses),
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
         settings: settings && Object.keys(settings).length > 0 ? { ...state.settings, ...settings } : state.settings,
