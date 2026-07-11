@@ -420,6 +420,12 @@ const baseReducer = (state, action) => {
         inventory: state.inventory.map((item) => (item.id === action.payload.id ? { ...item, ...action.payload.updates } : item)),
       }
     }
+    case 'REMOVE_INVENTORY_ITEM': {
+      return {
+        ...state,
+        inventory: state.inventory.filter((item) => item.id !== action.payload),
+      }
+    }
     case 'MARK_NOTIFICATION_READ': {
       return {
         ...state,
@@ -935,6 +941,7 @@ export const AppProvider = ({ children }) => {
           email: c.email || '',
           address: c.address || '',
           creditBalance: Number(c.credit_balance || 0),
+          advanceBalance: Number(c.credit_balance || 0),
           creditLimit: Number(c.credit_limit || 0),
           loyaltyPoints: Number(c.loyalty_points || 0),
           createdAt: c.created_at || new Date().toISOString()
@@ -1885,6 +1892,10 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...pricingData } })
   }
 
+  const removeInventoryItem = (id) => {
+    dispatch({ type: 'REMOVE_INVENTORY_ITEM', payload: id })
+  }
+
   const addExpense = (expenseData) => {
     const id = generateSeqId(state, 'EXP')
     dispatch({ type: 'INCREMENT_COUNTER', payload: 'EXP' })
@@ -2316,6 +2327,7 @@ export const AppProvider = ({ children }) => {
       deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
       restoreCustomer: (id) => dispatch({ type: 'RESTORE_CUSTOMER', payload: id }),
       updateInventoryItem: (id, updates) => dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id, updates } }),
+      removeInventoryItem,
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),
