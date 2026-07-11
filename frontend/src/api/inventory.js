@@ -82,3 +82,5 @@ export const getLowStock = async () => {
   const filtered = data.filter(i => (i.stock || 0) <= (i.low_stock_alert || 50));
   return { data: { data: filtered } };
 }
+
+
