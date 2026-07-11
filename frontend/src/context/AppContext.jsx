@@ -827,6 +827,61 @@ export const AppProvider = ({ children }) => {
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
 
+        // Auto-upload local state records that are missing in the cloud database to prevent data loss
+        if (state.customers && state.customers.length > 0) {
+          const cloudCustIds = new Set(fetchedCustomers.map(c => String(c.id)));
+          state.customers.forEach(localCust => {
+            if (!localCust.deleted && !cloudCustIds.has(String(localCust.id))) {
+              console.log('Auto-syncing local customer to database:', localCust.id, localCust.name);
+              syncEntityToCloud('ADD_CUSTOMER', localCust).catch(err => console.error('Failed to auto-sync customer:', err));
+            }
+          });
+        }
+
+        if (state.bills && state.bills.length > 0) {
+          const cloudBillIds = new Set(fetchedBills.map(b => String(b.id)));
+          state.bills.forEach(localBill => {
+            if (!localBill.deleted && !cloudBillIds.has(String(localBill.id))) {
+              console.log('Auto-syncing local bill to database:', localBill.id);
+              syncEntityToCloud('ADD_BILL', localBill).catch(err => console.error('Failed to auto-sync bill:', err));
+            }
+          });
+        }
+
+        if (state.payments && state.payments.length > 0) {
+          const cloudPaymentIds = new Set(fetchedPayments.map(p => String(p.id)));
+          state.payments.forEach(localPay => {
+            const localIdStr = String(localPay.id);
+            const isReconciled = !isNaN(localIdStr);
+            if (!isReconciled || !cloudPaymentIds.has(localIdStr)) {
+              console.log('Auto-syncing local payment to database:', localPay.id);
+              syncEntityToCloud('ADD_PAYMENT', localPay).catch(err => console.error('Failed to auto-sync payment:', err));
+            }
+          });
+        }
+
+        if (state.expenses && state.expenses.length > 0) {
+          const cloudExpenseIds = new Set(fetchedPurchases.map(e => String(e.id)));
+          state.expenses.forEach(localExp => {
+            const localIdStr = String(localExp.id);
+            const isReconciled = !isNaN(localIdStr);
+            if (!isReconciled || !cloudExpenseIds.has(localIdStr)) {
+              console.log('Auto-syncing local expense to database:', localExp.id);
+              syncEntityToCloud('ADD_EXPENSE', localExp).catch(err => console.error('Failed to auto-sync expense:', err));
+            }
+          });
+        }
+
+        if (state.inventory && state.inventory.length > 0) {
+          const cloudInvNames = new Set(fetchedInventory.map(i => String(i.name)));
+          state.inventory.forEach(localInv => {
+            if (!cloudInvNames.has(String(localInv.name))) {
+              console.log('Auto-syncing local inventory item to database:', localInv.name);
+              syncEntityToCloud('ADD_INVENTORY_ITEM', localInv).catch(err => console.error('Failed to auto-sync inventory item:', err));
+            }
+          });
+        }
+
         const mappedCustomers = fetchedCustomers.map(c => ({
           id: c.id,
           type: c.type || 'regular',
