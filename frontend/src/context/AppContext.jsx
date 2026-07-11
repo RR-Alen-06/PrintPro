@@ -301,7 +301,7 @@ const baseReducer = (state, action) => {
       }
     }
     case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, business } = action.payload
+      const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
 
       // Database is the single source of truth — cloud data fully replaces local state
       return {
@@ -311,6 +311,7 @@ const baseReducer = (state, action) => {
         payments: payments || [],
         inventory: inventory || [],
         expenses: expenses || [],
+        advancePayments: advancePayments || [],
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -1000,6 +1001,16 @@ export const AppProvider = ({ children }) => {
           notes: exp.notes || ''
         }))
 
+        const mappedAdvancePayments = (fetchedProfile.advance_payments || []).map(ap => ({
+          id: ap.id,
+          customerId: ap.customerId,
+          amount: Number(ap.amount || 0),
+          date: ap.date || new Date().toISOString(),
+          paymentMode: ap.paymentMode || 'cash',
+          notes: ap.notes || '',
+          isRefundCredit: !!ap.isRefundCredit
+        }))
+
         const mappedBusiness = {
           shopName: fetchedProfile.shop_name || '',
           ownerName: fetchedProfile.owner_name || '',
@@ -1017,6 +1028,7 @@ export const AppProvider = ({ children }) => {
             payments: mappedPayments,
             inventory: mappedInventory,
             expenses: mappedExpenses,
+            advancePayments: mappedAdvancePayments,
             business: mappedBusiness
           }
         })
