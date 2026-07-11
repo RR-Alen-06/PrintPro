@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
 
 const Accounting = () => {
-  const { bills, payments, expenses, advancePayments, customers, addExpense, deleteExpense, deletedPayments } = useAppContext()
+  const { bills, payments, expenses, advancePayments, customers, addExpense, deleteExpense, deletedPayments, syncFromCloud, showToast } = useAppContext()
 
   const today = new Date().toISOString().slice(0, 10)
   const [expForm, setExpForm] = useState({
@@ -215,11 +215,36 @@ const Accounting = () => {
     return [...(expenses || [])].sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [expenses])
 
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      await syncFromCloud()
+      showToast('Data synced successfully', 'success')
+    } catch (e) {
+      showToast('Failed to sync data', 'error')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Appended Features logic
+  const totalInflow = stats.cashCollected + stats.upiCollected
+  const cashPercent = totalInflow > 0 ? ((stats.cashCollected / totalInflow) * 100).toFixed(1) : 0
+  const upiPercent = totalInflow > 0 ? ((stats.upiCollected / totalInflow) * 100).toFixed(1) : 0
+  const taxLiability = (stats.realizedRevenue * 0.18).toFixed(2)
+
   return (
     <div>
-      <div className="page-header">
-        <h1>Accounting</h1>
-        <p>Track revenue, expenses, cash flow, and cash vs UPI breakdowns.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1>Accounting</h1>
+          <p>Track revenue, expenses, cash flow, and cash vs UPI breakdowns.</p>
+        </div>
+        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+        </button>
       </div>
 
       {/* Summary stats */}
@@ -396,7 +421,7 @@ const Accounting = () => {
       {/* Add Expense */}
       <div className="card" style={{ marginBottom: '24px' }}>
         <h2 style={{ marginBottom: '16px' }}>Add Expense</h2>
-        <form onSubmit={handleAddExpense}>
+        <form onSubmit={handleAddExpense} autoComplete="off">
           <div className="grid-2" style={{ gap: '16px' }}>
             <div className="form-group">
               <label className="form-label">Date</label>
@@ -579,6 +604,34 @@ const Accounting = () => {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Appended Feature: Payment Methods & Tax Estimate */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginTop: '24px' }}>
+        <div className="card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <Percent size={18} /> Payment Method Breakdown
+          </h3>
+          <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+            <span><Banknote size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }}/> Cash: {cashPercent}%</span>
+            <span><Smartphone size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }}/> UPI: {upiPercent}%</span>
+          </div>
+          <div style={{ height: '12px', background: 'var(--border)', borderRadius: '6px', overflow: 'hidden', display: 'flex' }}>
+            <div style={{ width: `${cashPercent}%`, background: 'var(--success)', transition: 'width 0.5s' }} />
+            <div style={{ width: `${upiPercent}%`, background: 'var(--accent)', transition: 'width 0.5s' }} />
+          </div>
+          <p style={{ marginTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Based on total inflows collected in the selected period.</p>
+        </div>
+
+        <div className="card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <Calculator size={18} /> Estimated Tax Liability
+          </h3>
+          <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--warning)', marginBottom: '8px' }}>
+            ₹{taxLiability}
+          </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Estimated GST (18%) based on realized revenue (₹{stats.realizedRevenue.toFixed(2)}) for the selected period.</p>
+        </div>
       </div>
     </div>
   )
