@@ -813,6 +813,118 @@ export const AppProvider = ({ children }) => {
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
 
+        // === ONE-TIME MIGRATION: Upload local data to database (runs once per device) ===
+        const migrationDone = localStorage.getItem('printpro-migration-v2-done')
+        if (!migrationDone) {
+          console.log('=== ONE-TIME MIGRATION: Uploading local data to database ===')
+          const migrationErrors = []
+
+          // Migrate local customers
+          if (state.customers && state.customers.length > 0) {
+            const cloudCustIds = new Set(fetchedCustomers.map(c => String(c.id)))
+            for (const localCust of state.customers) {
+              if (!localCust.deleted && !cloudCustIds.has(String(localCust.id))) {
+                try {
+                  console.log('Migrating customer:', localCust.id, localCust.name)
+                  await syncEntityToCloud('ADD_CUSTOMER', localCust)
+                } catch (err) {
+                  console.error('Failed to migrate customer:', localCust.id, err)
+                  migrationErrors.push(`Customer ${localCust.name}: ${err.message}`)
+                }
+              }
+            }
+          }
+
+          // Migrate local bills
+          if (state.bills && state.bills.length > 0) {
+            const cloudBillIds = new Set(fetchedBills.map(b => String(b.id)))
+            for (const localBill of state.bills) {
+              if (!localBill.deleted && !cloudBillIds.has(String(localBill.id))) {
+                try {
+                  console.log('Migrating bill:', localBill.id)
+                  await syncEntityToCloud('ADD_BILL', localBill)
+                } catch (err) {
+                  console.error('Failed to migrate bill:', localBill.id, err)
+                  migrationErrors.push(`Bill ${localBill.id}: ${err.message}`)
+                }
+              }
+            }
+          }
+
+          // Migrate local payments
+          if (state.payments && state.payments.length > 0) {
+            const cloudPayIds = new Set(fetchedPayments.map(p => String(p.id)))
+            for (const localPay of state.payments) {
+              if (!cloudPayIds.has(String(localPay.id))) {
+                try {
+                  console.log('Migrating payment:', localPay.id)
+                  await syncEntityToCloud('ADD_PAYMENT', localPay)
+                } catch (err) {
+                  console.error('Failed to migrate payment:', localPay.id, err)
+                  migrationErrors.push(`Payment ${localPay.id}: ${err.message}`)
+                }
+              }
+            }
+          }
+
+          // Migrate local expenses
+          if (state.expenses && state.expenses.length > 0) {
+            const cloudExpIds = new Set(fetchedPurchases.map(e => String(e.id)))
+            for (const localExp of state.expenses) {
+              if (!cloudExpIds.has(String(localExp.id))) {
+                try {
+                  console.log('Migrating expense:', localExp.id)
+                  await syncEntityToCloud('ADD_EXPENSE', localExp)
+                } catch (err) {
+                  console.error('Failed to migrate expense:', localExp.id, err)
+                  migrationErrors.push(`Expense ${localExp.id}: ${err.message}`)
+                }
+              }
+            }
+          }
+
+          // Migrate local inventory
+          if (state.inventory && state.inventory.length > 0) {
+            const cloudInvIds = new Set(fetchedInventory.map(i => String(i.id || i.name)))
+            for (const localInv of state.inventory) {
+              if (!cloudInvIds.has(String(localInv.id || localInv.name))) {
+                try {
+                  console.log('Migrating inventory:', localInv.name)
+                  await syncEntityToCloud('ADD_INVENTORY_ITEM', localInv)
+                } catch (err) {
+                  console.error('Failed to migrate inventory:', localInv.name, err)
+                  migrationErrors.push(`Inventory ${localInv.name}: ${err.message}`)
+                }
+              }
+            }
+          }
+
+          // Mark migration as done on this device
+          localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
+          console.log('=== MIGRATION COMPLETE ===', migrationErrors.length > 0 ? `Errors: ${migrationErrors.length}` : 'All data uploaded successfully')
+
+          if (migrationErrors.length > 0) {
+            showToast(`Migration completed with ${migrationErrors.length} error(s). Check console for details.`, 'error')
+          } else if (state.customers?.length > 0 || state.bills?.length > 0) {
+            showToast('Local data migrated to cloud successfully!', 'success')
+          }
+
+          // Re-fetch after migration so we get the updated database state
+          const [billsRes2, customersRes2, paymentsRes2, inventoryRes2, purchasesRes2] = await Promise.all([
+            getBills(), getCustomers(), getPayments(), getItems(), getPurchases()
+          ])
+          fetchedBills.length = 0
+          fetchedBills.push(...(billsRes2.data?.data || []))
+          fetchedCustomers.length = 0
+          fetchedCustomers.push(...(customersRes2.data?.data || []))
+          fetchedPayments.length = 0
+          fetchedPayments.push(...(paymentsRes2.data?.data || []))
+          fetchedInventory.length = 0
+          fetchedInventory.push(...(inventoryRes2.data?.data || []))
+          fetchedPurchases.length = 0
+          fetchedPurchases.push(...(purchasesRes2.data?.data || []))
+        }
+        // === END ONE-TIME MIGRATION ===
 
         const mappedCustomers = fetchedCustomers.map(c => ({
           id: c.id,
