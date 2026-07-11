@@ -247,3 +247,27 @@ export const syncEntityToCloud = async (action, payload) => {
     throw err;
   }
 };
+
+export const clearAllCloudData = async () => {
+  try {
+    // Delete payments first because they reference bills and customers
+    await supabase.from('payments').delete().neq('id', -1);
+    // Delete bill items next
+    await supabase.from('bill_items').delete().neq('id', -1);
+    // Delete bills next
+    await supabase.from('bills').delete().neq('id', -1);
+    // Delete purchases (expenses)
+    await supabase.from('purchases').delete().neq('id', -1);
+    // Delete inventory items
+    await supabase.from('inventory_items').delete().neq('id', -1);
+    // Delete customers
+    await supabase.from('customers').delete().neq('id', -1);
+    // Reset advance_payments and credit balance/limit inside business_profile
+    await supabase.from('business_profile').update({ advance_payments: [] }).neq('id', -1);
+    
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to clear cloud database data:', err);
+    throw err;
+  }
+};

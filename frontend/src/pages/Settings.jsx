@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
+import { clearAllCloudData } from '../lib/syncService'
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast } = useAppContext()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -190,10 +191,20 @@ const Settings = () => {
   const handleClearData = () => {
     showConfirm(
       'Clear All Data',
-      'This permanently erases ALL data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
-      () => {
-        localStorage.removeItem('printpro-state')
-        window.location.reload()
+      'This permanently erases ALL database and local data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
+      async () => {
+        showToast('Clearing all cloud database records...', 'info')
+        try {
+          await clearAllCloudData()
+          localStorage.removeItem('printpro-state')
+          showToast('All database and local data successfully cleared!', 'success')
+          setTimeout(() => {
+            window.location.reload()
+          }, 1000)
+        } catch (err) {
+          console.error(err)
+          showToast(`Failed to clear database data: ${err.message || err}`, 'error')
+        }
       }
     )
   }
