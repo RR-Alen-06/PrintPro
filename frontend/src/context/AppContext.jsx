@@ -303,15 +303,34 @@ const baseReducer = (state, action) => {
     case 'SYNC_CLOUD_DATA': {
       const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
 
-      // Database is the single source of truth — cloud data fully replaces local state
+      const mergeById = (localArr, cloudArr) => {
+        if (!cloudArr) cloudArr = []
+        const cloudMap = new Map(cloudArr.map(item => [String(item.id), item]))
+        const merged = [...cloudArr]
+        
+        if (localArr) {
+          localArr.forEach(item => {
+            const localIdStr = String(item.id)
+            // If it's a local unsynced item (e.g. BILL001) and not in cloud, keep it.
+            // If it's a UUID (synced item) and NOT in the cloud, it was deleted in the cloud, so do NOT keep it.
+            const isUnsyncedLocal = !localIdStr.includes('-')
+            
+            if (!cloudMap.has(localIdStr) && isUnsyncedLocal) {
+              merged.push(item)
+            }
+          })
+        }
+        return merged
+      }
+
       return {
         ...state,
-        bills: bills || [],
-        customers: customers || [],
-        payments: payments || [],
-        inventory: inventory || [],
-        expenses: expenses || [],
-        advancePayments: advancePayments || [],
+        bills: mergeById(state.bills, bills),
+        customers: mergeById(state.customers, customers),
+        payments: mergeById(state.payments, payments),
+        inventory: mergeById(state.inventory, inventory),
+        expenses: mergeById(state.expenses, expenses),
+        advancePayments: mergeById(state.advancePayments, advancePayments),
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -819,6 +838,64 @@ export const AppProvider = ({ children }) => {
         const fetchedInventory = inventoryRes.data?.data || []
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
+
+        // === AUTO-UPLOAD OFFLINE RECORDS ===
+        // If a local record has no UUID (meaning it hasn't reached the cloud yet) and is missing from the cloud fetch, upload it now.
+        if (state.customers && state.customers.length > 0) {
+          const cloudCustIds = new Set(fetchedCustomers.map(c => String(c.id)))
+          state.customers.forEach(localCust => {
+            const localIdStr = String(localCust.id)
+            if (!localIdStr.includes('-') && !localCust.deleted && !cloudCustIds.has(localIdStr)) {
+              console.log('Auto-syncing offline customer:', localCust.id)
+              syncEntityToCloud('ADD_CUSTOMER', localCust).catch(console.error)
+            }
+          })
+        }
+
+        if (state.bills && state.bills.length > 0) {
+          const cloudBillIds = new Set(fetchedBills.map(b => String(b.id)))
+          state.bills.forEach(localBill => {
+            const localIdStr = String(localBill.id)
+            if (!localIdStr.includes('-') && !localBill.deleted && !cloudBillIds.has(localIdStr)) {
+              console.log('Auto-syncing offline bill:', localBill.id)
+              syncEntityToCloud('ADD_BILL', localBill).catch(console.error)
+            }
+          })
+        }
+
+        if (state.payments && state.payments.length > 0) {
+          const cloudPaymentIds = new Set(fetchedPayments.map(p => String(p.id)))
+          state.payments.forEach(localPay => {
+            const localIdStr = String(localPay.id)
+            if (!localIdStr.includes('-') && !cloudPaymentIds.has(localIdStr)) {
+              console.log('Auto-syncing offline payment:', localPay.id)
+              syncEntityToCloud('ADD_PAYMENT', localPay).catch(console.error)
+            }
+          })
+        }
+
+        if (state.expenses && state.expenses.length > 0) {
+          const cloudExpenseIds = new Set(fetchedPurchases.map(e => String(e.id)))
+          state.expenses.forEach(localExp => {
+            const localIdStr = String(localExp.id)
+            if (!localIdStr.includes('-') && !cloudExpenseIds.has(localIdStr)) {
+              console.log('Auto-syncing offline expense:', localExp.id)
+              syncEntityToCloud('ADD_EXPENSE', localExp).catch(console.error)
+            }
+          })
+        }
+
+        if (state.inventory && state.inventory.length > 0) {
+          const cloudInvIds = new Set(fetchedInventory.map(i => String(i.id)))
+          state.inventory.forEach(localInv => {
+            const localIdStr = String(localInv.id)
+            if (!localIdStr.includes('-') && !cloudInvIds.has(localIdStr)) {
+              console.log('Auto-syncing offline inventory item:', localInv.name)
+              syncEntityToCloud('ADD_INVENTORY_ITEM', localInv).catch(console.error)
+            }
+          })
+        }
+        // === END AUTO-UPLOAD ===
 
         // === ONE-TIME MIGRATION: Upload local data to database (runs once per device) ===
         const migrationDone = localStorage.getItem('printpro-migration-v2-done')

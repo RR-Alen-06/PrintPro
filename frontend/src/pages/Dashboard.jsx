@@ -6,7 +6,7 @@ import EmptyState from '../components/common/EmptyState'
 import { DashboardService } from '../utils/financialServices'
 
 const Dashboard = () => {
-  const { bills, customers, advancePayments, payments, expenses } = useAppContext()
+  const { bills, customers, advancePayments, payments, deletedPayments, expenses } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
 
@@ -28,26 +28,39 @@ const Dashboard = () => {
       return d >= startDate && d <= endDate
     }
 
-    // 1. Realized Revenue: sum of active bills' amountPaid in this FY
+    // 1. Total Invoiced Revenue: sum of active bills' total in this FY
     const fyBills = (bills || []).filter(b => !b.deleted && isDateInFY(b.date) && !b.isGroupParent)
-    const revenue = fyBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0)
+    const revenue = fyBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
 
-    // 2. Refunds: sum of payments in this FY where totalPaid < 0 or isRefund is true
-    const fyRefundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0) && isDateInFY(p.date))
-    const refunds = fyRefundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    // 2. Refunds: sum of payments and advance returns in this FY
+    const fyRefundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid) < 0) && isDateInFY(p.date))
+    const pRefunds = fyRefundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    const fyAdvReturns = (advancePayments || []).filter(ap => (Number(ap.amount) < 0 || ap.isReturn) && isDateInFY(ap.date))
+    const advRefunds = fyAdvReturns.reduce((sum, ap) => sum + Math.abs(Number(ap.amount || 0)), 0)
+    const refunds = pRefunds + advRefunds
 
-    // 3. Cash Inflow: payments + advance deposits in this FY
-    const fyPayments = (payments || []).filter(p => !p.notes?.includes('from advance deposit') && isDateInFY(p.date))
-    const pInflow = fyPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const fyAdvances = (advancePayments || []).filter(ap => isDateInFY(ap.date))
-    const advInflow = fyAdvances.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    // 3. Cash Inflow: positive payments + advance deposits in this FY
+    const fyPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund'
+      && !(p.notes && p.notes.includes('from advance deposit'))
+      && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+      && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
+    const pInflow = fyPayments
+      .filter(p => !deletedBillIds.has(String(p.billId)))
+      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
+    const advInflow = fyAdvances.reduce((sum, ap) => {
+      const cash = Number(ap.cashAmount || 0)
+      const upi = Number(ap.upiAmount || 0)
+      return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+    }, 0)
     const cashInflow = pInflow + advInflow
 
     // 4. Expenses: sum of expenses in this FY
     const fyExpenses = (expenses || []).filter(e => isDateInFY(e.date))
     const fyExpTotal = fyExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
 
-    const netCashFlow = cashInflow - fyExpTotal
+    const netCashFlow = cashInflow - fyExpTotal - refunds
 
     return {
       revenue,
@@ -65,8 +78,8 @@ const Dashboard = () => {
 
   // Centralized calculations using DashboardService
   const dashboardStats = useMemo(() => {
-    return DashboardService.getSummaryWidgets({ bills, payments, expenses, customers, inventory: [] })
-  }, [bills, payments, expenses, customers])
+    return DashboardService.getSummaryWidgets({ bills, payments, advancePayments, deletedPayments, expenses, customers, inventory: [] })
+  }, [bills, payments, advancePayments, deletedPayments, expenses, customers])
 
   const netRevenue = dashboardStats.netRevenue
   const pendingAmount = dashboardStats.pendingAmount
@@ -78,22 +91,35 @@ const Dashboard = () => {
   }, [payments])
 
   const totalCashInflow = useMemo(() => {
+    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
+    // Only count payments where actual cash/UPI was collected (exclude FIFO from advance deposits)
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !p.isRefund && p.paymentType !== 'refund'
+        && !(p.notes && p.notes.includes('from advance deposit'))
+        && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
+        && !deletedBillIds.has(String(p.billId))
+        && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    // Count advance deposits using their actual cash+UPI (not the total amount which may differ)
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
-      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .reduce((sum, ap) => {
+        const cash = Number(ap.cashAmount || 0)
+        const upi = Number(ap.upiAmount || 0)
+        // If cash+upi breakdown is available, use it; otherwise fall back to amount
+        return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+      }, 0)
     return pInflow + advInflow
-  }, [payments, advancePayments])
+  }, [payments, advancePayments, bills])
 
   const totalExpenses = useMemo(() => {
     return (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
   }, [expenses])
 
   const netCashFlow = useMemo(() => {
-    return totalCashInflow - totalExpenses
-  }, [totalCashInflow, totalExpenses])
+    // Net Cash Flow = Total Cash Inflow - Total Expenses - Total Refunds
+    return totalCashInflow - totalExpenses - totalRefunds
+  }, [totalCashInflow, totalExpenses, totalRefunds])
 
   const overdueBills = useMemo(
     () => activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < today),
@@ -154,7 +180,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{netRevenue.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">{paidBills.length} bills fully collected</div>
+            <div className="stat-card-sub">₹{dashboardStats.totalCollected?.toFixed(2) || '0.00'} collected ({activeBills.length} invoices generated)</div>
           </div>
 
           <div className="stat-card">
@@ -165,7 +191,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{totalCashInflow.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">Net cash inflow collected</div>
+            <div className="stat-card-sub">Net cash & UPI inflow collected</div>
           </div>
 
           <div className="stat-card">
@@ -176,7 +202,7 @@ const Dashboard = () => {
                 <div className="stat-card-value">₹{totalRefunds.toFixed(2)}</div>
               </div>
             </div>
-            <div className="stat-card-sub">{refundPayments.length} refund transactions</div>
+            <div className="stat-card-sub">Total refund adjustments processed</div>
           </div>
 
           <div className="stat-card">
