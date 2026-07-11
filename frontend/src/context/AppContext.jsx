@@ -467,6 +467,12 @@ const baseReducer = (state, action) => {
         inventory: state.inventory.map((item) => (item.id === action.payload.id ? { ...item, ...action.payload.updates } : item)),
       }
     }
+    case 'DELETE_INVENTORY_ITEM': {
+      return {
+        ...state,
+        inventory: state.inventory.filter((item) => item.id !== action.payload),
+      }
+    }
     case 'MARK_NOTIFICATION_READ': {
       return {
         ...state,
@@ -844,6 +850,8 @@ export const AppProvider = ({ children }) => {
             if (action.type === 'ADD_BILL') entityType = 'bills'
             if (action.type === 'ADD_CUSTOMER') entityType = 'customers'
             if (action.type === 'ADD_INVENTORY_ITEM') entityType = 'inventory'
+            if (action.type === 'UPDATE_INVENTORY_ITEM') entityType = 'inventory'
+            if (action.type === 'DELETE_INVENTORY_ITEM') entityType = 'inventory'
             if (action.type === 'ADD_PAYMENT') entityType = 'payments'
             if (action.type === 'ADD_EXPENSE') entityType = 'expenses'
             
@@ -2507,6 +2515,7 @@ export const AppProvider = ({ children }) => {
       deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
       restoreCustomer: (id) => dispatch({ type: 'RESTORE_CUSTOMER', payload: id }),
       updateInventoryItem: (id, updates) => dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id, updates } }),
+      deleteInventoryItem: (id) => dispatch({ type: 'DELETE_INVENTORY_ITEM', payload: id }),
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),

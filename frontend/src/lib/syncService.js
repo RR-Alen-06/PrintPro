@@ -1,6 +1,6 @@
 import { createBill, updateBill, deleteBill, restoreBill } from '../api/bills';
 import { createCustomer, updateCustomer, deleteCustomer } from '../api/customers';
-import { createItem, updateItem } from '../api/inventory';
+import { createItem, updateItem, deleteItem } from '../api/inventory';
 import { createPayment, deletePayment } from '../api/payments';
 import { createPurchase, deletePurchase } from '../api/purchases';
 import { updateProfile } from '../api/profile';
@@ -67,6 +67,10 @@ export const syncEntityToCloud = async (action, payload) => {
           if (payload.updates.lowStockAlert !== undefined) upd.low_stock_alert = payload.updates.lowStockAlert;
           await updateItem(payload.id, upd);
         }
+        break;
+
+      case 'DELETE_INVENTORY_ITEM':
+        await deleteItem(payload);
         break;
 
       case 'ADD_BILL':
