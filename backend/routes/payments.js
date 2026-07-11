@@ -4,7 +4,8 @@ const {
   recordPayment,
   getPaymentsForBill,
   getPaymentsByCustomer,
-  listAllPayments
+  listAllPayments,
+  deletePayment
 } = require('../controllers/paymentController');
 
 // POST /api/payments
@@ -19,5 +20,8 @@ router.get('/bill/:billId', getPaymentsForBill);
 
 // GET /api/payments/customer/:customerId
 router.get('/customer/:customerId', getPaymentsByCustomer);
+
+// DELETE /api/payments/:id
+router.delete('/:id', deletePayment);
 
 module.exports = router;
