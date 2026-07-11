@@ -1647,7 +1647,8 @@ export const AppProvider = ({ children }) => {
           cashAmount: R_cash,
           upiAmount: R_upi,
           paymentMode: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
-          notes: paymentData.notes || 'Excess payment converted to advance deposit'
+          notes: paymentData.notes || 'Excess payment converted to advance deposit',
+          isExcessCredit: true
         }
       })
     }
@@ -1756,7 +1757,8 @@ export const AppProvider = ({ children }) => {
           cashAmount: excessCash,
           upiAmount: excessUpi,
           paymentMode: excessCash > 0 && excessUpi > 0 ? 'split' : (excessUpi > 0 ? 'upi' : 'cash'),
-          notes: 'Excess targeted payment converted to advance deposit'
+          notes: 'Excess targeted payment converted to advance deposit',
+          isExcessCredit: true
         }
       })
     }
@@ -2168,7 +2170,8 @@ export const AppProvider = ({ children }) => {
               date: new Date().toISOString().slice(0, 10),
               paymentMethod: refundMethod,
               notes: `Excess credit from bill ${billId} edit`,
-              createdAt: new Date().toISOString(),
+              isExcessCredit: true,
+              createdAt: new Date().toISOString()
             }
           })
 
@@ -2316,7 +2319,8 @@ export const AppProvider = ({ children }) => {
             cashAmount: R_cash,
             upiAmount: R_upi,
             paymentMode: R_cash > 0 && R_upi > 0 ? 'split' : (R_upi > 0 ? 'upi' : 'cash'),
-            notes: 'Excess payment from edit converted to advance deposit'
+            notes: 'Excess payment from edit converted to advance deposit',
+            isExcessCredit: true
           }
         })
       }

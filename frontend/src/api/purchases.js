@@ -36,12 +36,12 @@ export const createPurchase = async (data) => {
   
   const { data: inserted, error } = await supabase
     .from('purchases')
-    .insert([insertData])
+    .upsert([insertData])
     .select()
     .single();
     
   if (error) {
-    logSupabaseError('purchases', 'INSERT', insertData, error);
+    logSupabaseError('purchases', 'UPSERT', insertData, error);
     throw error;
   }
   return { data: { data: inserted } };

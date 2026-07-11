@@ -971,7 +971,7 @@ const GroupBilling = () => {
 
       {/* ── SHARED MODE ─────────────────────────────────────────────────────── */}
       {mode === 'shared' && (
-        <form onSubmit={handleSharedSubmit}>
+        <form onSubmit={handleSharedSubmit} autoComplete="off">
           {/* Shared items section */}
           <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -1136,7 +1136,7 @@ const GroupBilling = () => {
 
       {/* ── SPLIT MODE ──────────────────────────────────────────────────────── */}
       {mode === 'split' && (
-        <form onSubmit={handleSplitSubmit}>
+        <form onSubmit={handleSplitSubmit} autoComplete="off">
           {/* Joint items */}
           <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -1518,7 +1518,7 @@ const GroupBilling = () => {
               </button>
             </div>
 
-            <form onSubmit={handleNewCustomerSubmit}>
+            <form onSubmit={handleNewCustomerSubmit} autoComplete="off">
               <div className="modal-body">
                 {newCustomerSuccess && (
                   <div style={{

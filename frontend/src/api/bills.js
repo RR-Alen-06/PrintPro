@@ -73,12 +73,12 @@ export const createBill = async (data) => {
   
   const { data: bill, error: billError } = await supabase
     .from('bills')
-    .insert([billData])
+    .upsert([billData])
     .select()
     .single();
     
   if (billError) {
-    logSupabaseError('bills', 'INSERT', billData, billError);
+    logSupabaseError('bills', 'UPSERT', billData, billError);
     throw billError;
   }
   

@@ -646,7 +646,7 @@ const Customers = () => {
                                   {/* Post-Bill Discount Form */}
                                   <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
                                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
-                                    <form onSubmit={(e) => {
+                                    <form autoComplete="off" onSubmit={(e) => {
                                       e.preventDefault()
                                       const formEl = e.target
                                       const type = formEl.discountType.value
@@ -1027,7 +1027,7 @@ const Customers = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} autoComplete="off">
               <div className="modal-body">
                 {successMsg && (
                   <div style={{
