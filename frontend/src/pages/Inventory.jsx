@@ -13,7 +13,7 @@ const priceFields = [
 ]
 
 const Inventory = () => {
-  const { inventory, addInventoryItem, updateInventoryItem } = useAppContext()
+  const { inventory, addInventoryItem, updateInventoryItem, removeInventoryItem } = useAppContext()
 
   // Add form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -108,6 +108,7 @@ const Inventory = () => {
   const confirmDelete = (id) => setDeleteConfirmId(id)
   const cancelDelete = () => setDeleteConfirmId(null)
   const executeDelete = (id) => {
+    removeInventoryItem(id)
     setDeletedIds((prev) => new Set([...prev, id]))
     setDeleteConfirmId(null)
     if (editingId === id) setEditingId(null)
