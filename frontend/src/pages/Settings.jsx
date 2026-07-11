@@ -217,7 +217,7 @@ const Settings = () => {
           </div>
         </div>
 
-        <form onSubmit={handleBizSave}>
+        <form onSubmit={handleBizSave} autoComplete="off">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Shop Name</label>
@@ -314,7 +314,7 @@ const Settings = () => {
           </div>
         </div>
 
-        <form onSubmit={handleAcctSave}>
+        <form onSubmit={handleAcctSave} autoComplete="off">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">GST Rate (%)</label>
@@ -393,7 +393,7 @@ const Settings = () => {
           </div>
         </div>
 
-        <form onSubmit={handleLoyaltySave}>
+        <form onSubmit={handleLoyaltySave} autoComplete="off">
           <div className="form-group" style={{ marginBottom: '16px' }}>
             <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
               <input
@@ -667,7 +667,7 @@ const Settings = () => {
           {/* Add New Coupon Form */}
           <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '16px' }}>
             <h3 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 600 }}>Create New Coupon</h3>
-            <form onSubmit={handleAddPromo} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <form onSubmit={handleAddPromo} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div className="form-group">
                 <label className="form-label" style={{ fontSize: '0.78rem' }}>Coupon Code (e.g. STU10)</label>
                 <input
@@ -775,7 +775,7 @@ const Settings = () => {
           </div>
         </div>
 
-        <form onSubmit={handleBrandingSave}>
+        <form onSubmit={handleBrandingSave} autoComplete="off">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Primary Color Theme</label>

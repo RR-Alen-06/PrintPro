@@ -52,9 +52,9 @@ const Accounting = () => {
         && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0)
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
       
-    // Advance inflow EXCLUDING refund-credit advance deposits and advance returns
+    // Advance inflow EXCLUDING refund-credit advance deposits, advance returns, excess payments (already in pInflow), and opening balance
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => {
         const cash = Number(ap.cashAmount || 0)
         const upi = Number(ap.upiAmount || 0)
@@ -76,8 +76,9 @@ const Accounting = () => {
     const cashRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
     const upiRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
     // Net cash/UPI collected (gross - refunds)
-    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const validAdvances = (advancePayments || []).filter(ap => Number(ap.amount || 0) > 0 && !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening'))
+    const cashFromAdvances = validAdvances.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiFromAdvances = validAdvances.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
     const cashCollected = cashFromNormalPayments + cashFromAdvances  // gross cash received
     const upiCollected = upiFromNormalPayments + upiFromAdvances      // gross UPI received
 

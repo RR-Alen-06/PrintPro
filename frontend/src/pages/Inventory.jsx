@@ -141,7 +141,7 @@ const Inventory = () => {
               <Check size={16} /> Item added successfully!
             </div>
           )}
-          <form onSubmit={handleAddSubmit}>
+          <form onSubmit={handleAddSubmit} autoComplete="off">
             <div className="form-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
               {/* Name */}
               <div className="form-group" style={{ flex: '2 1 200px' }}>

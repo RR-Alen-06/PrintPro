@@ -64,9 +64,9 @@ export const createCustomer = async (data) => {
     credit_limit: data.credit_limit || 0
   };
   
-  const { data: inserted, error } = await supabase.from('customers').insert([insertData]).select().single();
+  const { data: inserted, error } = await supabase.from('customers').upsert([insertData]).select().single();
   if (error) {
-    logSupabaseError('customers', 'INSERT', insertData, error);
+    logSupabaseError('customers', 'UPSERT', insertData, error);
     throw error;
   }
   return { data: { data: inserted } };

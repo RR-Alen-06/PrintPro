@@ -30,13 +30,14 @@ const Header = ({ onMenuClick }) => {
         <div className="header-title">PrintPro Business Manager</div>
       </div>
       <div className="header-right">
-        <form className="header-search" onSubmit={handleSearch} style={{ display: 'flex', alignItems: 'center' }}>
+        <form className="header-search" onSubmit={handleSearch} autoComplete="off" style={{ display: 'flex', alignItems: 'center' }}>
           <Search size={16} style={{ flexShrink: 0 }} />
           <input
             type="search"
             placeholder="Search bills, customers, inventory…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            autoComplete="off"
             style={{ background: 'none', border: 'none', outline: 'none', flex: 1, color: 'inherit', fontSize: '0.875rem' }}
           />
         </form>
