@@ -323,14 +323,16 @@ const baseReducer = (state, action) => {
         return merged
       }
 
+      // FIX: Replace state directly with cloud data. Do NOT merge.
+      // Merging local IDs (PAY001) with cloud UUIDs caused double-counting in accounting.
       return {
         ...state,
-        bills: mergeById(state.bills, bills),
-        customers: mergeById(state.customers, customers),
-        payments: mergeById(state.payments, payments),
-        inventory: mergeById(state.inventory, inventory),
-        expenses: mergeById(state.expenses, expenses),
-        advancePayments: mergeById(state.advancePayments, advancePayments),
+        bills: bills || state.bills,
+        customers: customers || state.customers,
+        payments: payments || state.payments,
+        inventory: inventory || state.inventory,
+        expenses: expenses || state.expenses,
+        advancePayments: advancePayments && advancePayments.length > 0 ? advancePayments : state.advancePayments,
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -815,9 +817,14 @@ export const AppProvider = ({ children }) => {
     };
   }, []);
 
+  // Guard: prevent concurrent syncs that cause feedback loops and hanging
+  const isSyncingRef = React.useRef(false)
+
   // Fetch all business manager data from database when user is authenticated, and keep it in sync periodically
   const syncFromCloud = async () => {
       if (!state.currentUser) return
+      if (isSyncingRef.current) return // Skip if already syncing to prevent loop
+      isSyncingRef.current = true
       try {
         const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
           getBills(),
@@ -1115,90 +1122,40 @@ export const AppProvider = ({ children }) => {
       } catch (error) {
         console.error('Failed to sync state from cloud:', error)
         showToast(`Failed to sync state from cloud: ${error.message || 'Network error'}`, 'error')
+      } finally {
+        isSyncingRef.current = false
       }
-    }
   }
 
   useEffect(() => {
-    let intervalId = null
     let realtimeChannel = null
+    // Debounce helper to avoid rapid re-syncs from realtime events
+    let realtimeDebounce = null
+    const debouncedSync = () => {
+      if (realtimeDebounce) clearTimeout(realtimeDebounce)
+      realtimeDebounce = setTimeout(() => { syncFromCloud() }, 2000)
+    }
 
     if (state.currentUser) {
-      // 1. Fetch immediately on login/auth change
+      // 1. Fetch once on login/auth change
       syncFromCloud()
 
-      // 2. Setup periodic sync polling (every 10 seconds)
-      intervalId = setInterval(syncFromCloud, 10000)
-
-      // 3. Setup window focus/visibility sync triggers
-      const handleSyncTrigger = () => {
-        if (document.visibilityState === 'visible') {
-          syncFromCloud()
-        }
-      }
-      window.addEventListener('focus', syncFromCloud)
-      window.addEventListener('visibilitychange', handleSyncTrigger)
-
-      // 4. Enable Realtime Postgres Subscription for change events on individual tables
+      // 2. Enable Realtime Postgres Subscription — debounced to avoid loops
       realtimeChannel = supabase
         .channel('realtime-db-sync')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'business_profile' },
-          (payload) => {
-            console.log('Real-time sync: change detected on business_profile', payload);
-            syncFromCloud();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'customers' },
-          (payload) => {
-            console.log('Real-time sync: change detected on customers', payload);
-            syncFromCloud();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'inventory_items' },
-          (payload) => {
-            console.log('Real-time sync: change detected on inventory_items', payload);
-            syncFromCloud();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'bills' },
-          (payload) => {
-            console.log('Real-time sync: change detected on bills', payload);
-            syncFromCloud();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'payments' },
-          (payload) => {
-            console.log('Real-time sync: change detected on payments', payload);
-            syncFromCloud();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'purchases' },
-          (payload) => {
-            console.log('Real-time sync: change detected on purchases', payload);
-            syncFromCloud();
-          }
-        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items' }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases' }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'business_profile' }, debouncedSync)
         .subscribe((status) => {
           console.log(`Supabase Realtime channel status: ${status}`);
         });
 
       return () => {
-        if (intervalId) clearInterval(intervalId)
+        if (realtimeDebounce) clearTimeout(realtimeDebounce)
         if (realtimeChannel) supabase.removeChannel(realtimeChannel)
-        window.removeEventListener('focus', syncFromCloud)
-        window.removeEventListener('visibilitychange', handleSyncTrigger)
       }
     }
   }, [state.currentUser])
