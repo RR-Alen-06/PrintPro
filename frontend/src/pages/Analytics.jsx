@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import PeriodReport from '../components/PeriodReport'
-import { Banknote, Smartphone, Tag, ShieldAlert } from 'lucide-react'
+import { Banknote, Smartphone, Tag, ShieldAlert, RefreshCw, Box, Users } from 'lucide-react'
 
 const PERIODS = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom', 'all']
 
@@ -40,7 +40,7 @@ const filterByDate = (items, dateKey, range) => {
 }
 
 const Analytics = () => {
-  const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs } = useAppContext()
+  const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs, syncFromCloud, showToast } = useAppContext()
   const [period, setPeriod] = useState('monthly')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -398,13 +398,63 @@ const Analytics = () => {
     return { totalDiscount, avgDiscount, count: billsWithDiscount.length }
   }, [filteredBills])
 
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      await syncFromCloud()
+      showToast('Data synced successfully', 'success')
+    } catch (e) {
+      showToast('Failed to sync data', 'error')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const inventorySalesStats = useMemo(() => {
+    const stats = {}
+    filteredBills.forEach(bill => {
+      if (bill.status === 'cancelled' || bill.deleted) return
+      ;(bill.items || []).forEach(item => {
+        const name = item.itemName || item.name || 'Unknown'
+        const type = item.printType === 'color' ? 'Color' : 'B/W'
+        const sides = item.sides === 'single' ? 'Single' : 'Double'
+        const key = `${name}-${type}-${sides}`
+        
+        if (!stats[key]) {
+          stats[key] = { name, type, sides, qty: 0, revenue: 0 }
+        }
+        stats[key].qty += Number(item.qty || 0)
+        stats[key].revenue += Number(item.amount || 0)
+      })
+    })
+    return Object.values(stats).sort((a, b) => b.revenue - a.revenue)
+  }, [filteredBills])
+
+  const topDebtors = useMemo(() => {
+    return customers
+      .filter(c => !c.deleted && (Number(c.balance || 0) > 0))
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        balance: Number(c.balance || 0)
+      }))
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 5)
+  }, [customers])
+
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Analytics &amp; Reports</h1>
           <p>View sales performance, customer revenue, payment methods, and print type profitability.</p>
         </div>
+        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+        </button>
       </div>
 
       {/* Period selector & Custom Date Range inputs */}
@@ -744,6 +794,72 @@ const Analytics = () => {
           <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Total Outflow</div>
             <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundOutflows.totalRefunds.toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Appended Feature: Inventory Sales & Top Debtors */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginTop: '24px' }}>
+        <div className="card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <Box size={18} /> Inventory Sales Stats
+          </h3>
+          <div className="table-container">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Item Name</th>
+                  <th>Variant</th>
+                  <th>Qty Sold</th>
+                  <th>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventorySalesStats.map((stat, i) => (
+                  <tr key={i}>
+                    <td>{stat.name}</td>
+                    <td>
+                      <span className={`badge ${stat.type === 'Color' ? 'badge-primary' : 'badge-secondary'}`} style={{ marginRight: '4px' }}>{stat.type}</span>
+                      <span className={`badge ${stat.sides === 'Double' ? 'badge-success' : 'badge-secondary'}`}>{stat.sides}</span>
+                    </td>
+                    <td>{stat.qty}</td>
+                    <td style={{ fontWeight: 600 }}>₹{stat.revenue.toFixed(2)}</td>
+                  </tr>
+                ))}
+                {inventorySalesStats.length === 0 && (
+                  <tr><td colSpan="4" style={{ textAlign: 'center', padding: '16px' }}>No items sold in this period.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <Users size={18} /> Top Debtors (All Time)
+          </h3>
+          <div className="table-container">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Phone</th>
+                  <th>Outstanding Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topDebtors.map((debtor, i) => (
+                  <tr key={debtor.id}>
+                    <td>{debtor.name}</td>
+                    <td>{debtor.phone || 'N/A'}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{debtor.balance.toFixed(2)}</td>
+                  </tr>
+                ))}
+                {topDebtors.length === 0 && (
+                  <tr><td colSpan="3" style={{ textAlign: 'center', padding: '16px', color: 'var(--success)' }}>All customers are fully paid!</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

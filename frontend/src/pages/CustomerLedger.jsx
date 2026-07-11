@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
@@ -32,7 +32,7 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, recordPayment, showToast } = useAppContext()
+  const { business, customers, settings, bills, payments, advancePayments, recordPayment, processRefund, showToast, syncFromCloud } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -56,6 +56,12 @@ const CustomerLedger = () => {
   const [returnChange, setReturnChange] = useState(false)
   const [paySuccess, setPaySuccess] = useState(false)
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
+
+  // Refund State
+  const [showRefundModal, setShowRefundModal] = useState(false)
+  const [refundCash, setRefundCash] = useState(0)
+  const [refundUpi, setRefundUpi] = useState(0)
+  const [refundNotes, setRefundNotes] = useState('')
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -123,6 +129,35 @@ const CustomerLedger = () => {
     setReturnChange(false)
     setPaySuccess(true)
     setTimeout(() => setPaySuccess(false), 3500)
+  }
+
+  const handleProcessRefund = () => {
+    const rCash = Number(refundCash || 0)
+    const rUpi = Number(refundUpi || 0)
+    const totalRefund = rCash + rUpi
+    
+    if (totalRefund <= 0 || !selectedCustomer) return
+    
+    const finalBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0
+    // Positive balance means customer owes us. Negative balance means we owe customer (they have credit/advance)
+    if (finalBalance >= 0 || totalRefund > Math.abs(finalBalance)) {
+      showToast('Refund amount exceeds available customer credit/advance balance.', 'error')
+      return
+    }
+
+    processRefund({
+      customerId: selectedCustomer.id,
+      amount: totalRefund,
+      cashAmount: rCash,
+      upiAmount: rUpi,
+      notes: refundNotes || 'Refund from credit balance'
+    })
+
+    setRefundCash(0)
+    setRefundUpi(0)
+    setRefundNotes('')
+    setShowRefundModal(false)
+    showToast('Refund processed successfully', 'success')
   }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
@@ -370,6 +405,15 @@ const CustomerLedger = () => {
     window.open(url, '_blank')
   }
 
+  const handleSendQuickReminder = () => {
+    if (!selectedCustomer || !selectedCustomer.phone || finalBalance <= 0) return
+    const upiLink = business?.upiId ? `%0APay via UPI: upi://pay?pa=${business.upiId}&pn=${encodeURIComponent(business.shopName || 'PrintPro')}&am=${finalBalance.toFixed(2)}&cu=INR` : ''
+    const text = `Hi ${selectedCustomer.name},%0A%0AThis is a quick reminder from ${business?.shopName || 'PrintPro'} that you have an outstanding balance of *₹${finalBalance.toFixed(2)}*.%0A${upiLink}%0A%0AThank you!`
+    const cleanPhone = selectedCustomer.phone.replace(/[^0-9]/g, '')
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
+    window.open(url, '_blank')
+  }
+
   const typeColor = (type) => {
     if (type === 'bill') return 'var(--error)'
     if (type === 'advance') return 'var(--info)'
@@ -392,11 +436,30 @@ const CustomerLedger = () => {
     return 'Payment'
   }
 
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      await syncFromCloud()
+      showToast('Data synced successfully', 'success')
+    } catch (e) {
+      showToast('Failed to sync data', 'error')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   return (
     <div>
-      <div className="page-header">
-        <h1>Customer Ledger</h1>
-        <p>Complete transaction history including bills, payments, and advance deposits.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1>Customer Ledger</h1>
+          <p>Complete transaction history including bills, payments, and advance deposits.</p>
+        </div>
+        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+        </button>
       </div>
 
       <div className="ledger-layout-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '24px', alignItems: 'start' }}>
@@ -471,6 +534,17 @@ const CustomerLedger = () => {
                       </div>
                     </div>
                   )}
+                  
+                  {/* Appended Feature: WhatsApp Quick Reminder */}
+                  {selectedCustomer.phone && finalBalance > 0 && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleSendQuickReminder}
+                      style={{ width: '100%', marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderColor: '#25D366', color: '#25D366' }}
+                    >
+                      <MessageCircle size={16} /> Send WhatsApp Reminder
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -543,7 +617,7 @@ const CustomerLedger = () => {
                 </div>
               )}
 
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <form autoComplete="off" className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: '0.75rem' }}>Cash (₹)</label>
                   <input
@@ -553,6 +627,7 @@ const CustomerLedger = () => {
                     step="0.01"
                     value={payCash}
                     onChange={(e) => setPayCash(e.target.value)}
+                    autoComplete="off"
                   />
                 </div>
                 <div className="form-group">
@@ -567,9 +642,10 @@ const CustomerLedger = () => {
                       setPayUpi(e.target.value)
                       setUpiCheckoutAmount(0)
                     }}
+                    autoComplete="off"
                   />
                 </div>
-              </div>
+              </form>
 
               {(Number(payCash || 0) + Number(payUpi || 0) > outstanding) && outstanding > 0 && (
                 <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.1)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)' }}>
@@ -654,6 +730,97 @@ const CustomerLedger = () => {
               >
                 <CheckCircle size={16} /> Apply Payment
               </button>
+            </div>
+          )}
+
+          {/* Refund Block */}
+          {finalBalance < 0 && !showRefundModal && (
+            <div style={{ marginTop: '16px', background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-lg)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Wallet size={16} style={{ color: 'var(--warning)' }} /> Refund Credit
+                </h3>
+              </div>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowRefundModal(true)}
+                style={{ width: '100%', borderColor: 'var(--warning)', color: 'var(--warning)' }}
+              >
+                Process Refund
+              </button>
+            </div>
+          )}
+          {showRefundModal && (
+            <div style={{ marginTop: '16px', background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--warning)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--warning)' }}>Process Refund</h3>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                  <span>Available Credit:</span>
+                  <strong style={{ color: 'var(--success)' }}>₹{Math.abs(finalBalance).toFixed(2)}</strong>
+                </div>
+              </div>
+              <form autoComplete="off">
+                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Cash (₹)</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      min="0"
+                      step="0.01"
+                      value={refundCash}
+                      onChange={(e) => setRefundCash(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI (₹)</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      min="0"
+                      step="0.01"
+                      value={refundUpi}
+                      onChange={(e) => setRefundUpi(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Notes / Reason</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Refund for cancelled order"
+                    value={refundNotes}
+                    onChange={(e) => setRefundNotes(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </form>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowRefundModal(false)
+                    setRefundCash(0)
+                    setRefundUpi(0)
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleProcessRefund}
+                  disabled={Number(refundCash || 0) + Number(refundUpi || 0) <= 0 || (Number(refundCash || 0) + Number(refundUpi || 0)) > Math.abs(finalBalance)}
+                  style={{ flex: 2, background: 'var(--warning)', borderColor: 'var(--warning)', color: '#000' }}
+                >
+                  Confirm Refund
+                </button>
+              </div>
             </div>
           )}
         </div>

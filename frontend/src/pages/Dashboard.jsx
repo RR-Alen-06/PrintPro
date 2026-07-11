@@ -1,14 +1,28 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle } from 'lucide-react'
+import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 import { DashboardService } from '../utils/financialServices'
 
 const Dashboard = () => {
-  const { bills, customers, advancePayments, payments, deletedPayments, expenses } = useAppContext()
+  const { bills, customers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
+
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      await syncFromCloud()
+      showToast('Data synced successfully', 'success')
+    } catch (e) {
+      showToast('Failed to sync data', 'error')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
 
   // Default to current financial year based on current date
   const [selectedFY, setSelectedFY] = useState(
@@ -160,9 +174,14 @@ const Dashboard = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Dashboard</h1>
-        <p>Overview of billing activity, pending dues, and customer status.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1>Dashboard</h1>
+          <p>Overview of billing activity, pending dues, and customer status.</p>
+        </div>
+        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+        </button>
       </div>
 
       {/* Financial Health Section */}
@@ -502,6 +521,49 @@ const Dashboard = () => {
               <strong>{overdueBills.length}</strong>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Appended Feature: Recent Activity Feed */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <Clock size={18} /> Recent Transactions
+        </h3>
+        <div className="table-container">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Customer</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...bills.map(b => ({ ...b, sortDate: new Date(b.createdAt || b.date), actType: 'Bill' })), ...payments.map(p => ({ ...p, sortDate: new Date(p.createdAt || p.date), actType: 'Payment' }))]
+                .sort((a, b) => b.sortDate - a.sortDate)
+                .slice(0, 5)
+                .map((act, i) => (
+                  <tr key={i}>
+                    <td>{act.date}</td>
+                    <td>
+                      <span className={`badge ${act.actType === 'Bill' ? 'badge-primary' : 'badge-success'}`}>
+                        {act.actType}
+                      </span>
+                    </td>
+                    <td>{act.customerName}</td>
+                    <td style={{ fontWeight: 600, color: act.actType === 'Bill' ? 'var(--text-main)' : 'var(--success)' }}>
+                      {act.actType === 'Payment' ? '+' : ''}₹{Number(act.total || act.totalPaid || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              {bills.length === 0 && payments.length === 0 && (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: 'center', padding: '20px' }}>No recent activity.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
