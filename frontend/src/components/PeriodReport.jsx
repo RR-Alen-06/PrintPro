@@ -64,31 +64,76 @@ const PeriodReport = () => {
     const normalPayments = periodPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
     const refundPayments = periodPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
 
-    // Revenue = sum of amountPaid on bills (already net of refunds after the ADD_PAYMENT fix)
-    const revenue = periodBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
-    const cashRevenue = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiRevenue = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
-
-    // Refund totals for period
+    const grossRevenue = periodBills.reduce((s, b) => s + Number(b.total || 0), 0)
     const refundTotal = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const netRevenue = grossRevenue - refundTotal
+
     const cashRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
     const upiRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
 
-    // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
-    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
-    const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    // Capped payment inflow matching invoiced bill amounts in the period
+    const billMap = new Map((periodBills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    const billPaymentsMap = new Map()
+    let unlinkedCashTotal = 0
+    let unlinkedUpiTotal = 0
+
+    normalPayments.forEach(p => {
+      const bId = String(p.billId || '')
+      const cash = Number(p.cashAmount || 0)
+      const upi = Number(p.upiAmount || 0)
+      const total = cash + upi
+      if (bId && billMap.has(bId)) {
+        if (!billPaymentsMap.has(bId)) {
+          billPaymentsMap.set(bId, { cash: 0, upi: 0, total: 0 })
+        }
+        const curr = billPaymentsMap.get(bId)
+        curr.cash += cash
+        curr.upi += upi
+        curr.total += total
+      } else {
+        unlinkedCashTotal += cash
+        unlinkedUpiTotal += upi
+      }
+    })
+
+    let pInflowCash = unlinkedCashTotal
+    let pInflowUpi = unlinkedUpiTotal
+
+    billPaymentsMap.forEach((pData, bId) => {
+      const billTotal = billMap.get(bId)
+      if (pData.total > billTotal && billTotal > 0) {
+        const ratio = billTotal / pData.total
+        pInflowCash += Number((pData.cash * ratio).toFixed(2))
+        pInflowUpi += Number((pData.upi * ratio).toFixed(2))
+      } else {
+        pInflowCash += pData.cash
+        pInflowUpi += pData.upi
+      }
+    })
+
+    const pInflow = pInflowCash + pInflowUpi
+
+    // Standalone Advance Inflow (PA) - EXCLUDE refund-credit, return, excess credits
+    const periodAdvancesFiltered = periodAdvances.filter(ap => 
+      !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && 
+      !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') &&
+      Number(ap.amount || 0) > 0
+    )
+    const advanceCollected = periodAdvancesFiltered.reduce((sum, ap) => {
+      const cash = Number(ap.cashAmount || 0)
+      const upi = Number(ap.upiAmount || 0)
+      return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
+    }, 0)
+    const cashAdvance = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
+    const upiAdvance = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
 
     const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
     const cashExpenses = periodExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)
     const upiExpenses = periodExpenses.reduce((s, e) => s + Number(e.upiAmount || 0), 0)
 
-    // pInflow from all period payments (refund payments have negative cashAmount that reduces sum naturally)
-    const pInflow = periodPayments.reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const totalCashInflow = pInflow + advanceCollected
-    const netCashFlow = totalCashInflow - totalExpenses
-    const netProfit = revenue - totalExpenses
+    const netCashFlow = totalCashInflow - totalExpenses - refundTotal
+    const netProfit = netRevenue - totalExpenses
 
     // Print type breakdown
     const printCounts = {
@@ -107,9 +152,10 @@ const PeriodReport = () => {
     })
 
     return {
-      revenue,
-      cashRevenue,
-      upiRevenue,
+      revenue: netRevenue,
+      grossRevenue,
+      cashRevenue: pInflowCash,
+      upiRevenue: pInflowUpi,
       refundTotal,
       cashRefunded,
       upiRefunded,
@@ -222,20 +268,22 @@ Generated on: ${new Date().toLocaleDateString()}`
       if (isBold) doc.setFont('helvetica', 'normal')
     }
 
-    printRow('Realized Revenue (Bills paid):', reportData.revenue.toFixed(2))
-    printRow('  - Cash collected:', reportData.cashRevenue.toFixed(2))
-    printRow('  - UPI collected:', reportData.upiRevenue.toFixed(2))
-    printRow('Net Advance Deposited:', reportData.advanceCollected.toFixed(2))
-    printRow('Total Cash Inflow (Revenue + Advance):', reportData.totalCashInflow.toFixed(2), true)
+    printRow('Gross Revenue (GR):', reportData.grossRevenue.toFixed(2))
+    printRow('Total Refunds (RF):', reportData.refundTotal.toFixed(2))
+    printRow('Net Revenue (NR):', reportData.revenue.toFixed(2), true)
+    printRow('  - Bill Cash Inflow (PB):', reportData.cashRevenue.toFixed(2))
+    printRow('  - Bill UPI Inflow (PB):', reportData.upiRevenue.toFixed(2))
+    printRow('Standalone Advance Inflow (PA):', reportData.advanceCollected.toFixed(2))
+    printRow('Total Cash Inflow (CI):', reportData.totalCashInflow.toFixed(2), true)
     y += 2
-    printRow('Total Expenses:', reportData.totalExpenses.toFixed(2))
+    printRow('Total Expenses (EXP):', reportData.totalExpenses.toFixed(2))
     printRow('  - Cash spent:', reportData.cashExpenses.toFixed(2))
     printRow('  - UPI spent:', reportData.upiExpenses.toFixed(2))
     y += 2
     doc.setLineWidth(0.2)
     line(15, y, W - 15, y)
     y += 6
-    printRow('Net Cash Flow:', reportData.netCashFlow.toFixed(2), true)
+    printRow('Net Cash Flow (NCF):', reportData.netCashFlow.toFixed(2), true)
     y += 8
 
     // Print Analytics section in PDF

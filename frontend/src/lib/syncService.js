@@ -99,6 +99,11 @@ export const syncEntityToCloud = async (action, payload) => {
             amount: Number(item.amount || (item.qty * (item.unitPrice || item.rate || 0)))
           }));
 
+          let notes = payload.notes || '';
+          if (payload.loyaltyPointsEarned || payload.loyaltyPointsRedeemed) {
+            notes += ` [Loyalty: earned=${payload.loyaltyPointsEarned || 0}, redeemed=${payload.loyaltyPointsRedeemed || 0}]`;
+          }
+
           return await createBill({
             id: payload.id,
             customer_id: payload.customerId,
@@ -113,7 +118,7 @@ export const syncEntityToCloud = async (action, payload) => {
             amount_paid: Number(payload.amountPaid || 0),
             balance: Number(payload.balance || 0),
             status: payload.status || 'unpaid',
-            notes: payload.notes || '',
+            notes: notes,
             items: items
           });
         }
@@ -121,6 +126,11 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'UPDATE_BILL':
         if (payload.id) {
+          let notes = payload.updates.notes || '';
+          if (payload.updates.loyaltyPointsEarned || payload.updates.loyaltyPointsRedeemed) {
+            notes += ` [Loyalty: earned=${payload.updates.loyaltyPointsEarned || 0}, redeemed=${payload.updates.loyaltyPointsRedeemed || 0}]`;
+          }
+
           const mappedUpdates = {
             customer_id: payload.updates.customerId,
             date: payload.updates.date,
@@ -134,7 +144,7 @@ export const syncEntityToCloud = async (action, payload) => {
             amount_paid: payload.updates.amountPaid,
             balance: payload.updates.balance,
             status: payload.updates.status,
-            notes: payload.updates.notes
+            notes: notes
           };
           if (payload.updates.items) {
             mappedUpdates.items = payload.updates.items.map(item => ({

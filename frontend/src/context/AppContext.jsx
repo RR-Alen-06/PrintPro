@@ -949,32 +949,47 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }));
 
-        const mappedBills = fetchedBills.map(b => ({
-          id: b.id,
-          customerId: b.customer_id,
-          customerName: mappedCustomers.find(c => String(c.id) === String(b.customer_id))?.name || b.customer_name || 'Walk-in Customer',
-          date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
-          dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-          subtotal: Number(b.subtotal || 0),
-          discountType: b.discount_type || 'flat',
-          discountValue: Number(b.discount_value || 0),
-          gstPercent: Number(b.gst_percent || 0),
-          gstAmount: Number(b.gst_amount || 0),
-          total: Number(b.total || 0),
-          amountPaid: Number(b.amount_paid || 0),
-          balance: Number(b.balance || 0),
-          status: b.status || 'unpaid',
-          notes: b.notes || '',
-          deleted: !!b.deleted_at,
-          items: (b.items || []).map(item => ({
-            name: item.item_name,
-            printType: item.print_type,
-            sides: item.sides,
-            qty: Number(item.qty || 0),
-            unitPrice: Number(item.unit_price || 0),
-            amount: Number(item.amount || 0)
-          }))
-        }));
+        const mappedBills = fetchedBills.map(b => {
+          let loyaltyPointsEarned = 0;
+          let loyaltyPointsRedeemed = 0;
+          let notes = b.notes || '';
+          const loyaltyRegex = /\[Loyalty:\s*earned=(\d+),\s*redeemed=(\d+)\]/;
+          const match = notes.match(loyaltyRegex);
+          if (match) {
+            loyaltyPointsEarned = Number(match[1]);
+            loyaltyPointsRedeemed = Number(match[2]);
+            notes = notes.replace(loyaltyRegex, '').trim();
+          }
+
+          return {
+            id: b.id,
+            customerId: b.customer_id,
+            customerName: mappedCustomers.find(c => String(c.id) === String(b.customer_id))?.name || b.customer_name || 'Walk-in Customer',
+            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+            dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
+            subtotal: Number(b.subtotal || 0),
+            discountType: b.discount_type || 'flat',
+            discountValue: Number(b.discount_value || 0),
+            gstPercent: Number(b.gst_percent || 0),
+            gstAmount: Number(b.gst_amount || 0),
+            total: Number(b.total || 0),
+            amountPaid: Number(b.amount_paid || 0),
+            balance: Number(b.balance || 0),
+            status: b.status || 'unpaid',
+            loyaltyPointsEarned,
+            loyaltyPointsRedeemed,
+            notes: notes,
+            deleted: !!b.deleted_at,
+            items: (b.items || []).map(item => ({
+              name: item.item_name,
+              printType: item.print_type,
+              sides: item.sides,
+              qty: Number(item.qty || 0),
+              unitPrice: Number(item.unit_price || 0),
+              amount: Number(item.amount || 0)
+            }))
+          };
+        });
 
         const mappedPayments = fetchedPayments.map(p => ({
           id: p.id,

@@ -344,20 +344,17 @@ export const ReportService = {
   }
 };
 
-/**
- * ── DashboardService ─────────────────────────────────────────────────────────
- * Computes centralized widgets for the main dashboard view.
- */
 export const DashboardService = {
   getSummaryWidgets: ({ bills = [], payments = [], expenses = [], customers = [], inventory = [] }) => {
     const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
-    const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
+    const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.total || 0), 0);
     const totalRefunds = payments.filter((p) => p.totalPaid < 0 || p.isRefund).reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
     const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
 
     return {
-      netRevenue: grossRevenue,
+      grossRevenue,
+      netRevenue: grossRevenue - totalRefunds,
       pendingAmount,
       totalRefunds,
       totalCustomerAdvance,
