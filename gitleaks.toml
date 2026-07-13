@@ -1,0 +1,8 @@
+# Centralized Gitleaks Configuration
+# Ignore false positives in third-party/starter template files
+
+[allowlist]
+description = "Allow NestJS README CircleCI dummy token false positive"
+paths = [
+    '''v2/server/README\.md'''
+]
