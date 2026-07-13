@@ -97,7 +97,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # only needed for org repos
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE || '' }}  # Optional for personal repos
 
   # ---------------------------------------------------------------------------
   # 4. ESLint Security Plugin – Backend SARIF
