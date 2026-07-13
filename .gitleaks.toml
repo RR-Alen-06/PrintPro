@@ -1,0 +1,11 @@
+# Gitleaks configuration file
+title = "PrintPro Gitleaks Config"
+
+[allowlist]
+  description = "Allow NestJS README CircleCI dummy token"
+  commits = [
+    "2878a2ac192fef4425f164d6a0ad2db58fa6e83a"
+  ]
+  paths = [
+    '''v2/server/README\.md'''
+  ]
