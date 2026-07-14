@@ -13,6 +13,7 @@ const navItems = [
   { label: 'Accounting',       path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
   { label: 'Refunds',          path: '/refunds',           icon: RefreshCw,    permKey: 'accounting' },
   { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'accounting' },
+  { label: 'Item Sales Report',path: '/item-sales-report', icon: Layers,       permKey: 'accounting' },
   { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
   { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },
   { label: 'Customer Bills',   path: '/customer-bills',    icon: FileText,     permKey: 'customers' },

@@ -18,6 +18,7 @@ import Auth from './pages/Auth'
 import CustomerLedger from './pages/CustomerLedger'
 import RecurringBills from './pages/RecurringBills'
 import Analytics from './pages/Analytics'
+import ItemSalesReport from './pages/ItemSalesReport'
 import AdvancePayments from './pages/AdvancePayments'
 import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
@@ -75,6 +76,7 @@ function App() {
             <Route path="/receipt" element={<Receipt />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/item-sales-report" element={<ItemSalesReport />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
             <Route path="/customer-bills" element={<CustomerBills />} />
             <Route path="/recurring-bills" element={<RecurringBills />} />
