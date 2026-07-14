@@ -2212,7 +2212,7 @@ const Billing = () => {
             </div>
 
             <div className="modal-body" ref={billRef}>
-              {settings.loyaltyEnabled !== false && liveBill.customerType === 'regular' && (
+              {settings.loyaltyEnabled !== false && (liveBill.customerType === 'regular' || (settings.loyaltyForRandomCustomers === true && liveBill.customerType === 'random')) && (
                 <div style={{
                   padding: '10px 14px',
                   marginBottom: '16px',
@@ -2225,7 +2225,9 @@ const Billing = () => {
                   fontSize: '0.85rem'
                 }}>
                   <span>Loyalty Points Added: +{liveBill.loyaltyPointsEarned || 0}</span>
-                  <span>New Points Balance: {liveBill.customerTotalLoyaltyPoints || 0} pts</span>
+                  {liveBill.customerType === 'regular' && (
+                    <span>New Points Balance: {liveBill.customerTotalLoyaltyPoints || 0} pts</span>
+                  )}
                 </div>
               )}
               {/* Bill header */}
