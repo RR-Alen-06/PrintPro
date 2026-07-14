@@ -6,7 +6,7 @@ import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 
 const Receipt = () => {
-  const { bills, customers, business, settings, showAlert, showToast } = useAppContext()
+  const { bills, payments, customers, business, settings, showAlert, showToast } = useAppContext()
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -23,7 +23,7 @@ const Receipt = () => {
   }
 
   const buildShareText = (bill, pdfUrl = '') => {
-    return formatWhatsAppReceipt(bill, settings, business, pdfUrl)
+    return formatWhatsAppReceipt(bill, settings, business, pdfUrl, { bills, payments, customers })
   }
 
   const handleWhatsApp = () => {

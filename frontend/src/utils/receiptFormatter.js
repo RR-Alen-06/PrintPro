@@ -1,144 +1,127 @@
 /**
- * Formats a bill/invoice as a clean, modern, and professional WhatsApp receipt.
- * Suitable for retail/POS businesses with vertical alignment, clear hierarchy, and spare emojis.
+ * Formats a bill/invoice as a clean, modern, and professional WhatsApp receipt
+ * adhering to strict POS ledger accounting standards.
  */
-export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl = '') => {
+export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl = '', extraData = {}) => {
   if (!bill) return ''
 
-  // Emojis for metadata (sparingly, clean)
-  // Determine Payment Status Icon
-  let statusIcon = '❌'
-  let statusLabel = 'UNPAID'
+  const { bills = [], payments = [], customers = [] } = extraData
+
+  // 1. Find Customer Info
+  const customer = customers.find(c => String(c.id) === String(bill.customerId))
+  const customerCode = customer?.code || ''
+  const customerDisplay = bill.customerName || 'Walk-in Customer'
+  const customerSuffix = customerCode ? ` (${customerCode})` : ''
+
+  // 2. Previous Outstanding
+  // Sum of unpaid balance before this bill date/creation
+  const currentBillDate = bill.date ? new Date(bill.date) : new Date()
+  const pastBills = bills.filter(b => 
+    !b.deleted && 
+    String(b.customerId) === String(bill.customerId) && 
+    String(b.id) !== String(bill.id) &&
+    (b.date ? new Date(b.date) < currentBillDate : true)
+  )
+  const previousOutstanding = pastBills.reduce((sum, b) => sum + Number(b.balance || 0), 0)
+
+  // 3. Current Bill Total
+  const currentBill = Number(bill.total || 0)
+
+  // 4. Total Amount Due
+  const totalAmountDue = previousOutstanding + currentBill
+
+  // 5. Payment Received for this Transaction
+  const billPayments = payments.filter(p => !p.deleted && String(p.billId) === String(bill.id))
+  const cashPaid = billPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0), 0)
+  const upiPaid = billPayments.reduce((sum, p) => sum + Number(p.upiAmount || 0), 0)
+  const advanceUsed = Number(bill.advanceUsed || 0)
+  const paidNow = cashPaid + upiPaid + advanceUsed
+
+  // 6. Remaining Balance
+  const remainingBalance = Math.max(0, totalAmountDue - paidNow)
+
+  // 7. Advance Created / Customer Advance Balance
+  const customerAdvanceBalance = Number(customer?.advanceBalance || 0)
+
+  // Formatting output
+  const divider = '━━━━━━━━━━━━━━━━━━━━━━'
   
-  const balance = Number(bill.balance ?? 0)
-  const amountPaid = Number(bill.amountPaid ?? 0)
-  const total = Number(bill.total ?? 0)
-
-  if (balance <= 0 || amountPaid >= total) {
-    statusIcon = '✅'
-    statusLabel = 'PAID'
-  } else if (amountPaid > 0) {
-    statusIcon = '🟨'
-    statusLabel = 'PARTIAL'
+  let result = `🧾 *${(business?.shopName || 'PRINTPRO').toUpperCase()} ERP*\n\n`
+  result += `🏪 *${(business?.shopName || 'ABC PRINTING CENTER').toUpperCase()}*\n`
+  if (business?.phone) {
+    result += `📞 ${business.phone}\n`
   }
-
-  const divider = '━━━━━━━━━━━━━━━━━━━━━━━'
-  const monoDivider = '───────────────────────' // 23 chars for narrow mobile screen compatibility
-  const totalDivider = '======================='
+  result += `\n`
+  result += `Bill No : ${bill.id}\n`
   
-  // Mono pad helper
-  const padLine = (left, right, width = 23) => {
-    const padLength = width - left.length - right.length
-    return left + ' '.repeat(Math.max(1, padLength)) + right
-  }
-
-  const header = `🧾 *${(business?.shopName || 'PRINTPRO').toUpperCase()} RECEIPT*`
-  
-  // Metadata Section
-  const invoiceLine = `📄 *Invoice:* ${bill.id}`
-  const dateLine = `📅 *Date:* ${bill.date}`
-  const customerLine = `👤 *Customer:* ${bill.customerName || 'Guest'}`
-  const statusLine = `💳 *Payment Status:* ${statusIcon} ${statusLabel}`
-
-  const metadataSection = [
-    invoiceLine,
-    dateLine,
-    customerLine,
-    statusLine
-  ].join('\n')
-
-  // Mono section construction
-  const monoLines = []
-  
-  // Check if itemized
-  const hasItems = bill.items && bill.items.length > 0
-  if (hasItems) {
-    monoLines.push('📦 ITEMS\n')
-    bill.items.forEach((item, index) => {
-      const maxNameLen = 11
-      let name = item.itemName || item.name || 'Item'
-      if (name.length > maxNameLen) {
-        name = name.substring(0, maxNameLen - 3) + '...'
-      }
-      const qtyStr = ` x${item.qty}`
-      const leftSide = `${index + 1}. ${name}${qtyStr}`
-      const rightSide = `₹${Number(item.amount || 0).toFixed(2)}`
-      monoLines.push(padLine(leftSide, rightSide))
-    })
-    monoLines.push(monoDivider)
-  }
-
-  // Summary Lines
-  const subtotalStr = `₹${Number(bill.subtotal || 0).toFixed(2)}`
-  monoLines.push(padLine('Subtotal', subtotalStr))
-
-  // Discounts (could be normal discount, promo discount, or loyalty discount)
-  const totalDiscount = (Number(bill.discountAmount || 0) + Number(bill.promoDiscount || 0) + Number(bill.loyaltyDiscount || 0))
-  if (totalDiscount > 0) {
-    const discountStr = `-₹${totalDiscount.toFixed(2)}`
-    monoLines.push(padLine('Discount', discountStr))
-  }
-
-  // GST
-  const gstAmount = Number(bill.gstAmount || 0)
-  if (gstAmount > 0) {
-    if (settings.showGstBreakdown !== false) {
-      const halfGst = (gstAmount / 2).toFixed(2)
-      monoLines.push(padLine('CGST', `₹${halfGst}`))
-      monoLines.push(padLine('SGST', `₹${halfGst}`))
-    } else {
-      monoLines.push(padLine('GST', `₹${gstAmount.toFixed(2)}`))
+  // Format date cleanly e.g. 14-Jul-2026
+  let formattedDate = bill.date || ''
+  if (bill.date) {
+    try {
+      const dObj = new Date(bill.date)
+      const options = { day: '2-digit', month: 'short', year: 'numeric' }
+      formattedDate = dObj.toLocaleDateString('en-GB', options).replace(/ /g, '-')
+    } catch (_) {
+      formattedDate = bill.date
     }
   }
+  result += `Date : ${formattedDate}\n`
+  result += `Customer : ${customerDisplay}${customerSuffix}\n\n`
 
-  // Rounding if exists
-  if (bill.rounding && Number(bill.rounding) !== 0) {
-    const roundingStr = `${Number(bill.rounding) > 0 ? '+' : ''}₹${Number(bill.rounding).toFixed(2)}`
-    monoLines.push(padLine('Rounding', roundingStr))
+  result += `${divider}\n`
+  result += `*ITEMS*\n\n`
+
+  if (bill.items && bill.items.length > 0) {
+    bill.items.forEach((item, index) => {
+      const sidesSuffix = item.sides ? ` ${item.sides.charAt(0).toUpperCase() + item.sides.slice(1)}` : ''
+      const printTypeSuffix = item.printType ? ` ${item.printType.toUpperCase()}` : ''
+      result += `${index + 1}. ${item.name || item.itemName || 'Item'}${printTypeSuffix}${sidesSuffix}\n`
+      result += `   Qty : ${item.qty} × ₹${Number(item.unitPrice || 0).toFixed(2)} = ₹${Number(item.amount || 0).toFixed(2)}\n\n`
+    })
+  } else {
+    result += `No items\n\n`
   }
 
-  monoLines.push(totalDivider)
-
-  // TOTAL
-  const totalStr = `₹${total.toFixed(2)}`
-  monoLines.push(padLine('TOTAL', totalStr))
-  monoLines.push(totalDivider)
-
-  // Paid & Balance
-  const paidStr = `₹${amountPaid.toFixed(2)}`
-  const balanceStr = `₹${balance.toFixed(2)}`
+  result += `${divider}\n\n`
+  result += `Subtotal              ₹${Number(bill.subtotal || 0).toFixed(2)}\n`
   
-  monoLines.push(padLine('Paid', paidStr))
-  monoLines.push(padLine('Balance', balanceStr))
+  const totalDiscount = (Number(bill.discountAmount || 0) + Number(bill.promoDiscount || 0) + Number(bill.loyaltyDiscount || 0))
+  result += `Discount              ₹${totalDiscount.toFixed(2)}\n`
+  
+  const gstAmount = Number(bill.gstAmount || 0)
+  result += `GST                   ₹${gstAmount.toFixed(2)}\n\n`
 
-  const monoBlock = '```\n' + monoLines.join('\n') + '\n```'
+  result += `🧾 *Current Bill Total* ₹${currentBill.toFixed(2)}\n\n`
 
-  // Loyalty Points Earned Section
-  let loyaltyText = ''
-  if (settings.loyaltyEnabled !== false && bill.customerType === 'regular' && (bill.loyaltyPointsEarned > 0 || bill.customerTotalLoyaltyPoints > 0)) {
-    const pointsEarned = bill.loyaltyPointsEarned || 0
-    const pointsBalance = bill.customerTotalLoyaltyPoints || 0
-    loyaltyText = `⭐ *Loyalty Points Added:* +${pointsEarned}\n⭐ *Loyalty Balance:* ${pointsBalance} pts\n`
+  result += `${divider}\n`
+  result += `*LEDGER SUMMARY*\n\n`
+  result += `Previous Outstanding      ₹${previousOutstanding.toFixed(2)}\n`
+  result += `Current Bill              ₹${currentBill.toFixed(2)}\n\n`
+  result += `Total Amount Due          ₹${totalAmountDue.toFixed(2)}\n\n`
+
+  result += `${divider}\n`
+  result += `*PAYMENT RECEIVED*\n\n`
+  result += `Cash Paid                 ₹${cashPaid.toFixed(2)}\n`
+  result += `UPI Paid                  ₹${upiPaid.toFixed(2)}\n`
+  result += `Advance Used              ₹${advanceUsed.toFixed(2)}\n\n`
+  result += `Paid Now                  ₹${paidNow.toFixed(2)}\n\n`
+
+  result += `${divider}\n`
+  result += `*BALANCE SUMMARY*\n\n`
+  result += `Remaining to Pay          ₹${remainingBalance.toFixed(2)}\n\n`
+  result += `Customer Advance Balance  ₹${customerAdvanceBalance.toFixed(2)}\n\n`
+
+  result += `${divider}\n`
+  if (bill.loyaltyPointsEarned > 0) {
+    result += `🎁 *Loyalty Earned :* +${bill.loyaltyPointsEarned} Points\n\n`
   }
 
-  const pdfUrlLine = pdfUrl ? `📥 *Download PDF Receipt:* ${pdfUrl}\n` : ''
+  if (pdfUrl) {
+    result += `📥 *Download PDF Receipt:* ${pdfUrl}\n\n`
+  }
 
-  const footerText = 
-    `🙏 Thank you for your business!\n\n` +
-    `📍 Visit Again\n` +
-    `📞 Contact us for support`
+  result += `Thank you for visiting.\n`
+  result += `Powered by PrintPro ERP`
 
-  const receiptBody = [
-    header,
-    divider,
-    metadataSection,
-    divider,
-    monoBlock,
-    divider,
-    loyaltyText + pdfUrlLine + footerText,
-    divider,
-    `Generated by PrintPro POS`
-  ].filter(Boolean).join('\n')
-
-  return receiptBody
+  return result
 }

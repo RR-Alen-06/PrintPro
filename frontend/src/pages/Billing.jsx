@@ -411,7 +411,7 @@ const Billing = () => {
       showToast('Sharing message without PDF link due to upload issue.', 'warning')
     }
 
-    const receiptText = formatWhatsAppReceipt(bill, settings, business, pdfUrl)
+    const receiptText = formatWhatsAppReceipt(bill, settings, business, pdfUrl, { bills, payments, customers })
     const text = encodeURIComponent(receiptText)
     const cleanPhone = phone.replace(/[^0-9]/g, '')
     const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
