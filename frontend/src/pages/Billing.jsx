@@ -411,7 +411,7 @@ const Billing = () => {
       showToast('Sharing message without PDF link due to upload issue.', 'warning')
     }
 
-    const receiptText = formatWhatsAppReceipt(bill, settings, business, pdfUrl)
+    const receiptText = formatWhatsAppReceipt(bill, settings, business, pdfUrl, { bills, payments, customers })
     const text = encodeURIComponent(receiptText)
     const cleanPhone = phone.replace(/[^0-9]/g, '')
     const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
@@ -2212,7 +2212,7 @@ const Billing = () => {
             </div>
 
             <div className="modal-body" ref={billRef}>
-              {settings.loyaltyEnabled !== false && liveBill.customerType === 'regular' && (
+              {settings.loyaltyEnabled !== false && (liveBill.customerType === 'regular' || (settings.loyaltyForRandomCustomers === true && liveBill.customerType === 'random')) && (
                 <div style={{
                   padding: '10px 14px',
                   marginBottom: '16px',
@@ -2225,7 +2225,9 @@ const Billing = () => {
                   fontSize: '0.85rem'
                 }}>
                   <span>Loyalty Points Added: +{liveBill.loyaltyPointsEarned || 0}</span>
-                  <span>New Points Balance: {liveBill.customerTotalLoyaltyPoints || 0} pts</span>
+                  {liveBill.customerType === 'regular' && (
+                    <span>New Points Balance: {liveBill.customerTotalLoyaltyPoints || 0} pts</span>
+                  )}
                 </div>
               )}
               {/* Bill header */}

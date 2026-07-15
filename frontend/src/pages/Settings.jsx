@@ -25,9 +25,9 @@ const Settings = () => {
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
-  // Loyalty Program local state
   const [loyalty, setLoyalty] = useState({
     loyaltyEnabled: settings.loyaltyEnabled !== false,
+    loyaltyForRandomCustomers: settings.loyaltyForRandomCustomers === true,
     loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== false,
     loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? 150,
     loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? 5,
@@ -130,6 +130,7 @@ const Settings = () => {
     e.preventDefault()
     updateSettings({
       loyaltyEnabled: loyalty.loyaltyEnabled,
+      loyaltyForRandomCustomers: loyalty.loyaltyForRandomCustomers,
       loyaltyRedeemEnabled: loyalty.loyaltyRedeemEnabled,
       loyaltyRedeemRatioPoints: Number(loyalty.loyaltyRedeemRatioPoints),
       loyaltyRedeemRatioRupees: Number(loyalty.loyaltyRedeemRatioRupees),
@@ -419,6 +420,23 @@ const Settings = () => {
               Enable to reward points to regular customers and allow point redemptions.
             </p>
           </div>
+
+          {loyalty.loyaltyEnabled && (
+            <div className="form-group" style={{ marginBottom: '16px', marginLeft: '26px' }}>
+              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={loyalty.loyaltyForRandomCustomers}
+                  onChange={(e) => setLoyalty((prev) => ({ ...prev, loyaltyForRandomCustomers: e.target.checked }))}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                <span style={{ fontWeight: 600 }}>Earn Points for Random / Walk-in Customers</span>
+              </label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
+                Allow non-registered (walk-in) guests to earn loyalty points on their invoices.
+              </p>
+            </div>
+          )}
 
           {loyalty.loyaltyEnabled && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '16px' }}>
