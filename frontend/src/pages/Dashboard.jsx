@@ -53,16 +53,55 @@ const Dashboard = () => {
     const advRefunds = fyAdvReturns.reduce((sum, ap) => sum + Math.abs(Number(ap.amount || 0)), 0)
     const refunds = pRefunds + advRefunds
 
-    // 3. Cash Inflow: positive payments + advance deposits in this FY
+    // 3. Cash Inflow: positive payments + advance deposits in this FY (using capped bill payment logic)
     const fyPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund'
       && !(p.notes && p.notes.includes('from advance deposit'))
       && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
       && (Number(p.cashAmount || 0) + Number(p.upiAmount || 0)) > 0 && isDateInFY(p.date))
     const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
-    const pInflow = fyPayments
-      .filter(p => !deletedBillIds.has(String(p.billId)))
-      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && !ap.isReturn && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
+    const billMap = new Map((bills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    
+    const billPaymentsMap = new Map()
+    let unlinkedCashTotal = 0
+    let unlinkedUpiTotal = 0
+
+    fyPayments.forEach(p => {
+      const bId = String(p.billId || '')
+      const cash = Number(p.cashAmount || 0)
+      const upi = Number(p.upiAmount || 0)
+      const total = cash + upi
+      if (!deletedBillIds.has(bId) && bId && billMap.has(bId)) {
+        if (!billPaymentsMap.has(bId)) {
+          billPaymentsMap.set(bId, { cash: 0, upi: 0, total: 0 })
+        }
+        const curr = billPaymentsMap.get(bId)
+        curr.cash += cash
+        curr.upi += upi
+        curr.total += total
+      } else if (!bId || !deletedBillIds.has(bId)) {
+        unlinkedCashTotal += cash
+        unlinkedUpiTotal += upi
+      }
+    })
+
+    let pInflowCash = unlinkedCashTotal
+    let pInflowUpi = unlinkedUpiTotal
+
+    billPaymentsMap.forEach((pData, bId) => {
+      const billTotal = billMap.get(bId)
+      if (pData.total > billTotal && billTotal > 0) {
+        const ratio = billTotal / pData.total
+        pInflowCash += Number((pData.cash * ratio).toFixed(2))
+        pInflowUpi += Number((pData.upi * ratio).toFixed(2))
+      } else {
+        pInflowCash += pData.cash
+        pInflowUpi += pData.upi
+      }
+    })
+
+    const pInflow = pInflowCash + pInflowUpi
+
+    const fyAdvances = (advancePayments || []).filter(ap => !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') && Number(ap.amount || 0) > 0 && isDateInFY(ap.date))
     const advInflow = fyAdvances.reduce((sum, ap) => {
       const cash = Number(ap.cashAmount || 0)
       const upi = Number(ap.upiAmount || 0)

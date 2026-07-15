@@ -1283,7 +1283,9 @@ export const AppProvider = ({ children }) => {
 
     // Earned loyalty points calculation (tiered system)
     const pointsEnabled = state.settings?.loyaltyEnabled !== false
-    const loyaltyPointsEarned = pointsEnabled ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
+    const isRandomCustomer = billData.customerType === 'random' || !billData.customerId || String(billData.customerId) === 'random'
+    const isLoyaltyApplicable = pointsEnabled && (!isRandomCustomer || state.settings?.loyaltyForRandomCustomers === true)
+    const loyaltyPointsEarned = isLoyaltyApplicable ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
     const loyaltyPointsRedeemed = Number(billData.loyaltyPointsRedeemed || 0)
 
     const currentCustomerPoints = Number(customer?.loyaltyPoints || 0)
@@ -1735,7 +1737,9 @@ export const AppProvider = ({ children }) => {
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
-      const loyaltyPointsEarned = pointsEnabled ? calcLoyaltyPoints(memberTotal, state.settings.loyaltyTiers) : 0
+      const isRandomCustomer = member.customerType === 'random' || !member.customerId || String(member.customerId) === 'random'
+      const isLoyaltyApplicable = pointsEnabled && (!isRandomCustomer || state.settings?.loyaltyForRandomCustomers === true)
+      const loyaltyPointsEarned = isLoyaltyApplicable ? calcLoyaltyPoints(memberTotal, state.settings.loyaltyTiers) : 0
       const loyaltyPointsRedeemed = Number(member.loyaltyPointsRedeemed || 0)
 
       const newBill = {
@@ -1992,9 +1996,11 @@ export const AppProvider = ({ children }) => {
 
     // Loyalty point updates on edit (tiered system)
     const pointsEnabled = state.settings?.loyaltyEnabled !== false
+    const isRandomCustomer = oldBill.customerType === 'random' || !oldBill.customerId || String(oldBill.customerId) === 'random'
+    const isLoyaltyApplicable = pointsEnabled && (!isRandomCustomer || state.settings?.loyaltyForRandomCustomers === true)
     const oldEarned = oldBill.loyaltyPointsEarned || 0
     const oldRedeemed = oldBill.loyaltyPointsRedeemed || 0
-    const newEarned = pointsEnabled ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
+    const newEarned = isLoyaltyApplicable ? calcLoyaltyPoints(total, state.settings.loyaltyTiers) : 0
     const newRedeemed = Number(newBillData.loyaltyPointsRedeemed || 0)
     const pointsDelta = (newEarned - newRedeemed) - (oldEarned - oldRedeemed)
 
