@@ -22,6 +22,7 @@ const Settings = () => {
     gstRate: settings.gstRate ?? 0,
     viewMode: settings.viewMode || 'monthly',
     refundsEnabled: settings.refundsEnabled !== false,
+    fyInvoicePrefixing: settings.fyInvoicePrefixing === true,
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
@@ -184,7 +185,12 @@ const Settings = () => {
 
   const handleAcctSave = (e) => {
     e.preventDefault()
-    updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode, refundsEnabled: acct.refundsEnabled })
+    updateSettings({
+      gstRate: Number(acct.gstRate),
+      viewMode: acct.viewMode,
+      refundsEnabled: acct.refundsEnabled,
+      fyInvoicePrefixing: acct.fyInvoicePrefixing,
+    })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
   }
@@ -372,6 +378,22 @@ const Settings = () => {
               </label>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
                 Show the Refunds module for managing cash/UPI reversals.
+              </p>
+            </div>
+          </div>
+          <div className="form-row" style={{ marginTop: '12px', marginBottom: '16px' }}>
+            <div className="form-group" style={{ marginBottom: '0' }}>
+              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={acct.fyInvoicePrefixing}
+                  onChange={(e) => setAcct((a) => ({ ...a, fyInvoicePrefixing: e.target.checked }))}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                <span style={{ fontWeight: 600 }}>Enable Financial Year (FY) Invoice Prefixing & Reset</span>
+              </label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
+                Generate tax invoices prefixed with the current FY (e.g. INV/26-27/0001) and reset sequence back to 1 every April 1st.
               </p>
             </div>
           </div>
