@@ -701,8 +701,24 @@ const reducer = (state, action) => {
   return nextState
 }
 
-// Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
-// const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
+const getFinancialYearString = (dateString) => {
+  const dateObj = dateString ? new Date(dateString) : new Date()
+  const year = dateObj.getFullYear()
+  const month = dateObj.getMonth() + 1 // 1-indexed
+
+  let startYear, endYear
+  if (month >= 4) { // April is month 4
+    startYear = year
+    endYear = year + 1
+  } else {
+    startYear = year - 1
+    endYear = year
+  }
+
+  const startYearShort = String(startYear).slice(-2)
+  const endYearShort = String(endYear).slice(-2)
+  return `${startYearShort}-${endYearShort}`
+}
 
 // Sequential ID generator using state counters
 const generateSeqId = (state, type) => {
@@ -1311,9 +1327,32 @@ export const AppProvider = ({ children }) => {
   }
 
   const addBill = (billData) => {
-    const counterKey = 'BILL'
-    const billId = generateSeqId(state, 'BILL')
+    let billId = ''
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+
+    if (fyInvoicePrefixing) {
+      const fyStr = getFinancialYearString(billData.date)
+      counterKey = `BILL_FY${fyStr}`
+      const counters = state.idCounters || {}
+      const current = counters[counterKey] || 0
+      const next = current + 1
+      const padded = String(next).padStart(4, '0')
+      billId = `INV/${fyStr}/${padded}`
+    } else {
+      billId = generateSeqId(state, 'BILL')
+    }
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    // Deduct stock for standard product items
+    (billData.items || []).forEach(item => {
+      const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+      if (invItem && invItem.type === 'product') {
+        const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+        dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+      }
+    })
+
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
     const currentCredit = Number(customer?.creditBalance || 0)
@@ -1754,7 +1793,18 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
-    let billCounterOffset = state.idCounters?.BILL || 0
+    let billCounterOffset = 0
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+    const fyStr = fyInvoicePrefixing ? getFinancialYearString(groupData.date) : ''
+
+    if (fyInvoicePrefixing) {
+      counterKey = `BILL_FY${fyStr}`
+      billCounterOffset = state.idCounters?.[counterKey] || 0
+    } else {
+      billCounterOffset = state.idCounters?.BILL || 0
+    }
+
     const memberBillIds = []
 
     const payerCustomerId = groupData.members[0]?.customerId
@@ -1763,8 +1813,22 @@ export const AppProvider = ({ children }) => {
 
     groupData.members.forEach((member, index) => {
       billCounterOffset += 1
-      const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
+      let billId = ''
+      if (fyInvoicePrefixing) {
+        billId = `INV/${fyStr}/${String(billCounterOffset).padStart(4, '0')}`
+      } else {
+        billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
+      }
+      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+      // Deduct stock for standard product items
+      (member.items || []).forEach(item => {
+        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+        if (invItem && invItem.type === 'product') {
+          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+        }
+      })
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'

@@ -238,6 +238,7 @@ const Billing = () => {
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
   const PRESETS = useMemo(() => {
     const getPrice = (item, printType, sides) => {
+      if (item.type === 'product') return item.sellingPrice || 0
       if (printType === 'color' && sides === 'single') return item.colorSingle || 0
       if (printType === 'color' && sides === 'double') return item.colorDouble || 0
       if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
@@ -246,19 +247,31 @@ const Billing = () => {
     }
     const presets = []
     inventory.forEach((item) => {
-      ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
-        const price = getPrice(item, printType, sides)
-        if (price > 0) {
-          presets.push({
-            name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
-            label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
-            itemId: item.id,
-            printType,
-            sides,
-            isCustom: false,
-          })
-        }
-      })
+      if (item.type === 'product') {
+        presets.push({
+          name: item.name,
+          label: `${item.name} (Product)`,
+          itemId: item.id,
+          printType: 'none',
+          sides: 'none',
+          isCustom: false,
+          isProduct: true
+        })
+      } else {
+        ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
+          const price = getPrice(item, printType, sides)
+          if (price > 0) {
+            presets.push({
+              name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
+              label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
+              itemId: item.id,
+              printType,
+              sides,
+              isCustom: false,
+            })
+          }
+        })
+      }
     })
     return presets
   }, [inventory])
@@ -556,6 +569,7 @@ const Billing = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
+    if (item.type === 'product') return item.sellingPrice || 0
     if (printType === 'color' && sides === 'single') return item.colorSingle
     if (printType === 'color' && sides === 'double') return item.colorDouble
     if (printType === 'bw' && sides === 'single') return item.bwSingle
@@ -616,13 +630,15 @@ const Billing = () => {
       const newItemId = changes.itemId ?? targetRow.itemId
       const newPrintType = changes.printType ?? targetRow.printType
       const newSides = changes.sides ?? targetRow.sides
+      const selectedItem = inventory.find(i => String(i.id) === String(newItemId))
+      const isProduct = selectedItem?.type === 'product'
+
       const dupRow = current.find(
         (r) =>
           r.id !== rowId &&
           !r.isCustom &&
           r.itemId === newItemId &&
-          r.printType === newPrintType &&
-          r.sides === newSides
+          (isProduct || (r.printType === newPrintType && r.sides === newSides))
       )
 
       if (dupRow) {
@@ -1705,44 +1721,52 @@ const Billing = () => {
                       )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.printType}
-                        onChange={(e) => {
-                          const printType = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { printType })
-                          } else {
-                            handleComboChange(row.id, {
-                              printType,
-                              unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="color">Color</option>
-                        <option value="bw">B/W</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.printType}
+                          onChange={(e) => {
+                            const printType = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { printType })
+                            } else {
+                              handleComboChange(row.id, {
+                                printType,
+                                unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="color">Color</option>
+                          <option value="bw">B/W</option>
+                        </select>
+                      )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.sides}
-                        onChange={(e) => {
-                          const sides = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { sides })
-                          } else {
-                            handleComboChange(row.id, {
-                              sides,
-                              unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="single">Single</option>
-                        <option value="double">Double</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.sides}
+                          onChange={(e) => {
+                            const sides = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { sides })
+                            } else {
+                              handleComboChange(row.id, {
+                                sides,
+                                unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="single">Single</option>
+                          <option value="double">Double</option>
+                        </select>
+                      )}
                     </td>
                     <td>
                       <input

@@ -31,6 +31,7 @@ const makeCustomRow = () => ({
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
   const item = inventory.find((e) => e.id === itemId)
   if (!item) return 0
+  if (item.type === 'product') return item.sellingPrice || 0
   if (printType === 'color' && sides === 'single') return item.colorSingle
   if (printType === 'color' && sides === 'double') return item.colorDouble
   if (printType === 'bw' && sides === 'single') return item.bwSingle
@@ -78,8 +79,29 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.08)' }}>
       <span style={{ fontSize: '11px', color: '#71717a', alignSelf: 'center', marginRight: '4px', fontWeight: 600 }}>Quick Add:</span>
-      {inventory.flatMap((item) =>
-        [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
+      {inventory.flatMap((item) => {
+        if (item.type === 'product') {
+          const price = item.sellingPrice || 0
+          const label = `${item.name} (Product)`
+          const existing = rows?.find((r) => !r.isCustom && r.itemId === item.id)
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleQuickAdd(item.id, item.name, 'none', 'none', price)}
+              style={{
+                fontSize: '11px', padding: '4px 10px', borderRadius: '16px', whiteSpace: 'nowrap', cursor: 'pointer',
+                border: existing ? '1px solid #10b981' : '1px solid rgba(16,185,129,0.3)',
+                background: existing ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.06)',
+                color: existing ? '#10b981' : '#a1a1aa',
+              }}
+            >
+              {label}{existing ? ` ×${existing.qty}` : ''}
+            </button>
+          )
+        }
+
+        return [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
           const price = getItemBasePrice(inventory, item.id, printType, sides)
           if (!price) return null
           const label = `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides === 'single' ? 'Single' : 'Double'}`
@@ -102,7 +124,7 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
             </button>
           )
         }).filter(Boolean)
-      )}
+      })}
     </div>
   )
 }
