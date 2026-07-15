@@ -2143,8 +2143,8 @@ const Billing = () => {
                   <td>₹{bill.amountPaid.toFixed(2)}</td>
                   <td style={{ color: bill.balance > 0 ? 'var(--warning)' : 'inherit' }}>₹{bill.balance.toFixed(2)}</td>
                   <td>
-                    <span className={`badge badge-${bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid'}`}>
-                      {bill.status}
+                    <span className={`badge badge-${bill.status === 'written_off' ? 'written_off' : (bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid')}`}>
+                      {bill.status === 'written_off' ? 'written off' : bill.status}
                     </span>
                   </td>
                   <td className="table-actions">
@@ -2241,7 +2241,7 @@ const Billing = () => {
                 <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
                   <p>Date: {liveBill.date}</p>
                   <p>Due: {liveBill.dueDate}</p>
-                  <p>Status: <span className={`badge badge-${liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid'}`}>{liveBill.status}</span></p>
+                  <p>Status: <span className={`badge badge-${liveBill.status === 'written_off' ? 'written_off' : (liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid')}`}>{liveBill.status === 'written_off' ? 'written off' : liveBill.status}</span></p>
                 </div>
               </div>
 
