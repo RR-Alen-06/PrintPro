@@ -287,6 +287,10 @@ const Receipt = () => {
       doc.setTextColor(239, 68, 68)
       txt('Balance Due:', labelX, y); txt(`Rs.${bill.balance.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
+    } else if (Number(bill.writtenOffAmount || 0) > 0) {
+      doc.setTextColor(148, 163, 184)
+      txt('Written Off:', labelX, y); txt(`Rs.${bill.writtenOffAmount.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      doc.setTextColor(50, 50, 50)
     }
 
     y += 3
@@ -666,6 +670,11 @@ const Receipt = () => {
               {selectedBill.balance > 0 && (
                 <div style={{ display: 'flex', gap: '24px', color: '#d32f2f', fontWeight: 'bold' }}>
                   <span>Balance Due:</span><span>₹{selectedBill.balance.toFixed(2)}</span>
+                </div>
+              )}
+              {Number(selectedBill.writtenOffAmount || 0) > 0 && (
+                <div style={{ display: 'flex', gap: '24px', color: '#64748b', fontWeight: 'bold' }}>
+                  <span>Written Off:</span><span>₹{selectedBill.writtenOffAmount.toFixed(2)}</span>
                 </div>
               )}
             </div>
