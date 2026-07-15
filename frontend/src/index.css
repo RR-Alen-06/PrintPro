@@ -1058,6 +1058,12 @@ h5 { font-size: 1rem; font-weight: 500; }
   border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
+.badge-written_off {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
 .badge-overdue {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;

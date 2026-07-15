@@ -103,6 +103,9 @@ export const syncEntityToCloud = async (action, payload) => {
           if (payload.loyaltyPointsEarned || payload.loyaltyPointsRedeemed) {
             notes += ` [Loyalty: earned=${payload.loyaltyPointsEarned || 0}, redeemed=${payload.loyaltyPointsRedeemed || 0}]`;
           }
+          if (payload.writtenOffAmount) {
+            notes += ` [WriteOff: amount=${payload.writtenOffAmount}]`;
+          }
 
           return await createBill({
             id: payload.id,
@@ -129,6 +132,9 @@ export const syncEntityToCloud = async (action, payload) => {
           let notes = payload.updates.notes || '';
           if (payload.updates.loyaltyPointsEarned || payload.updates.loyaltyPointsRedeemed) {
             notes += ` [Loyalty: earned=${payload.updates.loyaltyPointsEarned || 0}, redeemed=${payload.updates.loyaltyPointsRedeemed || 0}]`;
+          }
+          if (payload.updates.writtenOffAmount) {
+            notes += ` [WriteOff: amount=${payload.updates.writtenOffAmount}]`;
           }
 
           const mappedUpdates = {

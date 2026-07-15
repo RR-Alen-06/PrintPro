@@ -32,9 +32,16 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, recordPayment, processRefund, showToast, syncFromCloud } = useAppContext()
+  const { business, customers, settings, bills, payments, advancePayments, recordPayment, processRefund, writeOffBill, showToast, syncFromCloud } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+
+  const handleWriteOff = (billId, balanceAmt) => {
+    if (window.confirm(`Are you sure you want to write off the outstanding balance of ₹${balanceAmt.toFixed(2)} for Invoice #${billId}? This cannot be undone.`)) {
+      writeOffBill(billId)
+      showToast(`Invoice #${billId} written off successfully!`, 'success')
+    }
+  }
 
   const getUpiLink = (amount, notesText = 'Ledger Payment') => {
     if (!business?.upiId || amount <= 0) return ''
@@ -880,18 +887,52 @@ const CustomerLedger = () => {
                     <tr key={`${entry.id}-${idx}`}>
                       <td style={{ whiteSpace: 'nowrap' }}>{new Date(entry.date).toLocaleDateString()}</td>
                       <td>
-                        <span style={{
-                          display: 'inline-block', padding: '3px 10px',
-                          borderRadius: 'var(--radius-full)', fontSize: '0.7rem', fontWeight: 600,
-                          background: `${typeColor(entry.type)}22`, color: typeColor(entry.type),
-                          border: `1px solid ${typeColor(entry.type)}44`,
-                        }}>
-                          {typeLabel(entry.type)}
-                        </span>
+                        {(() => {
+                          const billObj = entry.type === 'bill' ? bills.find(b => b.id === entry.id) : null
+                          const isWrittenOff = billObj?.status === 'written_off' || Number(billObj?.writtenOffAmount || 0) > 0
+                          const color = isWrittenOff ? 'var(--text-muted)' : typeColor(entry.type)
+                          const label = isWrittenOff ? 'Written Off' : typeLabel(entry.type)
+                          return (
+                            <span style={{
+                              display: 'inline-block', padding: '3px 10px',
+                              borderRadius: 'var(--radius-full)', fontSize: '0.7rem', fontWeight: 600,
+                              background: `${color}22`, color: color,
+                              border: `1px solid ${color}44`,
+                            }}>
+                              {label}
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td>
                         <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{entry.description}</div>
                         {entry.subtext && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{entry.subtext}</div>}
+                        {entry.type === 'bill' && (() => {
+                          const billObj = bills.find(b => b.id === entry.id)
+                          const bal = Number(billObj?.balance || 0)
+                          const isWrittenOff = billObj?.status === 'written_off' || Number(billObj?.writtenOffAmount || 0) > 0
+                          if (isWrittenOff) {
+                            return (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>
+                                🚫 Written Off: ₹{(billObj.writtenOffAmount || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          if (bal > 0) {
+                            return (
+                              <div style={{ marginTop: '6px' }}>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => handleWriteOff(entry.id, bal)}
+                                  style={{ padding: '2px 8px', fontSize: '0.68rem', color: 'var(--error)', borderColor: 'var(--error-bg)', height: 'auto', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  Write-off ₹{bal.toFixed(2)}
+                                </button>
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
                         {entry.advanceUsed > 0 && (
                           <div style={{ fontSize: '0.72rem', color: 'var(--info)', marginTop: '2px' }}>
                             Advance applied: ₹{entry.advanceUsed.toFixed(2)}

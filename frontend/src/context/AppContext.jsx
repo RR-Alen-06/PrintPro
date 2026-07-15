@@ -952,13 +952,22 @@ export const AppProvider = ({ children }) => {
         const mappedBills = fetchedBills.map(b => {
           let loyaltyPointsEarned = 0;
           let loyaltyPointsRedeemed = 0;
+          let writtenOffAmount = 0;
           let notes = b.notes || '';
+
           const loyaltyRegex = /\[Loyalty:\s*earned=(\d+),\s*redeemed=(\d+)\]/;
-          const match = notes.match(loyaltyRegex);
-          if (match) {
-            loyaltyPointsEarned = Number(match[1]);
-            loyaltyPointsRedeemed = Number(match[2]);
+          const loyaltyMatch = notes.match(loyaltyRegex);
+          if (loyaltyMatch) {
+            loyaltyPointsEarned = Number(loyaltyMatch[1]);
+            loyaltyPointsRedeemed = Number(loyaltyMatch[2]);
             notes = notes.replace(loyaltyRegex, '').trim();
+          }
+
+          const writeOffRegex = /\[WriteOff:\s*amount=([0-9.]+)\]/;
+          const writeOffMatch = notes.match(writeOffRegex);
+          if (writeOffMatch) {
+            writtenOffAmount = Number(writeOffMatch[1]);
+            notes = notes.replace(writeOffRegex, '').trim();
           }
 
           return {
@@ -978,6 +987,7 @@ export const AppProvider = ({ children }) => {
             status: b.status || 'unpaid',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,
+            writtenOffAmount,
             notes: notes,
             deleted: !!b.deleted_at,
             items: (b.items || []).map(item => ({
@@ -2279,6 +2289,24 @@ export const AppProvider = ({ children }) => {
     }
   }
 
+  const writeOffBill = (billId) => {
+    const bill = state.bills.find(b => b.id === billId)
+    if (!bill) return
+
+    const balance = Number(bill.balance || 0)
+    if (balance <= 0) return
+
+    const newWrittenOff = Number(bill.writtenOffAmount || 0) + balance
+
+    const updates = {
+      writtenOffAmount: newWrittenOff,
+      balance: 0,
+      status: 'written_off'
+    }
+
+    dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates } })
+  }
+
   const applyPostDiscount = (billId, discountType, discountValue) => {
     const bill = state.bills.find(b => b.id === billId)
     if (!bill) return
@@ -2353,6 +2381,7 @@ export const AppProvider = ({ children }) => {
       signInWithGitHub,
       updateBill,
       editBill,
+      writeOffBill,
       applyPostDiscount,
       deletePayment,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
