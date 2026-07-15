@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
@@ -22,7 +22,7 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -58,6 +58,10 @@ const Billing = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [lastBillId, setLastBillId] = useState(null)
+  const [showReturnModal, setShowReturnModal] = useState(false)
+  const [returnQuantities, setReturnQuantities] = useState({})
+  const [returnSettlement, setReturnSettlement] = useState('advance')
+  const [returnPaymentMode, setReturnPaymentMode] = useState('cash')
 
   const [isEditing, setIsEditing] = useState(false)
   const [editingBillId, setEditingBillId] = useState(null)
@@ -234,6 +238,7 @@ const Billing = () => {
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
   const PRESETS = useMemo(() => {
     const getPrice = (item, printType, sides) => {
+      if (item.type === 'product') return item.sellingPrice || 0
       if (printType === 'color' && sides === 'single') return item.colorSingle || 0
       if (printType === 'color' && sides === 'double') return item.colorDouble || 0
       if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
@@ -242,19 +247,31 @@ const Billing = () => {
     }
     const presets = []
     inventory.forEach((item) => {
-      ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
-        const price = getPrice(item, printType, sides)
-        if (price > 0) {
-          presets.push({
-            name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
-            label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
-            itemId: item.id,
-            printType,
-            sides,
-            isCustom: false,
-          })
-        }
-      })
+      if (item.type === 'product') {
+        presets.push({
+          name: item.name,
+          label: `${item.name} (Product)`,
+          itemId: item.id,
+          printType: 'none',
+          sides: 'none',
+          isCustom: false,
+          isProduct: true
+        })
+      } else {
+        ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
+          const price = getPrice(item, printType, sides)
+          if (price > 0) {
+            presets.push({
+              name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
+              label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
+              itemId: item.id,
+              printType,
+              sides,
+              isCustom: false,
+            })
+          }
+        })
+      }
     })
     return presets
   }, [inventory])
@@ -552,6 +569,7 @@ const Billing = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
+    if (item.type === 'product') return item.sellingPrice || 0
     if (printType === 'color' && sides === 'single') return item.colorSingle
     if (printType === 'color' && sides === 'double') return item.colorDouble
     if (printType === 'bw' && sides === 'single') return item.bwSingle
@@ -612,13 +630,15 @@ const Billing = () => {
       const newItemId = changes.itemId ?? targetRow.itemId
       const newPrintType = changes.printType ?? targetRow.printType
       const newSides = changes.sides ?? targetRow.sides
+      const selectedItem = inventory.find(i => String(i.id) === String(newItemId))
+      const isProduct = selectedItem?.type === 'product'
+
       const dupRow = current.find(
         (r) =>
           r.id !== rowId &&
           !r.isCustom &&
           r.itemId === newItemId &&
-          r.printType === newPrintType &&
-          r.sides === newSides
+          (isProduct || (r.printType === newPrintType && r.sides === newSides))
       )
 
       if (dupRow) {
@@ -1090,6 +1110,49 @@ const Billing = () => {
     applyPostDiscount(liveBill.id, discountModalType, dVal)
     setDiscountApplyMsg('Discount applied successfully!')
     setTimeout(() => setDiscountApplyMsg(''), 3000)
+  }
+
+  const handleConfirmReturn = () => {
+    if (!liveBill) return
+
+    const returnItems = []
+    let totalValue = 0
+
+    liveBill.items.forEach((item, index) => {
+      const rqty = Number(returnQuantities[index] || 0)
+      if (rqty > 0) {
+        const itemTotal = rqty * Number(item.unitPrice || 0)
+        totalValue += itemTotal
+        returnItems.push({
+          name: item.name || item.itemName || 'Returned Item',
+          qty: rqty,
+          rate: Number(item.unitPrice || 0),
+          amount: itemTotal
+        })
+      }
+    })
+
+    if (returnItems.length === 0) {
+      showToast('Please select at least one item and quantity to return.', 'error')
+      return
+    }
+
+    const gstRate = Number(liveBill.gstPercent || 0)
+    const totalWithGst = totalValue * (1 + gstRate / 100)
+
+    createCreditNote({
+      billId: liveBill.id,
+      customerId: liveBill.customerId,
+      items: returnItems,
+      total: Number(totalWithGst.toFixed(2)),
+      settlementType: returnSettlement,
+      paymentMethod: returnSettlement === 'refund' ? returnPaymentMode : null
+    })
+
+    showToast(`Credit Note generated successfully for ₹${totalWithGst.toFixed(2)}!`, 'success')
+    setShowReturnModal(false)
+    setReturnQuantities({})
+    closeBillModal()
   }
 
   const getQrCodeBase64 = (upiLink) => {
@@ -1658,44 +1721,52 @@ const Billing = () => {
                       )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.printType}
-                        onChange={(e) => {
-                          const printType = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { printType })
-                          } else {
-                            handleComboChange(row.id, {
-                              printType,
-                              unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="color">Color</option>
-                        <option value="bw">B/W</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.printType}
+                          onChange={(e) => {
+                            const printType = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { printType })
+                            } else {
+                              handleComboChange(row.id, {
+                                printType,
+                                unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="color">Color</option>
+                          <option value="bw">B/W</option>
+                        </select>
+                      )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.sides}
-                        onChange={(e) => {
-                          const sides = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { sides })
-                          } else {
-                            handleComboChange(row.id, {
-                              sides,
-                              unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="single">Single</option>
-                        <option value="double">Double</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.sides}
+                          onChange={(e) => {
+                            const sides = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { sides })
+                            } else {
+                              handleComboChange(row.id, {
+                                sides,
+                                unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="single">Single</option>
+                          <option value="double">Double</option>
+                        </select>
+                      )}
                     </td>
                     <td>
                       <input
@@ -2143,8 +2214,8 @@ const Billing = () => {
                   <td>₹{bill.amountPaid.toFixed(2)}</td>
                   <td style={{ color: bill.balance > 0 ? 'var(--warning)' : 'inherit' }}>₹{bill.balance.toFixed(2)}</td>
                   <td>
-                    <span className={`badge badge-${bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid'}`}>
-                      {bill.status}
+                    <span className={`badge badge-${bill.status === 'written_off' ? 'written_off' : (bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid')}`}>
+                      {bill.status === 'written_off' ? 'written off' : bill.status}
                     </span>
                   </td>
                   <td className="table-actions">
@@ -2241,7 +2312,7 @@ const Billing = () => {
                 <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
                   <p>Date: {liveBill.date}</p>
                   <p>Due: {liveBill.dueDate}</p>
-                  <p>Status: <span className={`badge badge-${liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid'}`}>{liveBill.status}</span></p>
+                  <p>Status: <span className={`badge badge-${liveBill.status === 'written_off' ? 'written_off' : (liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid')}`}>{liveBill.status === 'written_off' ? 'written off' : liveBill.status}</span></p>
                 </div>
               </div>
 
@@ -2546,6 +2617,9 @@ const Billing = () => {
               <button type="button" className="btn btn-secondary" onClick={() => shareOnWhatsApp(liveBill)} style={{ color: '#25D366' }}>
                 <Share2 size={16} /> WhatsApp Share
               </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReturnModal(true)} style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <RotateCcw size={16} /> Sales Return
+              </button>
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -2571,6 +2645,143 @@ const Billing = () => {
               )}
               <button type="button" className="btn btn-ghost" onClick={closeBillModal}>
                 <X size={16} /> Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sales Return / Credit Note Modal ───────────────────────────── */}
+      {showReturnModal && liveBill && (
+        <div className="modal-overlay" onClick={() => setShowReturnModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <div className="modal-header">
+              <div>
+                <h3>Sales Return / Credit Note</h3>
+                <p className="text-muted">Issue return credit for Invoice #{liveBill.id}</p>
+              </div>
+              <button className="modal-close btn-icon" type="button" onClick={() => setShowReturnModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="table-container" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item Name</th>
+                      <th>Purchased</th>
+                      <th style={{ width: '120px' }}>Return Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {liveBill.items.map((item, index) => {
+                      const maxQty = Number(item.qty || 0);
+                      const currentVal = Number(returnQuantities[index] || 0);
+                      return (
+                        <tr key={index}>
+                          <td style={{ fontWeight: 500 }}>{item.name || item.itemName}</td>
+                          <td>{maxQty} @ ₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                          <td>
+                            <input
+                              type="number"
+                              className="form-input"
+                              min="0"
+                              max={maxQty}
+                              value={currentVal || ''}
+                              onChange={(e) => {
+                                const val = Math.min(maxQty, Math.max(0, Number(e.target.value)));
+                                setReturnQuantities(prev => ({ ...prev, [index]: val }));
+                              }}
+                              placeholder="0"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Refund Calculations preview */}
+              {(() => {
+                let totalValue = 0;
+                liveBill.items.forEach((item, index) => {
+                  const rqty = Number(returnQuantities[index] || 0);
+                  totalValue += rqty * Number(item.unitPrice || 0);
+                });
+                const gstRate = Number(liveBill.gstPercent || 0);
+                const gstAmount = totalValue * (gstRate / 100);
+                const finalTotal = totalValue + gstAmount;
+
+                return (
+                  <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '4px' }}>
+                      <span>Subtotal Refund:</span>
+                      <span>₹{totalValue.toFixed(2)}</span>
+                    </div>
+                    {gstRate > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '4px' }}>
+                        <span>GST Refund ({gstRate}%):</span>
+                        <span>₹{gstAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '6px', fontSize: '1rem', color: 'var(--accent)' }}>
+                      <span>Total Credit Amount:</span>
+                      <span>₹{finalTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Settlement choice */}
+              <div className="form-group">
+                <label className="form-label">Settlement Mode</label>
+                <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="settlement"
+                      checked={returnSettlement === 'advance'}
+                      onChange={() => setReturnSettlement('advance')}
+                    />
+                    <span>Add to Customer Advance (Store Credit)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="settlement"
+                      checked={returnSettlement === 'refund'}
+                      onChange={() => setReturnSettlement('refund')}
+                    />
+                    <span>Direct Cash/UPI Payout</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Direct Refund options */}
+              {returnSettlement === 'refund' && (
+                <div className="form-group">
+                  <label className="form-label">Payout Channel</label>
+                  <select
+                    className="form-select"
+                    value={returnPaymentMode}
+                    onChange={(e) => setReturnPaymentMode(e.target.value)}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '16px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReturnModal(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleConfirmReturn} style={{ background: 'var(--warning)', borderColor: 'var(--warning)', color: '#000' }}>
+                Confirm and Issue Credit Note
               </button>
             </div>
           </div>

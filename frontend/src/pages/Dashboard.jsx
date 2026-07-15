@@ -139,6 +139,10 @@ const Dashboard = () => {
   const totalRefunds = dashboardStats.totalRefunds
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
+  const agingReport = useMemo(() => {
+    return DashboardService.calculateAgingReport(bills)
+  }, [bills])
+
   const refundPayments = useMemo(() => {
     return (payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
   }, [payments])
@@ -373,8 +377,9 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Pending Dues Widget */}
-      <div className="card" style={{ marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+        {/* Pending Dues Widget */}
+        <div className="card" style={{ height: '100%', marginBottom: 0 }}>
         <div className="bill-view-header">
           <div>
             <h2>Pending Dues Summary</h2>
@@ -452,6 +457,78 @@ const Dashboard = () => {
             </table>
           </div>
         )}
+        </div>
+
+        {/* A/R Aging Summary */}
+        <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', marginBottom: 0 }}>
+          <div className="bill-view-header">
+            <div>
+              <h2>Receivables Aging Summary</h2>
+              <p className="text-muted">Outstanding invoices grouped by overdue timeframe</p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px', flex: 1, justifyContent: 'center' }}>
+            {/* 0-30 Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Current (0-30 Days)</span>
+                <span>₹{agingReport.current.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--success)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.current / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* 31-60 Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Medium (31-60 Days)</span>
+                <span>₹{agingReport.medium.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--warning)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.medium / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* 61+ Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Aged (61+ Days)</span>
+                <span style={{ color: 'var(--error)' }}>₹{agingReport.aged.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--error)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.aged / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* Total */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontWeight: 700,
+              borderTop: '1px solid var(--border)',
+              paddingTop: '12px',
+              marginTop: '8px',
+              fontSize: '1rem'
+            }}>
+              <span>Total Outstanding:</span>
+              <span style={{ color: 'var(--accent)' }}>₹{agingReport.total.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Financial Year Analytics Section */}
