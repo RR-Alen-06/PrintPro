@@ -24,6 +24,7 @@ const initialState = {
   bills: [],
   payments: [],
   advancePayments: [],
+  creditNotes: [],
   expenses: [],
   notifications: [],
   settings: {
@@ -147,6 +148,12 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         bills: state.bills.map((bill) => (bill.id === action.payload.id ? { ...bill, ...action.payload.updates } : bill)),
+      }
+    }
+    case 'ADD_CREDIT_NOTE': {
+      return {
+        ...state,
+        creditNotes: [...(state.creditNotes || []), action.payload],
       }
     }
     case 'REMOVE_PAYMENTS_FOR_BILL': {
@@ -301,7 +308,7 @@ const baseReducer = (state, action) => {
       }
     }
     case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
+      const { bills, customers, payments, inventory, expenses, advancePayments, creditNotes, business } = action.payload
 
       // Deduplicate arrays by unique ID and remove identical exact duplicate payment entries caused by earlier sync loops
       const dedupe = (arr) => {
@@ -340,6 +347,7 @@ const baseReducer = (state, action) => {
         inventory: dedupe(inventory) || state.inventory,
         expenses: dedupe(expenses) || state.expenses,
         advancePayments: advancePayments && advancePayments.length > 0 ? dedupe(advancePayments) : state.advancePayments,
+        creditNotes: dedupe(creditNotes) || state.creditNotes,
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -949,16 +957,50 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }));
 
+        const cloudCreditNotes = [];
+
         const mappedBills = fetchedBills.map(b => {
           let loyaltyPointsEarned = 0;
           let loyaltyPointsRedeemed = 0;
+          let writtenOffAmount = 0;
           let notes = b.notes || '';
+
+          const cnRegex = /\[CreditNote:\s*id=([^,]+),\s*total=([^,]+),\s*items=([^\]]+)\]/g;
+          let cnMatch;
+          while ((cnMatch = cnRegex.exec(notes)) !== null) {
+            try {
+              const cnId = cnMatch[1];
+              const cnTotal = Number(cnMatch[2]);
+              const cnItems = JSON.parse(decodeURIComponent(cnMatch[3]));
+              cloudCreditNotes.push({
+                id: cnId,
+                billId: b.id,
+                customerId: b.customer_id,
+                date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+                items: cnItems,
+                total: cnTotal,
+                settlementType: 'unknown',
+                paymentMethod: 'unknown'
+              });
+            } catch (e) {
+              console.error('Failed to parse credit note JSON from notes', e);
+            }
+          }
+          notes = notes.replace(cnRegex, '').trim();
+
           const loyaltyRegex = /\[Loyalty:\s*earned=(\d+),\s*redeemed=(\d+)\]/;
-          const match = notes.match(loyaltyRegex);
-          if (match) {
-            loyaltyPointsEarned = Number(match[1]);
-            loyaltyPointsRedeemed = Number(match[2]);
+          const loyaltyMatch = notes.match(loyaltyRegex);
+          if (loyaltyMatch) {
+            loyaltyPointsEarned = Number(loyaltyMatch[1]);
+            loyaltyPointsRedeemed = Number(loyaltyMatch[2]);
             notes = notes.replace(loyaltyRegex, '').trim();
+          }
+
+          const writeOffRegex = /\[WriteOff:\s*amount=([0-9.]+)\]/;
+          const writeOffMatch = notes.match(writeOffRegex);
+          if (writeOffMatch) {
+            writtenOffAmount = Number(writeOffMatch[1]);
+            notes = notes.replace(writeOffRegex, '').trim();
           }
 
           return {
@@ -978,6 +1020,7 @@ export const AppProvider = ({ children }) => {
             status: b.status || 'unpaid',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,
+            writtenOffAmount,
             notes: notes,
             deleted: !!b.deleted_at,
             items: (b.items || []).map(item => ({
@@ -1053,6 +1096,7 @@ export const AppProvider = ({ children }) => {
             inventory: mappedInventory,
             expenses: mappedExpenses,
             advancePayments: mappedAdvancePayments,
+            creditNotes: cloudCreditNotes,
             business: mappedBusiness
           }
         })
@@ -2279,6 +2323,84 @@ export const AppProvider = ({ children }) => {
     }
   }
 
+  const writeOffBill = (billId) => {
+    const bill = state.bills.find(b => b.id === billId)
+    if (!bill) return
+
+    const balance = Number(bill.balance || 0)
+    if (balance <= 0) return
+
+    const newWrittenOff = Number(bill.writtenOffAmount || 0) + balance
+
+    const updates = {
+      writtenOffAmount: newWrittenOff,
+      balance: 0,
+      status: 'written_off'
+    }
+
+    dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates } })
+  }
+
+  const createCreditNote = (data) => {
+    const counterKey = 'CN'
+    const nextCount = (state.idCounters?.[counterKey] || 0) + 1
+    const cnId = `CN${String(nextCount).padStart(4, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    const total = Number(data.total)
+    const customer = state.customers.find(c => c.id === data.customerId)
+    
+    if (data.settlementType === 'advance' && customer) {
+      const updatedCustomer = {
+        ...customer,
+        advanceBalance: Number(customer.advanceBalance || 0) + total,
+        creditBalance: Number(customer.creditBalance || 0) + total
+      }
+      dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: customer.id, updates: updatedCustomer } })
+    } else if (data.settlementType === 'refund') {
+      const payIdx = (state.idCounters?.PAY || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+      const payId = `PAY${String(payIdx).padStart(4, '0')}`
+      
+      const refundRecord = {
+        id: payId,
+        billId: data.billId,
+        customerId: data.customerId,
+        date: new Date().toISOString(),
+        cashAmount: data.paymentMethod === 'cash' ? -total : 0,
+        upiAmount: data.paymentMethod === 'upi' ? -total : 0,
+        totalPaid: -total,
+        paymentType: 'refund',
+        excessCredit: 0,
+        isRefund: true,
+        notes: `Refund from Credit Note ${cnId}`
+      }
+      dispatch({ type: 'ADD_PAYMENT', payload: refundRecord })
+    }
+
+    const bill = state.bills.find(b => b.id === data.billId)
+    if (bill) {
+      const metadata = `[CreditNote: id=${cnId}, total=${total}, items=${encodeURIComponent(JSON.stringify(data.items))}]`
+      const updatedBill = {
+        ...bill,
+        notes: bill.notes ? `${bill.notes} ${metadata}` : metadata
+      }
+      dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill } })
+    }
+
+    const cnRecord = {
+      id: cnId,
+      billId: data.billId,
+      customerId: data.customerId,
+      date: new Date().toISOString().slice(0, 10),
+      items: data.items,
+      total,
+      settlementType: data.settlementType,
+      paymentMethod: data.paymentMethod
+    }
+    dispatch({ type: 'ADD_CREDIT_NOTE', payload: cnRecord })
+  }
+
   const applyPostDiscount = (billId, discountType, discountValue) => {
     const bill = state.bills.find(b => b.id === billId)
     if (!bill) return
@@ -2353,6 +2475,8 @@ export const AppProvider = ({ children }) => {
       signInWithGitHub,
       updateBill,
       editBill,
+      writeOffBill,
+      createCreditNote,
       applyPostDiscount,
       deletePayment,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
