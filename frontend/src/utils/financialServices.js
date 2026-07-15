@@ -367,6 +367,36 @@ export const DashboardService = {
       billCount: activeBills.length,
       customerCount: customers.filter(c => !c.deleted).length
     };
+  },
+  calculateAgingReport: (bills = []) => {
+    let bucketCurrent = 0; // 0-30 days
+    let bucketMedium = 0;  // 31-60 days
+    let bucketAged = 0;    // 61+ days
+
+    const now = new Date();
+
+    bills.filter(b => !b.deleted && b.status !== 'paid' && !b.isGroupParent && b.balance > 0).forEach(b => {
+      const billDate = new Date(b.date);
+      const diffTime = Math.abs(now - billDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays <= 30) {
+        bucketCurrent += b.balance;
+      } else if (diffDays <= 60) {
+        bucketMedium += b.balance;
+      } else {
+        bucketAged += b.balance;
+      }
+    });
+
+    const total = bucketCurrent + bucketMedium + bucketAged;
+
+    return {
+      current: Number(bucketCurrent.toFixed(2)),
+      medium: Number(bucketMedium.toFixed(2)),
+      aged: Number(bucketAged.toFixed(2)),
+      total: Number(total.toFixed(2))
+    };
   }
 };
 
