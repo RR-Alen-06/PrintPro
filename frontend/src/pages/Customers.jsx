@@ -50,6 +50,11 @@ const Customers = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const [expandedBillId, setExpandedBillId] = useState(null)
 
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c.id === selectedCustomerId),
+    [customers, selectedCustomerId]
+  )
+
   // Payment form state
   const [payCash, setPayCash] = useState(0)
   const [payUpi, setPayUpi] = useState(0)
@@ -154,10 +159,7 @@ const Customers = () => {
     })
   }, [customers, searchQuery, filterType])
 
-  const selectedCustomer = useMemo(
-    () => customers.find((c) => c.id === selectedCustomerId),
-    [customers, selectedCustomerId]
-  )
+
 
   // Bills for selected customer (non-deleted, newest first)
   const customerBills = useMemo(() => {

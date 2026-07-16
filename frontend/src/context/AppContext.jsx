@@ -757,6 +757,24 @@ const calcLoyaltyPoints = (total, tiers) => {
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
 
+  const [toast, setToast] = useState(null)
+  const [dialog, setDialog] = useState(null)
+
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => {
+      setToast(null)
+    }, 4000)
+  }
+
+  const showAlert = (message, type = 'info') => {
+    setDialog({ title: type === 'error' ? 'Error' : type === 'success' ? 'Success' : 'Alert', message, type, confirmText: 'OK' })
+  }
+
+  const showConfirm = (title, message, onConfirm, confirmText = 'Confirm', type = 'info') => {
+    setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
+  }
+
   const dispatch = (action) => {
     rawDispatch(action)
     
@@ -822,23 +840,7 @@ export const AppProvider = ({ children }) => {
     }
   }, [])
 
-  const [toast, setToast] = useState(null)
-  const [dialog, setDialog] = useState(null)
 
-  const showToast = (message, type = 'info') => {
-    setToast({ message, type })
-    setTimeout(() => {
-      setToast(null)
-    }, 4000)
-  }
-
-  const showAlert = (message, type = 'info') => {
-    setDialog({ title: type === 'error' ? 'Error' : type === 'success' ? 'Success' : 'Alert', message, type, confirmText: 'OK' })
-  }
-
-  const showConfirm = (title, message, onConfirm, confirmText = 'Confirm', type = 'info') => {
-    setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
-  }
 
   useEffect(() => {
     saveState(state)
