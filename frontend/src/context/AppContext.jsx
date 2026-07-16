@@ -759,16 +759,68 @@ export const AppProvider = ({ children }) => {
 
   const dispatch = (action) => {
     rawDispatch(action)
-    // Synchronously fire the background sync, logging success and displaying errors to the user
+    
+    if (!navigator.onLine) {
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+      localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+      showToast('Offline: Changes saved locally. Will sync when online.', 'info')
+      return
+    }
+
     syncEntityToCloud(action.type, action.payload)
       .then(() => {
         console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
       })
       .catch((err) => {
         console.error(`Sync error: Database write failed for action ${action.type}`, err)
-        showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
+        const isNetworkErr = !navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Network') || err.status === 0
+        if (isNetworkErr) {
+          const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+          queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+          localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+          showToast('Connection lost: Changes saved locally. Sync pending.', 'warning')
+        } else {
+          showToast(`Cloud Sync Error: ${err.message || 'Verification failed'}`, 'error')
+        }
       })
   }
+
+  useEffect(() => {
+    const processSyncQueue = async () => {
+      if (!navigator.onLine) return
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      if (queue.length === 0) return
+
+      console.log(`Connection restored! Syncing ${queue.length} offline operations...`)
+      showToast(`Restored online! Syncing ${queue.length} pending local changes...`, 'info')
+
+      const remaining = []
+      for (const item of queue) {
+        try {
+          await syncEntityToCloud(item.type, item.payload)
+          console.log(`Offline operation synced successfully: ${item.type}`)
+        } catch (err) {
+          console.error(`Failed to sync offline operation ${item.type}`, err)
+          remaining.push(item)
+        }
+      }
+
+      localStorage.setItem('offline_sync_queue', JSON.stringify(remaining))
+      if (remaining.length === 0) {
+        showToast('All offline changes synced to cloud!', 'success')
+      } else {
+        showToast(`Failed to sync ${remaining.length} changes. Will retry later.`, 'warning')
+      }
+    }
+
+    window.addEventListener('online', processSyncQueue)
+    processSyncQueue()
+
+    return () => {
+      window.removeEventListener('online', processSyncQueue)
+    }
+  }, [])
 
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)

@@ -985,6 +985,173 @@ const Dashboard = () => {
           </table>
         </div>
       </div>
+
+      {/* Sales Forecast Chart */}
+      {(() => {
+        // Build last 6 months revenue data
+        const monthLabels = []
+        const monthRevenues = []
+        const now = new Date()
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+          const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)
+          const label = d.toLocaleString('default', { month: 'short', year: '2-digit' })
+          const revenue = bills
+            .filter(b => !b.deleted && !b.isGroupParent)
+            .filter(b => {
+              const bd = new Date(b.date || b.createdAt)
+              return bd >= d && bd <= monthEnd
+            })
+            .reduce((s, b) => s + Number(b.total || 0), 0)
+          monthLabels.push(label)
+          monthRevenues.push(revenue)
+        }
+        
+        // Simple linear regression for next 3 months
+        const n = monthRevenues.length
+        const xMean = (n - 1) / 2
+        const yMean = monthRevenues.reduce((a, b) => a + b, 0) / n
+        let num = 0, den = 0
+        monthRevenues.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2 })
+        const slope = den !== 0 ? num / den : 0
+        const intercept = yMean - slope * xMean
+        
+        const forecastLabels = []
+        const forecastRevenues = []
+        for (let i = 1; i <= 3; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+          forecastLabels.push(d.toLocaleString('default', { month: 'short', year: '2-digit' }))
+          forecastRevenues.push(Math.max(0, Math.round(slope * (n - 1 + i) + intercept)))
+        }
+        
+        const allValues = [...monthRevenues, ...forecastRevenues]
+        const maxVal = Math.max(...allValues, 1)
+
+        return (
+          <div className="card" style={{ marginTop: '24px' }}>
+            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <TrendingUp size={20} /> Sales Forecast (Next 3 Months)
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '180px', padding: '0 8px' }}>
+              {monthLabels.map((label, i) => (
+                <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    ₹{(monthRevenues[i] / 1000).toFixed(1)}k
+                  </span>
+                  <div style={{
+                    width: '100%',
+                    maxWidth: '40px',
+                    height: `${Math.max((monthRevenues[i] / maxVal) * 140, 4)}px`,
+                    background: 'linear-gradient(180deg, var(--accent), var(--accent-light, #6366f1))',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'height 0.5s ease'
+                  }} />
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
+                </div>
+              ))}
+              {/* Separator */}
+              <div style={{ width: '2px', background: 'var(--border)', height: '140px', margin: '0 4px', alignSelf: 'flex-end' }} />
+              {forecastLabels.map((label, i) => (
+                <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--success)' }}>
+                    ₹{(forecastRevenues[i] / 1000).toFixed(1)}k
+                  </span>
+                  <div style={{
+                    width: '100%',
+                    maxWidth: '40px',
+                    height: `${Math.max((forecastRevenues[i] / maxVal) * 140, 4)}px`,
+                    background: 'linear-gradient(180deg, var(--success), rgba(16,185,129,0.5))',
+                    borderRadius: '4px 4px 0 0',
+                    border: '2px dashed var(--success)',
+                    transition: 'height 0.5s ease'
+                  }} />
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '16px', marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '12px', height: '12px', background: 'var(--accent)', borderRadius: '2px' }} /> Historical
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '2px', border: '1px dashed var(--success)' }} /> Projected
+              </span>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Job Delivery Completion Tracker */}
+      {(() => {
+        const pendingJobs = bills
+          .filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion && new Date(b.estimatedCompletion) >= new Date(new Date().toISOString().split('T')[0]))
+          .sort((a, b) => new Date(a.estimatedCompletion) - new Date(b.estimatedCompletion))
+          .slice(0, 10)
+        
+        const overdueJobs = bills
+          .filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion && new Date(b.estimatedCompletion) < new Date(new Date().toISOString().split('T')[0]) && b.status !== 'completed')
+          .sort((a, b) => new Date(a.estimatedCompletion) - new Date(b.estimatedCompletion))
+        
+        return (
+          <div className="card" style={{ marginTop: '24px' }}>
+            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Clock size={20} /> Job Delivery Tracker
+            </h3>
+            
+            {overdueJobs.length > 0 && (
+              <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'var(--error-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-md)' }}>
+                <strong style={{ color: 'var(--error)', fontSize: '0.85rem' }}>
+                  <AlertTriangle size={14} style={{ verticalAlign: 'middle' }} /> {overdueJobs.length} Overdue Job{overdueJobs.length > 1 ? 's' : ''}
+                </strong>
+                <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {overdueJobs.map(j => (
+                    <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                      <span>{j.invoiceNumber || j.id} — {j.customerName}</span>
+                      <span style={{ color: 'var(--error)' }}>Due: {j.estimatedCompletion}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {pendingJobs.length > 0 ? (
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Customer</th>
+                      <th>Est. Completion</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingJobs.map(j => {
+                      const daysLeft = Math.ceil((new Date(j.estimatedCompletion) - new Date()) / (1000 * 60 * 60 * 24))
+                      return (
+                        <tr key={j.id}>
+                          <td style={{ fontWeight: 600 }}>{j.invoiceNumber || j.id}</td>
+                          <td>{j.customerName}</td>
+                          <td>{j.estimatedCompletion}</td>
+                          <td>
+                            <span className={`badge ${daysLeft <= 1 ? 'badge-warning' : 'badge-primary'}`}>
+                              {daysLeft <= 0 ? 'Today' : `${daysLeft} day${daysLeft > 1 ? 's' : ''}`}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '16px' }}>
+                No upcoming job deliveries. Set estimated completion dates on bills to track them here.
+              </p>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

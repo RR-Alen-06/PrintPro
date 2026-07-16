@@ -48,6 +48,7 @@ const Billing = () => {
   const [cashAmount, setCashAmount] = useState(0)
   const [upiAmount, setUpiAmount] = useState(0)
   const [notes, setNotes] = useState('')
+  const [estimatedCompletion, setEstimatedCompletion] = useState('')
   const [paymentMode, setPaymentMode] = useState('partial')
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
   const [followUpCash, setFollowUpCash] = useState(0)
@@ -96,7 +97,123 @@ const Billing = () => {
   const [loyaltyFreeItemRowId, setLoyaltyFreeItemRowId] = useState('')
   const [changeHandling, setChangeHandling] = useState('advance')
 
+  // UPI QR Checkout modal state
+  const [showUpiQrModal, setShowUpiQrModal] = useState(false)
+  const [upiQrAmount, setUpiQrAmount] = useState(0)
+
+  // Portal orders state
+  const [portalOrders, setPortalOrders] = useState([])
+  const [activePortalOrderId, setActivePortalOrderId] = useState('')
+
+  useEffect(() => {
+    const loadPortalOrders = () => {
+      const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+      setPortalOrders(orders.filter(o => o.status !== 'completed'))
+    }
+    loadPortalOrders()
+    // Poll every 5 seconds to get updates in real time
+    const interval = setInterval(loadPortalOrders, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const completePortalOrder = () => {
+    if (!activePortalOrderId) return
+    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+    const updated = orders.map(o => o.id === activePortalOrderId ? { ...o, status: 'completed' } : o)
+    localStorage.setItem('portal_orders', JSON.stringify(updated))
+    setPortalOrders(updated.filter(o => o.status !== 'completed'))
+    setActivePortalOrderId('')
+  }
+
+  const handleSelectPortalOrder = (order) => {
+    setCustomerType('random')
+    setRandomMode('new')
+    setCustomerName(order.customerName)
+    setCustomerPhone(order.customerPhone || '')
+    
+    // Map uploaded files to rows
+    const newRows = order.files.map((file, index) => {
+      // Find matching item in inventory based on printType
+      const matched = inventory.find(item => 
+        item.itemType === 'service' && 
+        item.name?.toLowerCase().includes(file.config.printType === 'color' ? 'color' : 'black')
+      ) || inventory[0]
+      
+      const unitPrice = file.config.printType === 'color'
+        ? (file.config.sides === 'double' ? (matched?.colorDouble || 15) : (matched?.colorSingle || 10))
+        : (file.config.sides === 'double' ? (matched?.bwDouble || 3) : (matched?.bwSingle || 2))
+
+      return {
+        id: `row-${Date.now()}-${index}`,
+        itemId: matched?.id || '',
+        itemName: `${file.name} (${file.config.printType === 'color' ? 'Color' : 'B&W'}, ${file.config.sides === 'double' ? 'Double' : 'Single'})`,
+        isCustom: true,
+        printType: file.config.printType,
+        sides: file.config.sides,
+        qty: file.config.copies || 1,
+        unitPrice: unitPrice,
+        amount: unitPrice * (file.config.copies || 1),
+        gstRate: matched?.gstRate || 0,
+      }
+    })
+    
+    setItemRows(newRows)
+    showToast(`Loaded portal order from ${order.customerName}`, 'success')
+    setActivePortalOrderId(order.id)
+  }
+
   const billRef = useRef(null)
+  const barcodeBufferRef = useRef('')
+  const barcodeTimerRef = useRef(null)
+
+  // Barcode scanner listener - captures rapid key sequences as barcode scans
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
+      
+      if (e.key === 'Enter' && barcodeBufferRef.current.length >= 3) {
+        const scannedCode = barcodeBufferRef.current.trim()
+        barcodeBufferRef.current = ''
+        
+        const matchedItem = inventory.find(item => 
+          item.barcode === scannedCode || 
+          String(item.id) === scannedCode ||
+          item.name?.toLowerCase().includes(scannedCode.toLowerCase())
+        )
+        
+        if (matchedItem) {
+          const newRow = {
+            id: `row-${Date.now()}`,
+            itemId: matchedItem.id,
+            itemName: matchedItem.name,
+            isCustom: false,
+            printType: matchedItem.itemType === 'product' ? 'product' : 'color',
+            sides: 'single',
+            qty: 1,
+            unitPrice: matchedItem.sellingPrice || matchedItem.colorSingle || 0,
+            amount: matchedItem.sellingPrice || matchedItem.colorSingle || 0,
+            gstRate: matchedItem.gstRate || 0,
+          }
+          setItemRows(prev => [...prev, newRow])
+          showToast(`Scanned: ${matchedItem.name} added to bill`, 'success')
+        } else {
+          showToast(`No inventory item found for barcode: ${scannedCode}`, 'error')
+        }
+        return
+      }
+      
+      if (e.key.length === 1) {
+        barcodeBufferRef.current += e.key
+        clearTimeout(barcodeTimerRef.current)
+        barcodeTimerRef.current = setTimeout(() => {
+          barcodeBufferRef.current = ''
+        }, 100)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [inventory])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -973,6 +1090,28 @@ const Billing = () => {
       }
     }
 
+    // Credit limit validation
+    const custForLimit = customers.find(c => c.id === customerIdToUse)
+    if (custForLimit && custForLimit.creditLimit > 0) {
+      const custBills = bills.filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent)
+      const custPayments = payments.filter(p => p.customerId === customerIdToUse && !p.isRefund)
+      const totalBilled = custBills.reduce((s, b) => s + Number(b.total || 0), 0)
+      const totalPaid = custPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
+      const currentOutstanding = totalBilled - totalPaid
+      const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
+      const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
+      const unpaidThisBill = Math.max(subtotal - proposedPaid, 0)
+      const projectedOutstanding = currentOutstanding + unpaidThisBill
+
+      if (projectedOutstanding > custForLimit.creditLimit) {
+        showAlert(
+          `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
+          'error'
+        )
+        return
+      }
+    }
+
     // Merge duplicate items before submission (Part 3 requirement pass)
     const mergedItemRows = []
     itemRows.forEach((row) => {
@@ -1033,6 +1172,7 @@ const Billing = () => {
       amountPaid: finalAmountPaid,
       advanceUsed: appliedAdvance,
       notes,
+      estimatedCompletion: estimatedCompletion || null,
       paymentMode,
       promoCode: appliedPromo?.code || null,
       promoDiscount: appliedPromo ? discountAmount : 0,
@@ -1098,6 +1238,7 @@ const Billing = () => {
     setLoyaltyPointsRedeemedInput('')
     setShouldRedeemPoints(false)
     setChangeHandling('advance')
+    completePortalOrder()
   }
 
   const handleRoundingChoice = (roundedTotal) => {
@@ -1224,13 +1365,36 @@ const Billing = () => {
     let y = 15
     let page = 1
 
-    const rgb = hexToRgb(settings.primaryColor)
+    const themeColors = {
+      dark: '#0f172a',
+      blue: '#1d4ed8',
+      green: '#047857',
+      maroon: '#7f1d1d',
+      purple: '#6d28d9'
+    }
+    const themeHex = themeColors[settings.pdfColorTheme || 'dark'] || settings.primaryColor || '#0f172a'
+    const rgb = hexToRgb(themeHex)
+
+    // Dynamic Columns config
+    const showType = settings.pdfShowType !== false
+    const showSides = settings.pdfShowSides !== false
+    const showUnit = settings.pdfShowUnitPrice !== false
+    const showGst = settings.pdfShowGstRate !== false
+
+    const cols = { item: MARGIN }
+    let curX = 72
+    if (showType) { cols.type = curX; curX += 16 }
+    if (showSides) { cols.sides = curX; curX += 18 }
+    cols.qty = curX; curX += 12
+    if (showUnit) { cols.unit = curX; curX += 20 }
+    if (showGst) { cols.gst = curX; curX += 18 }
+    cols.amt = W - MARGIN - 22
 
     const line = (x1, y1, x2, y2, width = 0.3) => {
       doc.setLineWidth(width)
       doc.line(x1, y1, x2, y2)
     }
-    const text = (str, x, yPos, opts) => doc.text(String(str), x, yPos, opts)
+    const text = (str, x, yPos, opts) => doc.text(String(str || ''), x, yPos, opts)
 
     const addFooter = (pageNum, totalPages) => {
       const fy = H - MARGIN
@@ -1253,10 +1417,11 @@ const Billing = () => {
         text('(continued)', W / 2, y, { align: 'center' })
         y += 6
         text('Item', cols.item, y)
-        text('Type', cols.type, y)
-        text('Sides', cols.sides, y)
+        if (showType) text('Type', cols.type, y)
+        if (showSides) text('Sides', cols.sides, y)
         text('Qty', cols.qty, y)
-        text('Unit Price', cols.unit, y)
+        if (showUnit) text('Unit Price', cols.unit, y)
+        if (showGst) text('GST %', cols.gst, y)
         text('Amount', cols.amt, y)
         y += 2
         doc.setDrawColor(rgb.r, rgb.g, rgb.b)
@@ -1326,14 +1491,15 @@ const Billing = () => {
     y += 6
 
     // Items table header
-    const cols = { item: MARGIN, type: 78, sides: 100, qty: 122, unit: 142, amt: 168 }
+    // Items table header
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8)
     text('Item', cols.item, y)
-    text('Type', cols.type, y)
-    text('Sides', cols.sides, y)
+    if (showType) text('Type', cols.type, y)
+    if (showSides) text('Sides', cols.sides, y)
     text('Qty', cols.qty, y)
-    text('Unit Price', cols.unit, y)
+    if (showUnit) text('Unit Price', cols.unit, y)
+    if (showGst) text('GST %', cols.gst, y)
     text('Amount', cols.amt, y)
     y += 2
     doc.setDrawColor(rgb.r, rgb.g, rgb.b)
@@ -1359,10 +1525,11 @@ const Billing = () => {
       const typeText = (item.printType === 'none' || !item.printType) ? '—' : (item.printType === 'color' ? 'Color' : 'B/W')
       const sidesText = (item.sides === 'none' || !item.sides) ? '—' : (item.sides === 'single' ? 'Single' : 'Double')
 
-      text(typeText, cols.type, y)
-      text(sidesText, cols.sides, y)
+      if (showType) text(typeText, cols.type, y)
+      if (showSides) text(sidesText, cols.sides, y)
       text(String(item.qty), cols.qty, y)
-      text(`Rs.${Number(item.unitPrice).toFixed(2)}`, cols.unit, y)
+      if (showUnit) text(`Rs.${Number(item.unitPrice).toFixed(2)}`, cols.unit, y)
+      if (showGst) text(`${item.gstRate || invItem?.gstRate || 0}%`, cols.gst, y)
       text(`Rs.${Number(item.amount).toFixed(2)}`, cols.amt, y)
       y += 6
     })
@@ -1463,6 +1630,48 @@ const Billing = () => {
       y += 5
     }
 
+    // Shop Seal & Authorized Signatory Stamping
+    if (settings.shopSealUrl || settings.signatorySignatureUrl) {
+      checkNewPage(32)
+      y += 2
+      if (settings.shopSealUrl) {
+        try {
+          doc.addImage(settings.shopSealUrl, 'PNG', MARGIN + 10, y, 22, 22)
+          doc.setFontSize(7)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(100, 100, 100)
+          text('Shop Seal', MARGIN + 21, y + 25, { align: 'center' })
+        } catch (e) {
+          console.error("Failed to add shop seal", e)
+        }
+      }
+      if (settings.signatorySignatureUrl) {
+        try {
+          doc.addImage(settings.signatorySignatureUrl, 'PNG', W - MARGIN - 35, y + 4, 25, 12)
+          doc.setFontSize(7)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(100, 100, 100)
+          text('Authorized Signatory', W - MARGIN - 22.5, y + 19, { align: 'center' })
+        } catch (e) {
+          console.error("Failed to add signature", e)
+        }
+      }
+      y += 28
+      doc.setTextColor(0, 0, 0)
+    }
+
+    // Legal Declaration / Footer Note
+    if (settings.pdfLegalFooter) {
+      checkNewPage(12)
+      doc.setFontSize(7.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(80, 80, 80)
+      const splitLegal = doc.splitTextToSize(settings.pdfLegalFooter, W - MARGIN * 2)
+      doc.text(splitLegal, MARGIN, y)
+      y += splitLegal.length * 4 + 2
+      doc.setTextColor(0, 0, 0)
+    }
+
     // Custom Footer Notes
     if (settings.footerNotes) {
       checkNewPage(14)
@@ -1515,7 +1724,78 @@ const Billing = () => {
           onCreateNew={() => setLastBillId(null)}
         />
       ) : (
-        <form className="card" onSubmit={handleSubmit} autoComplete="off">
+        <>
+          {/* POS Online Orders Queue */}
+          {settings.portalEnabled === true && portalOrders.length > 0 && (
+            <div className="card" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'rgba(99,102,241,0.03)', padding: '20px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <ClipboardList size={20} style={{ color: 'var(--accent)' }} />
+                POS Online Orders Queue ({portalOrders.length})
+              </h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                {portalOrders.map(order => (
+                  <div key={order.id} style={{
+                    padding: '12px',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    width: 'calc(50% - 6px)',
+                    minWidth: '280px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontWeight: 700 }}>{order.customerName}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      {order.customerPhone && (
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          Phone: {order.customerPhone}
+                        </p>
+                      )}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        {order.files.map(f => (
+                          <div key={f.id} style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            • {f.name} ({f.config.copies}x {f.config.printType === 'color' ? 'Color' : 'B&W'})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }}
+                        onClick={() => handleSelectPortalOrder(order)}
+                      >
+                        Load to Bill
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--error)', padding: '6px 10px', fontSize: '0.8rem' }}
+                        onClick={() => {
+                          const updated = portalOrders.filter(o => o.id !== order.id)
+                          const allOrders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+                          const newAll = allOrders.map(o => o.id === order.id ? { ...o, status: 'completed' } : o)
+                          localStorage.setItem('portal_orders', JSON.stringify(newAll))
+                          setPortalOrders(updated)
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form className="card" onSubmit={handleSubmit} autoComplete="off">
         <div className="bill-view-header">
           <div>
             {isEditing ? (
@@ -2030,6 +2310,11 @@ const Billing = () => {
             <label className="form-label">Notes</label>
             <textarea className="form-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Job notes or print remarks" />
           </div>
+          <div className="form-group">
+            <label className="form-label">Est. Completion Date</label>
+            <input className="form-input" type="date" value={estimatedCompletion} onChange={(e) => setEstimatedCompletion(e.target.value)} />
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Set a deadline for this job to track delivery on the dashboard.</p>
+          </div>
         </div>
 
         {/* Payment & Summary */}
@@ -2055,7 +2340,22 @@ const Billing = () => {
             </div>
             <div className="form-group">
               <label className="form-label">UPI Amount</label>
-              <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} />
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    const amt = Number(upiAmount || 0) > 0 ? Number(upiAmount) : total
+                    setUpiQrAmount(amt)
+                    setShowUpiQrModal(true)
+                  }}
+                  style={{ whiteSpace: 'nowrap', fontSize: '0.75rem', padding: '6px 10px' }}
+                  title="Generate UPI QR code for quick pay"
+                >
+                  Show QR
+                </button>
+              </div>
             </div>
             {(() => {
               const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
@@ -2274,6 +2574,7 @@ const Billing = () => {
           )}
         </div>
         </form>
+        </>
       )}
 
       {/* Recent Bills Table */}
@@ -3055,6 +3356,54 @@ const Billing = () => {
                   Confirm Refund & Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPI QR Checkout Modal */}
+      {showUpiQrModal && (
+        <div className="modal-overlay" onClick={() => setShowUpiQrModal(false)}>
+          <div className="modal" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>UPI Quick Pay</h3>
+              <button className="modal-close btn-icon" onClick={() => setShowUpiQrModal(false)} type="button">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px', textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent)', marginBottom: '16px' }}>
+                ₹{Number(upiQrAmount).toFixed(2)}
+              </div>
+              {business?.upiId ? (
+                <div>
+                  <div style={{
+                    padding: '20px',
+                    background: 'white',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'inline-block',
+                    marginBottom: '16px'
+                  }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                        `upi://pay?pa=${business.upiId}&pn=${encodeURIComponent(business.shopName || 'PrintPro')}&am=${Number(upiQrAmount).toFixed(2)}&cu=INR&tn=Invoice%20Payment`
+                      )}`}
+                      alt="UPI QR Code"
+                      style={{ width: '200px', height: '200px' }}
+                    />
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Scan with any UPI app (GPay, PhonePe, Paytm)
+                  </p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    UPI ID: <strong>{business.upiId}</strong>
+                  </p>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem' }}>
+                  No UPI ID configured. Go to Settings → Business Profile to set your UPI ID.
+                </p>
+              )}
             </div>
           </div>
         </div>
