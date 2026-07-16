@@ -1062,27 +1062,82 @@ export const AppProvider = ({ children }) => {
           notes: p.notes || ''
         }))
 
-        const mappedInventory = fetchedInventory.map(i => ({
-          id: i.id,
-          name: i.name,
-          colorSingle: Number(i.color_single || 0),
-          colorDouble: Number(i.color_double || 0),
-          bwSingle: Number(i.bw_single || 0),
-          bwDouble: Number(i.bw_double || 0),
-          stock: Number(i.stock || 0),
-          lowStockAlert: Number(i.low_stock_alert || 50)
-        }))
+        const parseInventoryName = (dbName) => {
+          if (!dbName || !dbName.includes('|')) {
+            return { name: dbName || '', type: 'print', hsnCode: '', sellingPrice: 0 }
+          }
+          const parts = dbName.split('|')
+          const name = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            name,
+            type: metadata.type || 'print',
+            hsnCode: metadata.hsn || '',
+            sellingPrice: Number(metadata.price || 0)
+          }
+        }
 
-        const mappedExpenses = fetchedPurchases.map(exp => ({
-          id: String(exp.id),
-          date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
-          itemName: exp.item_name || '',
-          category: exp.category || 'General',
-          qty: Number(exp.qty || 0),
-          unitCost: Number(exp.unit_cost || 0),
-          amount: Number(exp.total || 0),
-          notes: exp.notes || ''
-        }))
+        const mappedInventory = fetchedInventory.map(i => {
+          const parsed = parseInventoryName(i.name)
+          return {
+            id: i.id,
+            name: parsed.name,
+            type: parsed.type,
+            hsnCode: parsed.hsnCode,
+            sellingPrice: parsed.sellingPrice,
+            colorSingle: Number(i.color_single || 0),
+            colorDouble: Number(i.color_double || 0),
+            bwSingle: Number(i.bw_single || 0),
+            bwDouble: Number(i.bw_double || 0),
+            stock: Number(i.stock || 0),
+            lowStockAlert: Number(i.low_stock_alert || 5)
+          }
+        })
+
+        const parseExpenseNotes = (dbNotes) => {
+          if (!dbNotes || !dbNotes.includes('|')) {
+            return { notes: dbNotes || '', cashAmount: 0, upiAmount: 0, receiptUrl: '' }
+          }
+          const parts = dbNotes.split('|')
+          const notes = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            notes,
+            cashAmount: Number(metadata.cash || 0),
+            upiAmount: Number(metadata.upi || 0),
+            receiptUrl: metadata.receipt || ''
+          }
+        }
+
+        const mappedExpenses = fetchedPurchases.map(exp => {
+          const parsed = parseExpenseNotes(exp.notes)
+          return {
+            id: String(exp.id),
+            date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
+            description: exp.item_name || '',
+            amount: Number(exp.total || 0),
+            notes: parsed.notes,
+            cashAmount: parsed.cashAmount,
+            upiAmount: parsed.upiAmount,
+            receiptUrl: parsed.receiptUrl
+          }
+        })
 
         const mappedAdvancePayments = (fetchedProfile.advance_payments || []).map(ap => ({
           id: ap.id,
@@ -1841,9 +1896,8 @@ export const AppProvider = ({ children }) => {
 
       if (member.useAdvance && currentAdvance > 0) {
         advanceUsed = Math.min(currentAdvance, memberTotal)
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
-
+        amountPaid += advanceUsed
+        
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
         
@@ -1853,12 +1907,36 @@ export const AppProvider = ({ children }) => {
       } else if (member.usePayerAdvance && payerCustomerId && payerAdvanceRemaining > 0 && member.customerId !== payerCustomerId) {
         const applyPayerAdv = Math.min(payerAdvanceRemaining, memberTotal)
         advanceUsed = applyPayerAdv
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
+        amountPaid += advanceUsed
         payerAdvanceRemaining -= applyPayerAdv
 
         // Deduct from payer's advance balance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: payerCustomerId, amount: applyPayerAdv } })
+      }
+
+      const cashPaid = Number(member.cashPaid || 0)
+      const upiPaid = Number(member.upiPaid || 0)
+      amountPaid += cashPaid + upiPaid
+      billStatus = amountPaid >= memberTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+
+      if (cashPaid > 0 || upiPaid > 0) {
+        const paymentId = generateSeqId(state, 'PAY')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: paymentId,
+            billId: billId,
+            customerId: member.customerId,
+            customerName,
+            date: groupData.date || new Date().toISOString().slice(0, 10),
+            amount: cashPaid + upiPaid,
+            cashAmount: cashPaid,
+            upiAmount: upiPaid,
+            isGroupPayment: true,
+            groupBillId: grpId,
+          }
+        })
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1888,7 +1966,7 @@ export const AppProvider = ({ children }) => {
         status: billStatus,
         advanceUsed,
         creditUsed: 0,
-        paymentMethod: { cash: 0, upi: 0 },
+        paymentMethod: { cash: cashPaid, upi: upiPaid },
         rounding: member.rounding || 0,
         notes: groupData.notes || '',
         deleted: false,

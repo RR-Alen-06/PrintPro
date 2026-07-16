@@ -520,6 +520,39 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
           </label>
         </div>
       )}
+
+      {/* Cash and UPI splits */}
+      <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '10px' }}>
+        <div style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '8px', fontWeight: 600 }}>Payment Received (Split Mode):</div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '120px' }}>
+            <label style={{ fontSize: '11px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash Amount Paid (₹)</label>
+            <input
+              type="number"
+              className="form-input"
+              style={{ fontSize: '12px', padding: '6px 10px' }}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+              value={member.cashPaid || ''}
+              onChange={(e) => onChange(member.id, { cashPaid: Number(e.target.value) })}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: '120px' }}>
+            <label style={{ fontSize: '11px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI Amount Paid (₹)</label>
+            <input
+              type="number"
+              className="form-input"
+              style={{ fontSize: '12px', padding: '6px 10px' }}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+              value={member.upiPaid || ''}
+              onChange={(e) => onChange(member.id, { upiPaid: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -862,6 +895,8 @@ const GroupBilling = () => {
         total,
         useAdvance: m.useAdvance,
         usePayerAdvance: m.usePayerAdvance,
+        cashPaid: Number(m.cashPaid || 0),
+        upiPaid: Number(m.upiPaid || 0),
         groupRole: m.hasAddons ? 'shared-addon' : 'shared',
         rounding: 0,
       }
@@ -930,6 +965,8 @@ const GroupBilling = () => {
         total,
         rounding: 0,
         useAdvance: m.useAdvance,
+        cashPaid: Number(m.cashPaid || 0),
+        upiPaid: Number(m.upiPaid || 0),
         groupRole: 'split',
       }
     })
@@ -1522,6 +1559,36 @@ const GroupBilling = () => {
                           )}
                         </div>
                       )}
+                      {/* Cash and UPI splits */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(255,255,255,0.01)', padding: '6px', borderRadius: '6px' }}>
+                        <div style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Payment Received (Split Mode):</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ flex: 1 }}>
+                            <input
+                              type="number"
+                              className="form-input"
+                              style={{ fontSize: '11px', padding: '2px 6px', height: '26px' }}
+                              placeholder="Cash ₹"
+                              min="0"
+                              step="0.01"
+                              value={m.cashPaid || ''}
+                              onChange={(e) => updateSplitMember(m.id, { cashPaid: Number(e.target.value) })}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <input
+                              type="number"
+                              className="form-input"
+                              style={{ fontSize: '11px', padding: '2px 6px', height: '26px' }}
+                              placeholder="UPI ₹"
+                              min="0"
+                              step="0.01"
+                              value={m.upiPaid || ''}
+                              onChange={(e) => updateSplitMember(m.id, { upiPaid: Number(e.target.value) })}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

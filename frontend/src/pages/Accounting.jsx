@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
 
@@ -14,6 +14,7 @@ const Accounting = () => {
     amount: '',
     cashAmount: '',
     upiAmount: '',
+    receiptUrl: '',
   })
   const [expError, setExpError] = useState('')
   const [expSuccess, setExpSuccess] = useState(false)
@@ -205,9 +206,10 @@ const Accounting = () => {
       amount,
       cashAmount: cash,
       upiAmount: upi,
+      receiptUrl: expForm.receiptUrl || '',
     })
 
-    setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '' })
+    setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '', receiptUrl: '' })
     setExpSuccess(true)
     setTimeout(() => setExpSuccess(false), 3000)
   }
@@ -476,6 +478,17 @@ const Accounting = () => {
                 />
               </div>
             </div>
+
+            <div className="form-group" style={{ marginTop: '12px' }}>
+              <label className="form-label">Receipt Image / URL Link</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. https://invoice-link.com or Google Drive image URL"
+                value={expForm.receiptUrl || ''}
+                onChange={(e) => handleExpenseChange('receiptUrl', e.target.value)}
+              />
+            </div>
           </div>
 
           {expError && (
@@ -541,17 +554,31 @@ const Accounting = () => {
                     <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount).toFixed(2)}</td>
                     <td>₹{Number(exp.cashAmount || 0).toFixed(2)}</td>
                     <td>₹{Number(exp.upiAmount || 0).toFixed(2)}</td>
-                    <td>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: 'var(--error)' }}
-                        onClick={() => {
-                          if (window.confirm(`Delete expense "${exp.description}"?`)) deleteExpense(exp.id)
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
+                     <td>
+                       <div style={{ display: 'flex', gap: '8px' }}>
+                         {exp.receiptUrl && (
+                           <a
+                             href={exp.receiptUrl}
+                             target="_blank"
+                             rel="noopener noreferrer"
+                             className="btn btn-ghost btn-sm"
+                             style={{ color: 'var(--info)', padding: '4px', display: 'inline-flex', alignItems: 'center' }}
+                             title="View Receipt Link"
+                           >
+                             <ExternalLink size={14} />
+                           </a>
+                         )}
+                         <button
+                           className="btn btn-ghost btn-sm"
+                           style={{ color: 'var(--error)' }}
+                           onClick={() => {
+                             if (window.confirm(`Delete expense "${exp.description}"?`)) deleteExpense(exp.id)
+                           }}
+                         >
+                           <Trash2 size={14} />
+                         </button>
+                       </div>
+                     </td>
                   </tr>
                 ))}
               </tbody>

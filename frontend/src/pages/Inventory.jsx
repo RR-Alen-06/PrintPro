@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
 
-const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', stock: '', lowStockAlert: '' }
+const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', stock: '', lowStockAlert: '', hsnCode: '' }
 
 const priceFields = [
   { key: 'colorSingle', label: 'Color Single (₹)' },
@@ -73,7 +73,8 @@ const Inventory = () => {
       bwDouble: addForm.type === 'product' ? 0 : Number(addForm.bwDouble),
       sellingPrice: addForm.type === 'product' ? Number(addForm.sellingPrice) : 0,
       stock: addForm.type === 'product' ? Number(addForm.stock) : 0,
-      lowStockAlert: Number(addForm.lowStockAlert || 5)
+      lowStockAlert: Number(addForm.lowStockAlert || 5),
+      hsnCode: addForm.hsnCode || ''
     })
 
     setAddForm(EMPTY_FORM)
@@ -94,7 +95,8 @@ const Inventory = () => {
       bwDouble: item.bwDouble || 0,
       sellingPrice: item.sellingPrice || 0,
       stock: item.stock || 0,
-      lowStockAlert: item.lowStockAlert || 5
+      lowStockAlert: item.lowStockAlert || 5,
+      hsnCode: item.hsnCode || ''
     })
     setEditErrors({})
   }
@@ -122,7 +124,8 @@ const Inventory = () => {
       bwDouble: editForm.type === 'product' ? 0 : Number(editForm.bwDouble),
       sellingPrice: editForm.type === 'product' ? Number(editForm.sellingPrice) : 0,
       stock: editForm.type === 'product' ? Number(editForm.stock) : 0,
-      lowStockAlert: Number(editForm.lowStockAlert || 5)
+      lowStockAlert: Number(editForm.lowStockAlert || 5),
+      hsnCode: editForm.hsnCode || ''
     })
     setEditingId(null)
   }
@@ -190,6 +193,18 @@ const Inventory = () => {
                   onChange={(e) => handleAddChange('name', e.target.value)}
                 />
                 {addErrors.name && <div className="form-error"><AlertCircle size={12} style={{ display: 'inline', marginRight: 3 }} />{addErrors.name}</div>}
+              </div>
+
+              {/* HSN Code */}
+              <div className="form-group" style={{ flex: '1 1 120px' }}>
+                <label className="form-label">HSN Code</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. 4901"
+                  value={addForm.hsnCode || ''}
+                  onChange={(e) => handleAddChange('hsnCode', e.target.value)}
+                />
               </div>
             </div>
 
@@ -318,9 +333,17 @@ const Inventory = () => {
                           type="text"
                           value={editForm.name}
                           onChange={(e) => handleEditChange('name', e.target.value)}
-                          style={{ minWidth: '140px' }}
+                          style={{ minWidth: '140px', marginBottom: '4px' }}
                         />
                         {editErrors.name && <div className="form-error">{editErrors.name}</div>}
+                        <input
+                          className="form-input"
+                          type="text"
+                          placeholder="HSN Code"
+                          value={editForm.hsnCode || ''}
+                          onChange={(e) => handleEditChange('hsnCode', e.target.value)}
+                          style={{ fontSize: '0.75rem', padding: '2px 6px', width: '100px' }}
+                        />
                       </td>
                       <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorSingle} onChange={(e) => handleEditChange('colorSingle', e.target.value)} />}</td>
                       <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorDouble} onChange={(e) => handleEditChange('colorDouble', e.target.value)} />}</td>
@@ -398,10 +421,17 @@ const Inventory = () => {
                 return (
                   <tr key={item.id}>
                     <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {item.name}
-                      {item.type === 'product' && <span className="badge badge-secondary" style={{ marginLeft: '8px', fontSize: '0.7rem' }}>Product</span>}
-                      {item.type === 'product' && Number(item.stock || 0) <= Number(item.lowStockAlert || 5) && (
-                        <span className="badge badge-danger" style={{ marginLeft: '6px', fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
+                      <div>
+                        {item.name}
+                        {item.type === 'product' && <span className="badge badge-secondary" style={{ marginLeft: '8px', fontSize: '0.7rem' }}>Product</span>}
+                        {item.type === 'product' && Number(item.stock || 0) <= Number(item.lowStockAlert || 5) && (
+                          <span className="badge badge-danger" style={{ marginLeft: '6px', fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
+                        )}
+                      </div>
+                      {item.hsnCode && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>
+                          HSN: {item.hsnCode}
+                        </div>
                       )}
                     </td>
                     <td>{item.type === 'product' ? '—' : `₹${Number(item.colorSingle).toFixed(2)}`}</td>
