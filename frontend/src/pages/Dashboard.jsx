@@ -319,6 +319,72 @@ const Dashboard = () => {
     return Object.values(map).sort((a, b) => b.totalDue - a.totalDue).slice(0, 8)
   }, [activeBills])
 
+  const trendData = useMemo(() => {
+    const today = new Date()
+    let units = []
+    
+    const { start, end } = activeDateRange
+    
+    const startLimit = start || new Date(today.getFullYear(), today.getMonth() - 5, 1)
+    const endLimit = end || today
+
+    const diffDays = Math.ceil((endLimit - startLimit) / (1000 * 60 * 60 * 24))
+
+    if (diffDays <= 1) {
+      for (let i = 9; i <= 21; i += 2) {
+        const s = new Date(startLimit)
+        s.setHours(i, 0, 0, 0)
+        const e = new Date(startLimit)
+        e.setHours(i + 2, 0, 0, 0)
+        units.push({ label: `${i}:00`, start: s, end: e, revenue: 0, expenses: 0 })
+      }
+    } else if (diffDays <= 8) {
+      for (let i = 0; i < diffDays; i++) {
+        const s = new Date(startLimit)
+        s.setDate(s.getDate() + i)
+        s.setHours(0,0,0,0)
+        const e = new Date(s)
+        e.setHours(23,59,59,999)
+        const dayLabel = s.toLocaleDateString('en-IN', { weekday: 'short' })
+        units.push({ label: dayLabel, start: s, end: e, revenue: 0, expenses: 0 })
+      }
+    } else if (diffDays <= 32) {
+      for (let i = 0; i < diffDays; i += 5) {
+        const s = new Date(startLimit)
+        s.setDate(s.getDate() + i)
+        s.setHours(0,0,0,0)
+        const e = new Date(s)
+        e.setDate(e.getDate() + 4)
+        e.setHours(23,59,59,999)
+        units.push({ label: `${s.getDate()} - ${e.getDate()} ${s.toLocaleDateString('en-US', { month: 'short' })}`, start: s, end: e, revenue: 0, expenses: 0 })
+      }
+    } else {
+      let temp = new Date(startLimit.getFullYear(), startLimit.getMonth(), 1)
+      while (temp <= endLimit) {
+        const s = new Date(temp)
+        const e = new Date(temp.getFullYear(), temp.getMonth() + 1, 0, 23, 59, 59, 999)
+        units.push({ label: temp.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), start: s, end: e, revenue: 0, expenses: 0 })
+        temp.setMonth(temp.getMonth() + 1)
+      }
+    }
+
+    units.forEach(u => {
+      const uBills = filteredData.bills.filter(b => {
+        const d = new Date(b.date)
+        return d >= u.start && d <= u.end && !b.deleted && !b.isGroupParent
+      })
+      u.revenue = uBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
+
+      const uExpenses = filteredData.expenses.filter(exp => {
+        const d = new Date(exp.date)
+        return d >= u.start && d <= u.end
+      })
+      u.expenses = uExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+    })
+
+    return units
+  }, [filteredData, activeDateRange])
+
   const urgencyStyle = (entry) => {
     if (entry.hasOverdue) return { color: 'var(--error)', bg: 'var(--error-bg)', border: 'rgba(239,68,68,0.2)' }
     return { color: 'var(--warning)', bg: 'var(--warning-bg)', border: 'rgba(245,158,11,0.2)' }
@@ -633,6 +699,97 @@ const Dashboard = () => {
               <span style={{ color: 'var(--accent)' }}>₹{agingReport.total.toFixed(2)}</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Revenue vs Expenses Trend Chart */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="bill-view-header" style={{ marginBottom: '16px' }}>
+          <div>
+            <h2>Revenue vs. Expenses Trend</h2>
+            <p className="text-muted">Visual comparison of revenue (gross billing) vs. recorded expenses</p>
+          </div>
+          <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '3px' }} />
+              Revenue
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '12px', background: 'var(--error)', borderRadius: '3px' }} />
+              Expenses
+            </span>
+          </div>
+        </div>
+
+        <div style={{ position: 'relative', width: '100%', height: '220px', overflowX: 'auto', overflowY: 'hidden' }}>
+          <svg style={{ width: '100%', minWidth: '600px', height: '200px' }}>
+            {/* Grid lines */}
+            {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
+              const maxVal = Math.max(...trendData.map(t => Math.max(t.revenue, t.expenses)), 100)
+              const val = maxVal * pct
+              const y = 160 - pct * 130
+              return (
+                <g key={idx}>
+                  <line x1="45" y1={y} x2="98%" y2={y} stroke="var(--border)" strokeDasharray="4" />
+                  <text x="5" y={y + 4} fill="var(--text-muted)" fontSize="10" fontWeight="600">₹{Math.round(val)}</text>
+                </g>
+              )
+            })}
+
+            {/* Bars */}
+            {trendData.map((d, idx) => {
+              const maxVal = Math.max(...trendData.map(t => Math.max(t.revenue, t.expenses)), 100)
+              
+              const barWidth = 14
+              const gap = 3
+              const xStart = 60 + idx * (500 / (trendData.length || 1) + 12)
+
+              const revH = (d.revenue / maxVal) * 130
+              const revY = 160 - revH
+
+              const expH = (d.expenses / maxVal) * 130
+              const expY = 160 - expH
+
+              return (
+                <g key={idx}>
+                  {/* Revenue Bar */}
+                  <rect
+                    x={xStart}
+                    y={revY}
+                    width={barWidth}
+                    height={revH}
+                    fill="var(--success)"
+                    rx="3"
+                    style={{ transition: 'all 0.3s' }}
+                  />
+                  {/* Expenses Bar */}
+                  <rect
+                    x={xStart + barWidth + gap}
+                    y={expY}
+                    width={barWidth}
+                    height={expH}
+                    fill="var(--error)"
+                    rx="3"
+                    style={{ transition: 'all 0.3s' }}
+                  />
+                  {/* Label */}
+                  <text
+                    x={xStart + barWidth}
+                    y="182"
+                    fill="var(--text-secondary)"
+                    fontSize="10"
+                    textAnchor="middle"
+                    fontWeight="600"
+                  >
+                    {d.label}
+                  </text>
+                </g>
+              )
+            })}
+            
+            {/* Base line */}
+            <line x1="45" y1="160" x2="98%" y2="160" stroke="var(--border)" strokeWidth="2" />
+          </svg>
         </div>
       </div>
 

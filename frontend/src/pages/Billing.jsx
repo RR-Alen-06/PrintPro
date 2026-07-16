@@ -92,6 +92,8 @@ const Billing = () => {
   // Loyalty points state
   const [loyaltyPointsRedeemedInput, setLoyaltyPointsRedeemedInput] = useState('')
   const [shouldRedeemPoints, setShouldRedeemPoints] = useState(false)
+  const [loyaltyRedemptionMode, setLoyaltyRedemptionMode] = useState('discount') // 'discount' or 'free_item'
+  const [loyaltyFreeItemRowId, setLoyaltyFreeItemRowId] = useState('')
   const [changeHandling, setChangeHandling] = useState('advance')
 
   const billRef = useRef(null)
@@ -504,13 +506,17 @@ const Billing = () => {
               </tr>
             </thead>
             <tbody>
-              \${bill.items.map(item => \`
-                <tr>
-                  <td>\${item.itemName || item.name}</td>
-                  <td class="right">\${item.qty}</td>
-                  <td class="right">₹\${Number(item.amount).toFixed(2)}</td>
-                </tr>
-              \`).join('')}
+              \${bill.items.map(item => {
+                const invItem = inventory.find(i => String(i.id) === String(item.itemId))
+                const hsnStr = invItem?.hsnCode ? \`<br/><span style="font-size: 8px; color: #555;">HSN: \${invItem.hsnCode}</span>\` : ''
+                return \`
+                  <tr>
+                    <td>\${item.itemName || item.name}\${hsnStr}</td>
+                    <td class="right">\${item.qty}</td>
+                    <td class="right">₹\${Number(item.amount).toFixed(2)}</td>
+                  </tr>
+                \`
+              }).join('')}
             </tbody>
           </table>
           <div class="divider"></div>
@@ -775,14 +781,27 @@ const Billing = () => {
 
   // Loyalty Points Discount calculation
   const loyaltyEnabled = settings.loyaltyEnabled !== false
-  const pointsRedeemed = loyaltyEnabled && customerType === 'regular' ? Number(loyaltyPointsRedeemedInput || 0) : 0
-  const redeemOptions = settings.loyaltyRedeemOptions || [
-    { points: 100, rupees: 2.5 },
-    { points: 120, rupees: 3 },
-    { points: 150, rupees: 5 },
-  ]
-  const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === pointsRedeemed)
-  const loyaltyDiscount = loyaltyEnabled && selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
+  let pointsRedeemed = 0
+  let loyaltyDiscount = 0
+
+  if (loyaltyEnabled && customerType === 'regular' && shouldRedeemPoints) {
+    if (loyaltyRedemptionMode === 'free_item' && loyaltyFreeItemRowId) {
+      const freeRow = itemRows.find(r => r.id === loyaltyFreeItemRowId)
+      loyaltyDiscount = freeRow ? Number(freeRow.amount || 0) : 0
+      const ratio = (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5)
+      pointsRedeemed = Math.ceil(loyaltyDiscount * ratio)
+    } else {
+      const ptsRedeem = Number(loyaltyPointsRedeemedInput || 0)
+      const redeemOptions = settings.loyaltyRedeemOptions || [
+        { points: 100, rupees: 2.5 },
+        { points: 120, rupees: 3 },
+        { points: 150, rupees: 5 },
+      ]
+      const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === ptsRedeem)
+      loyaltyDiscount = selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
+      pointsRedeemed = ptsRedeem
+    }
+  }
 
   const total = Math.max(subtotal + totalGst - discountAmount - loyaltyDiscount, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
@@ -1018,7 +1037,7 @@ const Billing = () => {
       promoCode: appliedPromo?.code || null,
       promoDiscount: appliedPromo ? discountAmount : 0,
       loyaltyDiscount: loyaltyDiscount,
-      loyaltyPointsRedeemed: Number(loyaltyPointsRedeemedInput || 0),
+      loyaltyPointsRedeemed: pointsRedeemed,
       items: mergedItemRows.map((row) => ({
         itemId: row.itemId,
         itemName: row.itemName,
@@ -1321,13 +1340,27 @@ const Billing = () => {
     line(MARGIN, y, W - MARGIN, y, 0.4)
     y += 5
 
-    // Items
+     // Items
     doc.setFont('helvetica', 'normal')
     bill.items.forEach((item) => {
       checkNewPage(8)
-      text(item.itemName || item.name || '-', cols.item, y)
-      text(item.printType === 'color' ? 'Color' : 'B/W', cols.type, y)
-      text(item.sides === 'single' ? 'Single' : 'Double', cols.sides, y)
+      const invItem = inventory.find(i => String(i.id) === String(item.itemId))
+      if (invItem?.hsnCode) {
+        text(item.itemName || item.name || '-', cols.item, y - 2)
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'italic')
+        text(`HSN: ${invItem.hsnCode}`, cols.item, y + 3)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+      } else {
+        text(item.itemName || item.name || '-', cols.item, y)
+      }
+
+      const typeText = (item.printType === 'none' || !item.printType) ? '—' : (item.printType === 'color' ? 'Color' : 'B/W')
+      const sidesText = (item.sides === 'none' || !item.sides) ? '—' : (item.sides === 'single' ? 'Single' : 'Double')
+
+      text(typeText, cols.type, y)
+      text(sidesText, cols.sides, y)
       text(String(item.qty), cols.qty, y)
       text(`Rs.${Number(item.unitPrice).toFixed(2)}`, cols.unit, y)
       text(`Rs.${Number(item.amount).toFixed(2)}`, cols.amt, y)
@@ -1871,49 +1904,110 @@ const Billing = () => {
                 </label>
 
                 {shouldRedeemPoints && (
-                  <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '4px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="loyaltyRedemptionMode"
+                          value="discount"
+                          checked={loyaltyRedemptionMode === 'discount'}
+                          onChange={() => {
+                            setLoyaltyRedemptionMode('discount')
+                            setLoyaltyFreeItemRowId('')
+                          }}
+                        />
+                        Cash Discount
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="loyaltyRedemptionMode"
+                          value="free_item"
+                          checked={loyaltyRedemptionMode === 'free_item'}
+                          onChange={() => {
+                            setLoyaltyRedemptionMode('free_item')
+                            setLoyaltyPointsRedeemedInput('')
+                          }}
+                        />
+                        Free Item
+                      </label>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <select
-                        className="form-select"
-                        value={loyaltyPointsRedeemedInput}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                          const points = Number(val || 0);
-                          if (points > maxPts) {
-                            showAlert(`Cannot redeem more than available balance of ${maxPts} points.`, 'error');
-                            return;
-                          }
-                          // Check if discount exceeds total
-                          const selectedOpt = (settings.loyaltyRedeemOptions || [
+                      {loyaltyRedemptionMode === 'free_item' ? (
+                        <select
+                          className="form-select"
+                          value={loyaltyFreeItemRowId}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
+                            const row = itemRows.find(r => String(r.id) === String(val))
+                            if (row) {
+                              const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
+                              if (pointsCost > maxPts) {
+                                showAlert(`Insufficient loyalty points (${maxPts} available, ${pointsCost} required).`, 'error')
+                                return
+                              }
+                            }
+                            setLoyaltyFreeItemRowId(val)
+                          }}
+                        >
+                          <option value="">-- Choose Item from Bill to Claim Free --</option>
+                          {itemRows.map((row) => {
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
+                            const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
+                            const isDisabled = pointsCost > maxPts
+                            return (
+                              <option key={row.id} value={row.id} disabled={isDisabled}>
+                                {row.itemName || 'Unnamed Item'} (₹{Number(row.amount).toFixed(2)}) — {pointsCost} pts {isDisabled ? '(Insufficient Points)' : ''}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={loyaltyPointsRedeemedInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
+                            const points = Number(val || 0);
+                            if (points > maxPts) {
+                              showAlert(`Cannot redeem more than available balance of ${maxPts} points.`, 'error');
+                              return;
+                            }
+                            // Check if discount exceeds total
+                            const selectedOpt = (settings.loyaltyRedeemOptions || [
+                              { points: 100, rupees: 2.5 },
+                              { points: 120, rupees: 3 },
+                              { points: 150, rupees: 5 },
+                            ]).find(o => Number(o.points) === points);
+                            const discount = selectedOpt ? Number(selectedOpt.rupees) : 0;
+                            const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0);
+                            if (discount > currentBillTotalWithoutLoyalty) {
+                              showAlert(`Loyalty discount (₹${discount.toFixed(2)}) cannot exceed the bill total (₹${currentBillTotalWithoutLoyalty.toFixed(2)}).`, 'error');
+                              return;
+                            }
+                            setLoyaltyPointsRedeemedInput(val);
+                          }}
+                        >
+                          <option value="">-- Select Redemption Option --</option>
+                          {(settings.loyaltyRedeemOptions || [
                             { points: 100, rupees: 2.5 },
                             { points: 120, rupees: 3 },
                             { points: 150, rupees: 5 },
-                          ]).find(o => Number(o.points) === points);
-                          const discount = selectedOpt ? Number(selectedOpt.rupees) : 0;
-                          const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0);
-                          if (discount > currentBillTotalWithoutLoyalty) {
-                            showAlert(`Loyalty discount (₹${discount.toFixed(2)}) cannot exceed the bill total (₹${currentBillTotalWithoutLoyalty.toFixed(2)}).`, 'error');
-                            return;
-                          }
-                          setLoyaltyPointsRedeemedInput(val);
-                        }}
-                      >
-                        <option value="">-- Select Redemption Option --</option>
-                        {(settings.loyaltyRedeemOptions || [
-                          { points: 100, rupees: 2.5 },
-                          { points: 120, rupees: 3 },
-                          { points: 150, rupees: 5 },
-                        ]).map((opt) => {
-                          const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                          const isDisabled = opt.points > maxPts;
-                          return (
-                            <option key={opt.points} value={opt.points} disabled={isDisabled}>
-                              {opt.points} Points = ₹{opt.rupees} Discount {isDisabled ? '(Insufficient Points)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                          ]).map((opt) => {
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
+                            const isDisabled = opt.points > maxPts;
+                            return (
+                              <option key={opt.points} value={opt.points} disabled={isDisabled}>
+                                {opt.points} Points = ₹{opt.rupees} Discount {isDisabled ? '(Insufficient Points)' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
                       {loyaltyPointsRedeemedInput && (
                         <span style={{ fontSize: '0.85rem', color: 'var(--success)', whiteSpace: 'nowrap' }}>
                           -₹{( ( (settings.loyaltyRedeemOptions || [
@@ -1927,7 +2021,7 @@ const Billing = () => {
                     <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                       Available: {(selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)} points
                     </p>
-                  </>
+                  </div>
                 )}
               </div>
             )}
