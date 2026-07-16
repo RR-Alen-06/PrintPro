@@ -24,12 +24,72 @@ const Dashboard = () => {
     }
   }
 
+  const [filterType, setFilterType] = useState('all') // 'all', 'today', 'week', 'month', 'fy', 'custom'
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().split('T')[0]
+  })
+  const [customEndDate, setCustomEndDate] = useState(() => {
+    return new Date().toISOString().split('T')[0]
+  })
+
   // Default to current financial year based on current date
   const [selectedFY, setSelectedFY] = useState(
     new Date().getMonth() >= 3 
       ? String(new Date().getFullYear()) 
       : String(new Date().getFullYear() - 1)
   )
+
+  const activeDateRange = useMemo(() => {
+    let start = null
+    let end = null
+    const today = new Date()
+
+    if (filterType === 'today') {
+      start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0)
+      end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999)
+    } else if (filterType === 'week') {
+      const day = today.getDay()
+      const diff = today.getDate() - day
+      start = new Date(today.getFullYear(), today.getMonth(), diff, 0, 0, 0, 0)
+      end = new Date()
+      end.setHours(23, 59, 59, 999)
+    } else if (filterType === 'month') {
+      start = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0)
+      end = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999)
+    } else if (filterType === 'fy') {
+      const fyYear = parseInt(selectedFY, 10)
+      start = new Date(fyYear, 3, 1, 0, 0, 0, 0) // April 1st
+      end = new Date(fyYear + 1, 2, 31, 23, 59, 59, 999) // March 31st
+    } else if (filterType === 'custom') {
+      start = customStartDate ? new Date(customStartDate) : null
+      if (start) start.setHours(0, 0, 0, 0)
+      end = customEndDate ? new Date(customEndDate) : null
+      if (end) end.setHours(23, 59, 59, 999)
+    }
+
+    return { start, end }
+  }, [filterType, selectedFY, customStartDate, customEndDate])
+
+  const filteredData = useMemo(() => {
+    const { start, end } = activeDateRange
+    
+    const checkDate = (dateStr) => {
+      if (!dateStr) return false
+      const d = new Date(dateStr)
+      if (start && d < start) return false
+      if (end && d > end) return false
+      return true
+    }
+
+    return {
+      bills: bills.filter(b => checkDate(b.date)),
+      payments: payments.filter(p => checkDate(p.date)),
+      advancePayments: advancePayments.filter(ap => checkDate(ap.date)),
+      expenses: expenses.filter(e => checkDate(e.date))
+    }
+  }, [bills, payments, advancePayments, expenses, activeDateRange])
 
   const fyStats = useMemo(() => {
     const fyYear = parseInt(selectedFY, 10)
@@ -124,34 +184,46 @@ const Dashboard = () => {
     }
   }, [bills, payments, advancePayments, expenses, selectedFY])
 
-  const activeBills = useMemo(() => bills.filter((b) => !b.deleted && !b.isGroupParent), [bills])
+  const activeBills = useMemo(() => filteredData.bills.filter((b) => !b.deleted && !b.isGroupParent), [filteredData.bills])
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
 
   // Centralized calculations using DashboardService
   const dashboardStats = useMemo(() => {
-    return DashboardService.getSummaryWidgets({ bills, payments, advancePayments, deletedPayments, expenses, customers, inventory: [] })
-  }, [bills, payments, advancePayments, deletedPayments, expenses, customers])
+    return DashboardService.getSummaryWidgets({ 
+      bills: filteredData.bills, 
+      payments: filteredData.payments, 
+      advancePayments: filteredData.advancePayments, 
+      deletedPayments, 
+      expenses: filteredData.expenses, 
+      customers, 
+      inventory: [] 
+    })
+  }, [filteredData, deletedPayments, customers])
 
   const netRevenue = dashboardStats.netRevenue
   const pendingAmount = dashboardStats.pendingAmount
   const totalRefunds = dashboardStats.totalRefunds
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
+  const agingReport = useMemo(() => {
+    return DashboardService.calculateAgingReport(bills)
+  }, [bills])
+
   const refundPayments = useMemo(() => {
-    return (payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
-  }, [payments])
+    return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
+  }, [filteredData.payments])
 
   const totalCashInflow = useMemo(() => {
-    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
-    const billMap = new Map((bills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    const deletedBillIds = new Set((filteredData.bills || []).filter(b => b.deleted).map(b => String(b.id)))
+    const billMap = new Map((filteredData.bills || []).map(b => [String(b.id), Number(b.total || 0)]))
     
     const billPaymentsMap = new Map()
     let unlinkedCashTotal = 0
     let unlinkedUpiTotal = 0
 
-    const validPayments = (payments || []).filter((p) => 
+    const validPayments = (filteredData.payments || []).filter((p) => 
       !p.isRefund && p.paymentType !== 'refund' 
       && !(p.notes && p.notes.includes('from advance deposit'))
       && !(p.notes && p.notes.includes('FIFO payment from advance deposit'))
@@ -196,7 +268,7 @@ const Dashboard = () => {
     const pInflow = pInflowCash + pInflowUpi
 
     // Count advance deposits EXCLUDING excess credits (already handled or capped in pInflow)
-    const advInflow = (advancePayments || [])
+    const advInflow = (filteredData.advancePayments || [])
       .filter(ap => !ap.isRefundCredit && !ap.isReturn && !ap.isExcessCredit && !ap.notes?.toLowerCase().includes('excess') && !ap.notes?.toLowerCase().includes('opening') && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => {
         const cash = Number(ap.cashAmount || 0)
@@ -204,11 +276,11 @@ const Dashboard = () => {
         return sum + (cash + upi > 0 ? cash + upi : Number(ap.amount || 0))
       }, 0)
     return pInflow + advInflow
-  }, [payments, advancePayments, bills])
+  }, [filteredData])
 
   const totalExpenses = useMemo(() => {
-    return (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
-  }, [expenses])
+    return (filteredData.expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  }, [filteredData.expenses])
 
   const netCashFlow = useMemo(() => {
     // Net Cash Flow = Total Cash Inflow - Total Expenses - Total Refunds
@@ -254,14 +326,51 @@ const Dashboard = () => {
 
   return (
     <div>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1>Dashboard</h1>
           <p>Overview of billing activity, pending dues, and customer status.</p>
         </div>
-        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--border-light)', padding: '4px 8px', borderRadius: 'var(--radius-md)' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Period:</span>
+            <select
+              className="form-select"
+              style={{ padding: '4px 8px', fontSize: '0.85rem', width: '150px', background: 'transparent', border: 'none' }}
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+            >
+              <option value="all">All Time</option>
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="fy">Financial Year</option>
+              <option value="custom">Custom Range</option>
+            </select>
+            {filterType === 'custom' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ padding: '2px 6px', fontSize: '0.8rem', width: '120px' }}
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>to</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ padding: '2px 6px', fontSize: '0.8rem', width: '120px' }}
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+          </button>
+        </div>
       </div>
 
       {/* Financial Health Section */}
@@ -373,8 +482,9 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Pending Dues Widget */}
-      <div className="card" style={{ marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+        {/* Pending Dues Widget */}
+        <div className="card" style={{ height: '100%', marginBottom: 0 }}>
         <div className="bill-view-header">
           <div>
             <h2>Pending Dues Summary</h2>
@@ -452,6 +562,78 @@ const Dashboard = () => {
             </table>
           </div>
         )}
+        </div>
+
+        {/* A/R Aging Summary */}
+        <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', marginBottom: 0 }}>
+          <div className="bill-view-header">
+            <div>
+              <h2>Receivables Aging Summary</h2>
+              <p className="text-muted">Outstanding invoices grouped by overdue timeframe</p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px', flex: 1, justifyContent: 'center' }}>
+            {/* 0-30 Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Current (0-30 Days)</span>
+                <span>₹{agingReport.current.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--success)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.current / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* 31-60 Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Medium (31-60 Days)</span>
+                <span>₹{agingReport.medium.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--warning)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.medium / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* 61+ Days */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Aged (61+ Days)</span>
+                <span style={{ color: 'var(--error)' }}>₹{agingReport.aged.toFixed(2)}</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'var(--error)',
+                  height: '100%',
+                  width: `${agingReport.total > 0 ? (agingReport.aged / agingReport.total) * 100 : 0}%`
+                }} />
+              </div>
+            </div>
+
+            {/* Total */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontWeight: 700,
+              borderTop: '1px solid var(--border)',
+              paddingTop: '12px',
+              marginTop: '8px',
+              fontSize: '1rem'
+            }}>
+              <span>Total Outstanding:</span>
+              <span style={{ color: 'var(--accent)' }}>₹{agingReport.total.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Financial Year Analytics Section */}

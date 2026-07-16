@@ -24,6 +24,7 @@ const initialState = {
   bills: [],
   payments: [],
   advancePayments: [],
+  creditNotes: [],
   expenses: [],
   notifications: [],
   settings: {
@@ -147,6 +148,12 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         bills: state.bills.map((bill) => (bill.id === action.payload.id ? { ...bill, ...action.payload.updates } : bill)),
+      }
+    }
+    case 'ADD_CREDIT_NOTE': {
+      return {
+        ...state,
+        creditNotes: [...(state.creditNotes || []), action.payload],
       }
     }
     case 'REMOVE_PAYMENTS_FOR_BILL': {
@@ -301,7 +308,7 @@ const baseReducer = (state, action) => {
       }
     }
     case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
+      const { bills, customers, payments, inventory, expenses, advancePayments, creditNotes, business } = action.payload
 
       // Deduplicate arrays by unique ID and remove identical exact duplicate payment entries caused by earlier sync loops
       const dedupe = (arr) => {
@@ -340,6 +347,7 @@ const baseReducer = (state, action) => {
         inventory: dedupe(inventory) || state.inventory,
         expenses: dedupe(expenses) || state.expenses,
         advancePayments: advancePayments && advancePayments.length > 0 ? dedupe(advancePayments) : state.advancePayments,
+        creditNotes: dedupe(creditNotes) || state.creditNotes,
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -693,8 +701,24 @@ const reducer = (state, action) => {
   return nextState
 }
 
-// Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
-// const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
+const getFinancialYearString = (dateString) => {
+  const dateObj = dateString ? new Date(dateString) : new Date()
+  const year = dateObj.getFullYear()
+  const month = dateObj.getMonth() + 1 // 1-indexed
+
+  let startYear, endYear
+  if (month >= 4) { // April is month 4
+    startYear = year
+    endYear = year + 1
+  } else {
+    startYear = year - 1
+    endYear = year
+  }
+
+  const startYearShort = String(startYear).slice(-2)
+  const endYearShort = String(endYear).slice(-2)
+  return `${startYearShort}-${endYearShort}`
+}
 
 // Sequential ID generator using state counters
 const generateSeqId = (state, type) => {
@@ -949,16 +973,50 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }));
 
+        const cloudCreditNotes = [];
+
         const mappedBills = fetchedBills.map(b => {
           let loyaltyPointsEarned = 0;
           let loyaltyPointsRedeemed = 0;
+          let writtenOffAmount = 0;
           let notes = b.notes || '';
+
+          const cnRegex = /\[CreditNote:\s*id=([^,]+),\s*total=([^,]+),\s*items=([^\]]+)\]/g;
+          let cnMatch;
+          while ((cnMatch = cnRegex.exec(notes)) !== null) {
+            try {
+              const cnId = cnMatch[1];
+              const cnTotal = Number(cnMatch[2]);
+              const cnItems = JSON.parse(decodeURIComponent(cnMatch[3]));
+              cloudCreditNotes.push({
+                id: cnId,
+                billId: b.id,
+                customerId: b.customer_id,
+                date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+                items: cnItems,
+                total: cnTotal,
+                settlementType: 'unknown',
+                paymentMethod: 'unknown'
+              });
+            } catch (e) {
+              console.error('Failed to parse credit note JSON from notes', e);
+            }
+          }
+          notes = notes.replace(cnRegex, '').trim();
+
           const loyaltyRegex = /\[Loyalty:\s*earned=(\d+),\s*redeemed=(\d+)\]/;
-          const match = notes.match(loyaltyRegex);
-          if (match) {
-            loyaltyPointsEarned = Number(match[1]);
-            loyaltyPointsRedeemed = Number(match[2]);
+          const loyaltyMatch = notes.match(loyaltyRegex);
+          if (loyaltyMatch) {
+            loyaltyPointsEarned = Number(loyaltyMatch[1]);
+            loyaltyPointsRedeemed = Number(loyaltyMatch[2]);
             notes = notes.replace(loyaltyRegex, '').trim();
+          }
+
+          const writeOffRegex = /\[WriteOff:\s*amount=([0-9.]+)\]/;
+          const writeOffMatch = notes.match(writeOffRegex);
+          if (writeOffMatch) {
+            writtenOffAmount = Number(writeOffMatch[1]);
+            notes = notes.replace(writeOffRegex, '').trim();
           }
 
           return {
@@ -978,6 +1036,7 @@ export const AppProvider = ({ children }) => {
             status: b.status || 'unpaid',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,
+            writtenOffAmount,
             notes: notes,
             deleted: !!b.deleted_at,
             items: (b.items || []).map(item => ({
@@ -1053,6 +1112,7 @@ export const AppProvider = ({ children }) => {
             inventory: mappedInventory,
             expenses: mappedExpenses,
             advancePayments: mappedAdvancePayments,
+            creditNotes: cloudCreditNotes,
             business: mappedBusiness
           }
         })
@@ -1267,9 +1327,32 @@ export const AppProvider = ({ children }) => {
   }
 
   const addBill = (billData) => {
-    const counterKey = 'BILL'
-    const billId = generateSeqId(state, 'BILL')
+    let billId = ''
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+
+    if (fyInvoicePrefixing) {
+      const fyStr = getFinancialYearString(billData.date)
+      counterKey = `BILL_FY${fyStr}`
+      const counters = state.idCounters || {}
+      const current = counters[counterKey] || 0
+      const next = current + 1
+      const padded = String(next).padStart(4, '0')
+      billId = `INV/${fyStr}/${padded}`
+    } else {
+      billId = generateSeqId(state, 'BILL')
+    }
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    // Deduct stock for standard product items
+    (billData.items || []).forEach(item => {
+      const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+      if (invItem && invItem.type === 'product') {
+        const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+        dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+      }
+    })
+
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
     const currentCredit = Number(customer?.creditBalance || 0)
@@ -1710,13 +1793,42 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
-    let billCounterOffset = state.idCounters?.BILL || 0
+    let billCounterOffset = 0
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+    const fyStr = fyInvoicePrefixing ? getFinancialYearString(groupData.date) : ''
+
+    if (fyInvoicePrefixing) {
+      counterKey = `BILL_FY${fyStr}`
+      billCounterOffset = state.idCounters?.[counterKey] || 0
+    } else {
+      billCounterOffset = state.idCounters?.BILL || 0
+    }
+
     const memberBillIds = []
 
-    for (const member of groupData.members) {
+    const payerCustomerId = groupData.members[0]?.customerId
+    const payerCustObj = payerCustomerId ? state.customers.find((c) => c.id === payerCustomerId) : null
+    let payerAdvanceRemaining = payerCustObj ? Number(payerCustObj.advanceBalance || payerCustObj.creditBalance || 0) : 0
+
+    groupData.members.forEach((member, index) => {
       billCounterOffset += 1
-      const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
+      let billId = ''
+      if (fyInvoicePrefixing) {
+        billId = `INV/${fyStr}/${String(billCounterOffset).padStart(4, '0')}`
+      } else {
+        billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
+      }
+      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+      // Deduct stock for standard product items
+      (member.items || []).forEach(item => {
+        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+        if (invItem && invItem.type === 'product') {
+          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+        }
+      })
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
@@ -1734,6 +1846,19 @@ export const AppProvider = ({ children }) => {
 
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
+        
+        if (member.customerId === payerCustomerId) {
+          payerAdvanceRemaining -= advanceUsed
+        }
+      } else if (member.usePayerAdvance && payerCustomerId && payerAdvanceRemaining > 0 && member.customerId !== payerCustomerId) {
+        const applyPayerAdv = Math.min(payerAdvanceRemaining, memberTotal)
+        advanceUsed = applyPayerAdv
+        amountPaid = advanceUsed
+        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
+        payerAdvanceRemaining -= applyPayerAdv
+
+        // Deduct from payer's advance balance
+        dispatch({ type: 'USE_ADVANCE', payload: { customerId: payerCustomerId, amount: applyPayerAdv } })
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1793,7 +1918,7 @@ export const AppProvider = ({ children }) => {
       })
 
       memberBillIds.push(billId)
-    }
+    })
 
     // Store group meta record — no separate parent bill needed;
     // group totals are always computed live from member bills
@@ -2279,6 +2404,84 @@ export const AppProvider = ({ children }) => {
     }
   }
 
+  const writeOffBill = (billId) => {
+    const bill = state.bills.find(b => b.id === billId)
+    if (!bill) return
+
+    const balance = Number(bill.balance || 0)
+    if (balance <= 0) return
+
+    const newWrittenOff = Number(bill.writtenOffAmount || 0) + balance
+
+    const updates = {
+      writtenOffAmount: newWrittenOff,
+      balance: 0,
+      status: 'written_off'
+    }
+
+    dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates } })
+  }
+
+  const createCreditNote = (data) => {
+    const counterKey = 'CN'
+    const nextCount = (state.idCounters?.[counterKey] || 0) + 1
+    const cnId = `CN${String(nextCount).padStart(4, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    const total = Number(data.total)
+    const customer = state.customers.find(c => c.id === data.customerId)
+    
+    if (data.settlementType === 'advance' && customer) {
+      const updatedCustomer = {
+        ...customer,
+        advanceBalance: Number(customer.advanceBalance || 0) + total,
+        creditBalance: Number(customer.creditBalance || 0) + total
+      }
+      dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: customer.id, updates: updatedCustomer } })
+    } else if (data.settlementType === 'refund') {
+      const payIdx = (state.idCounters?.PAY || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+      const payId = `PAY${String(payIdx).padStart(4, '0')}`
+      
+      const refundRecord = {
+        id: payId,
+        billId: data.billId,
+        customerId: data.customerId,
+        date: new Date().toISOString(),
+        cashAmount: data.paymentMethod === 'cash' ? -total : 0,
+        upiAmount: data.paymentMethod === 'upi' ? -total : 0,
+        totalPaid: -total,
+        paymentType: 'refund',
+        excessCredit: 0,
+        isRefund: true,
+        notes: `Refund from Credit Note ${cnId}`
+      }
+      dispatch({ type: 'ADD_PAYMENT', payload: refundRecord })
+    }
+
+    const bill = state.bills.find(b => b.id === data.billId)
+    if (bill) {
+      const metadata = `[CreditNote: id=${cnId}, total=${total}, items=${encodeURIComponent(JSON.stringify(data.items))}]`
+      const updatedBill = {
+        ...bill,
+        notes: bill.notes ? `${bill.notes} ${metadata}` : metadata
+      }
+      dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill } })
+    }
+
+    const cnRecord = {
+      id: cnId,
+      billId: data.billId,
+      customerId: data.customerId,
+      date: new Date().toISOString().slice(0, 10),
+      items: data.items,
+      total,
+      settlementType: data.settlementType,
+      paymentMethod: data.paymentMethod
+    }
+    dispatch({ type: 'ADD_CREDIT_NOTE', payload: cnRecord })
+  }
+
   const applyPostDiscount = (billId, discountType, discountValue) => {
     const bill = state.bills.find(b => b.id === billId)
     if (!bill) return
@@ -2353,6 +2556,8 @@ export const AppProvider = ({ children }) => {
       signInWithGitHub,
       updateBill,
       editBill,
+      writeOffBill,
+      createCreditNote,
       applyPostDiscount,
       deletePayment,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
