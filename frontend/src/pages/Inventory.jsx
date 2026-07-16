@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
 
-const EMPTY_FORM = { name: '', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '' }
+const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', stock: '', lowStockAlert: '', hsnCode: '' }
 
 const priceFields = [
   { key: 'colorSingle', label: 'Color Single (₹)' },
@@ -34,11 +34,22 @@ const Inventory = () => {
   const validateForm = (form) => {
     const errs = {}
     if (!form.name.trim()) errs.name = 'Name is required.'
-    priceFields.forEach(({ key }) => {
-      const val = form[key]
-      if (val === '' || val === undefined) { errs[key] = 'Required.' }
-      else if (isNaN(Number(val)) || Number(val) < 0) { errs[key] = 'Enter a valid price.' }
-    })
+    
+    if (form.type === 'product') {
+      const sp = form.sellingPrice
+      if (sp === '' || sp === undefined) { errs.sellingPrice = 'Required.' }
+      else if (isNaN(Number(sp)) || Number(sp) < 0) { errs.sellingPrice = 'Enter a valid price.' }
+
+      const st = form.stock
+      if (st === '' || st === undefined) { errs.stock = 'Required.' }
+      else if (isNaN(Number(st)) || Number(st) < 0) { errs.stock = 'Enter a valid stock qty.' }
+    } else {
+      priceFields.forEach(({ key }) => {
+        const val = form[key]
+        if (val === '' || val === undefined) { errs[key] = 'Required.' }
+        else if (isNaN(Number(val)) || Number(val) < 0) { errs[key] = 'Enter a valid price.' }
+      })
+    }
     return errs
   }
 
@@ -55,10 +66,15 @@ const Inventory = () => {
 
     addInventoryItem({
       name: addForm.name.trim(),
-      colorSingle: Number(addForm.colorSingle),
-      colorDouble: Number(addForm.colorDouble),
-      bwSingle: Number(addForm.bwSingle),
-      bwDouble: Number(addForm.bwDouble),
+      type: addForm.type || 'print',
+      colorSingle: addForm.type === 'product' ? 0 : Number(addForm.colorSingle),
+      colorDouble: addForm.type === 'product' ? 0 : Number(addForm.colorDouble),
+      bwSingle: addForm.type === 'product' ? 0 : Number(addForm.bwSingle),
+      bwDouble: addForm.type === 'product' ? 0 : Number(addForm.bwDouble),
+      sellingPrice: addForm.type === 'product' ? Number(addForm.sellingPrice) : 0,
+      stock: addForm.type === 'product' ? Number(addForm.stock) : 0,
+      lowStockAlert: Number(addForm.lowStockAlert || 5),
+      hsnCode: addForm.hsnCode || ''
     })
 
     setAddForm(EMPTY_FORM)
@@ -72,10 +88,15 @@ const Inventory = () => {
     setEditingId(item.id)
     setEditForm({
       name: item.name,
-      colorSingle: item.colorSingle,
-      colorDouble: item.colorDouble,
-      bwSingle: item.bwSingle,
-      bwDouble: item.bwDouble,
+      type: item.type || 'print',
+      colorSingle: item.colorSingle || 0,
+      colorDouble: item.colorDouble || 0,
+      bwSingle: item.bwSingle || 0,
+      bwDouble: item.bwDouble || 0,
+      sellingPrice: item.sellingPrice || 0,
+      stock: item.stock || 0,
+      lowStockAlert: item.lowStockAlert || 5,
+      hsnCode: item.hsnCode || ''
     })
     setEditErrors({})
   }
@@ -96,10 +117,15 @@ const Inventory = () => {
 
     updateInventoryItem(id, {
       name: editForm.name.trim(),
-      colorSingle: Number(editForm.colorSingle),
-      colorDouble: Number(editForm.colorDouble),
-      bwSingle: Number(editForm.bwSingle),
-      bwDouble: Number(editForm.bwDouble),
+      type: editForm.type || 'print',
+      colorSingle: editForm.type === 'product' ? 0 : Number(editForm.colorSingle),
+      colorDouble: editForm.type === 'product' ? 0 : Number(editForm.colorDouble),
+      bwSingle: editForm.type === 'product' ? 0 : Number(editForm.bwSingle),
+      bwDouble: editForm.type === 'product' ? 0 : Number(editForm.bwDouble),
+      sellingPrice: editForm.type === 'product' ? Number(editForm.sellingPrice) : 0,
+      stock: editForm.type === 'product' ? Number(editForm.stock) : 0,
+      lowStockAlert: Number(editForm.lowStockAlert || 5),
+      hsnCode: editForm.hsnCode || ''
     })
     setEditingId(null)
   }
@@ -121,7 +147,7 @@ const Inventory = () => {
       <div className="page-header">
         <div>
           <h1>Inventory &amp; Pricing</h1>
-          <p>Manage paper types and their per-page print prices. Stock tracking is not relevant here.</p>
+          <p>Manage paper types and standard physical items (like books/pens) with pricing and stock levels.</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setShowAddForm((v) => !v); setAddErrors({}); setAddSuccess(false) }}>
           <Plus size={16} /> {showAddForm ? 'Cancel' : 'Add Item'}
@@ -131,7 +157,7 @@ const Inventory = () => {
       {/* Add Item Form */}
       {showAddForm && (
         <div className="card" style={{ marginBottom: '24px' }}>
-          <h3 style={{ marginBottom: '16px' }}>New Pricing Item</h3>
+          <h3 style={{ marginBottom: '16px' }}>New Pricing / Inventory Item</h3>
           {addSuccess && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', marginBottom: '14px',
@@ -143,35 +169,104 @@ const Inventory = () => {
           )}
           <form onSubmit={handleAddSubmit} autoComplete="off">
             <div className="form-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+              {/* Type */}
+              <div className="form-group" style={{ flex: '1 1 150px' }}>
+                <label className="form-label">Item Type</label>
+                <select
+                  className="form-select"
+                  value={addForm.type}
+                  onChange={(e) => handleAddChange('type', e.target.value)}
+                >
+                  <option value="print">Print Paper Size</option>
+                  <option value="product">Standard Product (Pen, Book, etc.)</option>
+                </select>
+              </div>
+
               {/* Name */}
               <div className="form-group" style={{ flex: '2 1 200px' }}>
-                <label className="form-label">Paper / Item Name <span style={{ color: 'var(--error)' }}>*</span></label>
+                <label className="form-label">Item Name <span style={{ color: 'var(--error)' }}>*</span></label>
                 <input
                   className={`form-input${addErrors.name ? ' form-input-error' : ''}`}
                   type="text"
-                  placeholder="e.g. A4 Paper, Legal Paper"
+                  placeholder="e.g. A4 Paper, Blue Ballpoint Pen"
                   value={addForm.name}
                   onChange={(e) => handleAddChange('name', e.target.value)}
                 />
                 {addErrors.name && <div className="form-error"><AlertCircle size={12} style={{ display: 'inline', marginRight: 3 }} />{addErrors.name}</div>}
               </div>
 
-              {/* Price fields */}
-              {priceFields.map(({ key, label }) => (
-                <div className="form-group" key={key} style={{ flex: '1 1 120px' }}>
-                  <label className="form-label">{label}</label>
-                  <input
-                    className={`form-input${addErrors[key] ? ' form-input-error' : ''}`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={addForm[key]}
-                    onChange={(e) => handleAddChange(key, e.target.value)}
-                  />
-                  {addErrors[key] && <div className="form-error">{addErrors[key]}</div>}
-                </div>
-              ))}
+              {/* HSN Code */}
+              <div className="form-group" style={{ flex: '1 1 120px' }}>
+                <label className="form-label">HSN Code</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. 4901"
+                  value={addForm.hsnCode || ''}
+                  onChange={(e) => handleAddChange('hsnCode', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-row" style={{ flexWrap: 'wrap', gap: '16px', marginTop: '12px' }}>
+              {/* Product specific fields */}
+              {addForm.type === 'product' ? (
+                <>
+                  <div className="form-group" style={{ flex: '1 1 120px' }}>
+                    <label className="form-label">Selling Price (₹)</label>
+                    <input
+                      className={`form-input${addErrors.sellingPrice ? ' form-input-error' : ''}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={addForm.sellingPrice}
+                      onChange={(e) => handleAddChange('sellingPrice', e.target.value)}
+                    />
+                    {addErrors.sellingPrice && <div className="form-error">{addErrors.sellingPrice}</div>}
+                  </div>
+                  <div className="form-group" style={{ flex: '1 1 120px' }}>
+                    <label className="form-label">Stock Qty</label>
+                    <input
+                      className={`form-input${addErrors.stock ? ' form-input-error' : ''}`}
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={addForm.stock}
+                      onChange={(e) => handleAddChange('stock', e.target.value)}
+                    />
+                    {addErrors.stock && <div className="form-error">{addErrors.stock}</div>}
+                  </div>
+                  <div className="form-group" style={{ flex: '1 1 120px' }}>
+                    <label className="form-label">Low Stock Warning At</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="0"
+                      placeholder="5"
+                      value={addForm.lowStockAlert}
+                      onChange={(e) => handleAddChange('lowStockAlert', e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                /* Print specific fields */
+                priceFields.map(({ key, label }) => (
+                  <div className="form-group" key={key} style={{ flex: '1 1 120px' }}>
+                    <label className="form-label">{label}</label>
+                    <input
+                      className={`form-input${addErrors[key] ? ' form-input-error' : ''}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={addForm[key]}
+                      onChange={(e) => handleAddChange(key, e.target.value)}
+                    />
+                    {addErrors[key] && <div className="form-error">{addErrors[key]}</div>}
+                  </div>
+                ))
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
@@ -227,8 +322,9 @@ const Inventory = () => {
               {visibleInventory.map((item) => {
                 const isEditing = editingId === item.id
                 const isDeleteConfirm = deleteConfirmId === item.id
-
+ 
                 if (isEditing) {
+                  const isProd = editForm.type === 'product'
                   return (
                     <tr key={item.id} style={{ background: 'var(--accent-light)' }}>
                       <td>
@@ -237,24 +333,77 @@ const Inventory = () => {
                           type="text"
                           value={editForm.name}
                           onChange={(e) => handleEditChange('name', e.target.value)}
-                          style={{ minWidth: '140px' }}
+                          style={{ minWidth: '140px', marginBottom: '4px' }}
                         />
                         {editErrors.name && <div className="form-error">{editErrors.name}</div>}
+                        <input
+                          className="form-input"
+                          type="text"
+                          placeholder="HSN Code"
+                          value={editForm.hsnCode || ''}
+                          onChange={(e) => handleEditChange('hsnCode', e.target.value)}
+                          style={{ fontSize: '0.75rem', padding: '2px 6px', width: '100px' }}
+                        />
                       </td>
-                      {priceFields.map(({ key }) => (
-                        <td key={key}>
-                          <input
-                            className={`form-input${editErrors[key] ? ' form-input-error' : ''}`}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editForm[key]}
-                            onChange={(e) => handleEditChange(key, e.target.value)}
-                            style={{ width: '90px' }}
-                          />
-                          {editErrors[key] && <div className="form-error">{editErrors[key]}</div>}
-                        </td>
-                      ))}
+                      <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorSingle} onChange={(e) => handleEditChange('colorSingle', e.target.value)} />}</td>
+                      <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorDouble} onChange={(e) => handleEditChange('colorDouble', e.target.value)} />}</td>
+                      <td>
+                        {isProd ? (
+                          <>
+                            <input
+                              className={`form-input${editErrors.sellingPrice ? ' form-input-error' : ''}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editForm.sellingPrice}
+                              onChange={(e) => handleEditChange('sellingPrice', e.target.value)}
+                              style={{ width: '90px' }}
+                            />
+                            {editErrors.sellingPrice && <div className="form-error">{editErrors.sellingPrice}</div>}
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              className={`form-input${editErrors.bwSingle ? ' form-input-error' : ''}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editForm.bwSingle}
+                              onChange={(e) => handleEditChange('bwSingle', e.target.value)}
+                              style={{ width: '90px' }}
+                            />
+                            {editErrors.bwSingle && <div className="form-error">{editErrors.bwSingle}</div>}
+                          </>
+                        )}
+                      </td>
+                      <td>
+                        {isProd ? (
+                          <>
+                            <input
+                              className={`form-input${editErrors.stock ? ' form-input-error' : ''}`}
+                              type="number"
+                              min="0"
+                              value={editForm.stock}
+                              onChange={(e) => handleEditChange('stock', e.target.value)}
+                              style={{ width: '90px' }}
+                            />
+                            {editErrors.stock && <div className="form-error">{editErrors.stock}</div>}
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              className={`form-input${editErrors.bwDouble ? ' form-input-error' : ''}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editForm.bwDouble}
+                              onChange={(e) => handleEditChange('bwDouble', e.target.value)}
+                              style={{ width: '90px' }}
+                            />
+                            {editErrors.bwDouble && <div className="form-error">{editErrors.bwDouble}</div>}
+                          </>
+                        )}
+                      </td>
                       <td>
                         <div className="table-actions">
                           <button title="Save" onClick={() => saveEdit(item.id)} style={{ color: 'var(--success)' }}>
@@ -268,14 +417,31 @@ const Inventory = () => {
                     </tr>
                   )
                 }
-
+ 
                 return (
                   <tr key={item.id}>
-                    <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</td>
-                    <td>₹{Number(item.colorSingle).toFixed(2)}</td>
-                    <td>₹{Number(item.colorDouble).toFixed(2)}</td>
-                    <td>₹{Number(item.bwSingle).toFixed(2)}</td>
-                    <td>₹{Number(item.bwDouble).toFixed(2)}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                      <div>
+                        {item.name}
+                        {item.type === 'product' && <span className="badge badge-secondary" style={{ marginLeft: '8px', fontSize: '0.7rem' }}>Product</span>}
+                        {item.type === 'product' && Number(item.stock || 0) <= Number(item.lowStockAlert || 5) && (
+                          <span className="badge badge-danger" style={{ marginLeft: '6px', fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
+                        )}
+                      </div>
+                      {item.hsnCode && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>
+                          HSN: {item.hsnCode}
+                        </div>
+                      )}
+                    </td>
+                    <td>{item.type === 'product' ? '—' : `₹${Number(item.colorSingle).toFixed(2)}`}</td>
+                    <td>{item.type === 'product' ? '—' : `₹${Number(item.colorDouble).toFixed(2)}`}</td>
+                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? 'var(--success)' : 'inherit' }}>
+                      {item.type === 'product' ? `₹${Number(item.sellingPrice || 0).toFixed(2)}` : `₹${Number(item.bwSingle).toFixed(2)}`}
+                    </td>
+                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? (Number(item.stock || 0) <= Number(item.lowStockAlert || 5) ? 'var(--error)' : 'var(--text-muted)') : 'inherit' }}>
+                      {item.type === 'product' ? `${item.stock || 0} left` : `₹${Number(item.bwDouble).toFixed(2)}`}
+                    </td>
                     <td>
                       {isDeleteConfirm ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>

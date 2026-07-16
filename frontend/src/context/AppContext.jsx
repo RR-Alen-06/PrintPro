@@ -24,6 +24,7 @@ const initialState = {
   bills: [],
   payments: [],
   advancePayments: [],
+  creditNotes: [],
   expenses: [],
   notifications: [],
   settings: {
@@ -147,6 +148,12 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         bills: state.bills.map((bill) => (bill.id === action.payload.id ? { ...bill, ...action.payload.updates } : bill)),
+      }
+    }
+    case 'ADD_CREDIT_NOTE': {
+      return {
+        ...state,
+        creditNotes: [...(state.creditNotes || []), action.payload],
       }
     }
     case 'REMOVE_PAYMENTS_FOR_BILL': {
@@ -301,7 +308,7 @@ const baseReducer = (state, action) => {
       }
     }
     case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, advancePayments, business } = action.payload
+      const { bills, customers, payments, inventory, expenses, advancePayments, creditNotes, business } = action.payload
 
       // Deduplicate arrays by unique ID and remove identical exact duplicate payment entries caused by earlier sync loops
       const dedupe = (arr) => {
@@ -340,6 +347,7 @@ const baseReducer = (state, action) => {
         inventory: dedupe(inventory) || state.inventory,
         expenses: dedupe(expenses) || state.expenses,
         advancePayments: advancePayments && advancePayments.length > 0 ? dedupe(advancePayments) : state.advancePayments,
+        creditNotes: dedupe(creditNotes) || state.creditNotes,
         business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
       }
     }
@@ -693,8 +701,24 @@ const reducer = (state, action) => {
   return nextState
 }
 
-// Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
-// const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
+const getFinancialYearString = (dateString) => {
+  const dateObj = dateString ? new Date(dateString) : new Date()
+  const year = dateObj.getFullYear()
+  const month = dateObj.getMonth() + 1 // 1-indexed
+
+  let startYear, endYear
+  if (month >= 4) { // April is month 4
+    startYear = year
+    endYear = year + 1
+  } else {
+    startYear = year - 1
+    endYear = year
+  }
+
+  const startYearShort = String(startYear).slice(-2)
+  const endYearShort = String(endYear).slice(-2)
+  return `${startYearShort}-${endYearShort}`
+}
 
 // Sequential ID generator using state counters
 const generateSeqId = (state, type) => {
@@ -733,19 +757,6 @@ const calcLoyaltyPoints = (total, tiers) => {
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
 
-  const dispatch = (action) => {
-    rawDispatch(action)
-    // Synchronously fire the background sync, logging success and displaying errors to the user
-    syncEntityToCloud(action.type, action.payload)
-      .then(() => {
-        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
-      })
-      .catch((err) => {
-        console.error(`Sync error: Database write failed for action ${action.type}`, err)
-        showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
-      })
-  }
-
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
 
@@ -763,6 +774,73 @@ export const AppProvider = ({ children }) => {
   const showConfirm = (title, message, onConfirm, confirmText = 'Confirm', type = 'info') => {
     setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
   }
+
+  const dispatch = (action) => {
+    rawDispatch(action)
+    
+    if (!navigator.onLine) {
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+      localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+      showToast('Offline: Changes saved locally. Will sync when online.', 'info')
+      return
+    }
+
+    syncEntityToCloud(action.type, action.payload)
+      .then(() => {
+        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
+      })
+      .catch((err) => {
+        console.error(`Sync error: Database write failed for action ${action.type}`, err)
+        const isNetworkErr = !navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Network') || err.status === 0
+        if (isNetworkErr) {
+          const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+          queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+          localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+          showToast('Connection lost: Changes saved locally. Sync pending.', 'warning')
+        } else {
+          showToast(`Cloud Sync Error: ${err.message || 'Verification failed'}`, 'error')
+        }
+      })
+  }
+
+  useEffect(() => {
+    const processSyncQueue = async () => {
+      if (!navigator.onLine) return
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      if (queue.length === 0) return
+
+      console.log(`Connection restored! Syncing ${queue.length} offline operations...`)
+      showToast(`Restored online! Syncing ${queue.length} pending local changes...`, 'info')
+
+      const remaining = []
+      for (const item of queue) {
+        try {
+          await syncEntityToCloud(item.type, item.payload)
+          console.log(`Offline operation synced successfully: ${item.type}`)
+        } catch (err) {
+          console.error(`Failed to sync offline operation ${item.type}`, err)
+          remaining.push(item)
+        }
+      }
+
+      localStorage.setItem('offline_sync_queue', JSON.stringify(remaining))
+      if (remaining.length === 0) {
+        showToast('All offline changes synced to cloud!', 'success')
+      } else {
+        showToast(`Failed to sync ${remaining.length} changes. Will retry later.`, 'warning')
+      }
+    }
+
+    window.addEventListener('online', processSyncQueue)
+    processSyncQueue()
+
+    return () => {
+      window.removeEventListener('online', processSyncQueue)
+    }
+  }, [])
+
+
 
   useEffect(() => {
     saveState(state)
@@ -949,16 +1027,50 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }));
 
+        const cloudCreditNotes = [];
+
         const mappedBills = fetchedBills.map(b => {
           let loyaltyPointsEarned = 0;
           let loyaltyPointsRedeemed = 0;
+          let writtenOffAmount = 0;
           let notes = b.notes || '';
+
+          const cnRegex = /\[CreditNote:\s*id=([^,]+),\s*total=([^,]+),\s*items=([^\]]+)\]/g;
+          let cnMatch;
+          while ((cnMatch = cnRegex.exec(notes)) !== null) {
+            try {
+              const cnId = cnMatch[1];
+              const cnTotal = Number(cnMatch[2]);
+              const cnItems = JSON.parse(decodeURIComponent(cnMatch[3]));
+              cloudCreditNotes.push({
+                id: cnId,
+                billId: b.id,
+                customerId: b.customer_id,
+                date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+                items: cnItems,
+                total: cnTotal,
+                settlementType: 'unknown',
+                paymentMethod: 'unknown'
+              });
+            } catch (e) {
+              console.error('Failed to parse credit note JSON from notes', e);
+            }
+          }
+          notes = notes.replace(cnRegex, '').trim();
+
           const loyaltyRegex = /\[Loyalty:\s*earned=(\d+),\s*redeemed=(\d+)\]/;
-          const match = notes.match(loyaltyRegex);
-          if (match) {
-            loyaltyPointsEarned = Number(match[1]);
-            loyaltyPointsRedeemed = Number(match[2]);
+          const loyaltyMatch = notes.match(loyaltyRegex);
+          if (loyaltyMatch) {
+            loyaltyPointsEarned = Number(loyaltyMatch[1]);
+            loyaltyPointsRedeemed = Number(loyaltyMatch[2]);
             notes = notes.replace(loyaltyRegex, '').trim();
+          }
+
+          const writeOffRegex = /\[WriteOff:\s*amount=([0-9.]+)\]/;
+          const writeOffMatch = notes.match(writeOffRegex);
+          if (writeOffMatch) {
+            writtenOffAmount = Number(writeOffMatch[1]);
+            notes = notes.replace(writeOffRegex, '').trim();
           }
 
           return {
@@ -978,6 +1090,7 @@ export const AppProvider = ({ children }) => {
             status: b.status || 'unpaid',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,
+            writtenOffAmount,
             notes: notes,
             deleted: !!b.deleted_at,
             items: (b.items || []).map(item => ({
@@ -1003,27 +1116,82 @@ export const AppProvider = ({ children }) => {
           notes: p.notes || ''
         }))
 
-        const mappedInventory = fetchedInventory.map(i => ({
-          id: i.id,
-          name: i.name,
-          colorSingle: Number(i.color_single || 0),
-          colorDouble: Number(i.color_double || 0),
-          bwSingle: Number(i.bw_single || 0),
-          bwDouble: Number(i.bw_double || 0),
-          stock: Number(i.stock || 0),
-          lowStockAlert: Number(i.low_stock_alert || 50)
-        }))
+        const parseInventoryName = (dbName) => {
+          if (!dbName || !dbName.includes('|')) {
+            return { name: dbName || '', type: 'print', hsnCode: '', sellingPrice: 0 }
+          }
+          const parts = dbName.split('|')
+          const name = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            name,
+            type: metadata.type || 'print',
+            hsnCode: metadata.hsn || '',
+            sellingPrice: Number(metadata.price || 0)
+          }
+        }
 
-        const mappedExpenses = fetchedPurchases.map(exp => ({
-          id: String(exp.id),
-          date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
-          itemName: exp.item_name || '',
-          category: exp.category || 'General',
-          qty: Number(exp.qty || 0),
-          unitCost: Number(exp.unit_cost || 0),
-          amount: Number(exp.total || 0),
-          notes: exp.notes || ''
-        }))
+        const mappedInventory = fetchedInventory.map(i => {
+          const parsed = parseInventoryName(i.name)
+          return {
+            id: i.id,
+            name: parsed.name,
+            type: parsed.type,
+            hsnCode: parsed.hsnCode,
+            sellingPrice: parsed.sellingPrice,
+            colorSingle: Number(i.color_single || 0),
+            colorDouble: Number(i.color_double || 0),
+            bwSingle: Number(i.bw_single || 0),
+            bwDouble: Number(i.bw_double || 0),
+            stock: Number(i.stock || 0),
+            lowStockAlert: Number(i.low_stock_alert || 5)
+          }
+        })
+
+        const parseExpenseNotes = (dbNotes) => {
+          if (!dbNotes || !dbNotes.includes('|')) {
+            return { notes: dbNotes || '', cashAmount: 0, upiAmount: 0, receiptUrl: '' }
+          }
+          const parts = dbNotes.split('|')
+          const notes = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            notes,
+            cashAmount: Number(metadata.cash || 0),
+            upiAmount: Number(metadata.upi || 0),
+            receiptUrl: metadata.receipt || ''
+          }
+        }
+
+        const mappedExpenses = fetchedPurchases.map(exp => {
+          const parsed = parseExpenseNotes(exp.notes)
+          return {
+            id: String(exp.id),
+            date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
+            description: exp.item_name || '',
+            amount: Number(exp.total || 0),
+            notes: parsed.notes,
+            cashAmount: parsed.cashAmount,
+            upiAmount: parsed.upiAmount,
+            receiptUrl: parsed.receiptUrl
+          }
+        })
 
         const mappedAdvancePayments = (fetchedProfile.advance_payments || []).map(ap => ({
           id: ap.id,
@@ -1053,6 +1221,7 @@ export const AppProvider = ({ children }) => {
             inventory: mappedInventory,
             expenses: mappedExpenses,
             advancePayments: mappedAdvancePayments,
+            creditNotes: cloudCreditNotes,
             business: mappedBusiness
           }
         })
@@ -1267,9 +1436,32 @@ export const AppProvider = ({ children }) => {
   }
 
   const addBill = (billData) => {
-    const counterKey = 'BILL'
-    const billId = generateSeqId(state, 'BILL')
+    let billId = ''
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+
+    if (fyInvoicePrefixing) {
+      const fyStr = getFinancialYearString(billData.date)
+      counterKey = `BILL_FY${fyStr}`
+      const counters = state.idCounters || {}
+      const current = counters[counterKey] || 0
+      const next = current + 1
+      const padded = String(next).padStart(4, '0')
+      billId = `INV/${fyStr}/${padded}`
+    } else {
+      billId = generateSeqId(state, 'BILL')
+    }
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    // Deduct stock for standard product items
+    (billData.items || []).forEach(item => {
+      const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+      if (invItem && invItem.type === 'product') {
+        const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+        dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+      }
+    })
+
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
     const currentCredit = Number(customer?.creditBalance || 0)
@@ -1710,13 +1902,42 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
-    let billCounterOffset = state.idCounters?.BILL || 0
+    let billCounterOffset = 0
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+    const fyStr = fyInvoicePrefixing ? getFinancialYearString(groupData.date) : ''
+
+    if (fyInvoicePrefixing) {
+      counterKey = `BILL_FY${fyStr}`
+      billCounterOffset = state.idCounters?.[counterKey] || 0
+    } else {
+      billCounterOffset = state.idCounters?.BILL || 0
+    }
+
     const memberBillIds = []
 
-    for (const member of groupData.members) {
+    const payerCustomerId = groupData.members[0]?.customerId
+    const payerCustObj = payerCustomerId ? state.customers.find((c) => c.id === payerCustomerId) : null
+    let payerAdvanceRemaining = payerCustObj ? Number(payerCustObj.advanceBalance || payerCustObj.creditBalance || 0) : 0
+
+    groupData.members.forEach((member, index) => {
       billCounterOffset += 1
-      const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
+      let billId = ''
+      if (fyInvoicePrefixing) {
+        billId = `INV/${fyStr}/${String(billCounterOffset).padStart(4, '0')}`
+      } else {
+        billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
+      }
+      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+      // Deduct stock for standard product items
+      (member.items || []).forEach(item => {
+        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+        if (invItem && invItem.type === 'product') {
+          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+        }
+      })
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
@@ -1729,11 +1950,47 @@ export const AppProvider = ({ children }) => {
 
       if (member.useAdvance && currentAdvance > 0) {
         advanceUsed = Math.min(currentAdvance, memberTotal)
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
-
+        amountPaid += advanceUsed
+        
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
+        
+        if (member.customerId === payerCustomerId) {
+          payerAdvanceRemaining -= advanceUsed
+        }
+      } else if (member.usePayerAdvance && payerCustomerId && payerAdvanceRemaining > 0 && member.customerId !== payerCustomerId) {
+        const applyPayerAdv = Math.min(payerAdvanceRemaining, memberTotal)
+        advanceUsed = applyPayerAdv
+        amountPaid += advanceUsed
+        payerAdvanceRemaining -= applyPayerAdv
+
+        // Deduct from payer's advance balance
+        dispatch({ type: 'USE_ADVANCE', payload: { customerId: payerCustomerId, amount: applyPayerAdv } })
+      }
+
+      const cashPaid = Number(member.cashPaid || 0)
+      const upiPaid = Number(member.upiPaid || 0)
+      amountPaid += cashPaid + upiPaid
+      billStatus = amountPaid >= memberTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+
+      if (cashPaid > 0 || upiPaid > 0) {
+        const paymentId = generateSeqId(state, 'PAY')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: paymentId,
+            billId: billId,
+            customerId: member.customerId,
+            customerName,
+            date: groupData.date || new Date().toISOString().slice(0, 10),
+            amount: cashPaid + upiPaid,
+            cashAmount: cashPaid,
+            upiAmount: upiPaid,
+            isGroupPayment: true,
+            groupBillId: grpId,
+          }
+        })
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1763,7 +2020,7 @@ export const AppProvider = ({ children }) => {
         status: billStatus,
         advanceUsed,
         creditUsed: 0,
-        paymentMethod: { cash: 0, upi: 0 },
+        paymentMethod: { cash: cashPaid, upi: upiPaid },
         rounding: member.rounding || 0,
         notes: groupData.notes || '',
         deleted: false,
@@ -1793,7 +2050,7 @@ export const AppProvider = ({ children }) => {
       })
 
       memberBillIds.push(billId)
-    }
+    })
 
     // Store group meta record — no separate parent bill needed;
     // group totals are always computed live from member bills
@@ -2279,6 +2536,84 @@ export const AppProvider = ({ children }) => {
     }
   }
 
+  const writeOffBill = (billId) => {
+    const bill = state.bills.find(b => b.id === billId)
+    if (!bill) return
+
+    const balance = Number(bill.balance || 0)
+    if (balance <= 0) return
+
+    const newWrittenOff = Number(bill.writtenOffAmount || 0) + balance
+
+    const updates = {
+      writtenOffAmount: newWrittenOff,
+      balance: 0,
+      status: 'written_off'
+    }
+
+    dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates } })
+  }
+
+  const createCreditNote = (data) => {
+    const counterKey = 'CN'
+    const nextCount = (state.idCounters?.[counterKey] || 0) + 1
+    const cnId = `CN${String(nextCount).padStart(4, '0')}`
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    const total = Number(data.total)
+    const customer = state.customers.find(c => c.id === data.customerId)
+    
+    if (data.settlementType === 'advance' && customer) {
+      const updatedCustomer = {
+        ...customer,
+        advanceBalance: Number(customer.advanceBalance || 0) + total,
+        creditBalance: Number(customer.creditBalance || 0) + total
+      }
+      dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: customer.id, updates: updatedCustomer } })
+    } else if (data.settlementType === 'refund') {
+      const payIdx = (state.idCounters?.PAY || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+      const payId = `PAY${String(payIdx).padStart(4, '0')}`
+      
+      const refundRecord = {
+        id: payId,
+        billId: data.billId,
+        customerId: data.customerId,
+        date: new Date().toISOString(),
+        cashAmount: data.paymentMethod === 'cash' ? -total : 0,
+        upiAmount: data.paymentMethod === 'upi' ? -total : 0,
+        totalPaid: -total,
+        paymentType: 'refund',
+        excessCredit: 0,
+        isRefund: true,
+        notes: `Refund from Credit Note ${cnId}`
+      }
+      dispatch({ type: 'ADD_PAYMENT', payload: refundRecord })
+    }
+
+    const bill = state.bills.find(b => b.id === data.billId)
+    if (bill) {
+      const metadata = `[CreditNote: id=${cnId}, total=${total}, items=${encodeURIComponent(JSON.stringify(data.items))}]`
+      const updatedBill = {
+        ...bill,
+        notes: bill.notes ? `${bill.notes} ${metadata}` : metadata
+      }
+      dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill } })
+    }
+
+    const cnRecord = {
+      id: cnId,
+      billId: data.billId,
+      customerId: data.customerId,
+      date: new Date().toISOString().slice(0, 10),
+      items: data.items,
+      total,
+      settlementType: data.settlementType,
+      paymentMethod: data.paymentMethod
+    }
+    dispatch({ type: 'ADD_CREDIT_NOTE', payload: cnRecord })
+  }
+
   const applyPostDiscount = (billId, discountType, discountValue) => {
     const bill = state.bills.find(b => b.id === billId)
     if (!bill) return
@@ -2353,6 +2688,8 @@ export const AppProvider = ({ children }) => {
       signInWithGitHub,
       updateBill,
       editBill,
+      writeOffBill,
+      createCreditNote,
       applyPostDiscount,
       deletePayment,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
