@@ -24,6 +24,7 @@ import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
+import CustomerPortal from './pages/CustomerPortal'
 
 function App() {
   const { currentUser } = useAppContext()
@@ -84,6 +85,7 @@ function App() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/group-billing" element={<GroupBilling />} />
             <Route path="/refunds" element={<Refunds />} />
+            <Route path="/portal" element={<CustomerPortal />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

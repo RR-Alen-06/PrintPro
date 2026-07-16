@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
@@ -22,7 +22,7 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -48,6 +48,7 @@ const Billing = () => {
   const [cashAmount, setCashAmount] = useState(0)
   const [upiAmount, setUpiAmount] = useState(0)
   const [notes, setNotes] = useState('')
+  const [estimatedCompletion, setEstimatedCompletion] = useState('')
   const [paymentMode, setPaymentMode] = useState('partial')
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
   const [followUpCash, setFollowUpCash] = useState(0)
@@ -58,6 +59,10 @@ const Billing = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [lastBillId, setLastBillId] = useState(null)
+  const [showReturnModal, setShowReturnModal] = useState(false)
+  const [returnQuantities, setReturnQuantities] = useState({})
+  const [returnSettlement, setReturnSettlement] = useState('advance')
+  const [returnPaymentMode, setReturnPaymentMode] = useState('cash')
 
   const [isEditing, setIsEditing] = useState(false)
   const [editingBillId, setEditingBillId] = useState(null)
@@ -88,9 +93,127 @@ const Billing = () => {
   // Loyalty points state
   const [loyaltyPointsRedeemedInput, setLoyaltyPointsRedeemedInput] = useState('')
   const [shouldRedeemPoints, setShouldRedeemPoints] = useState(false)
+  const [loyaltyRedemptionMode, setLoyaltyRedemptionMode] = useState('discount') // 'discount' or 'free_item'
+  const [loyaltyFreeItemRowId, setLoyaltyFreeItemRowId] = useState('')
   const [changeHandling, setChangeHandling] = useState('advance')
 
+  // UPI QR Checkout modal state
+  const [showUpiQrModal, setShowUpiQrModal] = useState(false)
+  const [upiQrAmount, setUpiQrAmount] = useState(0)
+
+  // Portal orders state
+  const [portalOrders, setPortalOrders] = useState([])
+  const [activePortalOrderId, setActivePortalOrderId] = useState('')
+
+  useEffect(() => {
+    const loadPortalOrders = () => {
+      const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+      setPortalOrders(orders.filter(o => o.status !== 'completed'))
+    }
+    loadPortalOrders()
+    // Poll every 5 seconds to get updates in real time
+    const interval = setInterval(loadPortalOrders, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const completePortalOrder = () => {
+    if (!activePortalOrderId) return
+    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+    const updated = orders.map(o => o.id === activePortalOrderId ? { ...o, status: 'completed' } : o)
+    localStorage.setItem('portal_orders', JSON.stringify(updated))
+    setPortalOrders(updated.filter(o => o.status !== 'completed'))
+    setActivePortalOrderId('')
+  }
+
+  const handleSelectPortalOrder = (order) => {
+    setCustomerType('random')
+    setRandomMode('new')
+    setCustomerName(order.customerName)
+    setCustomerPhone(order.customerPhone || '')
+    
+    // Map uploaded files to rows
+    const newRows = order.files.map((file, index) => {
+      // Find matching item in inventory based on printType
+      const matched = inventory.find(item => 
+        item.itemType === 'service' && 
+        item.name?.toLowerCase().includes(file.config.printType === 'color' ? 'color' : 'black')
+      ) || inventory[0]
+      
+      const unitPrice = file.config.printType === 'color'
+        ? (file.config.sides === 'double' ? (matched?.colorDouble || 15) : (matched?.colorSingle || 10))
+        : (file.config.sides === 'double' ? (matched?.bwDouble || 3) : (matched?.bwSingle || 2))
+
+      return {
+        id: `row-${Date.now()}-${index}`,
+        itemId: matched?.id || '',
+        itemName: `${file.name} (${file.config.printType === 'color' ? 'Color' : 'B&W'}, ${file.config.sides === 'double' ? 'Double' : 'Single'})`,
+        isCustom: true,
+        printType: file.config.printType,
+        sides: file.config.sides,
+        qty: file.config.copies || 1,
+        unitPrice: unitPrice,
+        amount: unitPrice * (file.config.copies || 1),
+        gstRate: matched?.gstRate || 0,
+      }
+    })
+    
+    setItemRows(newRows)
+    showToast(`Loaded portal order from ${order.customerName}`, 'success')
+    setActivePortalOrderId(order.id)
+  }
+
   const billRef = useRef(null)
+  const barcodeBufferRef = useRef('')
+  const barcodeTimerRef = useRef(null)
+
+  // Barcode scanner listener - captures rapid key sequences as barcode scans
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
+      
+      if (e.key === 'Enter' && barcodeBufferRef.current.length >= 3) {
+        const scannedCode = barcodeBufferRef.current.trim()
+        barcodeBufferRef.current = ''
+        
+        const matchedItem = inventory.find(item => 
+          item.barcode === scannedCode || 
+          String(item.id) === scannedCode ||
+          item.name?.toLowerCase().includes(scannedCode.toLowerCase())
+        )
+        
+        if (matchedItem) {
+          const newRow = {
+            id: `row-${Date.now()}`,
+            itemId: matchedItem.id,
+            itemName: matchedItem.name,
+            isCustom: false,
+            printType: matchedItem.itemType === 'product' ? 'product' : 'color',
+            sides: 'single',
+            qty: 1,
+            unitPrice: matchedItem.sellingPrice || matchedItem.colorSingle || 0,
+            amount: matchedItem.sellingPrice || matchedItem.colorSingle || 0,
+            gstRate: matchedItem.gstRate || 0,
+          }
+          setItemRows(prev => [...prev, newRow])
+          showToast(`Scanned: ${matchedItem.name} added to bill`, 'success')
+        } else {
+          showToast(`No inventory item found for barcode: ${scannedCode}`, 'error')
+        }
+        return
+      }
+      
+      if (e.key.length === 1) {
+        barcodeBufferRef.current += e.key
+        clearTimeout(barcodeTimerRef.current)
+        barcodeTimerRef.current = setTimeout(() => {
+          barcodeBufferRef.current = ''
+        }, 100)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [inventory])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -234,6 +357,7 @@ const Billing = () => {
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
   const PRESETS = useMemo(() => {
     const getPrice = (item, printType, sides) => {
+      if (item.type === 'product') return item.sellingPrice || 0
       if (printType === 'color' && sides === 'single') return item.colorSingle || 0
       if (printType === 'color' && sides === 'double') return item.colorDouble || 0
       if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
@@ -242,19 +366,31 @@ const Billing = () => {
     }
     const presets = []
     inventory.forEach((item) => {
-      ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
-        const price = getPrice(item, printType, sides)
-        if (price > 0) {
-          presets.push({
-            name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
-            label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
-            itemId: item.id,
-            printType,
-            sides,
-            isCustom: false,
-          })
-        }
-      })
+      if (item.type === 'product') {
+        presets.push({
+          name: item.name,
+          label: `${item.name} (Product)`,
+          itemId: item.id,
+          printType: 'none',
+          sides: 'none',
+          isCustom: false,
+          isProduct: true
+        })
+      } else {
+        ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
+          const price = getPrice(item, printType, sides)
+          if (price > 0) {
+            presets.push({
+              name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
+              label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
+              itemId: item.id,
+              printType,
+              sides,
+              isCustom: false,
+            })
+          }
+        })
+      }
     })
     return presets
   }, [inventory])
@@ -487,13 +623,17 @@ const Billing = () => {
               </tr>
             </thead>
             <tbody>
-              \${bill.items.map(item => \`
-                <tr>
-                  <td>\${item.itemName || item.name}</td>
-                  <td class="right">\${item.qty}</td>
-                  <td class="right">₹\${Number(item.amount).toFixed(2)}</td>
-                </tr>
-              \`).join('')}
+              \${bill.items.map(item => {
+                const invItem = inventory.find(i => String(i.id) === String(item.itemId))
+                const hsnStr = invItem?.hsnCode ? \`<br/><span style="font-size: 8px; color: #555;">HSN: \${invItem.hsnCode}</span>\` : ''
+                return \`
+                  <tr>
+                    <td>\${item.itemName || item.name}\${hsnStr}</td>
+                    <td class="right">\${item.qty}</td>
+                    <td class="right">₹\${Number(item.amount).toFixed(2)}</td>
+                  </tr>
+                \`
+              }).join('')}
             </tbody>
           </table>
           <div class="divider"></div>
@@ -552,6 +692,7 @@ const Billing = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
+    if (item.type === 'product') return item.sellingPrice || 0
     if (printType === 'color' && sides === 'single') return item.colorSingle
     if (printType === 'color' && sides === 'double') return item.colorDouble
     if (printType === 'bw' && sides === 'single') return item.bwSingle
@@ -612,13 +753,15 @@ const Billing = () => {
       const newItemId = changes.itemId ?? targetRow.itemId
       const newPrintType = changes.printType ?? targetRow.printType
       const newSides = changes.sides ?? targetRow.sides
+      const selectedItem = inventory.find(i => String(i.id) === String(newItemId))
+      const isProduct = selectedItem?.type === 'product'
+
       const dupRow = current.find(
         (r) =>
           r.id !== rowId &&
           !r.isCustom &&
           r.itemId === newItemId &&
-          r.printType === newPrintType &&
-          r.sides === newSides
+          (isProduct || (r.printType === newPrintType && r.sides === newSides))
       )
 
       if (dupRow) {
@@ -755,14 +898,27 @@ const Billing = () => {
 
   // Loyalty Points Discount calculation
   const loyaltyEnabled = settings.loyaltyEnabled !== false
-  const pointsRedeemed = loyaltyEnabled && customerType === 'regular' ? Number(loyaltyPointsRedeemedInput || 0) : 0
-  const redeemOptions = settings.loyaltyRedeemOptions || [
-    { points: 100, rupees: 2.5 },
-    { points: 120, rupees: 3 },
-    { points: 150, rupees: 5 },
-  ]
-  const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === pointsRedeemed)
-  const loyaltyDiscount = loyaltyEnabled && selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
+  let pointsRedeemed = 0
+  let loyaltyDiscount = 0
+
+  if (loyaltyEnabled && customerType === 'regular' && shouldRedeemPoints) {
+    if (loyaltyRedemptionMode === 'free_item' && loyaltyFreeItemRowId) {
+      const freeRow = itemRows.find(r => r.id === loyaltyFreeItemRowId)
+      loyaltyDiscount = freeRow ? Number(freeRow.amount || 0) : 0
+      const ratio = (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5)
+      pointsRedeemed = Math.ceil(loyaltyDiscount * ratio)
+    } else {
+      const ptsRedeem = Number(loyaltyPointsRedeemedInput || 0)
+      const redeemOptions = settings.loyaltyRedeemOptions || [
+        { points: 100, rupees: 2.5 },
+        { points: 120, rupees: 3 },
+        { points: 150, rupees: 5 },
+      ]
+      const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === ptsRedeem)
+      loyaltyDiscount = selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
+      pointsRedeemed = ptsRedeem
+    }
+  }
 
   const total = Math.max(subtotal + totalGst - discountAmount - loyaltyDiscount, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
@@ -934,6 +1090,28 @@ const Billing = () => {
       }
     }
 
+    // Credit limit validation
+    const custForLimit = customers.find(c => c.id === customerIdToUse)
+    if (custForLimit && custForLimit.creditLimit > 0) {
+      const custBills = bills.filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent)
+      const custPayments = payments.filter(p => p.customerId === customerIdToUse && !p.isRefund)
+      const totalBilled = custBills.reduce((s, b) => s + Number(b.total || 0), 0)
+      const totalPaid = custPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
+      const currentOutstanding = totalBilled - totalPaid
+      const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
+      const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
+      const unpaidThisBill = Math.max(subtotal - proposedPaid, 0)
+      const projectedOutstanding = currentOutstanding + unpaidThisBill
+
+      if (projectedOutstanding > custForLimit.creditLimit) {
+        showAlert(
+          `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
+          'error'
+        )
+        return
+      }
+    }
+
     // Merge duplicate items before submission (Part 3 requirement pass)
     const mergedItemRows = []
     itemRows.forEach((row) => {
@@ -994,11 +1172,12 @@ const Billing = () => {
       amountPaid: finalAmountPaid,
       advanceUsed: appliedAdvance,
       notes,
+      estimatedCompletion: estimatedCompletion || null,
       paymentMode,
       promoCode: appliedPromo?.code || null,
       promoDiscount: appliedPromo ? discountAmount : 0,
       loyaltyDiscount: loyaltyDiscount,
-      loyaltyPointsRedeemed: Number(loyaltyPointsRedeemedInput || 0),
+      loyaltyPointsRedeemed: pointsRedeemed,
       items: mergedItemRows.map((row) => ({
         itemId: row.itemId,
         itemName: row.itemName,
@@ -1059,6 +1238,7 @@ const Billing = () => {
     setLoyaltyPointsRedeemedInput('')
     setShouldRedeemPoints(false)
     setChangeHandling('advance')
+    completePortalOrder()
   }
 
   const handleRoundingChoice = (roundedTotal) => {
@@ -1090,6 +1270,49 @@ const Billing = () => {
     applyPostDiscount(liveBill.id, discountModalType, dVal)
     setDiscountApplyMsg('Discount applied successfully!')
     setTimeout(() => setDiscountApplyMsg(''), 3000)
+  }
+
+  const handleConfirmReturn = () => {
+    if (!liveBill) return
+
+    const returnItems = []
+    let totalValue = 0
+
+    liveBill.items.forEach((item, index) => {
+      const rqty = Number(returnQuantities[index] || 0)
+      if (rqty > 0) {
+        const itemTotal = rqty * Number(item.unitPrice || 0)
+        totalValue += itemTotal
+        returnItems.push({
+          name: item.name || item.itemName || 'Returned Item',
+          qty: rqty,
+          rate: Number(item.unitPrice || 0),
+          amount: itemTotal
+        })
+      }
+    })
+
+    if (returnItems.length === 0) {
+      showToast('Please select at least one item and quantity to return.', 'error')
+      return
+    }
+
+    const gstRate = Number(liveBill.gstPercent || 0)
+    const totalWithGst = totalValue * (1 + gstRate / 100)
+
+    createCreditNote({
+      billId: liveBill.id,
+      customerId: liveBill.customerId,
+      items: returnItems,
+      total: Number(totalWithGst.toFixed(2)),
+      settlementType: returnSettlement,
+      paymentMethod: returnSettlement === 'refund' ? returnPaymentMode : null
+    })
+
+    showToast(`Credit Note generated successfully for ₹${totalWithGst.toFixed(2)}!`, 'success')
+    setShowReturnModal(false)
+    setReturnQuantities({})
+    closeBillModal()
   }
 
   const getQrCodeBase64 = (upiLink) => {
@@ -1142,13 +1365,36 @@ const Billing = () => {
     let y = 15
     let page = 1
 
-    const rgb = hexToRgb(settings.primaryColor)
+    const themeColors = {
+      dark: '#0f172a',
+      blue: '#1d4ed8',
+      green: '#047857',
+      maroon: '#7f1d1d',
+      purple: '#6d28d9'
+    }
+    const themeHex = themeColors[settings.pdfColorTheme || 'dark'] || settings.primaryColor || '#0f172a'
+    const rgb = hexToRgb(themeHex)
+
+    // Dynamic Columns config
+    const showType = settings.pdfShowType !== false
+    const showSides = settings.pdfShowSides !== false
+    const showUnit = settings.pdfShowUnitPrice !== false
+    const showGst = settings.pdfShowGstRate !== false
+
+    const cols = { item: MARGIN }
+    let curX = 72
+    if (showType) { cols.type = curX; curX += 16 }
+    if (showSides) { cols.sides = curX; curX += 18 }
+    cols.qty = curX; curX += 12
+    if (showUnit) { cols.unit = curX; curX += 20 }
+    if (showGst) { cols.gst = curX; curX += 18 }
+    cols.amt = W - MARGIN - 22
 
     const line = (x1, y1, x2, y2, width = 0.3) => {
       doc.setLineWidth(width)
       doc.line(x1, y1, x2, y2)
     }
-    const text = (str, x, yPos, opts) => doc.text(String(str), x, yPos, opts)
+    const text = (str, x, yPos, opts) => doc.text(String(str || ''), x, yPos, opts)
 
     const addFooter = (pageNum, totalPages) => {
       const fy = H - MARGIN
@@ -1171,10 +1417,11 @@ const Billing = () => {
         text('(continued)', W / 2, y, { align: 'center' })
         y += 6
         text('Item', cols.item, y)
-        text('Type', cols.type, y)
-        text('Sides', cols.sides, y)
+        if (showType) text('Type', cols.type, y)
+        if (showSides) text('Sides', cols.sides, y)
         text('Qty', cols.qty, y)
-        text('Unit Price', cols.unit, y)
+        if (showUnit) text('Unit Price', cols.unit, y)
+        if (showGst) text('GST %', cols.gst, y)
         text('Amount', cols.amt, y)
         y += 2
         doc.setDrawColor(rgb.r, rgb.g, rgb.b)
@@ -1244,29 +1491,45 @@ const Billing = () => {
     y += 6
 
     // Items table header
-    const cols = { item: MARGIN, type: 78, sides: 100, qty: 122, unit: 142, amt: 168 }
+    // Items table header
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8)
     text('Item', cols.item, y)
-    text('Type', cols.type, y)
-    text('Sides', cols.sides, y)
+    if (showType) text('Type', cols.type, y)
+    if (showSides) text('Sides', cols.sides, y)
     text('Qty', cols.qty, y)
-    text('Unit Price', cols.unit, y)
+    if (showUnit) text('Unit Price', cols.unit, y)
+    if (showGst) text('GST %', cols.gst, y)
     text('Amount', cols.amt, y)
     y += 2
     doc.setDrawColor(rgb.r, rgb.g, rgb.b)
     line(MARGIN, y, W - MARGIN, y, 0.4)
     y += 5
 
-    // Items
+     // Items
     doc.setFont('helvetica', 'normal')
     bill.items.forEach((item) => {
       checkNewPage(8)
-      text(item.itemName || item.name || '-', cols.item, y)
-      text(item.printType === 'color' ? 'Color' : 'B/W', cols.type, y)
-      text(item.sides === 'single' ? 'Single' : 'Double', cols.sides, y)
+      const invItem = inventory.find(i => String(i.id) === String(item.itemId))
+      if (invItem?.hsnCode) {
+        text(item.itemName || item.name || '-', cols.item, y - 2)
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'italic')
+        text(`HSN: ${invItem.hsnCode}`, cols.item, y + 3)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+      } else {
+        text(item.itemName || item.name || '-', cols.item, y)
+      }
+
+      const typeText = (item.printType === 'none' || !item.printType) ? '—' : (item.printType === 'color' ? 'Color' : 'B/W')
+      const sidesText = (item.sides === 'none' || !item.sides) ? '—' : (item.sides === 'single' ? 'Single' : 'Double')
+
+      if (showType) text(typeText, cols.type, y)
+      if (showSides) text(sidesText, cols.sides, y)
       text(String(item.qty), cols.qty, y)
-      text(`Rs.${Number(item.unitPrice).toFixed(2)}`, cols.unit, y)
+      if (showUnit) text(`Rs.${Number(item.unitPrice).toFixed(2)}`, cols.unit, y)
+      if (showGst) text(`${item.gstRate || invItem?.gstRate || 0}%`, cols.gst, y)
       text(`Rs.${Number(item.amount).toFixed(2)}`, cols.amt, y)
       y += 6
     })
@@ -1367,6 +1630,48 @@ const Billing = () => {
       y += 5
     }
 
+    // Shop Seal & Authorized Signatory Stamping
+    if (settings.shopSealUrl || settings.signatorySignatureUrl) {
+      checkNewPage(32)
+      y += 2
+      if (settings.shopSealUrl) {
+        try {
+          doc.addImage(settings.shopSealUrl, 'PNG', MARGIN + 10, y, 22, 22)
+          doc.setFontSize(7)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(100, 100, 100)
+          text('Shop Seal', MARGIN + 21, y + 25, { align: 'center' })
+        } catch (e) {
+          console.error("Failed to add shop seal", e)
+        }
+      }
+      if (settings.signatorySignatureUrl) {
+        try {
+          doc.addImage(settings.signatorySignatureUrl, 'PNG', W - MARGIN - 35, y + 4, 25, 12)
+          doc.setFontSize(7)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(100, 100, 100)
+          text('Authorized Signatory', W - MARGIN - 22.5, y + 19, { align: 'center' })
+        } catch (e) {
+          console.error("Failed to add signature", e)
+        }
+      }
+      y += 28
+      doc.setTextColor(0, 0, 0)
+    }
+
+    // Legal Declaration / Footer Note
+    if (settings.pdfLegalFooter) {
+      checkNewPage(12)
+      doc.setFontSize(7.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(80, 80, 80)
+      const splitLegal = doc.splitTextToSize(settings.pdfLegalFooter, W - MARGIN * 2)
+      doc.text(splitLegal, MARGIN, y)
+      y += splitLegal.length * 4 + 2
+      doc.setTextColor(0, 0, 0)
+    }
+
     // Custom Footer Notes
     if (settings.footerNotes) {
       checkNewPage(14)
@@ -1419,7 +1724,78 @@ const Billing = () => {
           onCreateNew={() => setLastBillId(null)}
         />
       ) : (
-        <form className="card" onSubmit={handleSubmit} autoComplete="off">
+        <>
+          {/* POS Online Orders Queue */}
+          {settings.portalEnabled === true && portalOrders.length > 0 && (
+            <div className="card" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'rgba(99,102,241,0.03)', padding: '20px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <ClipboardList size={20} style={{ color: 'var(--accent)' }} />
+                POS Online Orders Queue ({portalOrders.length})
+              </h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                {portalOrders.map(order => (
+                  <div key={order.id} style={{
+                    padding: '12px',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    width: 'calc(50% - 6px)',
+                    minWidth: '280px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontWeight: 700 }}>{order.customerName}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      {order.customerPhone && (
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          Phone: {order.customerPhone}
+                        </p>
+                      )}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        {order.files.map(f => (
+                          <div key={f.id} style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            • {f.name} ({f.config.copies}x {f.config.printType === 'color' ? 'Color' : 'B&W'})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }}
+                        onClick={() => handleSelectPortalOrder(order)}
+                      >
+                        Load to Bill
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--error)', padding: '6px 10px', fontSize: '0.8rem' }}
+                        onClick={() => {
+                          const updated = portalOrders.filter(o => o.id !== order.id)
+                          const allOrders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+                          const newAll = allOrders.map(o => o.id === order.id ? { ...o, status: 'completed' } : o)
+                          localStorage.setItem('portal_orders', JSON.stringify(newAll))
+                          setPortalOrders(updated)
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form className="card" onSubmit={handleSubmit} autoComplete="off">
         <div className="bill-view-header">
           <div>
             {isEditing ? (
@@ -1658,44 +2034,52 @@ const Billing = () => {
                       )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.printType}
-                        onChange={(e) => {
-                          const printType = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { printType })
-                          } else {
-                            handleComboChange(row.id, {
-                              printType,
-                              unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="color">Color</option>
-                        <option value="bw">B/W</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.printType}
+                          onChange={(e) => {
+                            const printType = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { printType })
+                            } else {
+                              handleComboChange(row.id, {
+                                printType,
+                                unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="color">Color</option>
+                          <option value="bw">B/W</option>
+                        </select>
+                      )}
                     </td>
                     <td>
-                      <select
-                        className="form-select"
-                        value={row.sides}
-                        onChange={(e) => {
-                          const sides = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { sides })
-                          } else {
-                            handleComboChange(row.id, {
-                              sides,
-                              unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="single">Single</option>
-                        <option value="double">Double</option>
-                      </select>
+                      {(!row.isCustom && inventory.find(i => String(i.id) === String(row.itemId))?.type === 'product') ? (
+                        <span className="text-muted" style={{ padding: '0 8px' }}>—</span>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={row.sides}
+                          onChange={(e) => {
+                            const sides = e.target.value
+                            if (row.isCustom) {
+                              updateRow(row.id, { sides })
+                            } else {
+                              handleComboChange(row.id, {
+                                sides,
+                                unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
+                              })
+                            }
+                          }}
+                        >
+                          <option value="single">Single</option>
+                          <option value="double">Double</option>
+                        </select>
+                      )}
                     </td>
                     <td>
                       <input
@@ -1800,49 +2184,110 @@ const Billing = () => {
                 </label>
 
                 {shouldRedeemPoints && (
-                  <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '4px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="loyaltyRedemptionMode"
+                          value="discount"
+                          checked={loyaltyRedemptionMode === 'discount'}
+                          onChange={() => {
+                            setLoyaltyRedemptionMode('discount')
+                            setLoyaltyFreeItemRowId('')
+                          }}
+                        />
+                        Cash Discount
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="loyaltyRedemptionMode"
+                          value="free_item"
+                          checked={loyaltyRedemptionMode === 'free_item'}
+                          onChange={() => {
+                            setLoyaltyRedemptionMode('free_item')
+                            setLoyaltyPointsRedeemedInput('')
+                          }}
+                        />
+                        Free Item
+                      </label>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <select
-                        className="form-select"
-                        value={loyaltyPointsRedeemedInput}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                          const points = Number(val || 0);
-                          if (points > maxPts) {
-                            showAlert(`Cannot redeem more than available balance of ${maxPts} points.`, 'error');
-                            return;
-                          }
-                          // Check if discount exceeds total
-                          const selectedOpt = (settings.loyaltyRedeemOptions || [
+                      {loyaltyRedemptionMode === 'free_item' ? (
+                        <select
+                          className="form-select"
+                          value={loyaltyFreeItemRowId}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
+                            const row = itemRows.find(r => String(r.id) === String(val))
+                            if (row) {
+                              const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
+                              if (pointsCost > maxPts) {
+                                showAlert(`Insufficient loyalty points (${maxPts} available, ${pointsCost} required).`, 'error')
+                                return
+                              }
+                            }
+                            setLoyaltyFreeItemRowId(val)
+                          }}
+                        >
+                          <option value="">-- Choose Item from Bill to Claim Free --</option>
+                          {itemRows.map((row) => {
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
+                            const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
+                            const isDisabled = pointsCost > maxPts
+                            return (
+                              <option key={row.id} value={row.id} disabled={isDisabled}>
+                                {row.itemName || 'Unnamed Item'} (₹{Number(row.amount).toFixed(2)}) — {pointsCost} pts {isDisabled ? '(Insufficient Points)' : ''}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      ) : (
+                        <select
+                          className="form-select"
+                          value={loyaltyPointsRedeemedInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
+                            const points = Number(val || 0);
+                            if (points > maxPts) {
+                              showAlert(`Cannot redeem more than available balance of ${maxPts} points.`, 'error');
+                              return;
+                            }
+                            // Check if discount exceeds total
+                            const selectedOpt = (settings.loyaltyRedeemOptions || [
+                              { points: 100, rupees: 2.5 },
+                              { points: 120, rupees: 3 },
+                              { points: 150, rupees: 5 },
+                            ]).find(o => Number(o.points) === points);
+                            const discount = selectedOpt ? Number(selectedOpt.rupees) : 0;
+                            const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0);
+                            if (discount > currentBillTotalWithoutLoyalty) {
+                              showAlert(`Loyalty discount (₹${discount.toFixed(2)}) cannot exceed the bill total (₹${currentBillTotalWithoutLoyalty.toFixed(2)}).`, 'error');
+                              return;
+                            }
+                            setLoyaltyPointsRedeemedInput(val);
+                          }}
+                        >
+                          <option value="">-- Select Redemption Option --</option>
+                          {(settings.loyaltyRedeemOptions || [
                             { points: 100, rupees: 2.5 },
                             { points: 120, rupees: 3 },
                             { points: 150, rupees: 5 },
-                          ]).find(o => Number(o.points) === points);
-                          const discount = selectedOpt ? Number(selectedOpt.rupees) : 0;
-                          const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0);
-                          if (discount > currentBillTotalWithoutLoyalty) {
-                            showAlert(`Loyalty discount (₹${discount.toFixed(2)}) cannot exceed the bill total (₹${currentBillTotalWithoutLoyalty.toFixed(2)}).`, 'error');
-                            return;
-                          }
-                          setLoyaltyPointsRedeemedInput(val);
-                        }}
-                      >
-                        <option value="">-- Select Redemption Option --</option>
-                        {(settings.loyaltyRedeemOptions || [
-                          { points: 100, rupees: 2.5 },
-                          { points: 120, rupees: 3 },
-                          { points: 150, rupees: 5 },
-                        ]).map((opt) => {
-                          const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                          const isDisabled = opt.points > maxPts;
-                          return (
-                            <option key={opt.points} value={opt.points} disabled={isDisabled}>
-                              {opt.points} Points = ₹{opt.rupees} Discount {isDisabled ? '(Insufficient Points)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                          ]).map((opt) => {
+                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
+                            const isDisabled = opt.points > maxPts;
+                            return (
+                              <option key={opt.points} value={opt.points} disabled={isDisabled}>
+                                {opt.points} Points = ₹{opt.rupees} Discount {isDisabled ? '(Insufficient Points)' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
                       {loyaltyPointsRedeemedInput && (
                         <span style={{ fontSize: '0.85rem', color: 'var(--success)', whiteSpace: 'nowrap' }}>
                           -₹{( ( (settings.loyaltyRedeemOptions || [
@@ -1856,7 +2301,7 @@ const Billing = () => {
                     <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                       Available: {(selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)} points
                     </p>
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -1864,6 +2309,11 @@ const Billing = () => {
           <div className="form-group">
             <label className="form-label">Notes</label>
             <textarea className="form-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Job notes or print remarks" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Est. Completion Date</label>
+            <input className="form-input" type="date" value={estimatedCompletion} onChange={(e) => setEstimatedCompletion(e.target.value)} />
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Set a deadline for this job to track delivery on the dashboard.</p>
           </div>
         </div>
 
@@ -1890,7 +2340,22 @@ const Billing = () => {
             </div>
             <div className="form-group">
               <label className="form-label">UPI Amount</label>
-              <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} />
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    const amt = Number(upiAmount || 0) > 0 ? Number(upiAmount) : total
+                    setUpiQrAmount(amt)
+                    setShowUpiQrModal(true)
+                  }}
+                  style={{ whiteSpace: 'nowrap', fontSize: '0.75rem', padding: '6px 10px' }}
+                  title="Generate UPI QR code for quick pay"
+                >
+                  Show QR
+                </button>
+              </div>
             </div>
             {(() => {
               const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
@@ -2109,6 +2574,7 @@ const Billing = () => {
           )}
         </div>
         </form>
+        </>
       )}
 
       {/* Recent Bills Table */}
@@ -2143,8 +2609,8 @@ const Billing = () => {
                   <td>₹{bill.amountPaid.toFixed(2)}</td>
                   <td style={{ color: bill.balance > 0 ? 'var(--warning)' : 'inherit' }}>₹{bill.balance.toFixed(2)}</td>
                   <td>
-                    <span className={`badge badge-${bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid'}`}>
-                      {bill.status}
+                    <span className={`badge badge-${bill.status === 'written_off' ? 'written_off' : (bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid')}`}>
+                      {bill.status === 'written_off' ? 'written off' : bill.status}
                     </span>
                   </td>
                   <td className="table-actions">
@@ -2241,7 +2707,7 @@ const Billing = () => {
                 <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
                   <p>Date: {liveBill.date}</p>
                   <p>Due: {liveBill.dueDate}</p>
-                  <p>Status: <span className={`badge badge-${liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid'}`}>{liveBill.status}</span></p>
+                  <p>Status: <span className={`badge badge-${liveBill.status === 'written_off' ? 'written_off' : (liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid')}`}>{liveBill.status === 'written_off' ? 'written off' : liveBill.status}</span></p>
                 </div>
               </div>
 
@@ -2546,6 +3012,9 @@ const Billing = () => {
               <button type="button" className="btn btn-secondary" onClick={() => shareOnWhatsApp(liveBill)} style={{ color: '#25D366' }}>
                 <Share2 size={16} /> WhatsApp Share
               </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReturnModal(true)} style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <RotateCcw size={16} /> Sales Return
+              </button>
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -2571,6 +3040,143 @@ const Billing = () => {
               )}
               <button type="button" className="btn btn-ghost" onClick={closeBillModal}>
                 <X size={16} /> Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sales Return / Credit Note Modal ───────────────────────────── */}
+      {showReturnModal && liveBill && (
+        <div className="modal-overlay" onClick={() => setShowReturnModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <div className="modal-header">
+              <div>
+                <h3>Sales Return / Credit Note</h3>
+                <p className="text-muted">Issue return credit for Invoice #{liveBill.id}</p>
+              </div>
+              <button className="modal-close btn-icon" type="button" onClick={() => setShowReturnModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="table-container" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item Name</th>
+                      <th>Purchased</th>
+                      <th style={{ width: '120px' }}>Return Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {liveBill.items.map((item, index) => {
+                      const maxQty = Number(item.qty || 0);
+                      const currentVal = Number(returnQuantities[index] || 0);
+                      return (
+                        <tr key={index}>
+                          <td style={{ fontWeight: 500 }}>{item.name || item.itemName}</td>
+                          <td>{maxQty} @ ₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                          <td>
+                            <input
+                              type="number"
+                              className="form-input"
+                              min="0"
+                              max={maxQty}
+                              value={currentVal || ''}
+                              onChange={(e) => {
+                                const val = Math.min(maxQty, Math.max(0, Number(e.target.value)));
+                                setReturnQuantities(prev => ({ ...prev, [index]: val }));
+                              }}
+                              placeholder="0"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Refund Calculations preview */}
+              {(() => {
+                let totalValue = 0;
+                liveBill.items.forEach((item, index) => {
+                  const rqty = Number(returnQuantities[index] || 0);
+                  totalValue += rqty * Number(item.unitPrice || 0);
+                });
+                const gstRate = Number(liveBill.gstPercent || 0);
+                const gstAmount = totalValue * (gstRate / 100);
+                const finalTotal = totalValue + gstAmount;
+
+                return (
+                  <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '4px' }}>
+                      <span>Subtotal Refund:</span>
+                      <span>₹{totalValue.toFixed(2)}</span>
+                    </div>
+                    {gstRate > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '4px' }}>
+                        <span>GST Refund ({gstRate}%):</span>
+                        <span>₹{gstAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '6px', fontSize: '1rem', color: 'var(--accent)' }}>
+                      <span>Total Credit Amount:</span>
+                      <span>₹{finalTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Settlement choice */}
+              <div className="form-group">
+                <label className="form-label">Settlement Mode</label>
+                <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="settlement"
+                      checked={returnSettlement === 'advance'}
+                      onChange={() => setReturnSettlement('advance')}
+                    />
+                    <span>Add to Customer Advance (Store Credit)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="settlement"
+                      checked={returnSettlement === 'refund'}
+                      onChange={() => setReturnSettlement('refund')}
+                    />
+                    <span>Direct Cash/UPI Payout</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Direct Refund options */}
+              {returnSettlement === 'refund' && (
+                <div className="form-group">
+                  <label className="form-label">Payout Channel</label>
+                  <select
+                    className="form-select"
+                    value={returnPaymentMode}
+                    onChange={(e) => setReturnPaymentMode(e.target.value)}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '16px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReturnModal(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleConfirmReturn} style={{ background: 'var(--warning)', borderColor: 'var(--warning)', color: '#000' }}>
+                Confirm and Issue Credit Note
               </button>
             </div>
           </div>
@@ -2750,6 +3356,54 @@ const Billing = () => {
                   Confirm Refund & Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPI QR Checkout Modal */}
+      {showUpiQrModal && (
+        <div className="modal-overlay" onClick={() => setShowUpiQrModal(false)}>
+          <div className="modal" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>UPI Quick Pay</h3>
+              <button className="modal-close btn-icon" onClick={() => setShowUpiQrModal(false)} type="button">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px', textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent)', marginBottom: '16px' }}>
+                ₹{Number(upiQrAmount).toFixed(2)}
+              </div>
+              {business?.upiId ? (
+                <div>
+                  <div style={{
+                    padding: '20px',
+                    background: 'white',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'inline-block',
+                    marginBottom: '16px'
+                  }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                        `upi://pay?pa=${business.upiId}&pn=${encodeURIComponent(business.shopName || 'PrintPro')}&am=${Number(upiQrAmount).toFixed(2)}&cu=INR&tn=Invoice%20Payment`
+                      )}`}
+                      alt="UPI QR Code"
+                      style={{ width: '200px', height: '200px' }}
+                    />
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Scan with any UPI app (GPay, PhonePe, Paytm)
+                  </p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    UPI ID: <strong>{business.upiId}</strong>
+                  </p>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem' }}>
+                  No UPI ID configured. Go to Settings → Business Profile to set your UPI ID.
+                </p>
+              )}
             </div>
           </div>
         </div>

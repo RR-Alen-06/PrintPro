@@ -61,25 +61,25 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'ADD_INVENTORY_ITEM':
         return await createItem({
-          name: payload.name,
+          name: `${payload.name} | type:${payload.type || 'print'} | hsn:${payload.hsnCode || ''} | price:${payload.sellingPrice || 0}`,
           color_single: payload.colorSingle || 0,
           color_double: payload.colorDouble || 0,
           bw_single: payload.bwSingle || 0,
           bw_double: payload.bwDouble || 0,
           stock: payload.stock || 0,
-          low_stock_alert: payload.lowStockAlert || 50
+          low_stock_alert: payload.lowStockAlert || 5
         });
 
       case 'UPDATE_INVENTORY_ITEM':
         if (payload.id) {
           await updateItem(payload.id, {
-            name: payload.updates.name,
+            name: `${payload.updates.name} | type:${payload.updates.type || 'print'} | hsn:${payload.updates.hsnCode || ''} | price:${payload.updates.sellingPrice || 0}`,
             color_single: payload.updates.colorSingle,
             color_double: payload.updates.colorDouble,
             bw_single: payload.updates.bwSingle,
             bw_double: payload.updates.bwDouble,
             stock: payload.updates.stock || 0,
-            low_stock_alert: payload.updates.lowStockAlert || 50
+            low_stock_alert: payload.updates.lowStockAlert || 5
           });
         }
         break;
@@ -102,6 +102,9 @@ export const syncEntityToCloud = async (action, payload) => {
           let notes = payload.notes || '';
           if (payload.loyaltyPointsEarned || payload.loyaltyPointsRedeemed) {
             notes += ` [Loyalty: earned=${payload.loyaltyPointsEarned || 0}, redeemed=${payload.loyaltyPointsRedeemed || 0}]`;
+          }
+          if (payload.writtenOffAmount) {
+            notes += ` [WriteOff: amount=${payload.writtenOffAmount}]`;
           }
 
           return await createBill({
@@ -129,6 +132,9 @@ export const syncEntityToCloud = async (action, payload) => {
           let notes = payload.updates.notes || '';
           if (payload.updates.loyaltyPointsEarned || payload.updates.loyaltyPointsRedeemed) {
             notes += ` [Loyalty: earned=${payload.updates.loyaltyPointsEarned || 0}, redeemed=${payload.updates.loyaltyPointsRedeemed || 0}]`;
+          }
+          if (payload.updates.writtenOffAmount) {
+            notes += ` [WriteOff: amount=${payload.updates.writtenOffAmount}]`;
           }
 
           const mappedUpdates = {
@@ -189,14 +195,15 @@ export const syncEntityToCloud = async (action, payload) => {
         break;
 
       case 'ADD_EXPENSE':
+        const serialNotes = `${payload.notes || ''} | cash:${payload.cashAmount || 0} | upi:${payload.upiAmount || 0} | receipt:${payload.receiptUrl || ''}`
         return await createPurchase({
           date: payload.date || new Date().toISOString().slice(0, 10),
-          item_name: payload.itemName || '',
+          item_name: payload.description || payload.itemName || '',
           category: payload.category || 'General',
           qty: payload.qty || 1,
           unit_cost: payload.unitCost || payload.amount || 0,
           total: payload.amount || payload.total || 0,
-          notes: payload.notes || ''
+          notes: serialNotes
         });
 
       case 'DELETE_EXPENSE':

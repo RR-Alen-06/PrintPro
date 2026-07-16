@@ -10,6 +10,7 @@ const EMPTY_FORM = {
   phone: '',
   email: '',
   creditBalance: '',
+  creditLimit: '',
   openingBalanceMethod: 'cash',
   openingCash: '',
   openingUpi: '',
@@ -49,6 +50,11 @@ const Customers = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const [expandedBillId, setExpandedBillId] = useState(null)
 
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c.id === selectedCustomerId),
+    [customers, selectedCustomerId]
+  )
+
   // Payment form state
   const [payCash, setPayCash] = useState(0)
   const [payUpi, setPayUpi] = useState(0)
@@ -61,6 +67,83 @@ const Customers = () => {
   const [targetPaySuccess, setTargetPaySuccess] = useState(false)
   const [targetBillQrGenerated, setTargetBillQrGenerated] = useState(false)
   const [targetBillUpiCheckoutAmount, setTargetBillUpiCheckoutAmount] = useState(0)
+
+  const [showLedgerModal, setShowLedgerModal] = useState(false)
+
+  const ledgerData = useMemo(() => {
+    if (!selectedCustomer) return []
+    const customerBills = bills.filter(b => b.customerId === selectedCustomer.id && !b.deleted)
+    const customerPayments = payments.filter(p => p.customerId === selectedCustomer.id)
+
+    const events = []
+
+    if (selectedCustomer.openingBalance && Number(selectedCustomer.openingBalance) > 0) {
+      events.push({
+        date: selectedCustomer.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        type: 'Opening Balance',
+        refId: 'OB',
+        debit: Number(selectedCustomer.openingBalance),
+        credit: 0,
+      })
+    }
+
+    customerBills.forEach(b => {
+      events.push({
+        date: b.date,
+        type: `Invoice #${b.id}`,
+        refId: b.id,
+        debit: Number(b.total || 0),
+        credit: 0,
+      })
+    })
+
+    customerPayments.forEach(p => {
+      const isRefund = p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0
+      events.push({
+        date: p.date,
+        type: isRefund ? 'Refund Outflow' : `Payment (via ${p.method || 'Cash/UPI'})`,
+        refId: p.id,
+        debit: isRefund ? Math.abs(Number(p.totalPaid || 0)) : 0,
+        credit: isRefund ? 0 : Number(p.totalPaid || 0),
+      })
+    })
+
+    events.sort((a, b) => new Date(a.date) - new Date(b.date))
+
+    let running = 0
+    return events.map(ev => {
+      running += ev.debit - ev.credit
+      return { ...ev, balance: running }
+    })
+  }, [selectedCustomer, bills, payments])
+
+  const handleShareLedgerWhatsApp = () => {
+    if (!selectedCustomer) return
+    let msg = `*STATEMENT OF ACCOUNT*\n`
+    msg += `*Customer*: ${selectedCustomer.name}\n`
+    msg += `*Date*: ${new Date().toLocaleDateString()}\n`
+    msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
+    msg += `Date       | Ref | Debit | Credit\n`
+    
+    ledgerData.forEach(row => {
+      const typeStr = row.refId === 'OB' ? 'OB ' : row.refId
+      msg += `${row.date} | ${typeStr} | ₹${row.debit.toFixed(0)} | ₹${row.credit.toFixed(0)}\n`
+    })
+    
+    msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
+    const outstanding = ledgerData.length > 0 ? ledgerData[ledgerData.length - 1].balance : 0
+    msg += `*Net Outstanding Balance: ₹${outstanding.toFixed(2)}*\n`
+    
+    if (outstanding > 0 && business?.upiId) {
+      const upiLink = getUpiLink(outstanding, `Settle outstanding for ${selectedCustomer.name}`)
+      if (upiLink) {
+        msg += `\n*Quick Pay via UPI:* ${upiLink}\n`
+      }
+    }
+    
+    const encoded = encodeURIComponent(msg)
+    window.open(`https://api.whatsapp.com/send?phone=${selectedCustomer.phone || ''}&text=${encoded}`, '_blank')
+  }
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c) => {
@@ -76,10 +159,7 @@ const Customers = () => {
     })
   }, [customers, searchQuery, filterType])
 
-  const selectedCustomer = useMemo(
-    () => customers.find((c) => c.id === selectedCustomerId),
-    [customers, selectedCustomerId]
-  )
+
 
   // Bills for selected customer (non-deleted, newest first)
   const customerBills = useMemo(() => {
@@ -174,6 +254,7 @@ const Customers = () => {
       phone: customer.phone || '',
       email: customer.email || '',
       creditBalance: String(customer.creditBalance || 0),
+      creditLimit: String(customer.creditLimit || 0),
       openingBalanceMethod: 'cash',
       openingCash: '',
       openingUpi: '',
@@ -229,6 +310,7 @@ const Customers = () => {
         phone: form.phone.trim(),
         email: form.email.trim(),
         creditBalance: form.type === 'regular' ? Number(form.creditBalance || 0) : undefined,
+        creditLimit: form.type === 'regular' ? Number(form.creditLimit || 0) : undefined,
       })
       setSuccessMsg(`Customer updated successfully!`)
     } else {
@@ -497,6 +579,14 @@ const Customers = () => {
                     title="Edit customer"
                   >
                     <Pencil size={13} /> Edit
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); setShowLedgerModal(true) }}
+                    title="View Customer Ledger"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <ClipboardList size={13} /> Ledger
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setSelectedCustomerId(null)}>
                     <X size={14} />
@@ -1257,6 +1347,24 @@ const Customers = () => {
                     )}
                   </div>
                 )}
+
+                {form.type === 'regular' && (
+                  <div className="form-group">
+                    <label className="form-label">Credit Limit (₹)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0 = unlimited"
+                      value={form.creditLimit}
+                      onChange={(e) => handleChange('creditLimit', e.target.value)}
+                    />
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Maximum outstanding balance allowed. 0 = no limit.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="modal-footer">
@@ -1266,6 +1374,71 @@ const Customers = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showLedgerModal && selectedCustomer && (
+        <div className="modal-overlay" onClick={() => setShowLedgerModal(false)}>
+          <div className="modal" style={{ maxWidth: '800px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Customer Ledger: {selectedCustomer.name}</h3>
+              <button className="modal-close btn-icon" onClick={() => setShowLedgerModal(false)} type="button">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Running Outstanding Balance:</span>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--warning)', marginTop: '4px' }}>
+                    ₹{(ledgerData.length > 0 ? ledgerData[ledgerData.length - 1].balance : 0).toFixed(2)}
+                  </div>
+                </div>
+                <button className="btn btn-primary" onClick={handleShareLedgerWhatsApp} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Share Statement on WhatsApp
+                </button>
+              </div>
+
+              <div style={{ overflowY: 'auto', maxHeight: '400px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                <table className="table" style={{ margin: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
+                    <tr>
+                      <th>Date</th>
+                      <th>Transaction Type</th>
+                      <th>Ref ID</th>
+                      <th>Debit (Charges)</th>
+                      <th>Credit (Payments)</th>
+                      <th>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledgerData.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No ledger history found.</td>
+                      </tr>
+                    ) : (
+                      ledgerData.map((row, idx) => (
+                        <tr key={idx}>
+                          <td>{row.date}</td>
+                          <td>{row.type}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{row.refId}</td>
+                          <td style={{ color: row.debit > 0 ? 'var(--error)' : 'inherit' }}>
+                            {row.debit > 0 ? `₹${row.debit.toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ color: row.credit > 0 ? 'var(--success)' : 'inherit' }}>
+                            {row.credit > 0 ? `₹${row.credit.toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ fontWeight: 600, color: row.balance > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                            ₹{row.balance.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       )}
