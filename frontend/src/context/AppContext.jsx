@@ -67,6 +67,7 @@ const initialState = {
     footerNotes: '',
     showGstBreakdown: true,
     showUpiQrCode: true,
+    portalEnabled: true,
   },
   recurringBills: [],
   currentUser: null,

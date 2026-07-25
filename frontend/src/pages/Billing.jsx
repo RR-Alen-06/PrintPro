@@ -162,6 +162,41 @@ const Billing = () => {
     setActivePortalOrderId('')
   }
 
+  const handleAddDemoPortalOrder = () => {
+    const demoOrder = {
+      id: `portal-${Date.now()}`,
+      customerName: 'Alex Smith (Online Upload)',
+      customerPhone: '+1 555-0199',
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      files: [
+        {
+          id: `file-1`,
+          name: 'Presentation_Slides_Color.pdf',
+          config: {
+            copies: 2,
+            printType: 'color',
+            sides: 'double',
+          },
+        },
+        {
+          id: `file-2`,
+          name: 'Architectural_Plans_BW.pdf',
+          config: {
+            copies: 5,
+            printType: 'bw',
+            sides: 'single',
+          },
+        },
+      ],
+    }
+    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+    const updated = [demoOrder, ...orders]
+    localStorage.setItem('portal_orders', JSON.stringify(updated))
+    setPortalOrders(updated.filter(o => o.status !== 'completed'))
+    showToast('Demo online order added to POS queue!', 'success')
+  }
+
   const handleSelectPortalOrder = (order) => {
     setCustomerType('random')
     setRandomMode('new')
@@ -1860,72 +1895,92 @@ const Billing = () => {
       ) : (
         <>
           {/* POS Online Orders Queue */}
-          {settings.portalEnabled === true && portalOrders.length > 0 && (
+          {settings.portalEnabled !== false && (
             <div className="card" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'rgba(99,102,241,0.03)', padding: '20px' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <ClipboardList size={20} style={{ color: 'var(--accent)' }} />
-                POS Online Orders Queue ({portalOrders.length})
-              </h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                {portalOrders.map(order => (
-                  <div key={order.id} style={{
-                    padding: '12px',
-                    background: 'var(--bg-card)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)',
-                    width: 'calc(50% - 6px)',
-                    minWidth: '280px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between'
-                  }}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 700 }}>{order.customerName}</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      {order.customerPhone && (
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                          Phone: {order.customerPhone}
-                        </p>
-                      )}
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                        {order.files.map(f => (
-                          <div key={f.id} style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                            • {f.name} ({f.config.copies}x {f.config.printType === 'color' ? 'Color' : 'B&W'})
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }}
-                        onClick={() => handleSelectPortalOrder(order)}
-                      >
-                        Load to Bill
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: 'var(--error)', padding: '6px 10px', fontSize: '0.8rem' }}
-                        onClick={() => {
-                          const updated = portalOrders.filter(o => o.id !== order.id)
-                          const allOrders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-                          const newAll = allOrders.map(o => o.id === order.id ? { ...o, status: 'completed' } : o)
-                          localStorage.setItem('portal_orders', JSON.stringify(newAll))
-                          setPortalOrders(updated)
-                        }}
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <ClipboardList size={20} style={{ color: 'var(--accent)' }} />
+                  POS Online Orders Queue ({portalOrders.length})
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={handleAddDemoPortalOrder}
+                >
+                  <Plus size={13} /> Add Demo Online Order
+                </button>
               </div>
+
+              {portalOrders.length === 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No pending customer portal orders. Uploaded customer files will automatically appear here.</span>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={handleAddDemoPortalOrder} style={{ fontSize: '0.78rem' }}>
+                    Create Test Order
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                  {portalOrders.map(order => (
+                    <div key={order.id} style={{
+                      padding: '12px',
+                      background: 'var(--bg-card)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      width: 'calc(50% - 6px)',
+                      minWidth: '280px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span style={{ fontWeight: 700 }}>{order.customerName}</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        {order.customerPhone && (
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                            Phone: {order.customerPhone}
+                          </p>
+                        )}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                          {order.files.map(f => (
+                            <div key={f.id} style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                              • {f.name} ({f.config.copies}x {f.config.printType === 'color' ? 'Color' : 'B&W'})
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }}
+                          onClick={() => handleSelectPortalOrder(order)}
+                        >
+                          Load to Bill
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--error)', padding: '6px 10px', fontSize: '0.8rem' }}
+                          onClick={() => {
+                            const updated = portalOrders.filter(o => o.id !== order.id)
+                            const allOrders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
+                            const newAll = allOrders.map(o => o.id === order.id ? { ...o, status: 'completed' } : o)
+                            localStorage.setItem('portal_orders', JSON.stringify(newAll))
+                            setPortalOrders(updated)
+                          }}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

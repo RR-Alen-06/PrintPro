@@ -24,6 +24,7 @@ import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
+import CustomerPortal from './pages/CustomerPortal'
 
 function App() {
   const { currentUser } = useAppContext()
@@ -42,8 +43,14 @@ function App() {
     }
   }, [])
 
-  // Reactively check if we are handling OAuth redirect callback
+  // Reactively check if we are handling OAuth redirect callback or public portal
   const isAuthCallback = location.pathname === '/auth/callback'
+  const isCustomerPortal = location.pathname === '/portal'
+
+  // Render Customer Portal in full screen layout for public customers
+  if (isCustomerPortal) {
+    return <CustomerPortal />
+  }
 
   // Show login page if not authenticated
   if (!currentUser && !isAuthCallback) {
@@ -84,6 +91,7 @@ function App() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/group-billing" element={<GroupBilling />} />
             <Route path="/refunds" element={<Refunds />} />
+            <Route path="/portal" element={<CustomerPortal />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
