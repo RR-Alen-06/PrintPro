@@ -279,13 +279,45 @@ const Billing = () => {
         clearTimeout(barcodeTimerRef.current)
         barcodeTimerRef.current = setTimeout(() => {
           barcodeBufferRef.current = ''
-        }, 100)
+        }, 200)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [inventory])
+  }, [inventory, showToast])
+
+  // POS Keyboard Hotkeys listener (F2, F3, F4, F8, F9, Esc)
+  useEffect(() => {
+    const handleHotkey = (e) => {
+      if (['F2', 'F3', 'F4', 'F8', 'F9'].includes(e.key)) {
+        e.preventDefault()
+      }
+      if (e.key === 'F2') {
+        const input = document.getElementById('customer-name-input') || document.getElementById('customer-select-input')
+        if (input) input.focus()
+        showToast('Customer field focused (F2)', 'info')
+      } else if (e.key === 'F3') {
+        addItemRow()
+        showToast('Item row added (F3)', 'info')
+      } else if (e.key === 'F4') {
+        setCustomerType(prev => prev === 'regular' ? 'random' : 'regular')
+        showToast('Customer type toggled (F4)', 'info')
+      } else if (e.key === 'F8') {
+        const cashInput = document.getElementById('cash-amount-input')
+        if (cashInput) cashInput.focus()
+        else showToast('Payment section focused (F8)', 'info')
+      } else if (e.key === 'F9') {
+        handleSubmit()
+      } else if (e.key === 'Escape') {
+        resetForm()
+        showToast('Form cleared (Esc)', 'info')
+      }
+    }
+
+    window.addEventListener('keydown', handleHotkey)
+    return () => window.removeEventListener('keydown', handleHotkey)
+  }, [addItemRow, handleSubmit, resetForm, showToast])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -1827,6 +1859,31 @@ const Billing = () => {
       }
       y += 28
       doc.setTextColor(0, 0, 0)
+    }
+
+    // Customer Upload Portal QR Code
+    if (settings.portalEnabled !== false) {
+      checkNewPage(30)
+      y += 2
+      const portalUrl = 'http://localhost:5173/portal'
+      const portalQrBase64 = await getQrCodeBase64(portalUrl)
+      if (portalQrBase64) {
+        try {
+          doc.addImage(portalQrBase64, 'PNG', MARGIN, y, 20, 20)
+          doc.setFontSize(8)
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(rgb.r, rgb.g, rgb.b)
+          text('Upload Next Print Order Online!', MARGIN + 24, y + 6)
+          doc.setFontSize(7.5)
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(100, 100, 100)
+          text('Scan this QR code to submit documents directly from your phone.', MARGIN + 24, y + 12)
+          text(`Portal: ${portalUrl}`, MARGIN + 24, y + 17)
+          y += 24
+        } catch (e) {
+          console.error('Failed to add portal QR code', e)
+        }
+      }
     }
 
     // Legal Declaration / Footer Note
@@ -3597,6 +3654,35 @@ const Billing = () => {
           </div>
         </div>
       )}
+      {/* POS Keyboard Hotkeys Legend Footer Bar */}
+      <div style={{
+        position: 'sticky',
+        bottom: 0,
+        zIndex: 90,
+        background: 'var(--bg-card, #0f172a)',
+        borderTop: '1px solid var(--border)',
+        padding: '10px 16px',
+        marginTop: '24px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '8px',
+        borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+        boxShadow: '0 -4px 12px rgba(0,0,0,0.15)'
+      }}>
+        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          ⚡ POS Hotkeys Active:
+        </span>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>F2</kbd> Customer Field</span>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>F3</kbd> Add Item Row</span>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>F4</kbd> Toggle Customer Type</span>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>F8</kbd> Focus Payment</span>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>F9</kbd> Generate Bill</span>
+          <span><kbd style={{ background: 'var(--border)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-main)' }}>Esc</kbd> Reset Form</span>
+        </div>
+      </div>
     </div>
   )
 }
