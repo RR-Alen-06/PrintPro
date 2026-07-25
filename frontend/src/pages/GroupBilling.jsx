@@ -31,6 +31,7 @@ const makeCustomRow = () => ({
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
   const item = inventory.find((e) => e.id === itemId)
   if (!item) return 0
+  if (item.type === 'product') return item.sellingPrice || 0
   if (printType === 'color' && sides === 'single') return item.colorSingle
   if (printType === 'color' && sides === 'double') return item.colorDouble
   if (printType === 'bw' && sides === 'single') return item.bwSingle
@@ -78,8 +79,29 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.08)' }}>
       <span style={{ fontSize: '11px', color: '#71717a', alignSelf: 'center', marginRight: '4px', fontWeight: 600 }}>Quick Add:</span>
-      {inventory.flatMap((item) =>
-        [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
+      {inventory.flatMap((item) => {
+        if (item.type === 'product') {
+          const price = item.sellingPrice || 0
+          const label = `${item.name} (Product)`
+          const existing = rows?.find((r) => !r.isCustom && r.itemId === item.id)
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleQuickAdd(item.id, item.name, 'none', 'none', price)}
+              style={{
+                fontSize: '11px', padding: '4px 10px', borderRadius: '16px', whiteSpace: 'nowrap', cursor: 'pointer',
+                border: existing ? '1px solid #10b981' : '1px solid rgba(16,185,129,0.3)',
+                background: existing ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.06)',
+                color: existing ? '#10b981' : '#a1a1aa',
+              }}
+            >
+              {label}{existing ? ` ×${existing.qty}` : ''}
+            </button>
+          )
+        }
+
+        return [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
           const price = getItemBasePrice(inventory, item.id, printType, sides)
           if (!price) return null
           const label = `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides === 'single' ? 'Single' : 'Double'}`
@@ -102,7 +124,7 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
             </button>
           )
         }).filter(Boolean)
-      )}
+      })}
     </div>
   )
 }
@@ -498,6 +520,39 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
           </label>
         </div>
       )}
+
+      {/* Cash and UPI splits */}
+      <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '10px' }}>
+        <div style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '8px', fontWeight: 600 }}>Payment Received (Split Mode):</div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '120px' }}>
+            <label style={{ fontSize: '11px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash Amount Paid (₹)</label>
+            <input
+              type="number"
+              className="form-input"
+              style={{ fontSize: '12px', padding: '6px 10px' }}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+              value={member.cashPaid || ''}
+              onChange={(e) => onChange(member.id, { cashPaid: Number(e.target.value) })}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: '120px' }}>
+            <label style={{ fontSize: '11px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI Amount Paid (₹)</label>
+            <input
+              type="number"
+              className="form-input"
+              style={{ fontSize: '12px', padding: '6px 10px' }}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+              value={member.upiPaid || ''}
+              onChange={(e) => onChange(member.id, { upiPaid: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -840,6 +895,8 @@ const GroupBilling = () => {
         total,
         useAdvance: m.useAdvance,
         usePayerAdvance: m.usePayerAdvance,
+        cashPaid: Number(m.cashPaid || 0),
+        upiPaid: Number(m.upiPaid || 0),
         groupRole: m.hasAddons ? 'shared-addon' : 'shared',
         rounding: 0,
       }
@@ -908,6 +965,8 @@ const GroupBilling = () => {
         total,
         rounding: 0,
         useAdvance: m.useAdvance,
+        cashPaid: Number(m.cashPaid || 0),
+        upiPaid: Number(m.upiPaid || 0),
         groupRole: 'split',
       }
     })
@@ -1500,6 +1559,36 @@ const GroupBilling = () => {
                           )}
                         </div>
                       )}
+                      {/* Cash and UPI splits */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(255,255,255,0.01)', padding: '6px', borderRadius: '6px' }}>
+                        <div style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Payment Received (Split Mode):</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ flex: 1 }}>
+                            <input
+                              type="number"
+                              className="form-input"
+                              style={{ fontSize: '11px', padding: '2px 6px', height: '26px' }}
+                              placeholder="Cash ₹"
+                              min="0"
+                              step="0.01"
+                              value={m.cashPaid || ''}
+                              onChange={(e) => updateSplitMember(m.id, { cashPaid: Number(e.target.value) })}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <input
+                              type="number"
+                              className="form-input"
+                              style={{ fontSize: '11px', padding: '2px 6px', height: '26px' }}
+                              placeholder="UPI ₹"
+                              min="0"
+                              step="0.01"
+                              value={m.upiPaid || ''}
+                              onChange={(e) => updateSplitMember(m.id, { upiPaid: Number(e.target.value) })}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

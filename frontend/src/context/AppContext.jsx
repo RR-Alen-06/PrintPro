@@ -701,8 +701,24 @@ const reducer = (state, action) => {
   return nextState
 }
 
-// Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
-// const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
+const getFinancialYearString = (dateString) => {
+  const dateObj = dateString ? new Date(dateString) : new Date()
+  const year = dateObj.getFullYear()
+  const month = dateObj.getMonth() + 1 // 1-indexed
+
+  let startYear, endYear
+  if (month >= 4) { // April is month 4
+    startYear = year
+    endYear = year + 1
+  } else {
+    startYear = year - 1
+    endYear = year
+  }
+
+  const startYearShort = String(startYear).slice(-2)
+  const endYearShort = String(endYear).slice(-2)
+  return `${startYearShort}-${endYearShort}`
+}
 
 // Sequential ID generator using state counters
 const generateSeqId = (state, type) => {
@@ -741,19 +757,6 @@ const calcLoyaltyPoints = (total, tiers) => {
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
 
-  const dispatch = (action) => {
-    rawDispatch(action)
-    // Synchronously fire the background sync, logging success and displaying errors to the user
-    syncEntityToCloud(action.type, action.payload)
-      .then(() => {
-        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
-      })
-      .catch((err) => {
-        console.error(`Sync error: Database write failed for action ${action.type}`, err)
-        showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
-      })
-  }
-
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
 
@@ -771,6 +774,73 @@ export const AppProvider = ({ children }) => {
   const showConfirm = (title, message, onConfirm, confirmText = 'Confirm', type = 'info') => {
     setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
   }
+
+  const dispatch = (action) => {
+    rawDispatch(action)
+    
+    if (!navigator.onLine) {
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+      localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+      showToast('Offline: Changes saved locally. Will sync when online.', 'info')
+      return
+    }
+
+    syncEntityToCloud(action.type, action.payload)
+      .then(() => {
+        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
+      })
+      .catch((err) => {
+        console.error(`Sync error: Database write failed for action ${action.type}`, err)
+        const isNetworkErr = !navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Network') || err.status === 0
+        if (isNetworkErr) {
+          const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+          queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
+          localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+          showToast('Connection lost: Changes saved locally. Sync pending.', 'warning')
+        } else {
+          showToast(`Cloud Sync Error: ${err.message || 'Verification failed'}`, 'error')
+        }
+      })
+  }
+
+  useEffect(() => {
+    const processSyncQueue = async () => {
+      if (!navigator.onLine) return
+      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      if (queue.length === 0) return
+
+      console.log(`Connection restored! Syncing ${queue.length} offline operations...`)
+      showToast(`Restored online! Syncing ${queue.length} pending local changes...`, 'info')
+
+      const remaining = []
+      for (const item of queue) {
+        try {
+          await syncEntityToCloud(item.type, item.payload)
+          console.log(`Offline operation synced successfully: ${item.type}`)
+        } catch (err) {
+          console.error(`Failed to sync offline operation ${item.type}`, err)
+          remaining.push(item)
+        }
+      }
+
+      localStorage.setItem('offline_sync_queue', JSON.stringify(remaining))
+      if (remaining.length === 0) {
+        showToast('All offline changes synced to cloud!', 'success')
+      } else {
+        showToast(`Failed to sync ${remaining.length} changes. Will retry later.`, 'warning')
+      }
+    }
+
+    window.addEventListener('online', processSyncQueue)
+    processSyncQueue()
+
+    return () => {
+      window.removeEventListener('online', processSyncQueue)
+    }
+  }, [])
+
+
 
   useEffect(() => {
     saveState(state)
@@ -1046,27 +1116,82 @@ export const AppProvider = ({ children }) => {
           notes: p.notes || ''
         }))
 
-        const mappedInventory = fetchedInventory.map(i => ({
-          id: i.id,
-          name: i.name,
-          colorSingle: Number(i.color_single || 0),
-          colorDouble: Number(i.color_double || 0),
-          bwSingle: Number(i.bw_single || 0),
-          bwDouble: Number(i.bw_double || 0),
-          stock: Number(i.stock || 0),
-          lowStockAlert: Number(i.low_stock_alert || 50)
-        }))
+        const parseInventoryName = (dbName) => {
+          if (!dbName || !dbName.includes('|')) {
+            return { name: dbName || '', type: 'print', hsnCode: '', sellingPrice: 0 }
+          }
+          const parts = dbName.split('|')
+          const name = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            name,
+            type: metadata.type || 'print',
+            hsnCode: metadata.hsn || '',
+            sellingPrice: Number(metadata.price || 0)
+          }
+        }
 
-        const mappedExpenses = fetchedPurchases.map(exp => ({
-          id: String(exp.id),
-          date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
-          itemName: exp.item_name || '',
-          category: exp.category || 'General',
-          qty: Number(exp.qty || 0),
-          unitCost: Number(exp.unit_cost || 0),
-          amount: Number(exp.total || 0),
-          notes: exp.notes || ''
-        }))
+        const mappedInventory = fetchedInventory.map(i => {
+          const parsed = parseInventoryName(i.name)
+          return {
+            id: i.id,
+            name: parsed.name,
+            type: parsed.type,
+            hsnCode: parsed.hsnCode,
+            sellingPrice: parsed.sellingPrice,
+            colorSingle: Number(i.color_single || 0),
+            colorDouble: Number(i.color_double || 0),
+            bwSingle: Number(i.bw_single || 0),
+            bwDouble: Number(i.bw_double || 0),
+            stock: Number(i.stock || 0),
+            lowStockAlert: Number(i.low_stock_alert || 5)
+          }
+        })
+
+        const parseExpenseNotes = (dbNotes) => {
+          if (!dbNotes || !dbNotes.includes('|')) {
+            return { notes: dbNotes || '', cashAmount: 0, upiAmount: 0, receiptUrl: '' }
+          }
+          const parts = dbNotes.split('|')
+          const notes = parts[0].trim()
+          const metadata = {}
+          parts.slice(1).forEach(part => {
+            const index = part.indexOf(':')
+            if (index !== -1) {
+              const key = part.slice(0, index).trim()
+              const val = part.slice(index + 1).trim()
+              metadata[key] = val
+            }
+          })
+          return {
+            notes,
+            cashAmount: Number(metadata.cash || 0),
+            upiAmount: Number(metadata.upi || 0),
+            receiptUrl: metadata.receipt || ''
+          }
+        }
+
+        const mappedExpenses = fetchedPurchases.map(exp => {
+          const parsed = parseExpenseNotes(exp.notes)
+          return {
+            id: String(exp.id),
+            date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
+            description: exp.item_name || '',
+            amount: Number(exp.total || 0),
+            notes: parsed.notes,
+            cashAmount: parsed.cashAmount,
+            upiAmount: parsed.upiAmount,
+            receiptUrl: parsed.receiptUrl
+          }
+        })
 
         const mappedAdvancePayments = (fetchedProfile.advance_payments || []).map(ap => ({
           id: ap.id,
@@ -1311,9 +1436,32 @@ export const AppProvider = ({ children }) => {
   }
 
   const addBill = (billData) => {
-    const counterKey = 'BILL'
-    const billId = generateSeqId(state, 'BILL')
+    let billId = ''
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+
+    if (fyInvoicePrefixing) {
+      const fyStr = getFinancialYearString(billData.date)
+      counterKey = `BILL_FY${fyStr}`
+      const counters = state.idCounters || {}
+      const current = counters[counterKey] || 0
+      const next = current + 1
+      const padded = String(next).padStart(4, '0')
+      billId = `INV/${fyStr}/${padded}`
+    } else {
+      billId = generateSeqId(state, 'BILL')
+    }
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+    // Deduct stock for standard product items
+    (billData.items || []).forEach(item => {
+      const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+      if (invItem && invItem.type === 'product') {
+        const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+        dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+      }
+    })
+
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
     const currentCredit = Number(customer?.creditBalance || 0)
@@ -1754,7 +1902,18 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
-    let billCounterOffset = state.idCounters?.BILL || 0
+    let billCounterOffset = 0
+    let counterKey = 'BILL'
+    const fyInvoicePrefixing = state.settings?.fyInvoicePrefixing === true
+    const fyStr = fyInvoicePrefixing ? getFinancialYearString(groupData.date) : ''
+
+    if (fyInvoicePrefixing) {
+      counterKey = `BILL_FY${fyStr}`
+      billCounterOffset = state.idCounters?.[counterKey] || 0
+    } else {
+      billCounterOffset = state.idCounters?.BILL || 0
+    }
+
     const memberBillIds = []
 
     const payerCustomerId = groupData.members[0]?.customerId
@@ -1763,8 +1922,22 @@ export const AppProvider = ({ children }) => {
 
     groupData.members.forEach((member, index) => {
       billCounterOffset += 1
-      const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
+      let billId = ''
+      if (fyInvoicePrefixing) {
+        billId = `INV/${fyStr}/${String(billCounterOffset).padStart(4, '0')}`
+      } else {
+        billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
+      }
+      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+
+      // Deduct stock for standard product items
+      (member.items || []).forEach(item => {
+        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+        if (invItem && invItem.type === 'product') {
+          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
+          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+        }
+      })
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
@@ -1777,9 +1950,8 @@ export const AppProvider = ({ children }) => {
 
       if (member.useAdvance && currentAdvance > 0) {
         advanceUsed = Math.min(currentAdvance, memberTotal)
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
-
+        amountPaid += advanceUsed
+        
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
         
@@ -1789,12 +1961,36 @@ export const AppProvider = ({ children }) => {
       } else if (member.usePayerAdvance && payerCustomerId && payerAdvanceRemaining > 0 && member.customerId !== payerCustomerId) {
         const applyPayerAdv = Math.min(payerAdvanceRemaining, memberTotal)
         advanceUsed = applyPayerAdv
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
+        amountPaid += advanceUsed
         payerAdvanceRemaining -= applyPayerAdv
 
         // Deduct from payer's advance balance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: payerCustomerId, amount: applyPayerAdv } })
+      }
+
+      const cashPaid = Number(member.cashPaid || 0)
+      const upiPaid = Number(member.upiPaid || 0)
+      amountPaid += cashPaid + upiPaid
+      billStatus = amountPaid >= memberTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+
+      if (cashPaid > 0 || upiPaid > 0) {
+        const paymentId = generateSeqId(state, 'PAY')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: paymentId,
+            billId: billId,
+            customerId: member.customerId,
+            customerName,
+            date: groupData.date || new Date().toISOString().slice(0, 10),
+            amount: cashPaid + upiPaid,
+            cashAmount: cashPaid,
+            upiAmount: upiPaid,
+            isGroupPayment: true,
+            groupBillId: grpId,
+          }
+        })
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1824,7 +2020,7 @@ export const AppProvider = ({ children }) => {
         status: billStatus,
         advanceUsed,
         creditUsed: 0,
-        paymentMethod: { cash: 0, upi: 0 },
+        paymentMethod: { cash: cashPaid, upi: upiPaid },
         rounding: member.rounding || 0,
         notes: groupData.notes || '',
         deleted: false,

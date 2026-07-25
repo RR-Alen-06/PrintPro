@@ -22,6 +22,8 @@ const Settings = () => {
     gstRate: settings.gstRate ?? 0,
     viewMode: settings.viewMode || 'monthly',
     refundsEnabled: settings.refundsEnabled !== false,
+    fyInvoicePrefixing: settings.fyInvoicePrefixing === true,
+    portalEnabled: settings.portalEnabled === true,
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
@@ -123,6 +125,14 @@ const Settings = () => {
     footerNotes: settings.footerNotes || '',
     showGstBreakdown: settings.showGstBreakdown !== false,
     showUpiQrCode: settings.showUpiQrCode !== false,
+    shopSealUrl: settings.shopSealUrl || '',
+    signatorySignatureUrl: settings.signatorySignatureUrl || '',
+    pdfShowType: settings.pdfShowType !== false,
+    pdfShowSides: settings.pdfShowSides !== false,
+    pdfShowUnitPrice: settings.pdfShowUnitPrice !== false,
+    pdfShowGstRate: settings.pdfShowGstRate !== false,
+    pdfColorTheme: settings.pdfColorTheme || 'dark',
+    pdfLegalFooter: settings.pdfLegalFooter || '',
   })
   const [brandingSaved, setBrandingSaved] = useState(false)
 
@@ -173,6 +183,24 @@ const Settings = () => {
     setBranding(prev => ({ ...prev, logoUrl: '' }))
   }
 
+  const handleSealUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 200000) { alert('Seal image should be under 200KB.'); return }
+    const reader = new FileReader()
+    reader.onloadend = () => { setBranding(prev => ({ ...prev, shopSealUrl: reader.result })) }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSignatureUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 200000) { alert('Signature image should be under 200KB.'); return }
+    const reader = new FileReader()
+    reader.onloadend = () => { setBranding(prev => ({ ...prev, signatorySignatureUrl: reader.result })) }
+    reader.readAsDataURL(file)
+  }
+
   const [clearConfirm, setClearConfirm] = useState(false)
 
   const handleBizSave = (e) => {
@@ -184,7 +212,13 @@ const Settings = () => {
 
   const handleAcctSave = (e) => {
     e.preventDefault()
-    updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode, refundsEnabled: acct.refundsEnabled })
+    updateSettings({
+      gstRate: Number(acct.gstRate),
+      viewMode: acct.viewMode,
+      refundsEnabled: acct.refundsEnabled,
+      fyInvoicePrefixing: acct.fyInvoicePrefixing,
+      portalEnabled: acct.portalEnabled,
+    })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
   }
@@ -372,6 +406,39 @@ const Settings = () => {
               </label>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
                 Show the Refunds module for managing cash/UPI reversals.
+              </p>
+            </div>
+          </div>
+          <div className="form-row" style={{ marginTop: '12px', marginBottom: '16px' }}>
+            <div className="form-group" style={{ marginBottom: '0' }}>
+              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={acct.fyInvoicePrefixing}
+                  onChange={(e) => setAcct((a) => ({ ...a, fyInvoicePrefixing: e.target.checked }))}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                <span style={{ fontWeight: 600 }}>Enable Financial Year (FY) Invoice Prefixing & Reset</span>
+              </label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
+                Generate tax invoices prefixed with the current FY (e.g. INV/26-27/0001) and reset sequence back to 1 every April 1st.
+              </p>
+            </div>
+          </div>
+
+          <div className="form-row" style={{ marginBottom: '16px' }}>
+            <div className="form-group" style={{ marginBottom: '0' }}>
+              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={acct.portalEnabled}
+                  onChange={(e) => setAcct((a) => ({ ...a, portalEnabled: e.target.checked }))}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                <span style={{ fontWeight: 600 }}>Enable Customer Upload Portal</span>
+              </label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
+                Allow customers to upload files (PDF, images, documents) via a public portal link. Uploaded orders appear in a "POS Online Orders" queue on the Billing page.
               </p>
             </div>
           </div>
@@ -896,6 +963,94 @@ const Settings = () => {
               />
               <span style={{ fontWeight: 600 }}>Generate UPI QR Code for Due Amounts</span>
             </label>
+          </div>
+
+          {/* Shop Seal & Authorized Signature */}
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>Shop Seal & Authorized Signature</h4>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Shop Seal Image</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {branding.shopSealUrl ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <img src={branding.shopSealUrl} alt="Seal" style={{ maxHeight: '50px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }} />
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setBranding(prev => ({ ...prev, shopSealUrl: '' }))} style={{ color: 'var(--error)' }}>Clear</button>
+                    </div>
+                  ) : (
+                    <input type="file" accept="image/*" onChange={handleSealUpload} style={{ fontSize: '0.82rem' }} />
+                  )}
+                </div>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Appears at the bottom of PDF tax invoices. Max 200KB.
+                </p>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Authorized Signatory</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {branding.signatorySignatureUrl ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <img src={branding.signatorySignatureUrl} alt="Signature" style={{ maxHeight: '50px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }} />
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setBranding(prev => ({ ...prev, signatorySignatureUrl: '' }))} style={{ color: 'var(--error)' }}>Clear</button>
+                    </div>
+                  ) : (
+                    <input type="file" accept="image/*" onChange={handleSignatureUpload} style={{ fontSize: '0.82rem' }} />
+                  )}
+                </div>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Manager/owner signature stamp. Max 200KB.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Advanced PDF Invoice Designer */}
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>Advanced PDF Invoice Designer</h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <input type="checkbox" checked={branding.pdfShowType} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowType: e.target.checked }))} />
+                Show "Type" Column
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <input type="checkbox" checked={branding.pdfShowSides} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowSides: e.target.checked }))} />
+                Show "Sides" Column
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <input type="checkbox" checked={branding.pdfShowUnitPrice} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowUnitPrice: e.target.checked }))} />
+                Show "Unit Price" Column
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <input type="checkbox" checked={branding.pdfShowGstRate} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowGstRate: e.target.checked }))} />
+                Show "GST Rate" Column
+              </label>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">PDF Color Theme</label>
+                <select
+                  className="form-select"
+                  value={branding.pdfColorTheme}
+                  onChange={(e) => setBranding(prev => ({ ...prev, pdfColorTheme: e.target.value }))}
+                >
+                  <option value="dark">Professional Dark Navy</option>
+                  <option value="blue">Royal Blue</option>
+                  <option value="green">Emerald Green</option>
+                  <option value="maroon">Classic Maroon</option>
+                  <option value="purple">Regal Purple</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Legal Declaration / Footer Note</label>
+                <textarea
+                  className="form-textarea"
+                  value={branding.pdfLegalFooter}
+                  onChange={(e) => setBranding(prev => ({ ...prev, pdfLegalFooter: e.target.value }))}
+                  placeholder="e.g. Subject to jurisdiction of local courts. E&OE."
+                  style={{ minHeight: '50px' }}
+                />
+              </div>
+            </div>
           </div>
 
           {brandingSaved && (
