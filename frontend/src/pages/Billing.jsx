@@ -116,6 +116,41 @@ const Billing = () => {
     return () => clearInterval(interval)
   }, [])
 
+  // Auto-select regular customer if unselected when customers load
+  useEffect(() => {
+    if (!customerId && customerType === 'regular') {
+      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
+      if (first) setCustomerId(first.id)
+    }
+  }, [customers, customerId, customerType])
+
+  // Auto-select walk-in customer if unselected when mode is existing
+  useEffect(() => {
+    if (!randomCustomerId && customerType === 'random' && randomMode === 'existing') {
+      const first = customers.find((c) => c.type === 'random' && !c.deleted)
+      if (first) setRandomCustomerId(first.id)
+    }
+  }, [customers, randomCustomerId, customerType, randomMode])
+
+  // Ensure initial item row populates default inventory item if inventory was loaded asynchronously
+  useEffect(() => {
+    if (inventory.length > 0) {
+      setItemRows((prevRows) => {
+        if (prevRows.length === 1 && !prevRows[0].isCustom && !prevRows[0].itemId) {
+          const defaultItem = inventory[0]
+          return [{
+            ...prevRows[0],
+            itemId: defaultItem.id,
+            itemName: defaultItem.name,
+            unitPrice: defaultItem.colorSingle ?? 10.0,
+            amount: (defaultItem.colorSingle ?? 10.0) * (prevRows[0].qty || 1)
+          }]
+        }
+        return prevRows
+      })
+    }
+  }, [inventory])
+
   const completePortalOrder = () => {
     if (!activePortalOrderId) return
     const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
@@ -1087,6 +1122,37 @@ const Billing = () => {
           email: customerEmail.trim(),
           creditBalance: 0,
         })
+      }
+    }
+
+    // Item validation
+    if (!itemRows || itemRows.length === 0) {
+      showAlert('Please add at least one item to the bill.', 'error')
+      return
+    }
+
+    for (let i = 0; i < itemRows.length; i++) {
+      const row = itemRows[i]
+      if (row.isCustom) {
+        if (!row.itemName || !row.itemName.trim()) {
+          showAlert(`Item #${i + 1} (Custom Item) requires a name.`, 'error')
+          return
+        }
+      } else {
+        if (!row.itemId) {
+          showAlert(`Item #${i + 1} requires an item to be selected.`, 'error')
+          return
+        }
+      }
+      const qtyNum = Number(row.qty)
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        showAlert(`Item #${i + 1} ("${row.itemName || 'Item'}") must have a quantity of at least 1.`, 'error')
+        return
+      }
+      const priceNum = Number(row.unitPrice)
+      if (isNaN(priceNum) || priceNum < 0) {
+        showAlert(`Item #${i + 1} ("${row.itemName || 'Item'}") must have a valid unit price.`, 'error')
+        return
       }
     }
 
