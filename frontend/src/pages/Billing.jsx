@@ -1099,8 +1099,12 @@ const Billing = () => {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = (event) => {
     event.preventDefault()
+
+    // 1. Customer field validation
     let customerIdToUse = ''
     let customerNameToUse = ''
+    let shouldCreateNewCustomer = false
+    let newCustomerPayload = null
 
     if (customerType === 'regular') {
       if (!customerId) { showAlert('Please select a regular customer.', 'error'); return }
@@ -1113,19 +1117,30 @@ const Billing = () => {
         const c = customers.find((x) => x.id === randomCustomerId)
         customerNameToUse = c?.name || 'Walk-in Customer'
       } else {
-        if (!customerName.trim()) { showAlert('Please enter the customer name.', 'error'); return }
-        customerNameToUse = customerName.trim()
-        customerIdToUse = addCustomer({
-          type: 'random',
-          name: customerNameToUse,
-          phone: customerPhone.trim(),
-          email: customerEmail.trim(),
-          creditBalance: 0,
-        })
+        const trimmedName = customerName.trim()
+        if (!trimmedName) { showAlert('Please enter the customer name.', 'error'); return }
+        customerNameToUse = trimmedName
+
+        // Check if an existing walk-in customer with the same name already exists to prevent duplicate creation
+        const existingWalkIn = customers.find(
+          (c) => c.type === 'random' && !c.deleted && c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+        )
+        if (existingWalkIn) {
+          customerIdToUse = existingWalkIn.id
+        } else {
+          shouldCreateNewCustomer = true
+          newCustomerPayload = {
+            type: 'random',
+            name: trimmedName,
+            phone: customerPhone.trim(),
+            email: customerEmail.trim(),
+            creditBalance: 0,
+          }
+        }
       }
     }
 
-    // Item validation
+    // 2. Item validation
     if (!itemRows || itemRows.length === 0) {
       showAlert('Please add at least one item to the bill.', 'error')
       return
@@ -1156,24 +1171,31 @@ const Billing = () => {
       }
     }
 
-    // Credit limit validation
-    const custForLimit = customers.find(c => c.id === customerIdToUse)
-    if (custForLimit && Number(custForLimit.creditLimit || 0) > 0) {
-      const currentOutstanding = bills
-        .filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent && (!isEditing || b.id !== editingBillId))
-        .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+    // 3. Credit limit validation
+    if (customerIdToUse) {
+      const custForLimit = customers.find(c => c.id === customerIdToUse)
+      if (custForLimit && Number(custForLimit.creditLimit || 0) > 0) {
+        const currentOutstanding = bills
+          .filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent && (!isEditing || b.id !== editingBillId))
+          .reduce((sum, b) => sum + Number(b.balance || 0), 0)
 
-      const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
-      const unpaidThisBill = Math.max(total - proposedPaid, 0)
-      const projectedOutstanding = currentOutstanding + unpaidThisBill
+        const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
+        const unpaidThisBill = Math.max(total - proposedPaid, 0)
+        const projectedOutstanding = currentOutstanding + unpaidThisBill
 
-      if (projectedOutstanding > Number(custForLimit.creditLimit) + 0.01) {
-        showAlert(
-          `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
-          'error'
-        )
-        return
+        if (projectedOutstanding > Number(custForLimit.creditLimit) + 0.01) {
+          showAlert(
+            `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
+            'error'
+          )
+          return
+        }
       }
+    }
+
+    // All validations passed — create new walk-in customer now if required
+    if (shouldCreateNewCustomer && newCustomerPayload) {
+      customerIdToUse = addCustomer(newCustomerPayload)
     }
 
     // Merge duplicate items before submission (Part 3 requirement pass)
