@@ -68,6 +68,7 @@ const initialState = {
     showGstBreakdown: true,
     showUpiQrCode: true,
     portalEnabled: true,
+    silentThermalPrint: false,
   },
   recurringBills: [],
   currentUser: null,

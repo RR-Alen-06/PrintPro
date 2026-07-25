@@ -47,6 +47,52 @@ const Dashboard = () => {
     }
   }
 
+  const handleExportFinancialCSV = () => {
+    if (!trendData || trendData.length === 0) {
+      showToast('No financial data available to export.', 'error')
+      return
+    }
+
+    const headers = ['Period/Interval', 'Realized Revenue (INR)', 'Expenses (INR)', 'Net Profit (INR)']
+    const rows = trendData.map(d => [
+      `"${d.label}"`,
+      d.revenue.toFixed(2),
+      d.expenses.toFixed(2),
+      (d.revenue - d.expenses).toFixed(2),
+    ])
+
+    const totalRev = trendData.reduce((s, d) => s + d.revenue, 0)
+    const totalExp = trendData.reduce((s, d) => s + d.expenses, 0)
+    const totalProf = totalRev - totalExp
+
+    rows.push([])
+    rows.push(['"TOTAL"', totalRev.toFixed(2), totalExp.toFixed(2), totalProf.toFixed(2)])
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement('a')
+    link.setAttribute('href', encodedUri)
+    link.setAttribute('download', `PrintPro_Financial_Report_${filterType}_${new Date().toISOString().slice(0, 10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    showToast('Financial CSV Report downloaded successfully!', 'success')
+  }
+
+  const handleSendWhatsAppPickupAlert = (job) => {
+    const custPhone = job.customerPhone || customers.find(c => c.id === job.customerId)?.phone || ''
+    const cleanPhone = custPhone.replace(/[^0-9]/g, '')
+    const shopName = business?.name || 'PrintPro'
+    const invId = job.invoiceNumber || job.id
+    const amount = Number(job.balance || job.total || 0).toFixed(2)
+
+    const text = `Hello ${job.customerName || 'Customer'},\nYour print order *${invId}* is READY for pickup at ${shopName}!\nBalance Due: ₹${amount}.\nThank you for choosing ${shopName}!`
+    const url = cleanPhone
+      ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
+    window.open(url, '_blank')
+  }
+
   const [filterType, setFilterType] = useState('all') // 'all', 'today', 'week', 'month', 'fy', 'custom'
   const [customStartDate, setCustomStartDate] = useState(() => {
     const d = new Date()
@@ -746,6 +792,14 @@ const Dashboard = () => {
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)', fontWeight: 600 }}>
               Net Profit: ₹{(trendData.reduce((s, d) => s + d.revenue, 0) - trendData.reduce((s, d) => s + d.expenses, 0)).toFixed(2)}
             </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.78rem' }}
+              onClick={handleExportFinancialCSV}
+            >
+              Export Financial CSV
+            </button>
           </div>
         </div>
 
@@ -1346,21 +1400,35 @@ const Dashboard = () => {
                             )}
                           </td>
                           <td>
-                            <select
-                              className="form-select"
-                              style={{ padding: '4px 8px', fontSize: '0.78rem', width: '130px' }}
-                              value={st}
-                              onChange={(e) => {
-                                const newStatus = e.target.value
-                                updateBill(j.id, { deliveryStatus: newStatus })
-                                showToast(`Job ${j.invoiceNumber || j.id} status updated to ${newStatus}`, 'success')
-                              }}
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="in_progress">In Progress</option>
-                              <option value="ready">Ready</option>
-                              <option value="delivered">Delivered</option>
-                            </select>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <select
+                                className="form-select"
+                                style={{ padding: '4px 8px', fontSize: '0.78rem', width: '120px' }}
+                                value={st}
+                                onChange={(e) => {
+                                  const newStatus = e.target.value
+                                  updateBill(j.id, { deliveryStatus: newStatus })
+                                  showToast(`Job ${j.invoiceNumber || j.id} status updated to ${newStatus}`, 'success')
+                                }}
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="ready">Ready</option>
+                                <option value="delivered">Delivered</option>
+                              </select>
+
+                              {(st === 'ready' || st === 'delivered') && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#22c55e', borderColor: 'rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.08)' }}
+                                  title="Send WhatsApp Pickup Alert"
+                                  onClick={() => handleSendWhatsAppPickupAlert(j)}
+                                >
+                                  WhatsApp Alert
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )
