@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 
@@ -605,6 +605,38 @@ const GroupBilling = () => {
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
+  // Sync initial rows when inventory loads if default item IDs are missing
+  useEffect(() => {
+    if (inventory && inventory.length > 0) {
+      setSharedRows((cur) =>
+        cur.map((r) =>
+          !r.isCustom && !r.itemId
+            ? {
+                ...r,
+                itemId: inventory[0].id,
+                itemName: inventory[0].name,
+                unitPrice: getItemBasePrice(inventory, inventory[0].id, r.printType, r.sides),
+                amount: getItemBasePrice(inventory, inventory[0].id, r.printType, r.sides) * r.qty,
+              }
+            : r
+        )
+      )
+      setSplitRows((cur) =>
+        cur.map((r) =>
+          !r.isCustom && !r.itemId
+            ? {
+                ...r,
+                itemId: inventory[0].id,
+                itemName: inventory[0].name,
+                unitPrice: getItemBasePrice(inventory, inventory[0].id, r.printType, r.sides),
+                amount: getItemBasePrice(inventory, inventory[0].id, r.printType, r.sides) * r.qty,
+              }
+            : r
+        )
+      )
+    }
+  }, [inventory])
+
   // ── Shared mode calculations ─────────────────────────────────────────────────
   const sharedSubtotal = useMemo(() => sharedRows.reduce((s, r) => s + Number(r.amount || 0), 0), [sharedRows])
 
@@ -1205,7 +1237,7 @@ const GroupBilling = () => {
             disabled={isSubmitting}
             style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600 }}
           >
-            <CheckCircle size={15} /> {isSubmitting ? 'Creating…' : `Create ${members.length} Group Bill(s)`}
+            <CheckCircle size={15} /> {isSubmitting ? 'Generating…' : `Generate Bill (${members.length} Members)`}
           </button>
         </form>
       )}
@@ -1602,7 +1634,7 @@ const GroupBilling = () => {
             disabled={isSubmitting}
             style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600 }}
           >
-            <CheckCircle size={15} /> {isSubmitting ? 'Creating…' : `Split & Create ${splitCount} Bills`}
+            <CheckCircle size={15} /> {isSubmitting ? 'Generating…' : `Generate Bill (Split ${splitCount})`}
           </button>
         </form>
       )}

@@ -1931,14 +1931,17 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey });
 
       // Deduct stock for standard product items
+      // In split mode, joint items are duplicated on each member's bill list for display; deduct stock once for index === 0
       const memberItemsList = member.items || [];
-      memberItemsList.forEach(item => {
-        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name);
-        if (invItem && invItem.type === 'product') {
-          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0));
-          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } });
-        }
-      });
+      if (groupData.type !== 'split' || index === 0) {
+        memberItemsList.forEach(item => {
+          const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name);
+          if (invItem && invItem.type === 'product') {
+            const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0));
+            dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } });
+          }
+        });
+      }
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
@@ -1976,6 +1979,7 @@ export const AppProvider = ({ children }) => {
 
       if (cashPaid > 0 || upiPaid > 0) {
         const paymentId = generateSeqId(state, 'PAY')
+        const totalPaid = cashPaid + upiPaid
         dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
         dispatch({
           type: 'ADD_PAYMENT',
@@ -1985,7 +1989,8 @@ export const AppProvider = ({ children }) => {
             customerId: member.customerId,
             customerName,
             date: groupData.date || new Date().toISOString().slice(0, 10),
-            amount: cashPaid + upiPaid,
+            totalPaid,
+            amount: totalPaid,
             cashAmount: cashPaid,
             upiAmount: upiPaid,
             isGroupPayment: true,
