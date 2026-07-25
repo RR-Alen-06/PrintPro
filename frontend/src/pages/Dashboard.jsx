@@ -5,12 +5,35 @@ import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 import { DashboardService } from '../utils/financialServices'
 
+const parseLocalDate = (dateInput) => {
+  if (!dateInput) return null
+  if (dateInput instanceof Date) return new Date(dateInput)
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [y, m, d] = trimmed.split('-').map(Number)
+      return new Date(y, m - 1, d, 12, 0, 0, 0)
+    }
+  }
+  const d = new Date(dateInput)
+  return isNaN(d.getTime()) ? null : d
+}
+
+const formatCurrency = (val) => {
+  const num = Number(val || 0)
+  if (Math.abs(num) >= 100000) return `₹${(num / 100000).toFixed(1)}L`
+  if (Math.abs(num) >= 1000) return `₹${(num / 1000).toFixed(1)}k`
+  return `₹${Math.round(num)}`
+}
+
 const Dashboard = () => {
-  const { bills, customers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast } = useAppContext()
+  const { bills, customers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast, updateBill } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
 
   const [isSyncing, setIsSyncing] = useState(false)
+  const [hoveredTrendIndex, setHoveredTrendIndex] = useState(null)
+  const [jobStatusFilter, setJobStatusFilter] = useState('all') // 'all', 'pending', 'in_progress', 'ready', 'overdue', 'delivered'
 
   const handleSync = async () => {
     setIsSyncing(true)
@@ -328,27 +351,27 @@ const Dashboard = () => {
     const startLimit = start || new Date(today.getFullYear(), today.getMonth() - 5, 1)
     const endLimit = end || today
 
-    const diffDays = Math.ceil((endLimit - startLimit) / (1000 * 60 * 60 * 24))
+    const diffDays = Math.max(1, Math.ceil((endLimit - startLimit) / (1000 * 60 * 60 * 24)))
 
-    if (diffDays <= 1) {
-      for (let i = 9; i <= 21; i += 2) {
+    if (filterType === 'today' || diffDays <= 1) {
+      for (let i = 8; i <= 20; i += 2) {
         const s = new Date(startLimit)
         s.setHours(i, 0, 0, 0)
         const e = new Date(startLimit)
-        e.setHours(i + 2, 0, 0, 0)
+        e.setHours(i + 1, 59, 59, 999)
         units.push({ label: `${i}:00`, start: s, end: e, revenue: 0, expenses: 0 })
       }
-    } else if (diffDays <= 8) {
+    } else if (filterType === 'week' || diffDays <= 8) {
       for (let i = 0; i < diffDays; i++) {
         const s = new Date(startLimit)
         s.setDate(s.getDate() + i)
         s.setHours(0,0,0,0)
         const e = new Date(s)
         e.setHours(23,59,59,999)
-        const dayLabel = s.toLocaleDateString('en-IN', { weekday: 'short' })
+        const dayLabel = s.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' })
         units.push({ label: dayLabel, start: s, end: e, revenue: 0, expenses: 0 })
       }
-    } else if (diffDays <= 32) {
+    } else if (filterType === 'month' || diffDays <= 32) {
       for (let i = 0; i < diffDays; i += 5) {
         const s = new Date(startLimit)
         s.setDate(s.getDate() + i)
@@ -356,7 +379,7 @@ const Dashboard = () => {
         const e = new Date(s)
         e.setDate(e.getDate() + 4)
         e.setHours(23,59,59,999)
-        units.push({ label: `${s.getDate()} - ${e.getDate()} ${s.toLocaleDateString('en-US', { month: 'short' })}`, start: s, end: e, revenue: 0, expenses: 0 })
+        units.push({ label: `${s.getDate()}-${Math.min(e.getDate(), 31)} ${s.toLocaleDateString('en-US', { month: 'short' })}`, start: s, end: e, revenue: 0, expenses: 0 })
       }
     } else {
       let temp = new Date(startLimit.getFullYear(), startLimit.getMonth(), 1)
@@ -369,21 +392,23 @@ const Dashboard = () => {
     }
 
     units.forEach(u => {
-      const uBills = filteredData.bills.filter(b => {
-        const d = new Date(b.date)
-        return d >= u.start && d <= u.end && !b.deleted && !b.isGroupParent
+      const uBills = (bills || []).filter(b => {
+        if (b.deleted || b.isGroupParent) return false
+        const d = parseLocalDate(b.date || b.createdAt)
+        return d && d >= u.start && d <= u.end
       })
       u.revenue = uBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
 
-      const uExpenses = filteredData.expenses.filter(exp => {
-        const d = new Date(exp.date)
-        return d >= u.start && d <= u.end
+      const uExpenses = (expenses || []).filter(exp => {
+        const d = parseLocalDate(exp.date || exp.createdAt)
+        return d && d >= u.start && d <= u.end
       })
       u.expenses = uExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+      u.profit = u.revenue - u.expenses
     })
 
     return units
-  }, [filteredData, activeDateRange])
+  }, [bills, expenses, activeDateRange, filterType])
 
   const urgencyStyle = (entry) => {
     if (entry.hasOverdue) return { color: 'var(--error)', bg: 'var(--error-bg)', border: 'rgba(239,68,68,0.2)' }
@@ -704,92 +729,160 @@ const Dashboard = () => {
 
       {/* Revenue vs Expenses Trend Chart */}
       <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="bill-view-header" style={{ marginBottom: '16px' }}>
+        <div className="bill-view-header" style={{ marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h2>Revenue vs. Expenses Trend</h2>
             <p className="text-muted">Visual comparison of revenue (gross billing) vs. recorded expenses</p>
           </div>
-          <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '0.85rem', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '3px' }} />
-              Revenue
+              Revenue: <strong>₹{trendData.reduce((s, d) => s + d.revenue, 0).toFixed(2)}</strong>
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '12px', height: '12px', background: 'var(--error)', borderRadius: '3px' }} />
-              Expenses
+              Expenses: <strong>₹{trendData.reduce((s, d) => s + d.expenses, 0).toFixed(2)}</strong>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)', fontWeight: 600 }}>
+              Net Profit: ₹{(trendData.reduce((s, d) => s + d.revenue, 0) - trendData.reduce((s, d) => s + d.expenses, 0)).toFixed(2)}
             </span>
           </div>
         </div>
 
-        <div style={{ position: 'relative', width: '100%', height: '220px', overflowX: 'auto', overflowY: 'hidden' }}>
-          <svg style={{ width: '100%', minWidth: '600px', height: '200px' }}>
-            {/* Grid lines */}
-            {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
-              const maxVal = Math.max(...trendData.map(t => Math.max(t.revenue, t.expenses)), 100)
-              const val = maxVal * pct
-              const y = 160 - pct * 130
-              return (
-                <g key={idx}>
-                  <line x1="45" y1={y} x2="98%" y2={y} stroke="var(--border)" strokeDasharray="4" />
-                  <text x="5" y={y + 4} fill="var(--text-muted)" fontSize="10" fontWeight="600">₹{Math.round(val)}</text>
-                </g>
-              )
-            })}
+        <div style={{ position: 'relative', width: '100%', minHeight: '220px', overflowX: 'auto', overflowY: 'hidden' }}>
+          {(() => {
+            const maxVal = Math.max(...trendData.map(t => Math.max(t.revenue, t.expenses)), 100)
+            const steps = [0, 0.25, 0.5, 0.75, 1]
 
-            {/* Bars */}
-            {trendData.map((d, idx) => {
-              const maxVal = Math.max(...trendData.map(t => Math.max(t.revenue, t.expenses)), 100)
-              
-              const barWidth = 14
-              const gap = 3
-              const xStart = 60 + idx * (500 / (trendData.length || 1) + 12)
+            return (
+              <svg style={{ width: '100%', minWidth: `${Math.max(600, trendData.length * 60)}px`, height: '220px' }}>
+                {/* Grid lines */}
+                {steps.map((pct, idx) => {
+                  const val = maxVal * pct
+                  const y = 170 - pct * 140
+                  return (
+                    <g key={idx}>
+                      <line x1="55" y1={y} x2="98%" y2={y} stroke="var(--border)" strokeDasharray="4" opacity={0.6} />
+                      <text x="5" y={y + 4} fill="var(--text-muted)" fontSize="10" fontWeight="600">
+                        {formatCurrency(val)}
+                      </text>
+                    </g>
+                  )
+                })}
 
-              const revH = (d.revenue / maxVal) * 130
-              const revY = 160 - revH
+                {/* Bars */}
+                {trendData.map((d, idx) => {
+                  const totalBars = trendData.length || 1
+                  const chartWidth = Math.max(500, totalBars * 60)
+                  const slotWidth = chartWidth / totalBars
+                  const xStart = 65 + idx * slotWidth
 
-              const expH = (d.expenses / maxVal) * 130
-              const expY = 160 - expH
+                  const barWidth = Math.min(18, Math.max(8, slotWidth * 0.25))
+                  const gap = 3
 
-              return (
-                <g key={idx}>
-                  {/* Revenue Bar */}
-                  <rect
-                    x={xStart}
-                    y={revY}
-                    width={barWidth}
-                    height={revH}
-                    fill="var(--success)"
-                    rx="3"
-                    style={{ transition: 'all 0.3s' }}
-                  />
-                  {/* Expenses Bar */}
-                  <rect
-                    x={xStart + barWidth + gap}
-                    y={expY}
-                    width={barWidth}
-                    height={expH}
-                    fill="var(--error)"
-                    rx="3"
-                    style={{ transition: 'all 0.3s' }}
-                  />
-                  {/* Label */}
-                  <text
-                    x={xStart + barWidth}
-                    y="182"
-                    fill="var(--text-secondary)"
-                    fontSize="10"
-                    textAnchor="middle"
-                    fontWeight="600"
-                  >
-                    {d.label}
-                  </text>
-                </g>
-              )
-            })}
-            
-            {/* Base line */}
-            <line x1="45" y1="160" x2="98%" y2="160" stroke="var(--border)" strokeWidth="2" />
-          </svg>
+                  const revH = Math.max(0, (d.revenue / maxVal) * 140)
+                  const revY = 170 - revH
+
+                  const expH = Math.max(0, (d.expenses / maxVal) * 140)
+                  const expY = 170 - expH
+
+                  const isHovered = hoveredTrendIndex === idx
+
+                  return (
+                    <g
+                      key={idx}
+                      onMouseEnter={() => setHoveredTrendIndex(idx)}
+                      onMouseLeave={() => setHoveredTrendIndex(null)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {/* Highlight Background on Hover */}
+                      {isHovered && (
+                        <rect
+                          x={xStart - 4}
+                          y={20}
+                          width={barWidth * 2 + gap + 8}
+                          height={160}
+                          fill="rgba(99, 102, 241, 0.08)"
+                          rx="6"
+                        />
+                      )}
+
+                      {/* Revenue Bar */}
+                      <rect
+                        x={xStart}
+                        y={revY}
+                        width={barWidth}
+                        height={revH}
+                        fill="var(--success)"
+                        rx="3"
+                        style={{ transition: 'all 0.3s' }}
+                      />
+
+                      {/* Expenses Bar */}
+                      <rect
+                        x={xStart + barWidth + gap}
+                        y={expY}
+                        width={barWidth}
+                        height={expH}
+                        fill="var(--error)"
+                        rx="3"
+                        style={{ transition: 'all 0.3s' }}
+                      />
+
+                      {/* X Axis Label */}
+                      <text
+                        x={xStart + barWidth}
+                        y="192"
+                        fill={isHovered ? 'var(--accent)' : 'var(--text-secondary)'}
+                        fontSize="10"
+                        textAnchor="middle"
+                        fontWeight={isHovered ? '700' : '600'}
+                      >
+                        {d.label}
+                      </text>
+
+                      {/* Hover Tooltip Box */}
+                      {isHovered && (
+                        <g>
+                          <rect
+                            x={Math.min(xStart - 20, chartWidth - 120)}
+                            y={Math.max(10, Math.min(revY, expY) - 50)}
+                            width="130"
+                            height="42"
+                            fill="var(--bg-elevated, #1e293b)"
+                            stroke="var(--accent)"
+                            strokeWidth="1"
+                            rx="6"
+                          />
+                          <text
+                            x={Math.min(xStart - 20, chartWidth - 120) + 10}
+                            y={Math.max(10, Math.min(revY, expY) - 50) + 16}
+                            fill="var(--success)"
+                            fontSize="10"
+                            fontWeight="700"
+                          >
+                            Rev: ₹{d.revenue.toFixed(2)}
+                          </text>
+                          <text
+                            x={Math.min(xStart - 20, chartWidth - 120) + 10}
+                            y={Math.max(10, Math.min(revY, expY) - 50) + 32}
+                            fill="var(--error)"
+                            fontSize="10"
+                            fontWeight="700"
+                          >
+                            Exp: ₹{d.expenses.toFixed(2)}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  )
+                })}
+
+                {/* Base line */}
+                <line x1="55" y1="170" x2="98%" y2="170" stroke="var(--border)" strokeWidth="2" />
+              </svg>
+            )
+          })()}
         </div>
       </div>
 
@@ -959,7 +1052,7 @@ const Dashboard = () => {
               </tr>
             </thead>
             <tbody>
-              {[...bills.map(b => ({ ...b, sortDate: new Date(b.createdAt || b.date), actType: 'Bill' })), ...payments.map(p => ({ ...p, sortDate: new Date(p.createdAt || p.date), actType: 'Payment' }))]
+              {[...bills.map(b => ({ ...b, sortDate: parseLocalDate(b.createdAt || b.date) || new Date(0), actType: 'Bill' })), ...payments.map(p => ({ ...p, sortDate: parseLocalDate(p.createdAt || p.date) || new Date(0), actType: 'Payment' }))]
                 .sort((a, b) => b.sortDate - a.sortDate)
                 .slice(0, 5)
                 .map((act, i) => (
@@ -993,21 +1086,21 @@ const Dashboard = () => {
         const monthRevenues = []
         const now = new Date()
         for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1, 0, 0, 0, 0)
           const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)
           const label = d.toLocaleString('default', { month: 'short', year: '2-digit' })
-          const revenue = bills
+          const revenue = (bills || [])
             .filter(b => !b.deleted && !b.isGroupParent)
             .filter(b => {
-              const bd = new Date(b.date || b.createdAt)
-              return bd >= d && bd <= monthEnd
+              const bd = parseLocalDate(b.date || b.createdAt)
+              return bd && bd >= d && bd <= monthEnd
             })
             .reduce((s, b) => s + Number(b.total || 0), 0)
           monthLabels.push(label)
           monthRevenues.push(revenue)
         }
         
-        // Simple linear regression for next 3 months
+        // Hybrid Forecasting: Linear Regression + Exponential Weighted Moving Average (EWMA)
         const n = monthRevenues.length
         const xMean = (n - 1) / 2
         const yMean = monthRevenues.reduce((a, b) => a + b, 0) / n
@@ -1015,128 +1108,259 @@ const Dashboard = () => {
         monthRevenues.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2 })
         const slope = den !== 0 ? num / den : 0
         const intercept = yMean - slope * xMean
-        
+
+        // EWMA baseline (gives more weight to recent months)
+        let ewma = monthRevenues[0] || 0
+        monthRevenues.forEach(rev => { ewma = 0.5 * rev + 0.5 * ewma })
+
         const forecastLabels = []
         const forecastRevenues = []
         for (let i = 1; i <= 3; i++) {
           const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
           forecastLabels.push(d.toLocaleString('default', { month: 'short', year: '2-digit' }))
-          forecastRevenues.push(Math.max(0, Math.round(slope * (n - 1 + i) + intercept)))
+          
+          const regVal = slope * (n - 1 + i) + intercept
+          // Blend linear regression with EWMA baseline
+          const predicted = Math.max(0, Math.round(0.6 * regVal + 0.4 * ewma))
+          forecastRevenues.push(predicted)
         }
         
         const allValues = [...monthRevenues, ...forecastRevenues]
-        const maxVal = Math.max(...allValues, 1)
+        const maxVal = Math.max(...allValues, 100)
+        const totalHistSales = monthRevenues.reduce((a, b) => a + b, 0)
 
         return (
           <div className="card" style={{ marginTop: '24px' }}>
-            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrendingUp size={20} /> Sales Forecast (Next 3 Months)
-            </h3>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '180px', padding: '0 8px' }}>
-              {monthLabels.map((label, i) => (
-                <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    ₹{(monthRevenues[i] / 1000).toFixed(1)}k
-                  </span>
-                  <div style={{
-                    width: '100%',
-                    maxWidth: '40px',
-                    height: `${Math.max((monthRevenues[i] / maxVal) * 140, 4)}px`,
-                    background: 'linear-gradient(180deg, var(--accent), var(--accent-light, #6366f1))',
-                    borderRadius: '4px 4px 0 0',
-                    transition: 'height 0.5s ease'
-                  }} />
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
-                </div>
-              ))}
-              {/* Separator */}
-              <div style={{ width: '2px', background: 'var(--border)', height: '140px', margin: '0 4px', alignSelf: 'flex-end' }} />
-              {forecastLabels.map((label, i) => (
-                <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--success)' }}>
-                    ₹{(forecastRevenues[i] / 1000).toFixed(1)}k
-                  </span>
-                  <div style={{
-                    width: '100%',
-                    maxWidth: '40px',
-                    height: `${Math.max((forecastRevenues[i] / maxVal) * 140, 4)}px`,
-                    background: 'linear-gradient(180deg, var(--success), rgba(16,185,129,0.5))',
-                    borderRadius: '4px 4px 0 0',
-                    border: '2px dashed var(--success)',
-                    transition: 'height 0.5s ease'
-                  }} />
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
-                </div>
-              ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <TrendingUp size={20} style={{ color: 'var(--accent)' }} /> Sales Forecast (Next 3 Months)
+              </h3>
+              {totalHistSales > 0 && forecastRevenues[0] > 0 && (
+                <span className="badge badge-success" style={{ fontSize: '0.78rem' }}>
+                  Projected Q3 Growth: +{(((forecastRevenues.reduce((a,b)=>a+b,0)/3) / (yMean || 1) - 1) * 100).toFixed(1)}%
+                </span>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: '16px', marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '12px', height: '12px', background: 'var(--accent)', borderRadius: '2px' }} /> Historical
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '2px', border: '1px dashed var(--success)' }} /> Projected
-              </span>
-            </div>
+
+            {totalHistSales === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>No Historical Sales Recorded Yet</p>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Generate bills in the POS billing section to see predictive 3-month AI sales forecasts.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '180px', padding: '0 8px' }}>
+                  {monthLabels.map((label, i) => (
+                    <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        {formatCurrency(monthRevenues[i])}
+                      </span>
+                      <div style={{
+                        width: '100%',
+                        maxWidth: '40px',
+                        height: `${Math.max((monthRevenues[i] / maxVal) * 140, 4)}px`,
+                        background: 'linear-gradient(180deg, var(--accent), var(--accent-light, #6366f1))',
+                        borderRadius: '4px 4px 0 0',
+                        transition: 'height 0.5s ease'
+                      }} />
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
+                    </div>
+                  ))}
+                  {/* Separator */}
+                  <div style={{ width: '2px', background: 'var(--border)', height: '140px', margin: '0 4px', alignSelf: 'flex-end' }} />
+                  {forecastLabels.map((label, i) => (
+                    <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--success)' }}>
+                        {formatCurrency(forecastRevenues[i])}
+                      </span>
+                      <div style={{
+                        width: '100%',
+                        maxWidth: '40px',
+                        height: `${Math.max((forecastRevenues[i] / maxVal) * 140, 4)}px`,
+                        background: 'linear-gradient(180deg, var(--success), rgba(16,185,129,0.5))',
+                        borderRadius: '4px 4px 0 0',
+                        border: '2px dashed var(--success)',
+                        transition: 'height 0.5s ease'
+                      }} />
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '16px', marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '12px', height: '12px', background: 'var(--accent)', borderRadius: '2px' }} /> Historical
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '2px', border: '1px dashed var(--success)' }} /> Projected (Next 3 Months)
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )
       })()}
 
       {/* Job Delivery Completion Tracker */}
       {(() => {
-        const pendingJobs = bills
-          .filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion && new Date(b.estimatedCompletion) >= new Date(new Date().toISOString().split('T')[0]))
-          .sort((a, b) => new Date(a.estimatedCompletion) - new Date(b.estimatedCompletion))
-          .slice(0, 10)
-        
-        const overdueJobs = bills
-          .filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion && new Date(b.estimatedCompletion) < new Date(new Date().toISOString().split('T')[0]) && b.status !== 'completed')
-          .sort((a, b) => new Date(a.estimatedCompletion) - new Date(b.estimatedCompletion))
-        
+        const getJobStatus = (b) => {
+          if (b.deliveryStatus) return b.deliveryStatus
+          if (b.jobStatus) return b.jobStatus
+          if (b.status === 'completed') return 'delivered'
+          return 'pending'
+        }
+
+        const todaysStart = new Date()
+        todaysStart.setHours(0,0,0,0)
+
+        const allJobs = (bills || []).filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion)
+
+        const overdueJobs = allJobs.filter(b => {
+          const compDate = parseLocalDate(b.estimatedCompletion)
+          const st = getJobStatus(b)
+          return compDate && compDate < todaysStart && st !== 'delivered'
+        }).sort((a, b) => (parseLocalDate(a.estimatedCompletion) || 0) - (parseLocalDate(b.estimatedCompletion) || 0))
+
+        const pendingJobsList = allJobs.filter(b => getJobStatus(b) === 'pending')
+        const inProgressJobsList = allJobs.filter(b => getJobStatus(b) === 'in_progress' || getJobStatus(b) === 'ready')
+        const deliveredJobsList = allJobs.filter(b => getJobStatus(b) === 'delivered')
+
+        const totalJobsCount = allJobs.length
+        const completedJobsCount = deliveredJobsList.length
+        const completionPct = totalJobsCount > 0 ? Math.round((completedJobsCount / totalJobsCount) * 100) : 0
+
+        const filteredJobs = allJobs.filter(j => {
+          const st = getJobStatus(j)
+          const compDate = parseLocalDate(j.estimatedCompletion)
+          const isOverdue = compDate && compDate < todaysStart && st !== 'delivered'
+
+          if (jobStatusFilter === 'pending') return st === 'pending'
+          if (jobStatusFilter === 'in_progress') return st === 'in_progress' || st === 'ready'
+          if (jobStatusFilter === 'overdue') return isOverdue
+          if (jobStatusFilter === 'delivered') return st === 'delivered'
+          return true
+        }).sort((a, b) => (parseLocalDate(a.estimatedCompletion) || 0) - (parseLocalDate(b.estimatedCompletion) || 0))
+
         return (
           <div className="card" style={{ marginTop: '24px' }}>
-            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={20} /> Job Delivery Tracker
-            </h3>
-            
-            {overdueJobs.length > 0 && (
-              <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'var(--error-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-md)' }}>
-                <strong style={{ color: 'var(--error)', fontSize: '0.85rem' }}>
-                  <AlertTriangle size={14} style={{ verticalAlign: 'middle' }} /> {overdueJobs.length} Overdue Job{overdueJobs.length > 1 ? 's' : ''}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={20} style={{ color: 'var(--accent)' }} /> Job Delivery Tracker
+              </h3>
+              
+              {/* Job Filter Tabs */}
+              <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
+                {[
+                  { id: 'all', label: `All (${totalJobsCount})` },
+                  { id: 'pending', label: `Pending (${pendingJobsList.length})` },
+                  { id: 'in_progress', label: `In Progress (${inProgressJobsList.length})` },
+                  { id: 'overdue', label: `Overdue (${overdueJobs.length})` },
+                  { id: 'delivered', label: `Delivered (${deliveredJobsList.length})` },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`btn btn-xs ${jobStatusFilter === tab.id ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setJobStatusFilter(tab.id)}
+                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Overall Completion Progress Bar */}
+            <div style={{ marginBottom: '20px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                <span>Overall Delivery Completion Rate</span>
+                <span style={{ color: 'var(--success)' }}>{completionPct}% ({completedJobsCount}/{totalJobsCount} Jobs Delivered)</span>
+              </div>
+              <div style={{ background: 'var(--border-light)', height: '10px', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'linear-gradient(90deg, var(--accent), var(--success))',
+                  height: '100%',
+                  width: `${completionPct}%`,
+                  transition: 'width 0.5s ease'
+                }} />
+              </div>
+            </div>
+
+            {/* Overdue Warning Alert */}
+            {overdueJobs.length > 0 && jobStatusFilter !== 'delivered' && (
+              <div style={{ marginBottom: '16px', padding: '12px 16px', background: 'var(--error-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-md)' }}>
+                <strong style={{ color: 'var(--error)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} /> {overdueJobs.length} Job{overdueJobs.length > 1 ? 's' : ''} Past Estimated Completion Date
                 </strong>
-                <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {overdueJobs.map(j => (
-                    <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                      <span>{j.invoiceNumber || j.id} — {j.customerName}</span>
-                      <span style={{ color: 'var(--error)' }}>Due: {j.estimatedCompletion}</span>
+                <div style={{ marginTop: '8px', fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {overdueJobs.slice(0, 3).map(j => (
+                    <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(239,68,68,0.2)', paddingBottom: '4px' }}>
+                      <span><strong>{j.invoiceNumber || j.id}</strong> — {j.customerName}</span>
+                      <span style={{ color: 'var(--error)', fontWeight: 600 }}>Due: {j.estimatedCompletion}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            
-            {pendingJobs.length > 0 ? (
+
+            {filteredJobs.length > 0 ? (
               <div className="table-container">
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Invoice</th>
+                      <th>Invoice ID</th>
                       <th>Customer</th>
                       <th>Est. Completion</th>
-                      <th>Status</th>
+                      <th>Current Status</th>
+                      <th>Action / Update</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pendingJobs.map(j => {
-                      const daysLeft = Math.ceil((new Date(j.estimatedCompletion) - new Date()) / (1000 * 60 * 60 * 24))
+                    {filteredJobs.map(j => {
+                      const st = getJobStatus(j)
+                      const compDate = parseLocalDate(j.estimatedCompletion)
+                      const isOverdue = compDate && compDate < todaysStart && st !== 'delivered'
+                      const daysLeft = compDate ? Math.ceil((compDate - todaysStart) / (1000 * 60 * 60 * 24)) : 0
+
                       return (
                         <tr key={j.id}>
-                          <td style={{ fontWeight: 600 }}>{j.invoiceNumber || j.id}</td>
+                          <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--accent)' }}>{j.invoiceNumber || j.id}</td>
                           <td>{j.customerName}</td>
                           <td>{j.estimatedCompletion}</td>
                           <td>
-                            <span className={`badge ${daysLeft <= 1 ? 'badge-warning' : 'badge-primary'}`}>
-                              {daysLeft <= 0 ? 'Today' : `${daysLeft} day${daysLeft > 1 ? 's' : ''}`}
-                            </span>
+                            {isOverdue ? (
+                              <span className="badge badge-error" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <AlertTriangle size={12} /> Overdue
+                              </span>
+                            ) : st === 'delivered' ? (
+                              <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <CheckCircle size={12} /> Delivered
+                              </span>
+                            ) : st === 'in_progress' ? (
+                              <span className="badge badge-info">In Progress</span>
+                            ) : st === 'ready' ? (
+                              <span className="badge badge-warning">Ready for Pickup</span>
+                            ) : (
+                              <span className={`badge ${daysLeft <= 1 ? 'badge-warning' : 'badge-primary'}`}>
+                                {daysLeft === 0 ? 'Due Today' : `${daysLeft} d left`}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <select
+                              className="form-select"
+                              style={{ padding: '4px 8px', fontSize: '0.78rem', width: '130px' }}
+                              value={st}
+                              onChange={(e) => {
+                                const newStatus = e.target.value
+                                updateBill(j.id, { deliveryStatus: newStatus })
+                                showToast(`Job ${j.invoiceNumber || j.id} status updated to ${newStatus}`, 'success')
+                              }}
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="ready">Ready</option>
+                              <option value="delivered">Delivered</option>
+                            </select>
                           </td>
                         </tr>
                       )
@@ -1145,8 +1369,8 @@ const Dashboard = () => {
                 </table>
               </div>
             ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '16px' }}>
-                No upcoming job deliveries. Set estimated completion dates on bills to track them here.
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px' }}>
+                No jobs match the selected filter tab.
               </p>
             )}
           </div>
