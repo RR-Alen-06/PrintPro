@@ -1757,7 +1757,11 @@ export const AppProvider = ({ children }) => {
     let billCounterOffset = state.idCounters?.BILL || 0
     const memberBillIds = []
 
-    for (const member of groupData.members) {
+    const payerCustomerId = groupData.members[0]?.customerId
+    const payerCustObj = payerCustomerId ? state.customers.find((c) => c.id === payerCustomerId) : null
+    let payerAdvanceRemaining = payerCustObj ? Number(payerCustObj.advanceBalance || payerCustObj.creditBalance || 0) : 0
+
+    groupData.members.forEach((member, index) => {
       billCounterOffset += 1
       const billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
       dispatch({ type: 'INCREMENT_COUNTER', payload: 'BILL' })
@@ -1778,6 +1782,19 @@ export const AppProvider = ({ children }) => {
 
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
+        
+        if (member.customerId === payerCustomerId) {
+          payerAdvanceRemaining -= advanceUsed
+        }
+      } else if (member.usePayerAdvance && payerCustomerId && payerAdvanceRemaining > 0 && member.customerId !== payerCustomerId) {
+        const applyPayerAdv = Math.min(payerAdvanceRemaining, memberTotal)
+        advanceUsed = applyPayerAdv
+        amountPaid = advanceUsed
+        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
+        payerAdvanceRemaining -= applyPayerAdv
+
+        // Deduct from payer's advance balance
+        dispatch({ type: 'USE_ADVANCE', payload: { customerId: payerCustomerId, amount: applyPayerAdv } })
       }
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1837,7 +1854,7 @@ export const AppProvider = ({ children }) => {
       })
 
       memberBillIds.push(billId)
-    }
+    })
 
     // Store group meta record — no separate parent bill needed;
     // group totals are always computed live from member bills
