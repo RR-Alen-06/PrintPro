@@ -1244,16 +1244,19 @@ const Billing = () => {
       promoDiscount: appliedPromo ? discountAmount : 0,
       loyaltyDiscount: loyaltyDiscount,
       loyaltyPointsRedeemed: pointsRedeemed,
-      items: mergedItemRows.map((row) => ({
-        itemId: row.itemId,
-        itemName: row.itemName,
-        printType: row.printType,
-        sides: row.sides,
-        qty: Number(row.qty),
-        unitPrice: Number(row.unitPrice),
-        amount: Number(row.amount),
-        gstRate: Number(row.gstRate || 0),
-      })),
+      items: mergedItemRows.map((row) => {
+        const invItem = inventory.find((i) => String(i.id) === String(row.itemId))
+        return {
+          itemId: row.itemId,
+          itemName: row.itemName || invItem?.name || 'Print Item',
+          printType: row.printType,
+          sides: row.sides,
+          qty: Number(row.qty),
+          unitPrice: Number(row.unitPrice),
+          amount: Number(row.amount),
+          gstRate: Number(row.gstRate || 0),
+        }
+      }),
     }
 
     if (isEditing) {
