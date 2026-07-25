@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
-    "axios": "^1.7.4",
+    "axios": "^1.7.7",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.294.0",
@@ -36,6 +36,9 @@
     "dompurify": "^3.2.4",
     "esbuild": "^0.25.0",
     "brace-expansion": "^2.0.2",
-    "minimatch": "^5.1.6"
+    "minimatch": "^5.1.6",
+    "axios": "^1.7.7",
+    "debug": "^4.3.6",
+    "json5": "^2.2.3"
   }
 }
