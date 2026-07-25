@@ -28,30 +28,30 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'UPDATE_CUSTOMER':
         if (payload.id) {
-          await updateCustomer(payload.id, {
-            name: payload.updates.name,
-            phone: payload.updates.phone,
-            email: payload.updates.email,
-            address: payload.updates.address,
-            type: payload.updates.type || 'regular',
-            credit_balance: payload.updates.creditBalance || 0,
-            credit_limit: payload.updates.creditLimit || 0
-          });
+          const custUpdateData = {};
+          if (payload.updates.name !== undefined) custUpdateData.name = payload.updates.name;
+          if (payload.updates.phone !== undefined) custUpdateData.phone = payload.updates.phone;
+          if (payload.updates.email !== undefined) custUpdateData.email = payload.updates.email;
+          if (payload.updates.address !== undefined) custUpdateData.address = payload.updates.address;
+          if (payload.updates.type !== undefined) custUpdateData.type = payload.updates.type;
+          if (payload.updates.creditBalance !== undefined) custUpdateData.credit_balance = payload.updates.creditBalance;
+          if (payload.updates.creditLimit !== undefined) custUpdateData.credit_limit = payload.updates.creditLimit;
+          await updateCustomer(payload.id, custUpdateData);
         }
         break;
 
       case 'UPDATE_CUSTOMER_FULL':
         if (payload.id) {
           const editData = payload.data || {};
-          await updateCustomer(payload.id, {
-            name: editData.name,
-            phone: editData.phone,
-            email: editData.email,
-            address: editData.address,
-            type: editData.type || 'regular',
-            credit_balance: editData.creditBalance || 0,
-            credit_limit: editData.creditLimit || 0
-          });
+          const custUpdateData = {};
+          if (editData.name !== undefined) custUpdateData.name = editData.name;
+          if (editData.phone !== undefined) custUpdateData.phone = editData.phone;
+          if (editData.email !== undefined) custUpdateData.email = editData.email;
+          if (editData.address !== undefined) custUpdateData.address = editData.address;
+          if (editData.type !== undefined) custUpdateData.type = editData.type;
+          if (editData.creditBalance !== undefined) custUpdateData.credit_balance = editData.creditBalance;
+          if (editData.creditLimit !== undefined) custUpdateData.credit_limit = editData.creditLimit;
+          await updateCustomer(payload.id, custUpdateData);
         }
         break;
 
