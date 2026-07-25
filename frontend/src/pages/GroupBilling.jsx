@@ -864,11 +864,31 @@ const GroupBilling = () => {
     if (members.some((m) => !m.customerId)) {
       showAlert('Please select a customer for all members.', 'error'); return
     }
+    const memberCustIds = members.map(m => m.customerId).filter(Boolean)
+    if (new Set(memberCustIds).size !== memberCustIds.length) {
+      showAlert('Each group member must be a different customer.', 'error'); return
+    }
     if (members.length < 1) {
       showAlert('Add at least one member.', 'error'); return
     }
     if (sharedRows.length === 0) {
       showAlert('Add at least one shared item.', 'error'); return
+    }
+
+    for (let idx = 0; idx < sharedRows.length; idx++) {
+      const r = sharedRows[idx]
+      if (r.isCustom && !r.itemName?.trim()) {
+        showAlert(`Shared item #${idx + 1} (Custom Item) requires a name.`, 'error'); return
+      }
+      if (!r.isCustom && !r.itemId) {
+        showAlert(`Shared item #${idx + 1} requires a product to be selected.`, 'error'); return
+      }
+      if (Number(r.qty) <= 0) {
+        showAlert(`Shared item #${idx + 1} quantity must be at least 1.`, 'error'); return
+      }
+      if (Number(r.unitPrice) < 0) {
+        showAlert(`Shared item #${idx + 1} price cannot be negative.`, 'error'); return
+      }
     }
 
     setIsSubmitting(true)
@@ -955,11 +975,31 @@ const GroupBilling = () => {
     if (splitMembers.some((m) => !m.customerId)) {
       showAlert('Please select a customer for all split members.', 'error'); return
     }
+    const splitCustIds = splitMembers.map(m => m.customerId).filter(Boolean)
+    if (new Set(splitCustIds).size !== splitCustIds.length) {
+      showAlert('Each split member must be a different customer.', 'error'); return
+    }
     if (splitMembers.length < 2) {
       showAlert('Add at least 2 members for a split purchase.', 'error'); return
     }
     if (splitRows.length === 0 || splitSubtotal <= 0) {
       showAlert('Add items with a valid total amount.', 'error'); return
+    }
+
+    for (let idx = 0; idx < splitRows.length; idx++) {
+      const r = splitRows[idx]
+      if (r.isCustom && !r.itemName?.trim()) {
+        showAlert(`Joint item #${idx + 1} (Custom Item) requires a name.`, 'error'); return
+      }
+      if (!r.isCustom && !r.itemId) {
+        showAlert(`Joint item #${idx + 1} requires a product to be selected.`, 'error'); return
+      }
+      if (Number(r.qty) <= 0) {
+        showAlert(`Joint item #${idx + 1} quantity must be at least 1.`, 'error'); return
+      }
+      if (Number(r.unitPrice) < 0) {
+        showAlert(`Joint item #${idx + 1} price cannot be negative.`, 'error'); return
+      }
     }
 
     setIsSubmitting(true)
