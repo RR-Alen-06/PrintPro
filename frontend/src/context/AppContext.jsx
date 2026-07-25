@@ -1451,10 +1451,11 @@ export const AppProvider = ({ children }) => {
     } else {
       billId = generateSeqId(state, 'BILL')
     }
-    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+    dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey });
 
     // Deduct stock for standard product items
-    (billData.items || []).forEach(item => {
+    const billItemsList = billData.items || [];
+    billItemsList.forEach(item => {
       const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
       if (invItem && invItem.type === 'product') {
         const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
