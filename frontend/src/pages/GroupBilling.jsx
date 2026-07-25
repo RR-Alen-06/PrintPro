@@ -245,7 +245,7 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 }
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
-const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
+const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount, payerCustomerId, payerAdvance }) => {
   const customer = customers.find((c) => c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
@@ -484,6 +484,17 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <input type="checkbox" checked={member.useAdvance}
               onChange={(e) => onChange(member.id, { useAdvance: e.target.checked })} />
             Use advance balance (₹{advance.toFixed(2)}) to cover this bill
+          </label>
+        </div>
+      )}
+
+      {/* Payer Shared Advance usage */}
+      {idx > 0 && payerAdvance > 0 && (
+        <div style={{ marginTop: '10px', padding: '8px 12px', background: 'rgba(59,130,246,0.07)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!member.usePayerAdvance}
+              onChange={(e) => onChange(member.id, { usePayerAdvance: e.target.checked })} />
+            Use Payer's Advance Balance (₹{payerAdvance.toFixed(2)}) to cover this bill
           </label>
         </div>
       )}
@@ -828,6 +839,7 @@ const GroupBilling = () => {
         loyaltyPointsRedeemed: Number(m.loyaltyPointsRedeemed || 0),
         total,
         useAdvance: m.useAdvance,
+        usePayerAdvance: m.usePayerAdvance,
         groupRole: m.hasAddons ? 'shared-addon' : 'shared',
         rounding: 0,
       }
@@ -1070,6 +1082,11 @@ const GroupBilling = () => {
                 }}
                 sharedDiscountMode={sharedDiscountMode}
                 sharedGroupDiscount={sharedGroupDiscount}
+                payerCustomerId={members[0]?.customerId}
+                payerAdvance={(() => {
+                  const pCust = activeCustomers.find(c => c.id === members[0]?.customerId)
+                  return pCust ? Number(pCust.advanceBalance || pCust.creditBalance || 0) : 0
+                })()}
               />
             ))}
           </div>

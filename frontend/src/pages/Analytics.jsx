@@ -67,6 +67,20 @@ const Analytics = () => {
   const filteredExpenses = useMemo(() => filterByDate(expenses || [], 'date', range), [expenses, range])
   const filteredAdvPayments = useMemo(() => filterByDate(advancePayments || [], 'date', range), [advancePayments, range])
 
+  const expenseCategoryBreakdown = useMemo(() => {
+    const categories = {}
+    filteredExpenses.forEach(exp => {
+      const cat = exp.category || 'General'
+      categories[cat] = (categories[cat] || 0) + Number(exp.amount || 0)
+    })
+    const total = Object.values(categories).reduce((sum, val) => sum + val, 0)
+    return Object.entries(categories).map(([name, value]) => ({
+      name,
+      value,
+      percent: total > 0 ? (value / total) * 100 : 0
+    })).sort((a, b) => b.value - a.value)
+  }, [filteredExpenses])
+
   const totalAdvanceCollected = useMemo(() => {
     return filteredAdvPayments.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
   }, [filteredAdvPayments])
@@ -821,21 +835,47 @@ const Analytics = () => {
         </div>
       </div>
 
-      {/* Refund Outflows breakdown */}
-      <div className="card" style={{ marginTop: '24px' }}>
-        <h2>Refund Outflows</h2>
-        <div className="grid-3" style={{ gap: '16px', marginTop: '16px' }}>
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Bill Refunds</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundOutflows.billRefunds.toFixed(2)}</div>
+      {/* Refund Outflows & Expense Category Breakdown Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px', marginTop: '24px' }}>
+        {/* Refund Outflows breakdown */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h2>Refund Outflows</h2>
+          <div className="grid-3" style={{ gap: '16px', marginTop: '16px' }}>
+            <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Bill Refunds</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundOutflows.billRefunds.toFixed(2)}</div>
+            </div>
+            <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Advance Returns</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundOutflows.advReturns.toFixed(2)}</div>
+            </div>
+            <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Total Outflow</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundOutflows.totalRefunds.toFixed(2)}</div>
+            </div>
           </div>
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Advance Returns</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundOutflows.advReturns.toFixed(2)}</div>
-          </div>
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Total Outflow</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundOutflows.totalRefunds.toFixed(2)}</div>
+        </div>
+
+        {/* Expense Category Breakdown */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h2>Expense Category Distribution</h2>
+          <div style={{ display: 'grid', gap: '14px', marginTop: '20px' }}>
+            {expenseCategoryBreakdown.map((item) => (
+              <div key={item.name} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '600' }}>
+                    <span>{item.name}</span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>₹{item.value.toFixed(2)} ({item.percent.toFixed(0)}%)</span>
+                  </div>
+                  <div style={{ height: '12px', width: '100%', background: '#111827', borderRadius: '6px', overflow: 'hidden', marginTop: '6px' }}>
+                    <div style={{ width: `${Math.max(item.percent, 2)}%`, height: '100%', background: 'var(--accent)' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {expenseCategoryBreakdown.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No expense records in this period.</div>
+            )}
           </div>
         </div>
       </div>
