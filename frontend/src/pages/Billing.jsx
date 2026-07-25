@@ -1158,18 +1158,16 @@ const Billing = () => {
 
     // Credit limit validation
     const custForLimit = customers.find(c => c.id === customerIdToUse)
-    if (custForLimit && custForLimit.creditLimit > 0) {
-      const custBills = bills.filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent)
-      const custPayments = payments.filter(p => p.customerId === customerIdToUse && !p.isRefund)
-      const totalBilled = custBills.reduce((s, b) => s + Number(b.total || 0), 0)
-      const totalPaid = custPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-      const currentOutstanding = totalBilled - totalPaid
-      const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
+    if (custForLimit && Number(custForLimit.creditLimit || 0) > 0) {
+      const currentOutstanding = bills
+        .filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent && (!isEditing || b.id !== editingBillId))
+        .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+
       const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
-      const unpaidThisBill = Math.max(subtotal - proposedPaid, 0)
+      const unpaidThisBill = Math.max(total - proposedPaid, 0)
       const projectedOutstanding = currentOutstanding + unpaidThisBill
 
-      if (projectedOutstanding > custForLimit.creditLimit) {
+      if (projectedOutstanding > Number(custForLimit.creditLimit) + 0.01) {
         showAlert(
           `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
           'error'
