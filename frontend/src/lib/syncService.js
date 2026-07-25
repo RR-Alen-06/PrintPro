@@ -181,7 +181,7 @@ export const syncEntityToCloud = async (action, payload) => {
             customer_id: payload.customerId,
             cash_amount: payload.cashAmount || 0,
             upi_amount: payload.upiAmount || 0,
-            total_paid: payload.totalPaid || 0,
+            total_paid: payload.totalPaid || payload.amount || ((payload.cashAmount || 0) + (payload.upiAmount || 0)),
             payment_type: payload.paymentType || 'partial',
             notes: payload.notes || ''
           });
