@@ -59,6 +59,7 @@ const Billing = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [lastBillId, setLastBillId] = useState(null)
+  const [createdBillObj, setCreatedBillObj] = useState(null)
   const [showReturnModal, setShowReturnModal] = useState(false)
   const [returnQuantities, setReturnQuantities] = useState({})
   const [returnSettlement, setReturnSettlement] = useState('advance')
@@ -307,8 +308,8 @@ const Billing = () => {
 
   const successBill = useMemo(() => {
     if (!lastBillId) return null
-    return bills.find((b) => b.id === lastBillId)
-  }, [bills, lastBillId])
+    return bills.find((b) => b.id === lastBillId) || createdBillObj
+  }, [bills, lastBillId, createdBillObj])
 
   const billPayments = useMemo(() => {
     if (!liveBill) return []
@@ -1300,7 +1301,19 @@ const Billing = () => {
     }
 
     const newBillId = addBill(billPayload)
+    const paid = Number(billPayload.amountPaid || 0)
+    const bal = Math.max(billPayload.total - paid, 0)
+    const status = paid >= billPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+    const fullBillObj = {
+      ...billPayload,
+      id: newBillId,
+      amountPaid: paid,
+      balance: bal,
+      status: status,
+    }
+    setCreatedBillObj(fullBillObj)
     setLastBillId(newBillId)
+    showToast(`Bill ${newBillId} created successfully!`, 'success')
     resetForm()
   }
 
@@ -1347,7 +1360,19 @@ const Billing = () => {
       processEditBillSave(finalPayload)
     } else {
       const newBillId = addBill(finalPayload)
+      const paid = Number(finalPayload.amountPaid || 0)
+      const bal = Math.max(finalPayload.total - paid, 0)
+      const status = paid >= finalPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+      const fullBillObj = {
+        ...finalPayload,
+        id: newBillId,
+        amountPaid: paid,
+        balance: bal,
+        status: status,
+      }
+      setCreatedBillObj(fullBillObj)
       setLastBillId(newBillId)
+      showToast(`Bill ${newBillId} created successfully!`, 'success')
       resetForm()
     }
   }
@@ -1810,7 +1835,7 @@ const Billing = () => {
               window.open(hUri, '_blank')
             }
           }}
-          onCreateNew={() => setLastBillId(null)}
+          onCreateNew={() => { setLastBillId(null); setCreatedBillObj(null); }}
         />
       ) : (
         <>
