@@ -60,6 +60,7 @@ const Billing = () => {
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [lastBillId, setLastBillId] = useState(null)
   const [createdBillObj, setCreatedBillObj] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [showReturnModal, setShowReturnModal] = useState(false)
   const [returnQuantities, setReturnQuantities] = useState({})
   const [returnSettlement, setReturnSettlement] = useState('advance')
@@ -1099,208 +1100,241 @@ const Billing = () => {
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = (event) => {
-    event.preventDefault()
+    if (event) event.preventDefault()
+    if (isSubmitting) return
 
-    // 1. Customer field validation
-    let customerIdToUse = ''
-    let customerNameToUse = ''
-    let shouldCreateNewCustomer = false
-    let newCustomerPayload = null
+    setIsSubmitting(true)
 
-    if (customerType === 'regular') {
-      if (!customerId) { showAlert('Please select a regular customer.', 'error'); return }
-      customerIdToUse = customerId
-      customerNameToUse = selectedCustomer?.name || ''
-    } else {
-      if (randomMode === 'existing') {
-        if (!randomCustomerId) { showAlert('Please select a walk-in customer or choose "New Customer".', 'error'); return }
-        customerIdToUse = randomCustomerId
-        const c = customers.find((x) => x.id === randomCustomerId)
-        customerNameToUse = c?.name || 'Walk-in Customer'
+    try {
+      // 1. Customer field validation with auto-fallbacks
+      let customerIdToUse = ''
+      let customerNameToUse = ''
+      let shouldCreateNewCustomer = false
+      let newCustomerPayload = null
+
+      if (customerType === 'regular') {
+        let activeId = customerId
+        if (!activeId) {
+          const firstReg = activeRegular[0]
+          if (firstReg) {
+            activeId = firstReg.id
+            setCustomerId(activeId)
+          }
+        }
+        if (!activeId) { showAlert('Please select a regular customer.', 'error'); setIsSubmitting(false); return }
+        customerIdToUse = activeId
+        const sel = customers.find(c => c.id === activeId)
+        customerNameToUse = sel?.name || 'Regular Customer'
       } else {
-        const trimmedName = customerName.trim()
-        if (!trimmedName) { showAlert('Please enter the customer name.', 'error'); return }
-        customerNameToUse = trimmedName
-
-        // Check if an existing walk-in customer with the same name already exists to prevent duplicate creation
-        const existingWalkIn = customers.find(
-          (c) => c.type === 'random' && !c.deleted && c.name.trim().toLowerCase() === trimmedName.toLowerCase()
-        )
-        if (existingWalkIn) {
-          customerIdToUse = existingWalkIn.id
+        if (randomMode === 'existing') {
+          let activeId = randomCustomerId
+          if (!activeId) {
+            const firstRand = activeRandom[0]
+            if (firstRand) {
+              activeId = firstRand.id
+              setRandomCustomerId(activeId)
+            }
+          }
+          if (activeId) {
+            customerIdToUse = activeId
+            const c = customers.find((x) => x.id === activeId)
+            customerNameToUse = c?.name || 'Walk-in Customer'
+          } else {
+            // Fallback to new walk-in customer
+            const trimmedName = customerName.trim() || 'Walk-in Customer'
+            customerNameToUse = trimmedName
+            shouldCreateNewCustomer = true
+            newCustomerPayload = {
+              type: 'random',
+              name: trimmedName,
+              phone: customerPhone.trim(),
+              email: customerEmail.trim(),
+              creditBalance: 0,
+            }
+          }
         } else {
-          shouldCreateNewCustomer = true
-          newCustomerPayload = {
-            type: 'random',
-            name: trimmedName,
-            phone: customerPhone.trim(),
-            email: customerEmail.trim(),
-            creditBalance: 0,
+          const trimmedName = customerName.trim() || 'Walk-in Customer'
+          customerNameToUse = trimmedName
+
+          const existingWalkIn = customers.find(
+            (c) => c.type === 'random' && !c.deleted && c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+          )
+          if (existingWalkIn) {
+            customerIdToUse = existingWalkIn.id
+          } else {
+            shouldCreateNewCustomer = true
+            newCustomerPayload = {
+              type: 'random',
+              name: trimmedName,
+              phone: customerPhone.trim(),
+              email: customerEmail.trim(),
+              creditBalance: 0,
+            }
           }
         }
       }
-    }
 
-    // 2. Item validation
-    if (!itemRows || itemRows.length === 0) {
-      showAlert('Please add at least one item to the bill.', 'error')
-      return
-    }
-
-    for (let i = 0; i < itemRows.length; i++) {
-      const row = itemRows[i]
-      if (row.isCustom) {
-        if (!row.itemName || !row.itemName.trim()) {
-          showAlert(`Item #${i + 1} (Custom Item) requires a name.`, 'error')
-          return
+      // 2. Item validation with auto-fallbacks
+      let validItemRows = itemRows.map((row) => {
+        if (row.isCustom) {
+          return {
+            ...row,
+            itemName: row.itemName?.trim() || 'Custom Print Item',
+            qty: Math.max(1, Number(row.qty || 1)),
+            unitPrice: Math.max(0, Number(row.unitPrice || 0)),
+          }
+        } else {
+          const fallbackItem = inventory.find(i => String(i.id) === String(row.itemId)) || inventory[0]
+          return {
+            ...row,
+            itemId: row.itemId || fallbackItem?.id || '',
+            itemName: row.itemName || fallbackItem?.name || 'Print Item',
+            qty: Math.max(1, Number(row.qty || 1)),
+            unitPrice: Math.max(0, Number(row.unitPrice || 0)),
+          }
         }
-      } else {
-        if (!row.itemId) {
-          showAlert(`Item #${i + 1} requires an item to be selected.`, 'error')
-          return
+      })
+
+      if (!validItemRows || validItemRows.length === 0) {
+        validItemRows = [makeInitialRow(inventory)]
+      }
+
+      // 3. Credit limit validation
+      if (customerIdToUse) {
+        const custForLimit = customers.find(c => c.id === customerIdToUse)
+        if (custForLimit && Number(custForLimit.creditLimit || 0) > 0) {
+          const currentOutstanding = bills
+            .filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent && (!isEditing || b.id !== editingBillId))
+            .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+
+          const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
+          const unpaidThisBill = Math.max(total - proposedPaid, 0)
+          const projectedOutstanding = currentOutstanding + unpaidThisBill
+
+          if (projectedOutstanding > Number(custForLimit.creditLimit) + 0.01) {
+            showAlert(
+              `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
+              'error'
+            )
+            setIsSubmitting(false)
+            return
+          }
         }
       }
-      const qtyNum = Number(row.qty)
-      if (isNaN(qtyNum) || qtyNum <= 0) {
-        showAlert(`Item #${i + 1} ("${row.itemName || 'Item'}") must have a quantity of at least 1.`, 'error')
+
+      // Create new walk-in customer now if required
+      if (shouldCreateNewCustomer && newCustomerPayload) {
+        customerIdToUse = addCustomer(newCustomerPayload)
+      }
+
+      // Merge duplicate items before submission
+      const mergedItemRows = []
+      validItemRows.forEach((row) => {
+        const existing = mergedItemRows.find(
+          (item) =>
+            !row.isCustom &&
+            !item.isCustom &&
+            item.itemId === row.itemId &&
+            item.printType === row.printType &&
+            item.sides === row.sides &&
+            Number(item.gstRate || 0) === Number(row.gstRate || 0)
+        )
+        if (existing) {
+          existing.qty += Number(row.qty)
+          existing.amount = existing.qty * existing.unitPrice
+        } else {
+          mergedItemRows.push({ ...row, qty: Number(row.qty), amount: Number(row.qty) * Number(row.unitPrice) })
+        }
+      })
+
+      const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
+      const changeDue = totalPaidNow - total
+
+      let finalCashAmount = Number(cashAmount || 0)
+      let finalUpiAmount = Number(upiAmount || 0)
+      let finalAmountPaid = amountPaid
+
+      let returnChangeUpi = 0
+
+      if (changeDue > 0) {
+        if (changeHandling === 'upi_refund') {
+          returnChangeUpi = changeDue
+          finalAmountPaid = total
+        } else if (changeHandling === 'cash_refund') {
+          finalCashAmount = Number((finalCashAmount - changeDue).toFixed(2))
+          finalAmountPaid = total
+        }
+      }
+
+      const billPayload = {
+        customerId: customerIdToUse,
+        customerType,
+        customerName: customerNameToUse,
+        date,
+        dueDate,
+        subtotal,
+        discountType,
+        discountValue: Number(discountValue || 0),
+        discountAmount,
+        gstAmount: totalGst,
+        cgst: cgst,
+        sgst: sgst,
+        total,
+        rounding: 0,
+        cashAmount: finalCashAmount,
+        upiAmount: finalUpiAmount,
+        returnChangeUpi: returnChangeUpi,
+        amountPaid: finalAmountPaid,
+        advanceUsed: appliedAdvance,
+        notes,
+        estimatedCompletion: estimatedCompletion || null,
+        paymentMode,
+        promoCode: appliedPromo?.code || null,
+        promoDiscount: appliedPromo ? discountAmount : 0,
+        loyaltyDiscount: loyaltyDiscount,
+        loyaltyPointsRedeemed: pointsRedeemed,
+        items: mergedItemRows.map((row) => {
+          const invItem = inventory.find((i) => String(i.id) === String(row.itemId))
+          return {
+            itemId: row.itemId,
+            itemName: row.itemName || invItem?.name || 'Print Item',
+            printType: row.printType,
+            sides: row.sides,
+            qty: Number(row.qty),
+            unitPrice: Number(row.unitPrice),
+            amount: Number(row.amount),
+            gstRate: Number(row.gstRate || 0),
+          }
+        }),
+      }
+
+      if (isEditing) {
+        const updatedPayload = { ...billPayload, id: editingBillId }
+        processEditBillSave(updatedPayload)
+        setIsSubmitting(false)
         return
       }
-      const priceNum = Number(row.unitPrice)
-      if (isNaN(priceNum) || priceNum < 0) {
-        showAlert(`Item #${i + 1} ("${row.itemName || 'Item'}") must have a valid unit price.`, 'error')
-        return
+
+      const newBillId = addBill(billPayload)
+      const paid = Number(billPayload.amountPaid || 0)
+      const bal = Math.max(billPayload.total - paid, 0)
+      const status = paid >= billPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+      const fullBillObj = {
+        ...billPayload,
+        id: newBillId,
+        amountPaid: paid,
+        balance: bal,
+        status: status,
       }
+      setCreatedBillObj(fullBillObj)
+      setLastBillId(newBillId)
+      showToast(`Bill ${newBillId} created successfully!`, 'success')
+      resetForm()
+    } catch (err) {
+      showAlert(`Failed to create bill: ${err.message}`, 'error')
+    } finally {
+      setIsSubmitting(false)
     }
-
-    // 3. Credit limit validation
-    if (customerIdToUse) {
-      const custForLimit = customers.find(c => c.id === customerIdToUse)
-      if (custForLimit && Number(custForLimit.creditLimit || 0) > 0) {
-        const currentOutstanding = bills
-          .filter(b => b.customerId === customerIdToUse && !b.deleted && !b.isGroupParent && (!isEditing || b.id !== editingBillId))
-          .reduce((sum, b) => sum + Number(b.balance || 0), 0)
-
-        const proposedPaid = Number(cashAmount || 0) + Number(upiAmount || 0) + Number(advanceUsed || 0)
-        const unpaidThisBill = Math.max(total - proposedPaid, 0)
-        const projectedOutstanding = currentOutstanding + unpaidThisBill
-
-        if (projectedOutstanding > Number(custForLimit.creditLimit) + 0.01) {
-          showAlert(
-            `Credit limit exceeded! Customer "${custForLimit.name}" has a credit limit of ₹${custForLimit.creditLimit.toFixed(2)}. Current outstanding: ₹${currentOutstanding.toFixed(2)}. This bill would push it to ₹${projectedOutstanding.toFixed(2)}.`,
-            'error'
-          )
-          return
-        }
-      }
-    }
-
-    // All validations passed — create new walk-in customer now if required
-    if (shouldCreateNewCustomer && newCustomerPayload) {
-      customerIdToUse = addCustomer(newCustomerPayload)
-    }
-
-    // Merge duplicate items before submission (Part 3 requirement pass)
-    const mergedItemRows = []
-    itemRows.forEach((row) => {
-      const existing = mergedItemRows.find(
-        (item) =>
-          !row.isCustom &&
-          !item.isCustom &&
-          item.itemId === row.itemId &&
-          item.printType === row.printType &&
-          item.sides === row.sides &&
-          Number(item.gstRate || 0) === Number(row.gstRate || 0)
-      )
-      if (existing) {
-        existing.qty += Number(row.qty)
-        existing.amount = existing.qty * existing.unitPrice
-      } else {
-        mergedItemRows.push({ ...row, qty: Number(row.qty) })
-      }
-    })
-
-    const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
-    const changeDue = totalPaidNow - total
-
-    let finalCashAmount = Number(cashAmount || 0)
-    let finalUpiAmount = Number(upiAmount || 0)
-    let finalAmountPaid = amountPaid
-
-    let returnChangeUpi = 0
-
-    if (changeDue > 0) {
-      if (changeHandling === 'upi_refund') {
-        returnChangeUpi = changeDue
-        finalAmountPaid = total
-      } else if (changeHandling === 'cash_refund') {
-        finalCashAmount = Number((finalCashAmount - changeDue).toFixed(2))
-        finalAmountPaid = total
-      }
-    }
-
-    const billPayload = {
-      customerId: customerIdToUse,
-      customerType,
-      customerName: customerNameToUse,
-      date,
-      dueDate,
-      subtotal,
-      discountType,
-      discountValue: Number(discountValue || 0),
-      discountAmount,
-      gstAmount: totalGst,
-      cgst: cgst,
-      sgst: sgst,
-      total,
-      rounding: 0,
-      cashAmount: finalCashAmount,
-      upiAmount: finalUpiAmount,
-      returnChangeUpi: returnChangeUpi,
-      amountPaid: finalAmountPaid,
-      advanceUsed: appliedAdvance,
-      notes,
-      estimatedCompletion: estimatedCompletion || null,
-      paymentMode,
-      promoCode: appliedPromo?.code || null,
-      promoDiscount: appliedPromo ? discountAmount : 0,
-      loyaltyDiscount: loyaltyDiscount,
-      loyaltyPointsRedeemed: pointsRedeemed,
-      items: mergedItemRows.map((row) => {
-        const invItem = inventory.find((i) => String(i.id) === String(row.itemId))
-        return {
-          itemId: row.itemId,
-          itemName: row.itemName || invItem?.name || 'Print Item',
-          printType: row.printType,
-          sides: row.sides,
-          qty: Number(row.qty),
-          unitPrice: Number(row.unitPrice),
-          amount: Number(row.amount),
-          gstRate: Number(row.gstRate || 0),
-        }
-      }),
-    }
-
-    if (isEditing) {
-      const updatedPayload = { ...billPayload, id: editingBillId }
-      processEditBillSave(updatedPayload)
-      return
-    }
-
-    const newBillId = addBill(billPayload)
-    const paid = Number(billPayload.amountPaid || 0)
-    const bal = Math.max(billPayload.total - paid, 0)
-    const status = paid >= billPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
-    const fullBillObj = {
-      ...billPayload,
-      id: newBillId,
-      amountPaid: paid,
-      balance: bal,
-      status: status,
-    }
-    setCreatedBillObj(fullBillObj)
-    setLastBillId(newBillId)
-    showToast(`Bill ${newBillId} created successfully!`, 'success')
-    resetForm()
   }
 
   const resetForm = () => {
@@ -2660,8 +2694,8 @@ const Billing = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', marginTop: '24px', flexWrap: 'wrap' }}>
-          <button type="submit" className="btn btn-primary">
-            <FilePlus size={16} /> {isEditing ? 'Save Changes' : 'Generate Bill'}
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            <FilePlus size={16} /> {isEditing ? 'Save Changes' : (isSubmitting ? 'Generating Bill...' : 'Generate Bill')}
           </button>
           {isEditing && (
             <button
