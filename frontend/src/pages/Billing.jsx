@@ -1282,21 +1282,7 @@ const Billing = () => {
 
     if (isEditing) {
       const updatedPayload = { ...billPayload, id: editingBillId }
-      const decimalPart = total - Math.floor(total)
-      if (decimalPart > 0 && decimalPart < 1) {
-        setPendingBillPayload(updatedPayload)
-        setShowRoundingModal(true)
-        return
-      }
       processEditBillSave(updatedPayload)
-      return
-    }
-
-    // Check for decimal in total — offer rounding
-    const decimalPart = total - Math.floor(total)
-    if (decimalPart > 0 && decimalPart < 1) {
-      setPendingBillPayload(billPayload)
-      setShowRoundingModal(true)
       return
     }
 
