@@ -13,13 +13,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
-    "axios": "^1.6.2",
+    "axios": "^1.7.7",
     "html2canvas": "^1.4.1",
-    "jspdf": "^4.2.1",
+    "jspdf": "^4.2.3",
     "lucide-react": "^0.294.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
