@@ -1483,10 +1483,12 @@ export const AppProvider = ({ children }) => {
     const currentCustomerPoints = Number(customer?.loyaltyPoints || 0)
     const newCustomerPoints = Math.max(0, currentCustomerPoints - loyaltyPointsRedeemed + loyaltyPointsEarned)
 
-    // FIFO payment distribution
-    const unpaidBills = state.bills
-      .filter((b) => b.customerId === billData.customerId && !b.deleted && b.status !== 'paid')
-      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    // FIFO payment distribution: new bill is paid first, excess flows to older unpaid bills
+    const unpaidBills = isRandomCustomer
+      ? []
+      : state.bills
+          .filter((b) => b.customerId === billData.customerId && !b.deleted && b.status !== 'paid' && !b.isGroupParent)
+          .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     const newBill = {
       id: billId,
@@ -1507,7 +1509,7 @@ export const AppProvider = ({ children }) => {
       customerTotalLoyaltyPoints: newCustomerPoints,
     }
 
-    const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
+    const billsToPay = [newBill, ...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } }))]
 
     let R_advance = Math.min(Number(billData.advanceUsed || 0), currentAdvance)
     let R_credit = 0
@@ -1575,7 +1577,7 @@ export const AppProvider = ({ children }) => {
           totalPaid: applyTotal,
           paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
           excessCredit: 0,
-          notes: billData.notes || 'FIFO payment allocation',
+          notes: billData.notes || 'Payment allocation',
         })
       }
     }
@@ -1605,6 +1607,7 @@ export const AppProvider = ({ children }) => {
       lastRec.excessCredit = overpaid
       lastRec.cashAmount += R_cash
       lastRec.upiAmount += R_upi
+      lastRec.totalPaid += overpaid
     } else if (overpaid > 0) {
       const _payIdxExcess = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
       paymentRecords.push({
@@ -1614,7 +1617,7 @@ export const AppProvider = ({ children }) => {
         date: new Date().toISOString(),
         cashAmount: R_cash,
         upiAmount: R_upi,
-        totalPaid: 0,
+        totalPaid: overpaid,
         paymentType: 'full',
         excessCredit: overpaid,
         notes: 'Excess payment added to advance credit',
