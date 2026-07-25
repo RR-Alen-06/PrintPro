@@ -1928,16 +1928,17 @@ export const AppProvider = ({ children }) => {
       } else {
         billId = `BILL${String(billCounterOffset).padStart(4, '0')}`
       }
-      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
+      dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey });
 
       // Deduct stock for standard product items
-      (member.items || []).forEach(item => {
-        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name)
+      const memberItemsList = member.items || [];
+      memberItemsList.forEach(item => {
+        const invItem = state.inventory.find(i => String(i.id) === String(item.itemId) || i.name === item.name);
         if (invItem && invItem.type === 'product') {
-          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0))
-          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } })
+          const newStock = Math.max(0, Number(invItem.stock || 0) - Number(item.qty || 0));
+          dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id: invItem.id, updates: { stock: newStock } } });
         }
-      })
+      });
 
       const customer = state.customers.find((c) => c.id === member.customerId)
       const customerName = customer?.name || member.customerName || 'Guest'
