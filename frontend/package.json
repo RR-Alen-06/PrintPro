@@ -19,7 +19,7 @@
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
@@ -33,10 +33,10 @@
     "vite": "^6.4.2"
   },
   "overrides": {
+    "brace-expansion": "^2.0.1",
+    "minimatch": "^9.0.5",
     "dompurify": "^3.2.4",
     "esbuild": "^0.25.0",
-    "brace-expansion": "^2.0.2",
-    "minimatch": "^9.0.5",
     "axios": "^1.7.7",
     "debug": "^4.3.6",
     "json5": "^2.2.3"
