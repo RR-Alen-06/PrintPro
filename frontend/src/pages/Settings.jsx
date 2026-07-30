@@ -125,6 +125,7 @@ const Settings = () => {
     footerNotes: settings.footerNotes || '',
     showGstBreakdown: settings.showGstBreakdown !== false,
     showUpiQrCode: settings.showUpiQrCode !== false,
+    silentThermalPrint: settings.silentThermalPrint === true,
     shopSealUrl: settings.shopSealUrl || '',
     signatorySignatureUrl: settings.signatorySignatureUrl || '',
     pdfShowType: settings.pdfShowType !== false,
@@ -962,6 +963,15 @@ const Settings = () => {
                 style={{ width: '18px', height: '18px' }}
               />
               <span style={{ fontWeight: 600 }}>Generate UPI QR Code for Due Amounts</span>
+            </label>
+            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={branding.silentThermalPrint}
+                onChange={(e) => setBranding((prev) => ({ ...prev, silentThermalPrint: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              <span style={{ fontWeight: 600 }}>Enable Silent Thermal Printing on Bill Creation</span>
             </label>
           </div>
 
