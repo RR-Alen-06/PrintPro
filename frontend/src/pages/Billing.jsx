@@ -298,7 +298,7 @@ const Billing = () => {
         if (input) input.focus()
         showToast('Customer field focused (F2)', 'info')
       } else if (e.key === 'F3') {
-        addItemRow()
+        if (typeof addRow === 'function') addRow()
         showToast('Item row added (F3)', 'info')
       } else if (e.key === 'F4') {
         setCustomerType(prev => prev === 'regular' ? 'random' : 'regular')
@@ -308,16 +308,16 @@ const Billing = () => {
         if (cashInput) cashInput.focus()
         else showToast('Payment section focused (F8)', 'info')
       } else if (e.key === 'F9') {
-        handleSubmit()
+        if (typeof handleSubmit === 'function') handleSubmit()
       } else if (e.key === 'Escape') {
-        resetForm()
+        if (typeof resetForm === 'function') resetForm()
         showToast('Form cleared (Esc)', 'info')
       }
     }
 
     window.addEventListener('keydown', handleHotkey)
     return () => window.removeEventListener('keydown', handleHotkey)
-  }, [addItemRow, handleSubmit, resetForm, showToast])
+  }, [showToast])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
