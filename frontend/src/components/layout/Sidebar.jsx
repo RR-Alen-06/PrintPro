@@ -29,21 +29,17 @@ const navItems = [
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { currentUser, settings } = useAppContext()
+  // Since there is only one merchant/owner role, any logged-in user gets full access
+  const isMerchant = !!currentUser
 
   const visibleItems = navItems.filter((item) => {
     // Check if Refunds is disabled
     if (item.path === '/refunds' && settings?.refundsEnabled === false) {
       return false
     }
-
-    // If staff permissions enforcement is turned on explicitly and permission is false, hide
-    if (settings?.enforceStaffPermissions === true && item.permKey && settings?.staffPermissions) {
-      if (settings.staffPermissions[item.permKey] === false) {
-        return false
-      }
-    }
-
-    return true // Show all sidebar items by default
+    
+    if (isMerchant) return true                      // Merchant sees everything
+    return item.permKey === undefined                // Non-logged-in sees only public
   })
 
   return (
