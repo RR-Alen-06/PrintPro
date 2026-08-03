@@ -60,10 +60,15 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isMobileRoute = location.pathname.startsWith('/mobile')
   const isAuthCallback = location.pathname === '/auth/callback'
+  const isAuthPage = location.pathname === '/auth'
 
-  // Render AuthCallback in full screen layout
+  // Render Auth pages in full screen layout (no sidebar/header)
   if (isAuthCallback) {
     return <AuthCallback />
+  }
+
+  if (isAuthPage) {
+    return <Auth />
   }
 
   // Render Mobile App Routes in standalone mobile layout
