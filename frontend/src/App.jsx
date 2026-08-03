@@ -25,12 +25,29 @@ import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
 import CustomerPortal from './pages/CustomerPortal'
+
+// Mobile Page Imports
 import MobileAuth from './pages/mobile/MobileAuth'
 import MobileDashboard from './pages/mobile/MobileDashboard'
 import MobileBillingList from './pages/mobile/MobileBillingList'
 import MobileBillDetail from './pages/mobile/MobileBillDetail'
 import MobileCreateBill from './pages/mobile/MobileCreateBill'
 import MobileSettings from './pages/mobile/MobileSettings'
+import MobileRecurringBills from './pages/mobile/MobileRecurringBills'
+import MobileRefunds from './pages/mobile/MobileRefunds'
+import MobileCustomers from './pages/mobile/MobileCustomers'
+import MobileCustomerLedger from './pages/mobile/MobileCustomerLedger'
+import MobileInventory from './pages/mobile/MobileInventory'
+import MobileAdvancePayments from './pages/mobile/MobileAdvancePayments'
+import MobileAccounting from './pages/mobile/MobileAccounting'
+import MobileAnalytics from './pages/mobile/MobileAnalytics'
+import MobileGroupBilling from './pages/mobile/MobileGroupBilling'
+import MobileCustomerBills from './pages/mobile/MobileCustomerBills'
+import MobileCustomerPortal from './pages/mobile/MobileCustomerPortal'
+import MobileReceipt from './pages/mobile/MobileReceipt'
+import MobileItemSalesReport from './pages/mobile/MobileItemSalesReport'
+import MobileDataManagement from './pages/mobile/MobileDataManagement'
+
 import ViewportBanner from './components/mobile/ViewportBanner'
 import { useMobileDetect } from './hooks/useMobileDetect'
 
@@ -38,48 +55,11 @@ function App() {
   const { currentUser } = useAppContext()
   const location = useLocation()
   const navigate = useNavigate()
+  const { isMobile, isTablet, userPref, setUserPref } = useMobileDetect()
+
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
-  const [dismissBanner, setDismissBanner] = React.useState(false)
-
-  const { isPhone, isTablet, userPref, setUserPref } = useMobileDetect()
-
-  React.useEffect(() => {
-    const handleWheel = (e) => {
-      if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'number') {
-        e.preventDefault()
-      }
-    }
-    document.addEventListener('wheel', handleWheel, { passive: false })
-    return () => {
-      document.removeEventListener('wheel', handleWheel)
-    }
-  }, [])
-
-  // Auto-redirect phones (<480px) to mobile view unless explicit desktop preference set
-  React.useEffect(() => {
-    if (isPhone && userPref !== 'desktop' && !location.pathname.startsWith('/mobile') && location.pathname !== '/portal' && location.pathname !== '/auth/callback') {
-      navigate('/mobile/dashboard', { replace: true })
-    }
-  }, [isPhone, userPref, location.pathname, navigate])
-
-  const isAuthCallback = location.pathname === '/auth/callback'
-  const isCustomerPortal = location.pathname === '/portal'
   const isMobileRoute = location.pathname.startsWith('/mobile')
-
-  // Render Customer Portal in full screen layout for public customers
-  if (isCustomerPortal) {
-    return <CustomerPortal />
-  }
-
-  // Handle Mobile Auth route or unauthenticated mobile users
-  if (isMobileRoute && !currentUser && !isAuthCallback) {
-    return <MobileAuth />
-  }
-
-  // Show login page if not authenticated
-  if (!currentUser && !isAuthCallback) {
-    return <Auth />
-  }
+  const isAuthCallback = location.pathname === '/auth/callback'
 
   // Render AuthCallback in full screen layout
   if (isAuthCallback) {
@@ -96,6 +76,20 @@ function App() {
         <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
         <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
         <Route path="/mobile/settings" element={<MobileSettings />} />
+        <Route path="/mobile/recurring-bills" element={<MobileRecurringBills />} />
+        <Route path="/mobile/refunds" element={<MobileRefunds />} />
+        <Route path="/mobile/customers" element={<MobileCustomers />} />
+        <Route path="/mobile/customer-ledger" element={<MobileCustomerLedger />} />
+        <Route path="/mobile/inventory" element={<MobileInventory />} />
+        <Route path="/mobile/advance-payments" element={<MobileAdvancePayments />} />
+        <Route path="/mobile/accounting" element={<MobileAccounting />} />
+        <Route path="/mobile/analytics" element={<MobileAnalytics />} />
+        <Route path="/mobile/group-billing" element={<MobileGroupBilling />} />
+        <Route path="/mobile/customer-bills" element={<MobileCustomerBills />} />
+        <Route path="/mobile/portal" element={<MobileCustomerPortal />} />
+        <Route path="/mobile/receipt" element={<MobileReceipt />} />
+        <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
+        <Route path="/mobile/data-management" element={<MobileDataManagement />} />
         <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />
       </Routes>
     )
@@ -103,13 +97,13 @@ function App() {
 
   return (
     <div className="app-layout">
-      {isTablet && !dismissBanner && userPref === null && !isMobileRoute && (
+      {isTablet && !userPref && !isMobileRoute && (
         <ViewportBanner
           onSwitchToMobile={() => {
             setUserPref('mobile')
             navigate('/mobile/dashboard')
           }}
-          onDismiss={() => setDismissBanner(true)}
+          onDismiss={() => setUserPref('desktop')}
         />
       )}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -130,12 +124,6 @@ function App() {
             <Route path="/search" element={<Search />} />
             <Route path="/receipt" element={<Receipt />} />
             <Route path="/auth" element={<Auth />} />
-            <Route path="/mobile/auth" element={<MobileAuth />} />
-            <Route path="/mobile/dashboard" element={<MobileDashboard />} />
-            <Route path="/mobile/billing" element={<MobileBillingList />} />
-            <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
-            <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
-            <Route path="/mobile/settings" element={<MobileSettings />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/item-sales-report" element={<ItemSalesReport />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
