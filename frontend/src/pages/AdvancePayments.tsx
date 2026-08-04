@@ -473,8 +473,8 @@ const AdvancePayments = () => {
 
           {filteredHistory.length === 0 ? (
             <EmptyState
-              Icon={Wallet}
-              title="No advance transactions"
+              Icon={Wallet as any}
+              title="No Advance Deposits Yet"
               description={advancePayments.length === 0 ? 'Record your first advance payment using the form.' : 'No transaction records match your filters.'}
             />
           ) : (

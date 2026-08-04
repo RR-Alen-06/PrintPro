@@ -16,27 +16,27 @@ const priceFields = [
 const Inventory = () => {
   const { data: serverInventory = [] } = useInventory()
   const { createItem, updateItem, deleteItem } = useInventoryMutations()
-  const inventory = serverInventory
+  const inventory: any[] = serverInventory
 
   // Add form state
   const [showAddForm, setShowAddForm] = useState(false)
   const [addForm, setAddForm] = useState(EMPTY_FORM)
-  const [addErrors, setAddErrors] = useState({})
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({})
   const [addSuccess, setAddSuccess] = useState(false)
 
   // Inline edit state
-  const [editingId, setEditingId] = useState(null)
-  const [editForm, setEditForm] = useState({})
-  const [editErrors, setEditErrors] = useState({})
+  const [editingId, setEditingId] = useState<any>(null)
+  const [editForm, setEditForm] = useState<any>({})
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
 
   // Delete confirm
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<any>(null)
   const [deletedIds, setDeletedIds] = useState(new Set())
 
   // ── Validation ─────────────────────────────────────────────────────────────
-  const validateForm = (form) => {
-    const errs = {}
-    if (!form.name.trim()) errs.name = 'Name is required.'
+  const validateForm = (form: any) => {
+    const errs: Record<string, string> = {}
+    if (!form.name || !form.name.trim()) errs.name = 'Name is required.'
     
     if (form.type === 'product') {
       const sp = form.sellingPrice
@@ -68,7 +68,7 @@ const Inventory = () => {
     if (Object.keys(errs).length > 0) { setAddErrors(errs); return }
 
     try {
-      await createItem({
+      await (createItem as any)({
         name: addForm.name.trim(),
         color_single: addForm.type === 'product' ? 0 : Number(addForm.colorSingle || 0),
         color_double: addForm.type === 'product' ? 0 : Number(addForm.colorDouble || 0),
@@ -82,13 +82,13 @@ const Inventory = () => {
       setAddErrors({})
       setAddSuccess(true)
       setTimeout(() => { setAddSuccess(false); setShowAddForm(false) }, 1600)
-    } catch (err) {
+    } catch (err: any) {
       setAddErrors({ form: err.message || 'Failed to add item' })
     }
   }
 
   // ── Inline edit ────────────────────────────────────────────────────────────
-  const startEdit = (item) => {
+  const startEdit = (item: any) => {
     setEditingId(item.id)
     setEditForm({
       name: item.name,
@@ -110,17 +110,17 @@ const Inventory = () => {
     setEditErrors({})
   }
 
-  const handleEditChange = (field, value) => {
-    setEditForm((f) => ({ ...f, [field]: value }))
-    if (editErrors[field]) setEditErrors((e) => { const n = { ...e }; delete n[field]; return n })
+  const handleEditChange = (field: string, value: any) => {
+    setEditForm((f: any) => ({ ...f, [field]: value }))
+    if (editErrors[field]) setEditErrors((e: any) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const saveEdit = async (id) => {
+  const saveEdit = async (id: any) => {
     const errs = validateForm(editForm)
     if (Object.keys(errs).length > 0) { setEditErrors(errs); return }
 
     try {
-      await updateItem({
+      await (updateItem as any)({
         id,
         data: {
           name: editForm.name.trim(),
@@ -133,15 +133,15 @@ const Inventory = () => {
         }
       })
       setEditingId(null)
-    } catch (err) {
+    } catch (err: any) {
       setEditErrors({ form: err.message || 'Failed to update item' })
     }
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
-  const confirmDelete = (id) => setDeleteConfirmId(id)
+  const confirmDelete = (id: any) => setDeleteConfirmId(id)
   const cancelDelete = () => setDeleteConfirmId(null)
-  const executeDelete = async (id) => {
+  const executeDelete = async (id: any) => {
     try {
       await deleteItem(id)
       setDeleteConfirmId(null)
@@ -318,7 +318,7 @@ const Inventory = () => {
                 <tr>
                   <td colSpan={6} style={{ padding: '0' }}>
                     <EmptyState
-                      Icon={Inbox}
+                      Icon={Inbox as any}
                       title="No items in inventory"
                       description="You haven't configured any paper or pricing configurations yet."
                       actionText="Create Pricing Profile"
