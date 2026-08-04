@@ -238,9 +238,10 @@ const Header = ({ onMenuClick }) => {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  logout()
+                onClick={async () => {
                   setShowUserMenu(false)
+                  await logout()
+                  navigate('/auth', { replace: true })
                 }}
                 style={{
                   width: '100%',

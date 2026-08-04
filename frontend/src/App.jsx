@@ -68,10 +68,14 @@ function App() {
   }
 
   if (isAuthPage) {
+    if (currentUser && !isInitialLoading) {
+      return <Navigate to="/dashboard" replace />
+    }
     return <Auth />
   }
 
-  if (currentUser && isInitialLoading) {
+  // 1. Initial boot / session check in progress -> Show loading spinner
+  if (isInitialLoading) {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff', flexDirection: 'column', gap: '16px' }}>
         <div style={{ width: '40px', height: '40px', border: '4px solid rgba(255,255,255,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -79,6 +83,11 @@ function App() {
         <p style={{ fontSize: '14px', color: '#94a3b8' }}>Loading secure user session...</p>
       </div>
     )
+  }
+
+  // 2. Boot check complete, no active user session -> Redirect to /auth
+  if (!currentUser) {
+    return <Navigate to="/auth" replace />
   }
 
   // Render Mobile App Routes in standalone mobile layout

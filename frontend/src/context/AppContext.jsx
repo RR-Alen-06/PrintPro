@@ -75,11 +75,7 @@ const initialState = {
   customerGroups: [],
   groupBills: [],
   deletedPayments: [],
-  promoCodes: [
-    { code: 'STUDENT10', type: 'percent', value: 10, minAmount: 0 },
-    { code: 'BULK50', type: 'flat', value: 50, minAmount: 500 },
-    { code: 'WELCOME20', type: 'flat', value: 20, minAmount: 150 },
-  ],
+  promoCodes: [],
   idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
@@ -966,6 +962,7 @@ export const AppProvider = ({ children }) => {
       } else {
         console.log('=== AUTHENTICATION DIAGNOSTICS: NO ACTIVE SESSION ===')
         dispatch({ type: 'RESET_STATE' });
+        setIsInitialLoading(false);
       }
     });
 
@@ -1341,36 +1338,47 @@ export const AppProvider = ({ children }) => {
 
   useEffect(() => {
     let realtimeChannel = null
-    // Debounce helper to avoid rapid re-syncs from realtime events
     let realtimeDebounce = null
+    const userId = state.currentUser?.id
+
     const debouncedSync = () => {
       if (realtimeDebounce) clearTimeout(realtimeDebounce)
-      realtimeDebounce = setTimeout(() => { syncFromCloud() }, 2000)
+      realtimeDebounce = setTimeout(() => { syncFromCloud() }, 1500)
     }
 
-    if (state.currentUser) {
-      // 1. Fetch once on login/auth change
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && state.currentUser) {
+        console.log('Window focused: re-synchronizing multi-device data from cloud...')
+        syncFromCloud()
+      }
+    }
+
+    if (userId) {
+      // 1. Fetch initial cloud data on login
       syncFromCloud()
 
-      // 2. Enable Realtime Postgres Subscription — debounced to avoid loops
+      // 2. Enable Realtime Postgres Changes Subscription scoped strictly to authenticated user_id
       realtimeChannel = supabase
-        .channel('realtime-db-sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, debouncedSync)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, debouncedSync)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, debouncedSync)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items' }, debouncedSync)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases' }, debouncedSync)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'business_profile' }, debouncedSync)
+        .channel(`realtime-db-sync:${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bills', filter: `user_id=eq.${userId}` }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers', filter: `user_id=eq.${userId}` }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'payments', filter: `user_id=eq.${userId}` }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `user_id=eq.${userId}` }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases', filter: `user_id=eq.${userId}` }, debouncedSync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'business_profile', filter: `user_id=eq.${userId}` }, debouncedSync)
         .subscribe((status) => {
-          console.log(`Supabase Realtime channel status: ${status}`);
+          console.log(`Supabase Realtime channel status for user ${userId}: ${status}`);
         });
+
+      window.addEventListener('visibilitychange', handleVisibilityChange)
 
       return () => {
         if (realtimeDebounce) clearTimeout(realtimeDebounce)
         if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+        window.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
-  }, [state.currentUser])
+  }, [state.currentUser?.id])
 
   const getCustomerById = (customerId) => state.customers.find((customer) => customer.id === customerId)
 
@@ -2328,13 +2336,17 @@ export const AppProvider = ({ children }) => {
   }
 
   const logout = async () => {
+    const userId = state.currentUser?.id
+    if (userId) {
+      localStorage.removeItem(`printpro-state:${userId}`)
+      localStorage.removeItem(`offline_sync_queue:${userId}`)
+    }
+    rawDispatch({ type: 'RESET_STATE' })
+
     try {
       await supabase.auth.signOut()
     } catch (err) {
       console.warn('Supabase signOut error:', err)
-    } finally {
-      dispatch({ type: 'SET_CURRENT_USER', payload: null })
-      window.location.href = '/auth'
     }
   }
 

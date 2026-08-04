@@ -1,78 +1,83 @@
+import api from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 
 export const getBillPayments = async (billId) => {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('bill_id', billId)
-    .order('date', { ascending: true });
-  if (error) {
-    logSupabaseError('payments', 'SELECT_BILL_PAYMENTS', { bill_id: billId }, error);
-    throw error;
+  try {
+    const res = await api.get(`/bills/${billId}/payments`);
+    return { data: { data: res.data.data } };
+  } catch (err) {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('bill_id', billId)
+      .order('date', { ascending: true });
+    if (error) throw error;
+    return { data: { data } };
   }
-  return { data: { data } };
 }
 
 export const createPayment = async (data) => {
   const { data: { user } } = await supabase.auth.getUser();
-  
-  const paymentData = {
-    user_id: user?.id,
+  const payload = {
     bill_id: data.bill_id,
     customer_id: data.customer_id,
-    cash_amount: data.cash_amount || 0,
-    upi_amount: data.upi_amount || 0,
-    total_paid: data.total_paid || 0,
+    cash_amount: Number(data.cash_amount || 0),
+    upi_amount: Number(data.upi_amount || 0),
+    total_paid: Number(data.total_paid || 0),
     payment_type: data.payment_type || 'partial',
     notes: data.notes || ''
   };
-  
-  const { data: inserted, error } = await supabase
-    .from('payments')
-    .upsert([paymentData])
-    .select()
-    .single();
-    
-  if (error) {
-    logSupabaseError('payments', 'UPSERT', paymentData, error);
-    throw error;
+
+  try {
+    const res = await api.post('/payments', payload);
+    return { data: { data: res.data.data } };
+  } catch (err) {
+    const { data: inserted, error } = await supabase
+      .from('payments')
+      .upsert([{ ...payload, user_id: user?.id }])
+      .select()
+      .single();
+    if (error) throw error;
+    return { data: { data: inserted } };
   }
-  return { data: { data: inserted } };
 }
 
 export const getCustomerPayments = async (customerId) => {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('customer_id', customerId)
-    .order('date', { ascending: false });
-  if (error) {
-    logSupabaseError('payments', 'SELECT_CUSTOMER_PAYMENTS', { customer_id: customerId }, error);
-    throw error;
+  try {
+    const res = await api.get(`/customers/${customerId}/payments`);
+    return { data: { data: res.data.data } };
+  } catch (err) {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return { data: { data } };
   }
-  return { data: { data } };
 }
 
 export const getPayments = async () => {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .order('date', { ascending: false });
-  if (error) {
-    logSupabaseError('payments', 'SELECT_ALL', {}, error);
-    throw error;
+  try {
+    const res = await api.get('/payments');
+    return { data: { data: res.data.data } };
+  } catch (err) {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return { data: { data } };
   }
-  return { data: { data } };
 }
 
 export const deletePayment = async (id) => {
-  const { data, error } = await supabase
-    .from('payments')
-    .delete()
-    .eq('id', id);
-  if (error) {
-    logSupabaseError('payments', 'DELETE', { id }, error);
-    throw error;
+  try {
+    await api.delete(`/payments/${id}`);
+    return { data: { success: true } };
+  } catch (err) {
+    const { error } = await supabase.from('payments').delete().eq('id', id);
+    if (error) throw error;
+    return { data: { success: true } };
   }
-  return { data: { success: true } };
 }
