@@ -1,10 +1,13 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useProfile, useProfileMutations } from '../hooks/useProfileQuery'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2 } from 'lucide-react'
 import { clearAllCloudData } from '../lib/syncService'
 
 const Settings = () => {
   const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast } = useAppContext()
+  const { data: serverProfile = {} } = useProfile()
+  const { updateProfile } = useProfileMutations()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -204,11 +207,23 @@ const Settings = () => {
 
   const [clearConfirm, setClearConfirm] = useState(false)
 
-  const handleBizSave = (e) => {
+  const handleSaveBiz = async (e) => {
     e.preventDefault()
     updateBusiness(biz)
-    setBizSaved(true)
-    setTimeout(() => setBizSaved(false), 3000)
+    try {
+      await updateProfile({
+        shop_name: biz.shopName,
+        owner_name: biz.ownerName,
+        phone: biz.phone,
+        address: biz.address,
+        gstin: biz.gstin,
+        upi_id: biz.upiId,
+      })
+      setBizSaved(true)
+      setTimeout(() => setBizSaved(false), 3000)
+    } catch (err) {
+      console.error('Failed to save profile via query mutation:', err)
+    }
   }
 
   const handleAcctSave = (e) => {

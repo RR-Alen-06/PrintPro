@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
+    "@tanstack/query-sync-storage-persister": "^5.101.4",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-query-persist-client": "^5.101.4",
     "axios": "^1.7.7",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",

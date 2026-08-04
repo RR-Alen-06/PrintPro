@@ -77,7 +77,7 @@ router.put('/:id', async (req, res, next) => {
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
     const { date, item_name, category, qty, unit_cost, notes } = req.body;
-    const updates = {};
+    const updates: Record<string, any> = {};
     if (date !== undefined)      updates.date = date;
     if (item_name !== undefined) updates.item_name = item_name;
     if (category !== undefined)  updates.category = category;

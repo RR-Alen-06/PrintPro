@@ -32,6 +32,9 @@ export const createPayment = async (data) => {
     const res = await api.post('/payments', payload);
     return { data: { data: res.data.data } };
   } catch (err) {
+    if (err.response && err.response.status >= 400 && err.response.status < 500) {
+      throw err;
+    }
     const { data: inserted, error } = await supabase
       .from('payments')
       .upsert([{ ...payload, user_id: user?.id }])

@@ -1,6 +1,10 @@
-const { createClient } = require('@supabase/supabase-js');
+import { Request, Response, NextFunction } from 'express';
+import { createClient, User } from '@supabase/supabase-js';
 
-// Initialize the Supabase client on backend using environment variables
+export interface AuthenticatedRequest extends Request {
+  user?: User;
+}
+
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
@@ -10,11 +14,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-/**
- * Express middleware to authenticate API requests using Supabase JWT.
- * Extracts the Bearer token from the Authorization header and verifies it via supabase.auth.getUser().
- */
-const auth = async (req, res, next) => {
+export const auth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -25,8 +25,6 @@ const auth = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    
-    // Call Supabase API to retrieve user metadata (validates JWT)
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
@@ -36,7 +34,6 @@ const auth = async (req, res, next) => {
       });
     }
 
-    // Attach user information to request context
     req.user = user;
     next();
   } catch (err) {
@@ -47,4 +44,4 @@ const auth = async (req, res, next) => {
   }
 };
 
-module.exports = auth;
+export default auth;

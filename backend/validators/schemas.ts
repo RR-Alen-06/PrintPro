@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const customerSchema = z.object({
-  id: z.string().min(1, 'Customer ID is required'),
+  id: z.string().optional(),
+  customer_code: z.string().optional(),
   type: z.enum(['regular', 'random']).default('regular'),
   name: z.string().min(1, 'Customer name is required'),
   phone: z.string().optional().default(''),
@@ -9,6 +10,17 @@ export const customerSchema = z.object({
   address: z.string().optional().default(''),
   credit_balance: z.number().nonnegative().optional().default(0),
   credit_limit: z.number().nonnegative().optional().default(0)
+});
+
+export const inventoryItemSchema = z.object({
+  id: z.union([z.string(), z.number()]).optional(),
+  name: z.string().min(1, 'Item name is required'),
+  color_single: z.number().nonnegative().optional().default(0),
+  color_double: z.number().nonnegative().optional().default(0),
+  bw_single: z.number().nonnegative().optional().default(0),
+  bw_double: z.number().nonnegative().optional().default(0),
+  stock: z.number().int().nonnegative().optional().default(0),
+  low_stock_alert: z.number().int().nonnegative().optional().default(50)
 });
 
 export const billItemSchema = z.object({
@@ -21,7 +33,8 @@ export const billItemSchema = z.object({
 });
 
 export const billSchema = z.object({
-  id: z.string().min(1, 'Bill ID is required'),
+  id: z.string().optional(),
+  invoice_number: z.string().optional(),
   customer_id: z.string().min(1, 'Customer ID is required'),
   date: z.string().min(1, 'Date is required'),
   due_date: z.string().nullable().optional(),
