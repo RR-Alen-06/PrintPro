@@ -52,7 +52,7 @@ import ViewportBanner from './components/mobile/ViewportBanner'
 import { useMobileDetect } from './hooks/useMobileDetect'
 
 function App() {
-  const { currentUser } = useAppContext()
+  const { currentUser, isInitialLoading } = useAppContext()
   const location = useLocation()
   const navigate = useNavigate()
   const { isMobile, isTablet, userPref, setUserPref } = useMobileDetect()
@@ -69,6 +69,16 @@ function App() {
 
   if (isAuthPage) {
     return <Auth />
+  }
+
+  if (currentUser && isInitialLoading) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ width: '40px', height: '40px', border: '4px solid rgba(255,255,255,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <p style={{ fontSize: '14px', color: '#94a3b8' }}>Loading secure user session...</p>
+      </div>
+    )
   }
 
   // Render Mobile App Routes in standalone mobile layout

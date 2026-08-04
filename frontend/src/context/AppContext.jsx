@@ -83,9 +83,10 @@ const initialState = {
   idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
-const loadState = () => {
+const loadState = (userId) => {
   try {
-    const stored = localStorage.getItem('printpro-state')
+    if (!userId) return initialState
+    const stored = localStorage.getItem(`printpro-state:${userId}`)
     if (!stored) return initialState
     const parsed = JSON.parse(stored)
     
@@ -109,12 +110,13 @@ const loadState = () => {
   }
 }
 
-const saveState = (state) => {
+const saveState = (state, userId) => {
   try {
+    if (!userId) return
     const { currentUser, users, ...rest } = state
     
     // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
-    const stored = localStorage.getItem('printpro-state')
+    const stored = localStorage.getItem(`printpro-state:${userId}`)
     if (stored) {
       const parsed = JSON.parse(stored)
       const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
@@ -126,7 +128,7 @@ const saveState = (state) => {
       }
     }
     
-    localStorage.setItem('printpro-state', JSON.stringify(rest))
+    localStorage.setItem(`printpro-state:${userId}`, JSON.stringify(rest))
   } catch (error) {
     console.error('Failed to save state', error)
   }
@@ -301,6 +303,40 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         idCounters: { ...state.idCounters, [action.payload]: (state.idCounters?.[action.payload] || 0) + 1 },
+      }
+    }
+    case 'SET_SYNC_STATUS': {
+      const { entityId, status, error } = action.payload
+      return {
+        ...state,
+        syncState: {
+          ...(state.syncState || {}),
+          [entityId]: { status, error: error || null, timestamp: Date.now() }
+        }
+      }
+    }
+    case 'ROLLBACK_ENTITY': {
+      const { entityType, entityId } = action.payload
+      switch (entityType) {
+        case 'bills':
+          return { ...state, bills: state.bills.filter(b => b.id !== entityId) }
+        case 'customers':
+          return { ...state, customers: state.customers.filter(c => c.id !== entityId) }
+        case 'payments':
+          return { ...state, payments: state.payments.filter(p => p.id !== entityId) }
+        case 'inventory':
+          return { ...state, inventory: state.inventory.filter(i => i.id !== entityId) }
+        case 'expenses':
+          return { ...state, expenses: state.expenses.filter(e => e.id !== entityId) }
+        default:
+          return state
+      }
+    }
+    case 'RESET_STATE': {
+      return {
+        ...initialState,
+        syncState: {},
+        currentUser: null,
       }
     }
     case 'SET_CURRENT_USER': {
@@ -757,8 +793,8 @@ const calcLoyaltyPoints = (total, tiers) => {
 }
 
 export const AppProvider = ({ children }) => {
-  const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
-
+  const [state, rawDispatch] = useReducer(reducer, initialState, () => loadState(null))
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
 
@@ -777,30 +813,77 @@ export const AppProvider = ({ children }) => {
     setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
   }
 
+  const getEntityIdAndType = (actionType, payload) => {
+    if (!payload) return { entityId: null, entityType: null }
+    const entityId = payload.id || payload.billId || payload.customerId
+    const typeMap = {
+      ADD_BILL: 'bills', UPDATE_BILL: 'bills', DELETE_BILL: 'bills',
+      ADD_CUSTOMER: 'customers', UPDATE_CUSTOMER: 'customers', DELETE_CUSTOMER: 'customers',
+      ADD_PAYMENT: 'payments', DELETE_PAYMENT: 'payments',
+      ADD_INVENTORY_ITEM: 'inventory', UPDATE_INVENTORY_ITEM: 'inventory', REMOVE_INVENTORY_ITEM: 'inventory',
+      ADD_EXPENSE: 'expenses', DELETE_EXPENSE: 'expenses'
+    }
+    return { entityId: entityId ? String(entityId) : null, entityType: typeMap[actionType] || null }
+  }
+
   const dispatch = (action) => {
     rawDispatch(action)
     
+    const userId = state.currentUser?.id
+    const queueKey = userId ? `offline_sync_queue:${userId}` : 'offline_sync_queue'
+    const { entityId, entityType } = getEntityIdAndType(action.type, action.payload)
+
+    if (entityId) {
+      rawDispatch({ type: 'SET_SYNC_STATUS', payload: { entityId, status: 'syncing', error: null } })
+    }
+
     if (!navigator.onLine) {
-      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      const queue = JSON.parse(localStorage.getItem(queueKey) || '[]')
       queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
-      localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
+      localStorage.setItem(queueKey, JSON.stringify(queue))
+      if (entityId) {
+        rawDispatch({ type: 'SET_SYNC_STATUS', payload: { entityId, status: 'pending', error: 'Offline' } })
+      }
       showToast('Offline: Changes saved locally. Will sync when online.', 'info')
       return
     }
 
     syncEntityToCloud(action.type, action.payload)
       .then(() => {
+        if (entityId) {
+          rawDispatch({ type: 'SET_SYNC_STATUS', payload: { entityId, status: 'synced', error: null } })
+        }
         console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
       })
       .catch((err) => {
         console.error(`Sync error: Database write failed for action ${action.type}`, err)
-        const isNetworkErr = !navigator.onLine || err.message?.includes('fetch') || err.message?.includes('Network') || err.status === 0
+        
+        const errMsg = String(err?.message || err || '').toLowerCase()
+        const isNetworkErr = !navigator.onLine || 
+          errMsg.includes('fetch') || 
+          errMsg.includes('network') || 
+          errMsg.includes('aborted') || 
+          errMsg.includes('timeout') || 
+          err.name === 'AbortError' || 
+          err.status === 0
+
         if (isNetworkErr) {
-          const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+          const queue = JSON.parse(localStorage.getItem(queueKey) || '[]')
           queue.push({ type: action.type, payload: action.payload, timestamp: Date.now() })
-          localStorage.setItem('offline_sync_queue', JSON.stringify(queue))
-          showToast('Connection lost: Changes saved locally. Sync pending.', 'warning')
+          localStorage.setItem(queueKey, JSON.stringify(queue))
+          if (entityId) {
+            rawDispatch({ type: 'SET_SYNC_STATUS', payload: { entityId, status: 'pending', error: 'Connection interrupted' } })
+          }
+          showToast('Connection interrupted: Changes queued for auto-retry.', 'warning')
         } else {
+          // Database level rejection / constraint violation -> rollback optimistic mutation to protect state integrity
+          if (entityId) {
+            rawDispatch({ type: 'SET_SYNC_STATUS', payload: { entityId, status: 'failed', error: err.message || 'Database rejection' } })
+            if (entityType && action.type.startsWith('ADD_')) {
+              console.warn(`Rolling back unpersisted ${entityType} ID ${entityId} due to database rejection.`)
+              rawDispatch({ type: 'ROLLBACK_ENTITY', payload: { entityType, entityId } })
+            }
+          }
           showToast(`Cloud Sync Error: ${err.message || 'Verification failed'}`, 'error')
         }
       })
@@ -809,7 +892,9 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const processSyncQueue = async () => {
       if (!navigator.onLine) return
-      const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]')
+      const userId = state.currentUser?.id
+      const queueKey = userId ? `offline_sync_queue:${userId}` : 'offline_sync_queue'
+      const queue = JSON.parse(localStorage.getItem(queueKey) || '[]')
       if (queue.length === 0) return
 
       console.log(`Connection restored! Syncing ${queue.length} offline operations...`)
@@ -826,7 +911,7 @@ export const AppProvider = ({ children }) => {
         }
       }
 
-      localStorage.setItem('offline_sync_queue', JSON.stringify(remaining))
+      localStorage.setItem(queueKey, JSON.stringify(remaining))
       if (remaining.length === 0) {
         showToast('All offline changes synced to cloud!', 'success')
       } else {
@@ -840,12 +925,14 @@ export const AppProvider = ({ children }) => {
     return () => {
       window.removeEventListener('online', processSyncQueue)
     }
-  }, [])
+  }, [state.currentUser?.id])
 
 
 
   useEffect(() => {
-    saveState(state)
+    if (state.currentUser?.id) {
+      saveState(state, state.currentUser.id)
+    }
   }, [state])
 
   // Sync Supabase Authentication State & Log Session Info
@@ -859,6 +946,12 @@ export const AppProvider = ({ children }) => {
         console.log('Role:', 'owner')
         console.log('==================================')
         
+        // Re-load state for this specific authenticated user ID
+        const userState = loadState(session.user.id)
+        if (userState && userState !== initialState) {
+          rawDispatch({ type: 'SYNC_CLOUD_DATA', payload: userState })
+        }
+
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -872,17 +965,22 @@ export const AppProvider = ({ children }) => {
         });
       } else {
         console.log('=== AUTHENTICATION DIAGNOSTICS: NO ACTIVE SESSION ===')
-        dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        dispatch({ type: 'RESET_STATE' });
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         console.log('=== AUTHENTICATION CHANGE DETECTED ===')
         console.log('User ID:', session.user.id)
         console.log('Email:', session.user.email)
         console.log('======================================')
         
+        const userState = loadState(session.user.id)
+        if (userState && userState !== initialState) {
+          rawDispatch({ type: 'SYNC_CLOUD_DATA', payload: userState })
+        }
+
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -895,7 +993,12 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
-        dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        // Logout or session signed out: Purge current session cache and reset state
+        if (state.currentUser?.id) {
+          localStorage.removeItem(`printpro-state:${state.currentUser.id}`)
+          localStorage.removeItem(`offline_sync_queue:${state.currentUser.id}`)
+        }
+        dispatch({ type: 'RESET_STATE' });
       }
     });
 
@@ -1232,6 +1335,7 @@ export const AppProvider = ({ children }) => {
         showToast(`Failed to sync state from cloud: ${error.message || 'Network error'}`, 'error')
       } finally {
         isSyncingRef.current = false
+        setIsInitialLoading(false)
       }
   }
 
@@ -2681,6 +2785,7 @@ export const AppProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       ...state,
+      isInitialLoading,
       toast,
       dialog,
       showToast,
