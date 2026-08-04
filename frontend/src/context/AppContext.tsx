@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
@@ -774,7 +775,8 @@ const calcLoyaltyPoints = (total, tiers) => {
   return matched
 }
 
-export const AppProvider = ({ children }) => {
+export const AppProvider = ({ children }: any) => {
+  const queryClient = useQueryClient()
   const [state, rawDispatch] = useReducer(reducer, initialState, () => loadState(null))
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [toast, setToast] = useState(null)
@@ -1331,12 +1333,17 @@ export const AppProvider = ({ children }) => {
 
     const debouncedSync = () => {
       if (realtimeDebounce) clearTimeout(realtimeDebounce)
-      realtimeDebounce = setTimeout(() => { syncFromCloud() }, 1500)
+      realtimeDebounce = setTimeout(() => {
+        console.log('Realtime Postgres change detected: invalidating TanStack Query caches across tabs/devices...')
+        queryClient.invalidateQueries()
+        syncFromCloud()
+      }, 500)
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && state.currentUser) {
         console.log('Window focused: re-synchronizing multi-device data from cloud...')
+        queryClient.invalidateQueries()
         syncFromCloud()
       }
     }
