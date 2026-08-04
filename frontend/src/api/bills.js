@@ -65,15 +65,19 @@ export const createBill = async (data) => {
     const res = await api.post('/bills', billPayload);
     return { data: { data: res.data.data } };
   } catch (err) {
-    // Fallback to direct Supabase upsert if local backend endpoint offline
+    if (err.response && err.response.status >= 400 && err.response.status < 500) {
+      throw err; // Re-throw 4xx client/validation errors directly to UI
+    }
+    // Fallback to direct Supabase upsert only for network/5xx offline errors
+    const { items, ...billScalarData } = billPayload;
     const { data: bill, error: billError } = await supabase
       .from('bills')
-      .upsert([{ ...billPayload, user_id: user?.id }])
+      .upsert([{ ...billScalarData, user_id: user?.id }])
       .select()
       .single();
     if (billError) throw billError;
-    if (billPayload.items && billPayload.items.length > 0) {
-      const itemsData = billPayload.items.map(item => ({ ...item, user_id: user?.id, bill_id: data.id }));
+    if (items && items.length > 0) {
+      const itemsData = items.map(item => ({ ...item, user_id: user?.id, bill_id: data.id }));
       await supabase.from('bill_items').insert(itemsData);
     }
     return { data: { data: bill } };

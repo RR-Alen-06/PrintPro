@@ -1,5 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodSchema, ZodError } from 'zod';
+import {
+  customerSchema,
+  inventoryItemSchema,
+  billSchema,
+  paymentSchema,
+  purchaseSchema,
+  profileSchema
+} from '../validators/schemas';
 
 export const validateRequest = (schema: ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -20,5 +28,12 @@ export const validateRequest = (schema: ZodSchema) => {
     }
   };
 };
+
+export const validateCustomer = validateRequest(customerSchema);
+export const validateInventoryItem = validateRequest(inventoryItemSchema);
+export const validateBill = validateRequest(billSchema);
+export const validatePayment = validateRequest(paymentSchema);
+export const validatePurchase = validateRequest(purchaseSchema);
+export const validateProfile = validateRequest(profileSchema);
 
 export default validateRequest;

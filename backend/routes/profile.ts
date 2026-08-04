@@ -18,7 +18,7 @@ router.put('/', validateProfile, async (req, res, next) => {
     const pool = getPool();
     const { shop_name, owner_name, phone, address, gstin, upi_id } = req.body;
 
-    const updates = {};
+    const updates: Record<string, any> = {};
     if (shop_name  !== undefined) updates.shop_name  = shop_name;
     if (owner_name !== undefined) updates.owner_name = owner_name;
     if (phone      !== undefined) updates.phone      = phone;

@@ -4,7 +4,7 @@ import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer } = useAppContext()
+  const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer, syncState } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -81,7 +81,7 @@ const AdvancePayments = () => {
   }, [activeCustomers])
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setFormError('')
 
@@ -108,8 +108,26 @@ const AdvancePayments = () => {
     } else {
       if (mode === 'new') {
         if (!newName.trim()) { setFormError('Customer name is required.'); return }
-        custId = addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
-        custName = newName.trim()
+        try {
+          const newCustId = await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
+          custId = newCustId
+          custName = newName.trim()
+
+          // Poll syncState for customer creation completion
+          let attempts = 0
+          while (attempts < 10) {
+            await new Promise(resolve => setTimeout(resolve, 300))
+            const currentSyncStatus = syncState?.[newCustId]
+            if (currentSyncStatus === 'synced') break
+            if (currentSyncStatus === 'failed') {
+              throw new Error('Customer creation failed to sync to cloud database.')
+            }
+            attempts++
+          }
+        } catch (custErr) {
+          setFormError(`Failed to save customer: ${custErr.message || 'Sync error'}`)
+          return
+        }
       } else {
         if (!custId) { setFormError('Select a customer.'); return }
       }

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
+import { useCustomerMutations } from '../hooks/useCustomersQuery'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
@@ -22,7 +24,10 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers, settings, inventory, payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { data: bills = [] } = useBills()
+  const { createBill, updateBill: updateBillMutation } = useBillMutations()
+  const { createCustomer } = useCustomerMutations()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -1166,7 +1171,7 @@ const Billing = () => {
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     if (event) event.preventDefault()
     if (isSubmitting) return
 
@@ -1289,9 +1294,20 @@ const Billing = () => {
         }
       }
 
-      // Create new walk-in customer now if required
+      // Create new walk-in customer now if required via TanStack Query mutation
       if (shouldCreateNewCustomer && newCustomerPayload) {
-        customerIdToUse = addCustomer(newCustomerPayload)
+        setIsSubmitting(true)
+        showToast('Saving new customer to cloud... please wait', 'info')
+        try {
+          const createdCustomer = await createCustomer(newCustomerPayload)
+          if (createdCustomer && createdCustomer.id) {
+            customerIdToUse = createdCustomer.id
+          }
+        } catch (custErr) {
+          showAlert(`Failed to save new customer: ${custErr.message || 'Cloud sync error'}`, 'error')
+          setIsSubmitting(false)
+          return
+        }
       }
 
       // Merge duplicate items before submission
@@ -1334,7 +1350,7 @@ const Billing = () => {
       }
 
       const billPayload = {
-        customerId: customerIdToUse,
+        customer_id: customerIdToUse,
         customerType,
         customerName: customerNameToUse,
         date,
@@ -1351,7 +1367,9 @@ const Billing = () => {
         cashAmount: finalCashAmount,
         upiAmount: finalUpiAmount,
         returnChangeUpi: returnChangeUpi,
-        amountPaid: finalAmountPaid,
+        amount_paid: finalAmountPaid,
+        balance: Math.max(0, total - finalAmountPaid),
+        status: finalAmountPaid >= total ? 'paid' : (finalAmountPaid > 0 ? 'partial' : 'unpaid'),
         advanceUsed: appliedAdvance,
         notes,
         estimatedCompletion: estimatedCompletion || null,

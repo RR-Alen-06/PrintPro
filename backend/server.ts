@@ -7,7 +7,7 @@ const os        = require('os');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { initializeDatabase } = require('./config/db');
+const { initializeDatabase, getPool } = require('./config/db');
 const logger        = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler  = require('./middleware/errorHandler');
@@ -120,7 +120,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ── Authenticated API routes ─────────────────────────────────────────────────
-const auth = require('./middleware/auth');
+const { auth } = require('./middleware/auth');
 app.use('/api', auth);
 
 app.use('/api/customers',     customerRoutes);

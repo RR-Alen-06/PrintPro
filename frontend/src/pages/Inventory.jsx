@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useInventory, useInventoryMutations } from '../hooks/useEntitiesQuery'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
 
@@ -13,7 +14,9 @@ const priceFields = [
 ]
 
 const Inventory = () => {
-  const { inventory, addInventoryItem, updateInventoryItem, removeInventoryItem } = useAppContext()
+  const { data: serverInventory = [] } = useInventory()
+  const { createItem, updateItem, deleteItem } = useInventoryMutations()
+  const inventory = serverInventory
 
   // Add form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -59,28 +62,29 @@ const Inventory = () => {
     if (addErrors[field]) setAddErrors((e) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const handleAddSubmit = (e) => {
+  const handleAddSubmit = async (e) => {
     e.preventDefault()
     const errs = validateForm(addForm)
     if (Object.keys(errs).length > 0) { setAddErrors(errs); return }
 
-    addInventoryItem({
-      name: addForm.name.trim(),
-      type: addForm.type || 'print',
-      colorSingle: addForm.type === 'product' ? 0 : Number(addForm.colorSingle),
-      colorDouble: addForm.type === 'product' ? 0 : Number(addForm.colorDouble),
-      bwSingle: addForm.type === 'product' ? 0 : Number(addForm.bwSingle),
-      bwDouble: addForm.type === 'product' ? 0 : Number(addForm.bwDouble),
-      sellingPrice: addForm.type === 'product' ? Number(addForm.sellingPrice) : 0,
-      stock: addForm.type === 'product' ? Number(addForm.stock) : 0,
-      lowStockAlert: Number(addForm.lowStockAlert || 5),
-      hsnCode: addForm.hsnCode || ''
-    })
+    try {
+      await createItem({
+        name: addForm.name.trim(),
+        color_single: addForm.type === 'product' ? 0 : Number(addForm.colorSingle || 0),
+        color_double: addForm.type === 'product' ? 0 : Number(addForm.colorDouble || 0),
+        bw_single: addForm.type === 'product' ? 0 : Number(addForm.bwSingle || 0),
+        bw_double: addForm.type === 'product' ? 0 : Number(addForm.bwDouble || 0),
+        stock: Number(addForm.stock || 0),
+        low_stock_alert: Number(addForm.lowStockAlert || 50),
+      })
 
-    setAddForm(EMPTY_FORM)
-    setAddErrors({})
-    setAddSuccess(true)
-    setTimeout(() => { setAddSuccess(false); setShowAddForm(false) }, 1600)
+      setAddForm(EMPTY_FORM)
+      setAddErrors({})
+      setAddSuccess(true)
+      setTimeout(() => { setAddSuccess(false); setShowAddForm(false) }, 1600)
+    } catch (err) {
+      setAddErrors({ form: err.message || 'Failed to add item' })
+    }
   }
 
   // ── Inline edit ────────────────────────────────────────────────────────────
@@ -89,13 +93,13 @@ const Inventory = () => {
     setEditForm({
       name: item.name,
       type: item.type || 'print',
-      colorSingle: item.colorSingle || 0,
-      colorDouble: item.colorDouble || 0,
-      bwSingle: item.bwSingle || 0,
-      bwDouble: item.bwDouble || 0,
+      colorSingle: item.color_single || item.colorSingle || 0,
+      colorDouble: item.color_double || item.colorDouble || 0,
+      bwSingle: item.bw_single || item.bwSingle || 0,
+      bwDouble: item.bw_double || item.bwDouble || 0,
       sellingPrice: item.sellingPrice || 0,
       stock: item.stock || 0,
-      lowStockAlert: item.lowStockAlert || 5,
+      lowStockAlert: item.low_stock_alert || item.lowStockAlert || 50,
       hsnCode: item.hsnCode || ''
     })
     setEditErrors({})
@@ -111,33 +115,40 @@ const Inventory = () => {
     if (editErrors[field]) setEditErrors((e) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const saveEdit = (id) => {
+  const saveEdit = async (id) => {
     const errs = validateForm(editForm)
     if (Object.keys(errs).length > 0) { setEditErrors(errs); return }
 
-    updateInventoryItem(id, {
-      name: editForm.name.trim(),
-      type: editForm.type || 'print',
-      colorSingle: editForm.type === 'product' ? 0 : Number(editForm.colorSingle),
-      colorDouble: editForm.type === 'product' ? 0 : Number(editForm.colorDouble),
-      bwSingle: editForm.type === 'product' ? 0 : Number(editForm.bwSingle),
-      bwDouble: editForm.type === 'product' ? 0 : Number(editForm.bwDouble),
-      sellingPrice: editForm.type === 'product' ? Number(editForm.sellingPrice) : 0,
-      stock: editForm.type === 'product' ? Number(editForm.stock) : 0,
-      lowStockAlert: Number(editForm.lowStockAlert || 5),
-      hsnCode: editForm.hsnCode || ''
-    })
-    setEditingId(null)
+    try {
+      await updateItem({
+        id,
+        data: {
+          name: editForm.name.trim(),
+          color_single: editForm.type === 'product' ? 0 : Number(editForm.colorSingle || 0),
+          color_double: editForm.type === 'product' ? 0 : Number(editForm.colorDouble || 0),
+          bw_single: editForm.type === 'product' ? 0 : Number(editForm.bwSingle || 0),
+          bw_double: editForm.type === 'product' ? 0 : Number(editForm.bwDouble || 0),
+          stock: Number(editForm.stock || 0),
+          low_stock_alert: Number(editForm.lowStockAlert || 50),
+        }
+      })
+      setEditingId(null)
+    } catch (err) {
+      setEditErrors({ form: err.message || 'Failed to update item' })
+    }
   }
 
-  // ── Delete (soft — mark in local set, keeps state compat) ─────────────────
+  // ── Delete ─────────────────────────────────────────────────────────────────
   const confirmDelete = (id) => setDeleteConfirmId(id)
   const cancelDelete = () => setDeleteConfirmId(null)
-  const executeDelete = (id) => {
-    removeInventoryItem(id)
-    setDeletedIds((prev) => new Set([...prev, id]))
-    setDeleteConfirmId(null)
-    if (editingId === id) setEditingId(null)
+  const executeDelete = async (id) => {
+    try {
+      await deleteItem(id)
+      setDeleteConfirmId(null)
+      if (editingId === id) setEditingId(null)
+    } catch (err) {
+      console.error('Delete item failed:', err)
+    }
   }
 
   const visibleInventory = inventory.filter((item) => !deletedIds.has(item.id))

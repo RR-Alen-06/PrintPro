@@ -79,6 +79,11 @@ const initialState = {
   idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
+const isUUID = (str) => {
+  if (typeof str !== 'string') return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str)
+}
+
 const loadState = (userId) => {
   try {
     if (!userId) return initialState
@@ -86,6 +91,15 @@ const loadState = (userId) => {
     if (!stored) return initialState
     const parsed = JSON.parse(stored)
     
+    // Purge stale local cache if customers or bills contain non-UUID primary keys from before the migration
+    const hasStaleCustomers = Array.isArray(parsed.customers) && parsed.customers.some(c => c.id && !isUUID(c.id))
+    const hasStaleBills = Array.isArray(parsed.bills) && parsed.bills.some(b => b.id && !isUUID(b.id))
+    if (hasStaleCustomers || hasStaleBills) {
+      console.warn('Stale non-UUID customer or bill IDs detected in localStorage. Invalidating local cache for fresh cloud sync.')
+      localStorage.removeItem(`printpro-state:${userId}`)
+      return initialState
+    }
+
     // Force users and currentUser to be initialized correctly
     const { currentUser, users, ...sanitized } = parsed;
 
@@ -109,14 +123,14 @@ const loadState = (userId) => {
 const saveState = (state, userId) => {
   try {
     if (!userId) return
-    const { currentUser, users, ...rest } = state
+    const { currentUser, users, customers, bills, payments, inventory, purchases, ...rest } = state // Managed by TanStack Query persister
     
     // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
     const stored = localStorage.getItem(`printpro-state:${userId}`)
     if (stored) {
       const parsed = JSON.parse(stored)
-      const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
-      const wasStoredPopulated = (parsed.bills && parsed.bills.length > 0) || (parsed.customers && parsed.customers.length > 0)
+      const isIncomingEmpty = (!rest.expenses || rest.expenses.length === 0)
+      const wasStoredPopulated = (parsed.expenses && parsed.expenses.length > 0)
       
       if (isIncomingEmpty && wasStoredPopulated) {
         console.warn('Prevented saving empty state over populated local state.')
@@ -301,37 +315,9 @@ const baseReducer = (state, action) => {
         idCounters: { ...state.idCounters, [action.payload]: (state.idCounters?.[action.payload] || 0) + 1 },
       }
     }
-    case 'SET_SYNC_STATUS': {
-      const { entityId, status, error } = action.payload
-      return {
-        ...state,
-        syncState: {
-          ...(state.syncState || {}),
-          [entityId]: { status, error: error || null, timestamp: Date.now() }
-        }
-      }
-    }
-    case 'ROLLBACK_ENTITY': {
-      const { entityType, entityId } = action.payload
-      switch (entityType) {
-        case 'bills':
-          return { ...state, bills: state.bills.filter(b => b.id !== entityId) }
-        case 'customers':
-          return { ...state, customers: state.customers.filter(c => c.id !== entityId) }
-        case 'payments':
-          return { ...state, payments: state.payments.filter(p => p.id !== entityId) }
-        case 'inventory':
-          return { ...state, inventory: state.inventory.filter(i => i.id !== entityId) }
-        case 'expenses':
-          return { ...state, expenses: state.expenses.filter(e => e.id !== entityId) }
-        default:
-          return state
-      }
-    }
     case 'RESET_STATE': {
       return {
         ...initialState,
-        syncState: {},
         currentUser: null,
       }
     }
@@ -990,11 +976,13 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
-        // Logout or session signed out: Purge current session cache and reset state
+        // Logout or session signed out: Purge current user local cache and reset TanStack Query cache
         if (state.currentUser?.id) {
           localStorage.removeItem(`printpro-state:${state.currentUser.id}`)
           localStorage.removeItem(`offline_sync_queue:${state.currentUser.id}`)
+          localStorage.removeItem(`PRINTPRO_REACT_QUERY_CACHE:${state.currentUser.id}`)
         }
+        localStorage.removeItem('PRINTPRO_REACT_QUERY_CACHE')
         dispatch({ type: 'RESET_STATE' });
       }
     });

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 
@@ -17,8 +18,12 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, customers, bills, payments, advancePayments, addCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, bills, payments, advancePayments, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
+
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { createCustomer, updateCustomer, deleteCustomer } = useCustomerMutations()
+  const customers = serverCustomers
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -298,52 +303,59 @@ const Customers = () => {
     return errs
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     const errs = validate()
     if (Object.keys(errs).length > 0) { setErrors(errs); return }
 
-    if (editMode && editingId) {
-      // Edit mode — preserve ID, update editable fields
-      updateCustomerFull(editingId, {
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        creditBalance: form.type === 'regular' ? Number(form.creditBalance || 0) : undefined,
-        creditLimit: form.type === 'regular' ? Number(form.creditLimit || 0) : undefined,
-      })
-      setSuccessMsg(`Customer updated successfully!`)
-    } else {
-      const isRegular = form.type === 'regular'
-      const method = form.openingBalanceMethod
-      
-      const opCash = isRegular ? (
-        method === 'cash' ? Number(form.openingCash || 0) :
-        method === 'split' ? Number(form.openingCash || 0) : 0
-      ) : 0
+    try {
+      if (editMode && editingId) {
+        // Edit mode — preserve ID, update editable fields
+        await updateCustomer({
+          id: editingId,
+          data: {
+            name: form.name.trim(),
+            phone: form.phone.trim(),
+            email: form.email.trim(),
+            credit_balance: form.type === 'regular' ? Number(form.creditBalance || 0) : undefined,
+            credit_limit: form.type === 'regular' ? Number(form.creditLimit || 0) : undefined,
+          }
+        })
+        setSuccessMsg(`Customer updated successfully!`)
+      } else {
+        const isRegular = form.type === 'regular'
+        const method = form.openingBalanceMethod
+        
+        const opCash = isRegular ? (
+          method === 'cash' ? Number(form.openingCash || 0) :
+          method === 'split' ? Number(form.openingCash || 0) : 0
+        ) : 0
 
-      const opUpi = isRegular ? (
-        method === 'upi' ? Number(form.openingUpi || 0) :
-        method === 'split' ? Number(form.openingUpi || 0) : 0
-      ) : 0
+        const opUpi = isRegular ? (
+          method === 'upi' ? Number(form.openingUpi || 0) :
+          method === 'split' ? Number(form.openingUpi || 0) : 0
+        ) : 0
 
-      addCustomer({
-        type: form.type,
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        creditBalance: opCash + opUpi,
-        openingCash: opCash,
-        openingUpi: opUpi,
-        status: 'active',
-      })
-      setSuccessMsg(`Customer "${form.name.trim()}" added successfully!`)
+        await createCustomer({
+          type: form.type,
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          credit_balance: opCash + opUpi,
+          openingCash: opCash,
+          openingUpi: opUpi,
+          status: 'active',
+        })
+        setSuccessMsg(`Customer "${form.name.trim()}" added successfully!`)
+      }
+
+      setTimeout(() => {
+        setShowModal(false)
+        setSuccessMsg('')
+      }, 1500)
+    } catch (err) {
+      setErrors({ form: err.message || 'Operation failed' })
     }
-
-    setTimeout(() => {
-      setShowModal(false)
-      setSuccessMsg('')
-    }, 1500)
   }
 
   const handleChange = (field, value) => {

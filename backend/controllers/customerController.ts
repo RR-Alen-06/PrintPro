@@ -5,17 +5,18 @@ async function listCustomers(req, res, next) {
   try {
     const pool = getPool();
     const { type, search } = req.query;
-    let sql = 'SELECT * FROM customers WHERE user_id = ?';
+    let sql = 'SELECT * FROM customers WHERE user_id = $1';
     const params = [req.user.id];
 
     if (type) {
-      sql += ' AND type = ?';
       params.push(type);
+      sql += ` AND type = $${params.length}`;
     }
 
     if (search) {
-      sql += ' AND (name LIKE ? OR phone LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      params.push(`%${search}%`);
+      const searchIdx = params.length;
+      sql += ` AND (name ILIKE $${searchIdx} OR phone ILIKE $${searchIdx})`;
     }
 
     sql += ' ORDER BY created_at DESC';
@@ -33,7 +34,7 @@ async function getCustomer(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customers] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [customers] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (customers.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -50,7 +51,7 @@ async function getCustomer(req, res, next) {
         SUM(CASE WHEN status = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
         SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) AS partial_count,
         SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid_count
-      FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      FROM bills WHERE customer_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, req.user.id]
     );
 
@@ -81,7 +82,7 @@ async function createCustomer(req, res, next) {
     if (!customerId) {
       const prefix = type === 'regular' ? 'RC' : 'RND';
       const [maxRows] = await pool.query(
-        `SELECT id FROM customers WHERE type = ? AND user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        `SELECT id FROM customers WHERE type = $1 AND user_id = $2 ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
         [type, req.user.id]
       );
 
@@ -97,17 +98,17 @@ async function createCustomer(req, res, next) {
 
     await pool.query(
       `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [customerId, req.user.id, type, name, phone || '', email || '', address || '', credit_limit || 0]
     );
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES ($1, $2, $3, $4, $5)`,
       [req.user.id, 'CREATE', 'customer', customerId, JSON.stringify({ type, name, phone, email, address })]
     );
 
-    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [customerId, req.user.id]);
     res.status(201).json({ success: true, data: newCustomer[0] });
   } catch (err) {
     next(err);
@@ -121,14 +122,14 @@ async function updateCustomer(req, res, next) {
     const { id } = req.params;
     const { name, phone, email, address, credit_limit } = req.body;
 
-    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [existing] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     const oldValue = existing[0];
 
-    const updates = {};
+    const updates: Record<string, any> = {};
     if (name !== undefined) updates.name = name;
     if (phone !== undefined) updates.phone = phone;
     if (email !== undefined) updates.email = email;
@@ -139,15 +140,19 @@ async function updateCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+    const keys = Object.keys(updates);
+    const setClauses = keys.map((key, idx) => `${key} = $${idx + 1}`).join(', ');
     const values = Object.values(updates);
     values.push(id, req.user.id);
 
-    await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
+    await pool.query(
+      `UPDATE customers SET ${setClauses}, updated_at = NOW() WHERE id = $${keys.length + 1} AND user_id = $${keys.length + 2}`,
+      values
+    );
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`,
       [req.user.id, 'UPDATE', 'customer', id, JSON.stringify(oldValue), JSON.stringify(updates)]
     );
 
