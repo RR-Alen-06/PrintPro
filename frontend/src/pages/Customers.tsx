@@ -44,9 +44,9 @@ const Customers = () => {
 
   const [showModal, setShowModal] = useState(false)
   const [editMode, setEditMode] = useState(false) // false = add, true = edit
-  const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [errors, setErrors] = useState({})
+  const [editingId, setEditingId] = useState<any>(null)
+  const [form, setForm] = useState<any>(EMPTY_FORM)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [successMsg, setSuccessMsg] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -61,14 +61,14 @@ const Customers = () => {
   )
 
   // Payment form state
-  const [payCash, setPayCash] = useState(0)
-  const [payUpi, setPayUpi] = useState(0)
+  const [payCash, setPayCash] = useState<any>('')
+  const [payUpi, setPayUpi] = useState<any>('')
   const [paySuccess, setPaySuccess] = useState(false)
 
   // Targeted bill payment state
-  const [targetBillPayId, setTargetBillPayId] = useState(null) // which bill's pay panel is open
-  const [targetCash, setTargetCash] = useState(0)
-  const [targetUpi, setTargetUpi] = useState(0)
+  const [targetBillPayId, setTargetBillPayId] = useState<any>(null) // which bill's pay panel is open
+  const [targetCash, setTargetCash] = useState<any>('')
+  const [targetUpi, setTargetUpi] = useState<any>('')
   const [targetPaySuccess, setTargetPaySuccess] = useState(false)
   const [targetBillQrGenerated, setTargetBillQrGenerated] = useState(false)
   const [targetBillUpiCheckoutAmount, setTargetBillUpiCheckoutAmount] = useState(0)
@@ -113,7 +113,7 @@ const Customers = () => {
       })
     })
 
-    events.sort((a, b) => new Date(a.date) - new Date(b.date))
+    events.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     let running = 0
     return events.map(ev => {
@@ -130,7 +130,7 @@ const Customers = () => {
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
     msg += `Date       | Ref | Debit | Credit\n`
     
-    ledgerData.forEach(row => {
+    ledgerData.forEach((row: any) => {
       const typeStr = row.refId === 'OB' ? 'OB ' : row.refId
       msg += `${row.date} | ${typeStr} | ₹${row.debit.toFixed(0)} | ₹${row.credit.toFixed(0)}\n`
     })
@@ -151,7 +151,7 @@ const Customers = () => {
   }
 
   const filteredCustomers = useMemo(() => {
-    return customers.filter((c) => {
+    return customers.filter((c: any) => {
       if (filterType === 'deleted') return c.deleted === true
       if (c.deleted) return false  // hide deleted from normal tabs
       const matchesSearch =
@@ -170,8 +170,8 @@ const Customers = () => {
   const customerBills = useMemo(() => {
     if (!selectedCustomerId) return []
     return bills
-      .filter((b) => !b.deleted && b.customerId === selectedCustomerId)
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .filter((b: any) => !b.deleted && b.customerId === selectedCustomerId)
+      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [bills, selectedCustomerId])
 
   // Outstanding balance for selected customer
@@ -283,8 +283,8 @@ const Customers = () => {
   }
 
   const validate = () => {
-    const errs = {}
-    if (!form.name.trim()) errs.name = 'Name is required.'
+    const errs: Record<string, string> = {}
+    if (!form.name || !form.name.trim()) errs.name = 'Name is required.'
     if (form.phone && !/^\d{7,15}$/.test(form.phone.trim())) errs.phone = 'Enter a valid phone number.'
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Enter a valid email.'
     
@@ -311,7 +311,7 @@ const Customers = () => {
     try {
       if (editMode && editingId) {
         // Edit mode — preserve ID, update editable fields
-        await updateCustomer({
+        await (updateCustomer as any)({
           id: editingId,
           data: {
             name: form.name.trim(),
@@ -336,7 +336,7 @@ const Customers = () => {
           method === 'split' ? Number(form.openingUpi || 0) : 0
         ) : 0
 
-        await createCustomer({
+        await (createCustomer as any)({
           type: form.type,
           name: form.name.trim(),
           phone: form.phone.trim(),
@@ -457,7 +457,7 @@ const Customers = () => {
             <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
               {filteredCustomers.length === 0 ? (
                 <EmptyState
-                  Icon={Users}
+                  Icon={Users as any}
                   title="No customers found"
                   description="Try adjusting your search query or switching filters."
                 />
@@ -640,7 +640,7 @@ const Customers = () => {
               <h3 style={{ marginBottom: '12px' }}>Billing History ({customerBills.length})</h3>
               {customerBills.length === 0 ? (
                 <EmptyState
-                  Icon={ClipboardList}
+                  Icon={ClipboardList as any}
                   title="No bills found"
                   description="This customer does not have any billing records yet."
                 />
@@ -750,7 +750,7 @@ const Customers = () => {
                                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
                                     <form autoComplete="off" onSubmit={(e) => {
                                       e.preventDefault()
-                                      const formEl = e.target
+                                      const formEl = e.target as any
                                       const type = formEl.discountType.value
                                       const val = Number(formEl.discountValue.value || 0)
                                       if (val < 0) {
@@ -1064,7 +1064,7 @@ const Customers = () => {
         ) : (
           <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', padding: '24px' }}>
             <EmptyState
-              Icon={Users}
+              Icon={Users as any}
               title="Select a customer"
               description="Click a customer from the list to view their billing history and record payments."
             />
@@ -1086,7 +1086,7 @@ const Customers = () => {
           </div>
           {filteredCustomers.length === 0 ? (
             <EmptyState
-              Icon={Users}
+              Icon={Users as any}
               title="No deleted customers"
               description="Customers you delete will appear here and can be restored."
             />
@@ -1427,7 +1427,7 @@ const Customers = () => {
                   <tbody>
                     {ledgerData.length === 0 ? (
                       <tr>
-                        <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No ledger history found.</td>
+                        <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No ledger history found.</td>
                       </tr>
                     ) : (
                       ledgerData.map((row, idx) => (

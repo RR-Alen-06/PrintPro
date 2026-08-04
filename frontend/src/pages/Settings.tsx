@@ -207,7 +207,7 @@ const Settings = () => {
 
   const [clearConfirm, setClearConfirm] = useState(false)
 
-  const handleSaveBiz = async (e) => {
+  const handleSaveBiz = async (e: any) => {
     e.preventDefault()
     updateBusiness(biz)
     try {
@@ -218,7 +218,7 @@ const Settings = () => {
         address: biz.address,
         gstin: biz.gstin,
         upi_id: biz.upiId,
-      })
+      } as any)
       setBizSaved(true)
       setTimeout(() => setBizSaved(false), 3000)
     } catch (err) {
@@ -279,7 +279,7 @@ const Settings = () => {
           </div>
         </div>
 
-        <form onSubmit={handleBizSave} autoComplete="off">
+        <form onSubmit={handleSaveBiz} autoComplete="off">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Shop Name</label>

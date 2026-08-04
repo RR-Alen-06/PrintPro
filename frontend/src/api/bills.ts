@@ -1,12 +1,19 @@
 import api from './index'
-import { supabase, logSupabaseError } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 
-export const getBills = async (filters = {}) => {
+export interface BillFilters {
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  customer?: string;
+}
+
+export const getBills = async (filters: BillFilters = {}) => {
   try {
     const res = await api.get('/bills', { params: filters });
     return { data: { data: res.data.data } };
-  } catch (err) {
-    let query = supabase.from('bills').select('*, items:bill_items(*)');
+  } catch (err: any) {
+    let query: any = supabase.from('bills').select('*, items:bill_items(*)');
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.startDate) query = query.gte('date', filters.startDate);
     if (filters.endDate) query = query.lte('date', filters.endDate);
@@ -18,7 +25,7 @@ export const getBills = async (filters = {}) => {
   }
 }
 
-export const getBill = async (id) => {
+export const getBill = async (id: string) => {
   try {
     const res = await api.get(`/bills/${id}`);
     return { data: { data: res.data.data } };

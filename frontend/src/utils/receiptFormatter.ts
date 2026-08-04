@@ -2,13 +2,13 @@
  * Formats a bill/invoice as a clean, modern, and professional WhatsApp receipt
  * adhering to strict POS ledger accounting standards.
  */
-export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl = '', extraData = {}) => {
+export const formatWhatsAppReceipt = (bill: any, settings: any = {}, business: any = {}, pdfUrl: string = '', extraData: any = {}) => {
   if (!bill) return ''
 
   const { bills = [], payments = [], customers = [] } = extraData
 
   // 1. Find Customer Info
-  const customer = customers.find(c => String(c.id) === String(bill.customerId))
+  const customer = customers.find((c: any) => String(c.id) === String(bill.customerId))
   const customerCode = customer?.code || ''
   const customerDisplay = bill.customerName || 'Walk-in Customer'
   const customerSuffix = customerCode ? ` (${customerCode})` : ''
@@ -16,13 +16,13 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
   // 2. Previous Outstanding
   // Sum of unpaid balance before this bill date/creation
   const currentBillDate = bill.date ? new Date(bill.date) : new Date()
-  const pastBills = bills.filter(b => 
+  const pastBills = bills.filter((b: any) => 
     !b.deleted && 
     String(b.customerId) === String(bill.customerId) && 
     String(b.id) !== String(bill.id) &&
     (b.date ? new Date(b.date) < currentBillDate : true)
   )
-  const previousOutstanding = pastBills.reduce((sum, b) => sum + Number(b.balance || 0), 0)
+  const previousOutstanding = pastBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0)
 
   // 3. Current Bill Total
   const currentBill = Number(bill.total || 0)
@@ -31,9 +31,9 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
   const totalAmountDue = previousOutstanding + currentBill
 
   // 5. Payment Received for this Transaction
-  const billPayments = payments.filter(p => !p.deleted && String(p.billId) === String(bill.id))
-  const cashPaid = billPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0), 0)
-  const upiPaid = billPayments.reduce((sum, p) => sum + Number(p.upiAmount || 0), 0)
+  const billPayments = payments.filter((p: any) => !p.deleted && String(p.billId) === String(bill.id))
+  const cashPaid = billPayments.reduce((sum: number, p: any) => sum + Number(p.cashAmount || 0), 0)
+  const upiPaid = billPayments.reduce((sum: number, p: any) => sum + Number(p.upiAmount || 0), 0)
   const advanceUsed = Number(bill.advanceUsed || 0)
   const paidNow = cashPaid + upiPaid + advanceUsed
 
@@ -59,7 +59,7 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
   if (bill.date) {
     try {
       const dObj = new Date(bill.date)
-      const options = { day: '2-digit', month: 'short', year: 'numeric' }
+      const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }
       formattedDate = dObj.toLocaleDateString('en-GB', options).replace(/ /g, '-')
     } catch (_) {
       formattedDate = bill.date

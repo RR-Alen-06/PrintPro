@@ -293,7 +293,7 @@ export const LedgerService = {
     });
 
     // Chronological Sort
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    entries.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Calculate rolling balances
     let rolling = 0;
@@ -314,23 +314,23 @@ export const LedgerService = {
  * Centralized financial reporting generator for Sales, Profit, and Expenses.
  */
 export const ReportService = {
-  generateFinancialSummary: ({ bills = [], payments = [], advancePayments = [], expenses = [], inventory = [] }) => {
-    const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
-    const grossSales = activeBills.reduce((s, b) => s + b.subtotal, 0);
-    const discounts = activeBills.reduce((s, b) => s + (b.discountAmount || 0), 0);
-    const gstCollected = activeBills.reduce((s, b) => s + (b.gstAmount || 0), 0);
+  generateFinancialSummary: ({ bills = [], payments = [], advancePayments = [], expenses = [], inventory = [] }: any) => {
+    const activeBills = bills.filter((b: any) => !b.deleted && !b.isGroupParent);
+    const grossSales = activeBills.reduce((s: number, b: any) => s + b.subtotal, 0);
+    const discounts = activeBills.reduce((s: number, b: any) => s + (b.discountAmount || 0), 0);
+    const gstCollected = activeBills.reduce((s: number, b: any) => s + (b.gstAmount || 0), 0);
     const netSales = grossSales - discounts;
 
-    const cashPayments = payments.filter(p => !p.notes?.includes('advance deposit'));
-    const totalRevenue = cashPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0);
+    const cashPayments = payments.filter((p: any) => !p.notes?.includes('advance deposit'));
+    const totalRevenue = cashPayments.reduce((s: number, p: any) => s + Number(p.totalPaid || 0), 0);
 
-    const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const invoiceRefunds = payments.filter(p => p.totalPaid < 0 || p.isRefund).reduce((s, p) => s + Math.abs(p.totalPaid), 0);
-    const advanceRefunds = (advancePayments || []).filter(a => a.amount < 0 || a.isReturn).reduce((s, a) => s + Math.abs(a.amount), 0);
+    const totalExpenses = expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+    const invoiceRefunds = payments.filter((p: any) => p.totalPaid < 0 || p.isRefund).reduce((s: number, p: any) => s + Math.abs(p.totalPaid), 0);
+    const advanceRefunds = (advancePayments || []).filter((a: any) => a.amount < 0 || a.isReturn).reduce((s: number, a: any) => s + Math.abs(a.amount), 0);
     const refunds = invoiceRefunds + advanceRefunds;
 
     // Inventory Value = current_stock * cost (Weighted average cost)
-    const inventoryVal = inventory.reduce((s, i) => s + (Number(i.stock || 0) * Number(i.bw_single || 0)), 0);
+    const inventoryVal = inventory.reduce((s: number, i: any) => s + (Number(i.stock || 0) * Number(i.bw_single || 0)), 0);
 
     return {
       grossSales: Number(grossSales.toFixed(2)),
@@ -347,15 +347,15 @@ export const ReportService = {
 };
 
 export const DashboardService = {
-  getSummaryWidgets: ({ bills = [], payments = [], advancePayments = [], expenses = [], customers = [], inventory = [] }) => {
-    const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
-    const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
-    const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.total || 0), 0);
-    const invoiceRefunds = payments.filter((p) => p.totalPaid < 0 || p.isRefund).reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
-    const advanceRefunds = (advancePayments || []).filter((a) => a.amount < 0 || a.isReturn).reduce((sum, a) => sum + Math.abs(Number(a.amount || 0)), 0);
+  getSummaryWidgets: ({ bills = [], payments = [], advancePayments = [], expenses = [], customers = [], inventory = [] }: any) => {
+    const activeBills = bills.filter((b: any) => !b.deleted && !b.isGroupParent);
+    const pendingAmount = activeBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0);
+    const grossRevenue = activeBills.reduce((sum: number, b: any) => sum + Number(b.total || 0), 0);
+    const invoiceRefunds = payments.filter((p: any) => p.totalPaid < 0 || p.isRefund).reduce((sum: number, p: any) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
+    const advanceRefunds = (advancePayments || []).filter((a: any) => a.amount < 0 || a.isReturn).reduce((sum: number, a: any) => sum + Math.abs(Number(a.amount || 0)), 0);
     const totalRefunds = invoiceRefunds + advanceRefunds;
-    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
-    const totalCollected = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
+    const totalCustomerAdvance = customers.filter((c: any) => !c.deleted).reduce((sum: number, c: any) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
+    const totalCollected = activeBills.reduce((sum: number, b: any) => sum + Number(b.amountPaid || 0), 0);
 
     return {
       grossRevenue,
@@ -365,19 +365,19 @@ export const DashboardService = {
       totalCustomerAdvance,
       totalCollected,
       billCount: activeBills.length,
-      customerCount: customers.filter(c => !c.deleted).length
+      customerCount: customers.filter((c: any) => !c.deleted).length
     };
   },
-  calculateAgingReport: (bills = []) => {
+  calculateAgingReport: (bills: any[] = []) => {
     let bucketCurrent = 0; // 0-30 days
     let bucketMedium = 0;  // 31-60 days
     let bucketAged = 0;    // 61+ days
 
     const now = new Date();
 
-    bills.filter(b => !b.deleted && b.status !== 'paid' && !b.isGroupParent && b.balance > 0).forEach(b => {
+    bills.filter((b: any) => !b.deleted && b.status !== 'paid' && !b.isGroupParent && b.balance > 0).forEach((b: any) => {
       const billDate = new Date(b.date);
-      const diffTime = Math.abs(now - billDate);
+      const diffTime = Math.abs(now.getTime() - billDate.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays <= 30) {

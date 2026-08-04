@@ -10,7 +10,7 @@ import { supabase } from './supabase';
  * Pushes locally created entities to the cloud backend.
  * This ensures data written locally gets synced to the Supabase Postgres database.
  */
-export const syncEntityToCloud = async (action, payload) => {
+export const syncEntityToCloud = async (action: string, payload: any) => {
   try {
     switch (action) {
       case 'ADD_CUSTOMER':
@@ -28,7 +28,7 @@ export const syncEntityToCloud = async (action, payload) => {
 
       case 'UPDATE_CUSTOMER':
         if (payload.id) {
-          const custUpdateData = {};
+          const custUpdateData: Record<string, any> = {};
           if (payload.updates.name !== undefined) custUpdateData.name = payload.updates.name;
           if (payload.updates.phone !== undefined) custUpdateData.phone = payload.updates.phone;
           if (payload.updates.email !== undefined) custUpdateData.email = payload.updates.email;
@@ -43,7 +43,7 @@ export const syncEntityToCloud = async (action, payload) => {
       case 'UPDATE_CUSTOMER_FULL':
         if (payload.id) {
           const editData = payload.data || {};
-          const custUpdateData = {};
+          const custUpdateData: Record<string, any> = {};
           if (editData.name !== undefined) custUpdateData.name = editData.name;
           if (editData.phone !== undefined) custUpdateData.phone = editData.phone;
           if (editData.email !== undefined) custUpdateData.email = editData.email;
@@ -137,7 +137,7 @@ export const syncEntityToCloud = async (action, payload) => {
             notes += ` [WriteOff: amount=${payload.updates.writtenOffAmount}]`;
           }
 
-          const mappedUpdates = {
+          const mappedUpdates: Record<string, any> = {
             customer_id: payload.updates.customerId,
             date: payload.updates.date,
             due_date: payload.updates.dueDate,
@@ -153,7 +153,7 @@ export const syncEntityToCloud = async (action, payload) => {
             notes: notes
           };
           if (payload.updates.items) {
-            mappedUpdates.items = payload.updates.items.map(item => ({
+            mappedUpdates.items = payload.updates.items.map((item: any) => ({
               item_name: item.itemName || item.name || item.item_name,
               print_type: item.printType || item.print_type || 'color',
               sides: item.sides || 'single',

@@ -1,12 +1,18 @@
 import api from './index'
-import { supabase, logSupabaseError } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 
-export const getPurchases = async (filters = {}) => {
+export interface PurchaseFilters {
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+}
+
+export const getPurchases = async (filters: PurchaseFilters = {}) => {
   try {
     const res = await api.get('/purchases', { params: filters });
     return { data: { data: res.data.data } };
-  } catch (err) {
-    let query = supabase.from('purchases').select('*');
+  } catch (err: any) {
+    let query: any = supabase.from('purchases').select('*');
     if (filters.startDate) query = query.gte('date', filters.startDate);
     if (filters.endDate) query = query.lte('date', filters.endDate);
     if (filters.category) query = query.eq('category', filters.category);

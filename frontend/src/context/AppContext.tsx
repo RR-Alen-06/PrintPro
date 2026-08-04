@@ -1212,7 +1212,7 @@ export const AppProvider = ({ children }) => {
           }
           const parts = dbName.split('|')
           const name = parts[0].trim()
-          const metadata = {}
+          const metadata: Record<string, string> = {}
           parts.slice(1).forEach(part => {
             const index = part.indexOf(':')
             if (index !== -1) {
@@ -1252,7 +1252,7 @@ export const AppProvider = ({ children }) => {
           }
           const parts = dbNotes.split('|')
           const notes = parts[0].trim()
-          const metadata = {}
+          const metadata: Record<string, string> = {}
           parts.slice(1).forEach(part => {
             const index = part.indexOf(':')
             if (index !== -1) {

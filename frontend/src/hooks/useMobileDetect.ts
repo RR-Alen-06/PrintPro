@@ -66,6 +66,7 @@ export function useMobileDetect() {
     isPhone,
     isTablet,
     isMobileViewport,
+    isMobile: isPhone || isMobileViewport,
     userPref,
     effectiveMode,
     setUserPref,
