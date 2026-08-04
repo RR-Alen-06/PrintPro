@@ -1,19 +1,19 @@
-const { getPool } = require('../config/db');
-const logger = require('../utils/logger');
+import { getPool } from '../config/db';
+import logger from '../utils/logger';
 
 // GET /bill/:billId - Get payments for a specific bill
-async function getPaymentsForBill(req, res, next) {
+export async function getPaymentsForBill(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const billId = req.params.billId || req.params.id;
 
-    const [bill] = await pool.query('SELECT id FROM bills WHERE id = ? AND user_id = ?', [billId, req.user.id]);
+    const [bill] = await pool.query('SELECT id FROM bills WHERE id = $1 AND user_id = $2', [billId, req.user.id]);
     if (bill.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const [payments] = await pool.query(
-      'SELECT * FROM payments WHERE bill_id = ? AND user_id = ? ORDER BY date ASC',
+      'SELECT * FROM payments WHERE bill_id = $1 AND user_id = $2 ORDER BY date ASC',
       [billId, req.user.id]
     );
 
@@ -25,15 +25,8 @@ async function getPaymentsForBill(req, res, next) {
 
 /**
  * POST / - Record payment with FIFO allocation.
- *
- * Instead of applying the payment only to the requested bill_id, we:
- * 1. Find all unpaid/partial bills for that customer, sorted oldest-first (FIFO).
- * 2. Distribute the payment across those bills sequentially.
- * 3. Any remaining overpayment is added to the customer's credit_balance.
- *
- * This matches the frontend AppContext.recordPayment() FIFO logic.
  */
-async function recordPayment(req, res, next) {
+export async function recordPayment(req: any, res: any, next: any) {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -53,7 +46,7 @@ async function recordPayment(req, res, next) {
     let customerId = customer_id;
     if (!customerId && bill_id) {
       const [billRows] = await conn.query(
-        'SELECT customer_id FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
+        'SELECT customer_id FROM bills WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
         [bill_id, req.user.id]
       );
       if (billRows.length === 0) {
@@ -67,7 +60,7 @@ async function recordPayment(req, res, next) {
     }
 
     // Verify customer belongs to the user
-    const [custRows] = await conn.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    const [custRows] = await conn.query('SELECT id FROM customers WHERE id = $1 AND user_id = $2', [customerId, req.user.id]);
     if (custRows.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -75,14 +68,14 @@ async function recordPayment(req, res, next) {
     // ── FIFO: get all unpaid/partial bills for this customer, oldest first ────
     const [unpaidBills] = await conn.query(
       `SELECT * FROM bills
-       WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL AND status != 'paid'
+       WHERE customer_id = $1 AND user_id = $2 AND deleted_at IS NULL AND status != 'paid'
        ORDER BY date ASC, id ASC`,
       [customerId, req.user.id]
     );
 
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
-    const paymentRecords = [];
+    const paymentRecords: any[] = [];
 
     for (const bill of unpaidBills) {
       const outstanding = parseFloat(bill.balance);
@@ -112,27 +105,29 @@ async function recordPayment(req, res, next) {
       // Insert payment record for this bill
       const [payResult] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
         [req.user.id, bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment']
       );
 
+      const createdPayId = payResult.id || (payResult[0] && payResult[0].id);
+
       // Update the bill
       await conn.query(
-        'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?',
+        'UPDATE bills SET amount_paid = $1, balance = $2, status = $3 WHERE id = $4 AND user_id = $5',
         [newAmountPaid, newBalance, newStatus, bill.id, req.user.id]
       );
 
       // Audit log
       await conn.query(
-        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`,
         [
-          req.user.id, 'PAYMENT', 'payment', String(payResult.insertId),
+          req.user.id, 'PAYMENT', 'payment', String(createdPayId),
           JSON.stringify({ bill_id: bill.id, old_balance: outstanding, old_status: bill.status }),
           JSON.stringify({ applied: applyTotal, new_balance: newBalance, new_status: newStatus })
         ]
       );
 
-      paymentRecords.push({ paymentId: payResult.insertId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
+      paymentRecords.push({ paymentId: createdPayId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
 
       if (remainingCash <= 0 && remainingUpi <= 0) break;
     }
@@ -141,19 +136,19 @@ async function recordPayment(req, res, next) {
     const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
     if (excess > 0) {
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND user_id = ?',
+        'UPDATE customers SET credit_balance = credit_balance + $1 WHERE id = $2 AND user_id = $3',
         [excess, customerId, req.user.id]
       );
 
       // Record excess as a payment entry (no specific bill)
       if (paymentRecords.length === 0 && bill_id) {
-        // If no unpaid bills were found but a bill_id was given, still record it
         const [pr] = await conn.query(
           `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
-           VALUES (?, ?, ?, ?, ?, ?, 'full', ?)`,
+           VALUES ($1, $2, $3, $4, $5, $6, 'full', $7) RETURNING id`,
           [req.user.id, bill_id, customerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit']
         );
-        paymentRecords.push({ paymentId: pr.insertId, billId: bill_id, applied: excess, excess });
+        const createdPayId = pr.id || (pr[0] && pr[0].id);
+        paymentRecords.push({ paymentId: createdPayId, billId: bill_id, applied: excess, excess });
       }
 
       logger.info(`FIFO: Excess credit added to customer balance`, { customerId, excess: process.env.NODE_ENV === 'production' ? '[REDACTED]' : excess.toFixed(2) });
@@ -178,12 +173,12 @@ async function recordPayment(req, res, next) {
 }
 
 // GET /customer/:customerId - Get all payments by customer
-async function getPaymentsByCustomer(req, res, next) {
+export async function getPaymentsByCustomer(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { customerId } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = $1 AND user_id = $2', [customerId, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -192,7 +187,7 @@ async function getPaymentsByCustomer(req, res, next) {
       `SELECT p.*, b.total AS bill_total, b.status AS bill_status
        FROM payments p
        LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
-       WHERE p.customer_id = ? AND p.user_id = ?
+       WHERE p.customer_id = $1 AND p.user_id = $2
        ORDER BY p.date DESC`,
       [customerId, req.user.id]
     );
@@ -204,11 +199,11 @@ async function getPaymentsByCustomer(req, res, next) {
 }
 
 // GET / - Get all payments for the user
-async function listAllPayments(req, res, next) {
+export async function listAllPayments(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const [payments] = await pool.query(
-      'SELECT * FROM payments WHERE user_id = ? ORDER BY date DESC',
+      'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC',
       [req.user.id]
     );
     res.json({ success: true, data: payments });
@@ -216,10 +211,3 @@ async function listAllPayments(req, res, next) {
     next(err);
   }
 }
-
-module.exports = {
-  getPaymentsForBill,
-  recordPayment,
-  getPaymentsByCustomer,
-  listAllPayments
-};
