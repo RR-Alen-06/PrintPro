@@ -921,72 +921,58 @@ export const AppProvider = ({ children }: any) => {
 
   // Sync Supabase Authentication State & Log Session Info
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        console.log('=== AUTHENTICATION DIAGNOSTICS ===')
-        console.log('User ID:', session.user.id)
-        console.log('Email:', session.user.email)
-        console.log('Session Token Present:', !!session.access_token)
-        console.log('Role:', 'owner')
-        console.log('==================================')
-        
-        // Re-load state for this specific authenticated user ID
-        const userState = loadState(session.user.id)
-        if (userState && userState !== initialState) {
-          rawDispatch({ type: 'SYNC_CLOUD_DATA', payload: userState })
-        }
+    let currentUserId: string | null = null;
 
-        dispatch({
-          type: 'SET_CURRENT_USER',
-          payload: {
-            id: session.user.id,
-            username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
-            email: session.user.email || '',
-            role: 'owner',
-            token: session.access_token,
-            avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
-          }
-        });
-      } else {
-        console.log('=== AUTHENTICATION DIAGNOSTICS: NO ACTIVE SESSION ===')
+    const applySession = (session: any, reason: string) => {
+      if (!session?.user) {
+        if (currentUserId) {
+          localStorage.removeItem(`printpro-state:${currentUserId}`);
+          localStorage.removeItem(`offline_sync_queue:${currentUserId}`);
+          localStorage.removeItem(`PRINTPRO_REACT_QUERY_CACHE:${currentUserId}`);
+        }
+        localStorage.removeItem('PRINTPRO_REACT_QUERY_CACHE');
+        currentUserId = null;
         dispatch({ type: 'RESET_STATE' });
         setIsInitialLoading(false);
+        return;
       }
+
+      if (currentUserId === session.user.id) {
+        return; // Skip duplicate auth change fires for the same active user
+      }
+
+      currentUserId = session.user.id;
+      console.log(`=== AUTHENTICATION DIAGNOSTICS (${reason}) ===`);
+      console.log('User ID:', session.user.id);
+      console.log('Email:', session.user.email);
+      console.log('==================================');
+
+      const userState = loadState(session.user.id);
+      if (userState && userState !== initialState) {
+        rawDispatch({ type: 'SYNC_CLOUD_DATA', payload: userState });
+      }
+
+      dispatch({
+        type: 'SET_CURRENT_USER',
+        payload: {
+          id: session.user.id,
+          username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
+          email: session.user.email || '',
+          role: 'owner',
+          token: session.access_token,
+          avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
+        }
+      });
+      setIsInitialLoading(false);
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      applySession(session, 'INITIAL_SESSION');
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        console.log('=== AUTHENTICATION CHANGE DETECTED ===')
-        console.log('User ID:', session.user.id)
-        console.log('Email:', session.user.email)
-        console.log('======================================')
-        
-        const userState = loadState(session.user.id)
-        if (userState && userState !== initialState) {
-          rawDispatch({ type: 'SYNC_CLOUD_DATA', payload: userState })
-        }
-
-        dispatch({
-          type: 'SET_CURRENT_USER',
-          payload: {
-            id: session.user.id,
-            username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
-            email: session.user.email || '',
-            role: 'owner',
-            token: session.access_token,
-            avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
-          }
-        });
-      } else {
-        // Logout or session signed out: Purge current user local cache and reset TanStack Query cache
-        if (state.currentUser?.id) {
-          localStorage.removeItem(`printpro-state:${state.currentUser.id}`)
-          localStorage.removeItem(`offline_sync_queue:${state.currentUser.id}`)
-          localStorage.removeItem(`PRINTPRO_REACT_QUERY_CACHE:${state.currentUser.id}`)
-        }
-        localStorage.removeItem('PRINTPRO_REACT_QUERY_CACHE')
-        dispatch({ type: 'RESET_STATE' });
-      }
+      if (event === 'TOKEN_REFRESHED') return; // Ignore silent token refreshes
+      applySession(session, `AUTH_EVENT: ${event}`);
     });
 
     return () => {

@@ -211,3 +211,28 @@ export async function listAllPayments(req: any, res: any, next: any) {
     next(err);
   }
 }
+
+// DELETE /:id - Delete a payment
+export async function deletePayment(req: any, res: any, next: any) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+
+    const [existing] = await pool.query('SELECT * FROM payments WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, error: 'Payment not found' });
+    }
+
+    await pool.query('DELETE FROM payments WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, 'DELETE', 'payment', String(id), JSON.stringify(existing[0])]
+    );
+
+    res.json({ success: true, message: 'Payment deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+}

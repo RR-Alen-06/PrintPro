@@ -370,3 +370,50 @@ export async function restoreBill(req: any, res: any, next: any) {
     next(err);
   }
 }
+
+// POST /:id/discount - Apply post-bill discount
+export async function applyDiscount(req: any, res: any, next: any) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const { discount_type, discount_value } = req.body;
+
+    const [existing] = await pool.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, req.user.id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, error: 'Bill not found' });
+    }
+
+    const bill = existing[0];
+    const subtotal = parseFloat(bill.subtotal || 0);
+    const discType = discount_type || 'flat';
+    const discVal = parseFloat(discount_value) || 0;
+
+    let discountAmount = 0;
+    if (discType === 'percent') {
+      discountAmount = parseFloat(((subtotal * discVal) / 100).toFixed(2));
+    } else {
+      discountAmount = discVal;
+    }
+
+    const newTotal = parseFloat(Math.max(subtotal - discountAmount, 0).toFixed(2));
+    const amountPaid = parseFloat(bill.amount_paid || 0);
+    const newBalance = parseFloat(Math.max(newTotal - amountPaid, 0).toFixed(2));
+    const newStatus = amountPaid >= newTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid';
+
+    await pool.query(
+      `UPDATE bills SET discount_type = $1, discount_value = $2, total = $3, balance = $4, status = $5, updated_at = NOW() WHERE id = $6 AND user_id = $7`,
+      [discType, discVal, newTotal, newBalance, newStatus, id, req.user.id]
+    );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.user.id, 'DISCOUNT', 'bill', id, JSON.stringify(bill), JSON.stringify({ discount_type: discType, discount_value: discVal, new_total: newTotal, new_balance: newBalance })]
+    );
+
+    const [updated] = await pool.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    res.json({ success: true, data: updated[0] });
+  } catch (err) {
+    next(err);
+  }
+}
