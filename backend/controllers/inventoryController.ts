@@ -1,7 +1,7 @@
-const { getPool } = require('../config/db');
+import { getPool } from '../config/db';
 
 // GET / - List all inventory items
-async function listItems(req, res, next) {
+export async function listItems(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const [rows] = await pool.query('SELECT * FROM inventory_items WHERE user_id = $1 ORDER BY name ASC', [req.user.id]);
@@ -12,27 +12,32 @@ async function listItems(req, res, next) {
 }
 
 // POST / - Add new item
-async function addItem(req, res, next) {
+export async function addItem(req: any, res: any, next: any) {
   try {
-    const pool = getPool();
     const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ success: false, error: 'Item name is required' });
-    }
-
-    const [rows] = await pool.query(
+    const pool = getPool();
+    const [result] = await pool.query(
       `INSERT INTO inventory_items (user_id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [req.user.id, name, color_single || 0, color_double || 0, bw_single || 0, bw_double || 0, stock || 0, low_stock_alert || 50]
+      [
+        req.user.id,
+        name,
+        color_single || 0,
+        color_double || 0,
+        bw_single || 0,
+        bw_double || 0,
+        stock || 0,
+        low_stock_alert || 50,
+      ]
     );
-    const newItem = rows[0];
 
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, 'CREATE', 'inventory', String(newItem.id), JSON.stringify({ name, stock })]
-    );
+    const newItem = Array.isArray(result) ? result[0] : result;
+    if (newItem) {
+      await pool.query(
+        'INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES ($1, $2, $3, $4, $5)',
+        [req.user.id, 'CREATE_INVENTORY', 'inventory', String(newItem.id), JSON.stringify(newItem)]
+      );
+    }
 
     res.status(201).json({ success: true, data: newItem });
   } catch (err) {
@@ -41,113 +46,119 @@ async function addItem(req, res, next) {
 }
 
 // PUT /:id - Update item
-async function updateItem(req, res, next) {
+export async function updateItem(req: any, res: any, next: any) {
   try {
-    const pool = getPool();
     const { id } = req.params;
-    const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert } = req.body;
+    const pool = getPool();
 
-    const [existing] = await pool.query('SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
-    if (existing.length === 0) {
+    const [existingRows] = await pool.query(
+      'SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+
+    const existingItem = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!existingItem) {
       return res.status(404).json({ success: false, error: 'Item not found' });
     }
 
-    const oldItem = existing[0];
-    const updates: Record<string, any> = {};
-    if (name !== undefined) updates.name = name;
-    if (color_single !== undefined) updates.color_single = color_single;
-    if (color_double !== undefined) updates.color_double = color_double;
-    if (bw_single !== undefined) updates.bw_single = bw_single;
-    if (bw_double !== undefined) updates.bw_double = bw_double;
-    if (stock !== undefined) updates.stock = stock;
-    if (low_stock_alert !== undefined) updates.low_stock_alert = low_stock_alert;
+    const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert } = req.body;
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ success: false, error: 'No fields to update' });
-    }
-
-    const keys = Object.keys(updates);
-    const setClauses = keys.map((key, idx) => `${key} = $${idx + 1}`).join(', ');
-    const values = Object.values(updates);
-    values.push(id, req.user.id);
-
-    await pool.query(
-      `UPDATE inventory_items SET ${setClauses} WHERE id = $${keys.length + 1} AND user_id = $${keys.length + 2}`,
-      values
+    const [updateResult] = await pool.query(
+      `UPDATE inventory_items 
+       SET name = $1, color_single = $2, color_double = $3, bw_single = $4, bw_double = $5, stock = $6, low_stock_alert = $7
+       WHERE id = $8 AND user_id = $9 RETURNING *`,
+      [
+        name ?? existingItem.name,
+        color_single ?? existingItem.color_single,
+        color_double ?? existingItem.color_double,
+        bw_single ?? existingItem.bw_single,
+        bw_double ?? existingItem.bw_double,
+        stock ?? existingItem.stock,
+        low_stock_alert ?? existingItem.low_stock_alert,
+        id,
+        req.user.id,
+      ]
     );
 
-    // Audit log
+    const updatedItem = Array.isArray(updateResult) ? updateResult[0] : updateResult;
+
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [req.user.id, 'UPDATE', 'inventory', id, JSON.stringify(oldItem), JSON.stringify(updates)]
+      'INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.user.id, 'UPDATE_INVENTORY', 'inventory', id, JSON.stringify(existingItem), JSON.stringify(updatedItem)]
     );
 
-    const [updated] = await pool.query('SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: updatedItem });
   } catch (err) {
     next(err);
   }
 }
 
 // DELETE /:id - Delete item
-async function deleteItem(req, res, next) {
+export async function deleteItem(req: any, res: any, next: any) {
   try {
-    const pool = getPool();
     const { id } = req.params;
+    const pool = getPool();
 
-    const [existing] = await pool.query('SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
-    if (existing.length === 0) {
+    const [existingRows] = await pool.query(
+      'SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+
+    const existingItem = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!existingItem) {
       return res.status(404).json({ success: false, error: 'Item not found' });
     }
 
     await pool.query('DELETE FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
 
-    // Audit log
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, 'DELETE', 'inventory', id, JSON.stringify(existing[0])]
+      'INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES ($1, $2, $3, $4, $5)',
+      [req.user.id, 'DELETE_INVENTORY', 'inventory', id, JSON.stringify(existingItem)]
     );
 
-    res.json({ success: true, message: 'Item deleted successfully' });
+    res.json({ success: true, message: 'Item deleted' });
   } catch (err) {
     next(err);
   }
 }
 
-// PUT /:id/stock - Adjust stock quantity
-async function updateStock(req, res, next) {
+// PATCH /:id/stock - Adjust stock level
+export async function updateStock(req: any, res: any, next: any) {
   try {
-    const pool = getPool();
     const { id } = req.params;
-    const { quantity, mode } = req.body;
+    const { quantity } = req.body;
+    const pool = getPool();
 
-    if (quantity === undefined || !['set', 'add', 'subtract'].includes(mode)) {
-      return res.status(400).json({ success: false, error: 'quantity and mode (set|add|subtract) are required' });
-    }
+    const [existingRows] = await pool.query(
+      'SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
 
-    const [existing] = await pool.query('SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
-    if (existing.length === 0) {
+    const existingItem = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!existingItem) {
       return res.status(404).json({ success: false, error: 'Item not found' });
     }
 
-    const currentStock = existing[0].stock || 0;
-    let newStock = currentStock;
+    const [updateResult] = await pool.query(
+      'UPDATE inventory_items SET stock = stock + $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      [quantity, id, req.user.id]
+    );
 
-    if (mode === 'set') newStock = quantity;
-    else if (mode === 'add') newStock = currentStock + quantity;
-    else if (mode === 'subtract') newStock = Math.max(0, currentStock - quantity);
+    const updatedItem = Array.isArray(updateResult) ? updateResult[0] : updateResult;
 
-    await pool.query('UPDATE inventory_items SET stock = $1 WHERE id = $2 AND user_id = $3', [newStock, id, req.user.id]);
-    const [updated] = await pool.query('SELECT * FROM inventory_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    await pool.query(
+      'INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.user.id, 'UPDATE_STOCK', 'inventory', id, JSON.stringify(existingItem), JSON.stringify(updatedItem)]
+    );
 
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: updatedItem });
   } catch (err) {
     next(err);
   }
 }
 
-// GET /low-stock - List items at or below alert threshold
-async function getLowStock(req, res, next) {
+// GET /low-stock - Get items low in stock
+export async function getLowStock(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const [rows] = await pool.query(
@@ -159,12 +170,3 @@ async function getLowStock(req, res, next) {
     next(err);
   }
 }
-
-module.exports = {
-  listItems,
-  addItem,
-  updateItem,
-  deleteItem,
-  updateStock,
-  getLowStock,
-};

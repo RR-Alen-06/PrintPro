@@ -1,14 +1,16 @@
-const express = require('express');
-const router = express.Router();
-const {
+import express from 'express';
+import {
   recordPayment,
   getPaymentsForBill,
   getPaymentsByCustomer,
-  listAllPayments
-} = require('../controllers/paymentController');
+  listAllPayments,
+  deletePayment
+} from '../controllers/paymentController';
+import { validatePayment } from '../middleware/validate';
+
+const router = express.Router();
 
 // POST /api/payments
-const { validatePayment } = require('../middleware/validate');
 router.post('/', validatePayment, recordPayment);
 
 // GET /api/payments
@@ -21,7 +23,6 @@ router.get('/bill/:billId', getPaymentsForBill);
 router.get('/customer/:customerId', getPaymentsByCustomer);
 
 // DELETE /api/payments/:id
-const { deletePayment } = require('../controllers/paymentController');
 router.delete('/:id', deletePayment);
 
-module.exports = router;
+export default router;

@@ -1,6 +1,7 @@
-const express = require('express');
+import express from 'express';
+import { getPool } from '../config/db';
+
 const router = express.Router();
-const { getPool } = require('../config/db');
 
 /**
  * Notifications are computed dynamically from live data:
@@ -9,7 +10,7 @@ const { getPool } = require('../config/db');
  */
 
 // GET /api/notifications
-router.get('/', async (req, res, next) => {
+router.get('/', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const notifications = [];
@@ -57,4 +58,4 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-module.exports = router;
+export default router;

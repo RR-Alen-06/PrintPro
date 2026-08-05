@@ -1,19 +1,20 @@
-const express = require('express');
+import express from 'express';
+import { getPool } from '../config/db';
+
 const router = express.Router();
-const { getPool } = require('../config/db');
 
 // GET /api/profile
-router.get('/', async (req, res, next) => {
+router.get('/', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
+    const [rows] = await pool.query('SELECT * FROM business_profile WHERE user_id = $1', [req.user.id]);
     res.json({ success: true, data: rows[0] || {} });
   } catch (err) { next(err); }
 });
 
 // PUT /api/profile
-const { validateProfile } = require('../middleware/validate');
-router.put('/', validateProfile, async (req, res, next) => {
+import { validateProfile } from '../middleware/validate';
+router.put('/', validateProfile, async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const { shop_name, owner_name, phone, address, gstin, upi_id } = req.body;
@@ -30,12 +31,15 @@ router.put('/', validateProfile, async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE business_profile SET ${setClauses} WHERE user_id = ?`, [...Object.values(updates), req.user.id]);
+    const keys = Object.keys(updates);
+    const setClauses = keys.map((k, idx) => `${k} = $${idx + 1}`).join(', ');
+    const values = Object.values(updates);
+    values.push(req.user.id);
+    await pool.query(`UPDATE business_profile SET ${setClauses} WHERE user_id = $${values.length}`, values);
 
-    const [updated] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
+    const [updated] = await pool.query('SELECT * FROM business_profile WHERE user_id = $1', [req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) { next(err); }
 });
 
-module.exports = router;
+export default router;

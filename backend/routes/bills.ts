@@ -1,6 +1,5 @@
-const express = require('express');
-const router = express.Router();
-const {
+import express from 'express';
+import {
   listBills,
   listDeletedBills,
   getBill,
@@ -9,8 +8,11 @@ const {
   deleteBill,
   restoreBill,
   applyDiscount,
-} = require('../controllers/billController');
-const { getPaymentsForBill } = require('../controllers/paymentController');
+} from '../controllers/billController';
+import { getPaymentsForBill } from '../controllers/paymentController';
+import { validateBill } from '../middleware/validate';
+
+const router = express.Router();
 
 // GET /api/bills?status=&customer_id=&date_from=&date_to=&deleted=
 router.get('/', listBills);
@@ -25,7 +27,6 @@ router.get('/:id/payments', getPaymentsForBill);
 router.get('/:id', getBill);
 
 // POST /api/bills
-const { validateBill } = require('../middleware/validate');
 router.post('/', validateBill, createBill);
 
 // PUT /api/bills/:id
@@ -40,4 +41,4 @@ router.post('/:id/restore', restoreBill);
 // POST /api/bills/:id/discount
 router.post('/:id/discount', applyDiscount);
 
-module.exports = router;
+export default router;

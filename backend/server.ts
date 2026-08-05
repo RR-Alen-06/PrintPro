@@ -1,29 +1,26 @@
-require('dotenv').config();
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import os from 'os';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
-const express   = require('express');
-const cors      = require('cors');
-const path      = require('path');
-const os        = require('os');
-const helmet    = require('helmet');
-const rateLimit = require('express-rate-limit');
-
-const { initializeDatabase, getPool } = require('./config/db');
-const logger        = require('./utils/logger');
-const requestLogger = require('./middleware/requestLogger');
-const errorHandler  = require('./middleware/errorHandler');
-const sanitize      = require('./middleware/sanitize');
+import { initializeDatabase, getPool } from './config/db';
+import logger from './utils/logger';
+import { auth } from './middleware/auth';
 
 // ── Route imports ────────────────────────────────────────────────────────────
-const customerRoutes     = require('./routes/customers');
-const billRoutes         = require('./routes/bills');
-const paymentRoutes      = require('./routes/payments');
-const inventoryRoutes    = require('./routes/inventory');
-const purchaseRoutes     = require('./routes/purchases');
-const reportRoutes       = require('./routes/reports');
-const profileRoutes      = require('./routes/profile');
-const notificationRoutes = require('./routes/notifications');
-const auditRoutes        = require('./routes/audit');
-const shareRoutes        = require('./routes/share');
+import customerRoutes from './routes/customers';
+import billRoutes from './routes/bills';
+import paymentRoutes from './routes/payments';
+import inventoryRoutes from './routes/inventory';
+import purchaseRoutes from './routes/purchases';
+import reportRoutes from './routes/reports';
+import profileRoutes from './routes/profile';
+import notificationRoutes from './routes/notifications';
+import auditRoutes from './routes/audit';
+import shareRoutes from './routes/share';
 
 // ── App setup ────────────────────────────────────────────────────────────────
 const app  = express();
@@ -67,12 +64,11 @@ app.use('/api', (req, res, next) => {
 // Set request payload limits to prevent denial-of-service/payload-bombs
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-app.use(sanitize);
 
 // Apply rate limiting to all API requests
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -81,8 +77,6 @@ const limiter = rateLimit({
   }
 });
 app.use('/api/', limiter);
-
-app.use(requestLogger);
 
 // ── Static uploads ───────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -99,7 +93,7 @@ app.get('/api/health', async (req, res) => {
   try {
     const pool = getPool();
     await pool.query('SELECT 1');
-  } catch (err) {
+  } catch (err: any) {
     dbStatus = 'error';
     dbError = err.message;
   }
@@ -120,7 +114,6 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ── Authenticated API routes ─────────────────────────────────────────────────
-const { auth } = require('./middleware/auth');
 app.use('/api', auth);
 
 app.use('/api/customers',     customerRoutes);
@@ -142,9 +135,6 @@ app.use((req, res) => {
     error:   `Cannot ${req.method} ${req.originalUrl}`,
   });
 });
-
-// ── Error handler (must be last) ─────────────────────────────────────────────
-app.use(errorHandler);
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 async function start() {
