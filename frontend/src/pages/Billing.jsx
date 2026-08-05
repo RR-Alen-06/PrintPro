@@ -1400,20 +1400,22 @@ const Billing = () => {
         return
       }
 
-      const newBillId = addBill(billPayload)
-      const paid = Number(billPayload.amountPaid || 0)
-      const bal = Math.max(billPayload.total - paid, 0)
-      const status = paid >= billPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+      const createdBill = await createBill(billPayload)
+      const newBillId = createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
+      const paid = Number(billPayload.amountPaid || billPayload.amount_paid || 0)
+      const bal = Math.max((billPayload.total || 0) - paid, 0)
+      const status = paid >= (billPayload.total || 0) ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
       const fullBillObj = {
         ...billPayload,
-        id: newBillId,
+        id: createdBill?.id || newBillId,
+        invoice_number: newBillId,
         amountPaid: paid,
         balance: bal,
         status: status,
       }
       setCreatedBillObj(fullBillObj)
-      setLastBillId(newBillId)
-      showToast(`Bill ${newBillId} created successfully!`, 'success')
+      setLastBillId(createdBill?.id || newBillId)
+      showToast(`Bill created successfully!`, 'success')
       resetForm()
     } catch (err) {
       showAlert(`Failed to create bill: ${err.message}`, 'error')

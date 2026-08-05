@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { usePaymentMutations } from '../hooks/useEntitiesQuery'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 
@@ -18,11 +19,12 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, bills, payments, advancePayments, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, bills, payments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { createCustomer, updateCustomer, deleteCustomer } = useCustomerMutations()
+  const { createPayment } = usePaymentMutations()
   const customers = serverCustomers
 
   const copyUpiLink = (link) => {
@@ -186,19 +188,19 @@ const Customers = () => {
       .reduce((sum, b) => sum + Number(b.balance || 0), 0)
   }
 
-  // Apply payment to oldest unpaid bills first via FIFO (handled in AppContext)
-  const handleApplyPayment = () => {
+  // Apply payment to oldest unpaid bills first via FIFO (handled in Backend)
+  const handleApplyPayment = async () => {
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
     const totalPaying = cash + upi
     if (totalPaying <= 0 || !selectedCustomer) return
 
-    // Pass the lump-sum payment to recordPayment — AppContext handles FIFO
-    // distribution across unpaid bills and credits excess to advance balance
-    recordPayment({
-      customerId: selectedCustomer.id,
-      cashAmount: cash,
-      upiAmount: upi,
+    await createPayment({
+      customer_id: selectedCustomer.id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: totalPaying,
+      payment_type: 'partial',
       notes: `Payment from customer page`,
     })
 
@@ -208,32 +210,22 @@ const Customers = () => {
     setTimeout(() => setPaySuccess(false), 3500)
   }
 
-  const handleTargetBillPayment = (bill) => {
+  const handleTargetBillPayment = async (bill: any) => {
     const cash = Number(targetCash || 0)
     const upi = Number(targetUpi || 0)
-    if (cash + upi <= 0) { showAlert('Enter a payment amount.', 'error'); return }
+    const totalPaying = cash + upi
+    if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
 
-    const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
-    const isSplitGroup = bill.groupBillId && groupMembers.length > 1
+    await createPayment({
+      bill_id: bill.id,
+      customer_id: bill.customerId || bill.customer_id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: totalPaying,
+      payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
+      notes: `Selective payment for bill ${bill.id}`,
+    })
 
-    if (isSplitGroup && (cash + upi > bill.balance + 0.01)) {
-      recordSplitGroupPayment({
-        payerBillId: bill.id,
-        payerCustomerId: bill.customerId,
-        cashAmount: cash,
-        upiAmount: upi,
-        groupBillId: bill.groupBillId,
-        notes: `Group payment from customer page for bill ${bill.id}`,
-      })
-    } else {
-      recordSpecificBillPayment({
-        billId: bill.id,
-        customerId: bill.customerId,
-        cashAmount: cash,
-        upiAmount: upi,
-        notes: `Selective payment for bill ${bill.id}`,
-      })
-    }
     setTargetBillPayId(null)
     setTargetCash(0)
     setTargetUpi(0)

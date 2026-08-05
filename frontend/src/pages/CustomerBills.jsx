@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useBillMutations } from '../hooks/useBillsQuery'
 import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
-  const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm, settings } = useAppContext()
+  const { business, customers, bills, inventory, payments, showAlert, showConfirm, settings } = useAppContext()
+  const { updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
@@ -278,7 +280,7 @@ const CustomerBills = () => {
   const excessPaid = Math.max(amountPaid - Math.max(total - appliedAdvance, 0), 0)
 
   // ── Handle Save ──
-  const handleSaveChanges = (e) => {
+  const handleSaveChanges = async (e) => {
     e.preventDefault()
     if (!editingBill) return
     if (itemRows.length === 0) {
@@ -362,19 +364,13 @@ const CustomerBills = () => {
       return
     }
 
-    editBill(editingBill.id, payload)
+    await updateBillMutation({ id: editingBill.id, data: payload })
     closeEditModal()
   }
 
-  const handleConfirmRefund = () => {
+  const handleConfirmRefund = async () => {
     if (!editingBill || !refundInfo) return
-    const refundAction = {
-      type: refundChoice,
-      method: refundMethod,
-      directAmount: refundInfo.directRefund,
-      advanceAmount: refundInfo.advanceRefund
-    }
-    editBill(editingBill.id, refundInfo.payload, refundAction)
+    await updateBillMutation({ id: editingBill.id, data: refundInfo.payload })
     setShowRefundModal(false)
     setRefundInfo(null)
     setCustomerUpiId('')
