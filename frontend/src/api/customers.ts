@@ -27,10 +27,9 @@ export const getCustomer = async (id) => {
   }
 }
 
-export const createCustomer = async (data) => {
+export const createCustomer = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const payload = {
-    id: data.id,
+  const payload: any = {
     type: data.type || 'regular',
     name: data.name,
     phone: data.phone || '',
@@ -40,10 +39,15 @@ export const createCustomer = async (data) => {
     credit_limit: Number(data.credit_limit || 0)
   };
 
+  // Include id only if it is a valid UUID
+  if (data.id && typeof data.id === 'string' && !data.id.startsWith('temp-')) {
+    payload.id = data.id;
+  }
+
   try {
     const res = await api.post('/customers', payload);
     return { data: { data: res.data.data } };
-  } catch (err) {
+  } catch (err: any) {
     if (err.response && err.response.status >= 400 && err.response.status < 500) {
       throw err;
     }

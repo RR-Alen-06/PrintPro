@@ -1,12 +1,12 @@
-const { getPool } = require('../config/db');
+import { getPool } from '../config/db';
 
 // GET / - List all customers
-async function listCustomers(req, res, next) {
+export async function listCustomers(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { type, search } = req.query;
     let sql = 'SELECT * FROM customers WHERE user_id = $1';
-    const params = [req.user.id];
+    const params: any[] = [req.user.id];
 
     if (type) {
       params.push(type);
@@ -29,7 +29,7 @@ async function listCustomers(req, res, next) {
 }
 
 // GET /:id - Get customer by ID with bills summary
-async function getCustomer(req, res, next) {
+export async function getCustomer(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
@@ -68,59 +68,67 @@ async function getCustomer(req, res, next) {
 }
 
 // POST / - Create customer
-async function createCustomer(req, res, next) {
+export async function createCustomer(req: any, res: any, next: any) {
   try {
     const pool = getPool();
-    const { type, name, phone, email, address, credit_limit } = req.body;
+    const { type, name, phone, email, address, credit_limit, credit_balance } = req.body;
 
     if (!type || !name) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    // Use client-provided ID if sent (reconciliation), otherwise generate one
-    let customerId = req.body.id;
-    if (!customerId) {
-      const prefix = type === 'regular' ? 'RC' : 'RND';
-      const [maxRows] = await pool.query(
-        `SELECT id FROM customers WHERE type = $1 AND user_id = $2 ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [type, req.user.id]
-      );
+    // Generate human-readable code (e.g. RC0001, RND0001)
+    const prefix = type === 'regular' ? 'RC' : 'RND';
+    const [maxRows] = await pool.query(
+      `SELECT customer_code FROM customers WHERE type = $1 AND user_id = $2 ORDER BY created_at DESC LIMIT 1`,
+      [type, req.user.id]
+    );
 
-      let nextNum = 1;
-      if (maxRows.length > 0) {
-        const lastId = maxRows[0].id;
-        const numPart = lastId.replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-
-      customerId = `${prefix}-${String(nextNum).padStart(3, '0')}`;
+    let nextNum = 1;
+    if (maxRows.length > 0 && maxRows[0].customer_code) {
+      const numPart = maxRows[0].customer_code.replace(/[^0-9]/g, '');
+      nextNum = parseInt(numPart || '0', 10) + 1;
     }
 
-    await pool.query(
-      `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [customerId, req.user.id, type, name, phone || '', email || '', address || '', credit_limit || 0]
+    const customerCode = `${prefix}${String(nextNum).padStart(4, '0')}`;
+
+    // Omit `id` so PostgreSQL assigns gen_random_uuid()
+    const [insertedRows] = await pool.query(
+      `INSERT INTO customers (user_id, type, name, phone, email, address, credit_limit, credit_balance, customer_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        req.user.id,
+        type,
+        name,
+        phone || '',
+        email || '',
+        address || '',
+        credit_limit || 0,
+        credit_balance || 0,
+        customerCode
+      ]
     );
+
+    const newCustomer = insertedRows && insertedRows.length > 0 ? insertedRows[0] : insertedRows;
 
     // Audit log
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, 'CREATE', 'customer', customerId, JSON.stringify({ type, name, phone, email, address })]
+      [req.user.id, 'CREATE', 'customer', newCustomer.id, JSON.stringify({ type, name, phone, email, address })]
     );
 
-    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [customerId, req.user.id]);
-    res.status(201).json({ success: true, data: newCustomer[0] });
+    res.status(201).json({ success: true, data: newCustomer });
   } catch (err) {
     next(err);
   }
 }
 
 // PUT /:id - Update customer
-async function updateCustomer(req, res, next) {
+export async function updateCustomer(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { name, phone, email, address, credit_limit } = req.body;
+    const { name, phone, email, address, credit_limit, credit_balance } = req.body;
 
     const [existing] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (existing.length === 0) {
@@ -135,6 +143,7 @@ async function updateCustomer(req, res, next) {
     if (email !== undefined) updates.email = email;
     if (address !== undefined) updates.address = address;
     if (credit_limit !== undefined) updates.credit_limit = credit_limit;
+    if (credit_balance !== undefined) updates.credit_balance = credit_balance;
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
@@ -156,7 +165,7 @@ async function updateCustomer(req, res, next) {
       [req.user.id, 'UPDATE', 'customer', id, JSON.stringify(oldValue), JSON.stringify(updates)]
     );
 
-    const [updated] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [updated] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) {
     next(err);
@@ -164,19 +173,19 @@ async function updateCustomer(req, res, next) {
 }
 
 // DELETE /:id - Delete customer
-async function deleteCustomer(req, res, next) {
+export async function deleteCustomer(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
 
-    const [existing] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [existing] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     // Check for unpaid bills
     const [unpaidBills] = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM bills WHERE customer_id = ? AND user_id = ? AND status != 'paid' AND deleted_at IS NULL`,
+      `SELECT COUNT(*) AS cnt FROM bills WHERE customer_id = $1 AND user_id = $2 AND status != 'paid' AND deleted_at IS NULL`,
       [id, req.user.id]
     );
 
@@ -187,11 +196,11 @@ async function deleteCustomer(req, res, next) {
       });
     }
 
-    await pool.query('DELETE FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    await pool.query('DELETE FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
 
     // Audit log
     await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES ($1, $2, $3, $4, $5)`,
       [req.user.id, 'DELETE', 'customer', id, JSON.stringify(existing[0])]
     );
 
@@ -202,18 +211,18 @@ async function deleteCustomer(req, res, next) {
 }
 
 // GET /:id/bills - Get all bills for customer
-async function getCustomerBills(req, res, next) {
+export async function getCustomerBills(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
     const [bills] = await pool.query(
-      'SELECT * FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date DESC',
+      'SELECT * FROM bills WHERE customer_id = $1 AND user_id = $2 AND deleted_at IS NULL ORDER BY date DESC',
       [id, req.user.id]
     );
 
@@ -224,12 +233,12 @@ async function getCustomerBills(req, res, next) {
 }
 
 // GET /:id/payments - Get all payments for customer
-async function getCustomerPayments(req, res, next) {
+export async function getCustomerPayments(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [customer] = await pool.query('SELECT id FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -238,7 +247,7 @@ async function getCustomerPayments(req, res, next) {
       `SELECT p.*, b.total AS bill_total
        FROM payments p
        LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
-       WHERE p.customer_id = ? AND p.user_id = ?
+       WHERE p.customer_id = $1 AND p.user_id = $2
        ORDER BY p.date DESC`,
       [id, req.user.id]
     );
@@ -250,12 +259,12 @@ async function getCustomerPayments(req, res, next) {
 }
 
 // GET /:id/statement - Full statement (bills + payments timeline)
-async function getCustomerStatement(req, res, next) {
+export async function getCustomerStatement(req: any, res: any, next: any) {
   try {
     const pool = getPool();
     const { id } = req.params;
 
-    const [customer] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [customer] = await pool.query('SELECT * FROM customers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
@@ -263,25 +272,25 @@ async function getCustomerStatement(req, res, next) {
     // Get all bills
     const [bills] = await pool.query(
       `SELECT id, date, total, amount_paid, balance, status, 'bill' AS entry_type
-       FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL`,
+       FROM bills WHERE customer_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, req.user.id]
     );
 
     // Get all payments
     const [payments] = await pool.query(
       `SELECT id, date, total_paid, cash_amount, upi_amount, bill_id, payment_type, 'payment' AS entry_type
-       FROM payments WHERE customer_id = ? AND user_id = ?`,
+       FROM payments WHERE customer_id = $1 AND user_id = $2`,
       [id, req.user.id]
     );
 
     // Combine and sort by date
     const timeline = [
-      ...bills.map(b => ({ ...b, sort_date: new Date(b.date) })),
-      ...payments.map(p => ({ ...p, sort_date: new Date(p.date) }))
-    ].sort((a, b) => a.sort_date - b.sort_date);
+      ...bills.map((b: any) => ({ ...b, sort_date: new Date(b.date) })),
+      ...payments.map((p: any) => ({ ...p, sort_date: new Date(p.date) }))
+    ].sort((a: any, b: any) => a.sort_date - b.sort_date);
 
     // Remove the sort helper
-    timeline.forEach(entry => delete entry.sort_date);
+    timeline.forEach((entry: any) => delete entry.sort_date);
 
     res.json({
       success: true,
@@ -294,14 +303,3 @@ async function getCustomerStatement(req, res, next) {
     next(err);
   }
 }
-
-module.exports = {
-  listCustomers,
-  getCustomer,
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
-  getCustomerBills,
-  getCustomerPayments,
-  getCustomerStatement
-};
