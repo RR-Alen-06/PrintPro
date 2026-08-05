@@ -40,8 +40,11 @@ export class PgConnectionWrapper {
     const rows = result.rows;
 
     if (result.command === 'INSERT' || result.command === 'UPDATE' || result.command === 'DELETE') {
+      if (rows && rows.length > 0) {
+        return [rows, null];
+      }
       const affectedRows = result.rowCount;
-      const insertId = result.rows[0]?.id || null;
+      const insertId = null;
       return [{ insertId, affectedRows, warningStatus: 0 }, null];
     }
 
@@ -79,8 +82,11 @@ export class PgPoolWrapper {
     const rows = result.rows;
 
     if (result.command === 'INSERT' || result.command === 'UPDATE' || result.command === 'DELETE') {
+      if (rows && rows.length > 0) {
+        return [rows, null];
+      }
       const affectedRows = result.rowCount;
-      const insertId = result.rows[0]?.id || null;
+      const insertId = null;
       return [{ insertId, affectedRows, warningStatus: 0 }, null];
     }
 
