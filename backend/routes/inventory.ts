@@ -1,13 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const {
+import express from 'express';
+import {
   listItems,
   addItem,
   updateItem,
   deleteItem,
   updateStock,
   getLowStock,
-} = require('../controllers/inventoryController');
+} from '../controllers/inventoryController';
+import { validateInventoryItem } from '../middleware/validate';
+
+const router = express.Router();
 
 // GET /api/inventory
 router.get('/', listItems);
@@ -16,7 +18,6 @@ router.get('/', listItems);
 router.get('/low-stock', getLowStock);
 
 // POST /api/inventory
-const { validateInventoryItem } = require('../middleware/validate');
 router.post('/', validateInventoryItem, addItem);
 
 // PUT /api/inventory/:id
@@ -28,4 +29,4 @@ router.put('/:id/stock', validateInventoryItem, updateStock);
 // DELETE /api/inventory/:id
 router.delete('/:id', deleteItem);
 
-module.exports = router;
+export default router;

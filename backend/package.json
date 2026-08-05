@@ -4,6 +4,7 @@
   "description": "PrintPro Printing Business Management API",
   "main": "server.js",
   "scripts": {
+    "build": "tsc --project tsconfig.json",
     "start": "tsx server.js",
     "dev": "tsx watch server.js",
     "lint": "eslint .",

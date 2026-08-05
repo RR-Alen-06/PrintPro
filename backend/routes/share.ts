@@ -1,8 +1,9 @@
-const express = require('express');
+import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
 // Ensure directory exists
 const uploadDir = path.join(__dirname, '..', 'uploads', 'receipts');
@@ -41,7 +42,7 @@ const upload = multer({
 });
 
 // POST /api/share/upload-pdf
-router.post('/upload-pdf', upload.single('pdf'), (req, res) => {
+router.post('/upload-pdf', upload.single('pdf'), (req: any, res: any) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No PDF file uploaded.' });
@@ -64,4 +65,4 @@ router.post('/upload-pdf', upload.single('pdf'), (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

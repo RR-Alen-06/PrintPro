@@ -1,18 +1,20 @@
-const express = require('express');
+import express from 'express';
+import { getPool } from '../config/db';
+import { validatePurchase } from '../middleware/validate';
+
 const router = express.Router();
-const { getPool } = require('../config/db');
 
 // GET /api/purchases?startDate=&endDate=&category=
-router.get('/', async (req, res, next) => {
+router.get('/', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const { startDate, endDate, category } = req.query;
-    let sql = 'SELECT * FROM purchases WHERE user_id = ?';
-    const params = [req.user.id];
+    let sql = 'SELECT * FROM purchases WHERE user_id = $1';
+    const params: any[] = [req.user.id];
 
-    if (startDate) { sql += ' AND date >= ?'; params.push(startDate); }
-    if (endDate)   { sql += ' AND date <= ?'; params.push(endDate); }
-    if (category)  { sql += ' AND category = ?'; params.push(category); }
+    if (startDate) { params.push(startDate); sql += ` AND date >= $${params.length}`; }
+    if (endDate)   { params.push(endDate); sql += ` AND date <= $${params.length}`; }
+    if (category)  { params.push(category); sql += ` AND category = $${params.length}`; }
 
     sql += ' ORDER BY date DESC';
     const [rows] = await pool.query(sql, params);
@@ -21,12 +23,12 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /api/purchases/summary
-router.get('/summary', async (req, res, next) => {
+router.get('/summary', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const [rows] = await pool.query(
       `SELECT category, COUNT(*) AS count, SUM(total) AS total_spent
-       FROM purchases WHERE user_id = ? GROUP BY category ORDER BY total_spent DESC`,
+       FROM purchases WHERE user_id = $1 GROUP BY category ORDER BY total_spent DESC`,
       [req.user.id]
     );
     res.json({ success: true, data: rows });
@@ -34,18 +36,18 @@ router.get('/summary', async (req, res, next) => {
 });
 
 // GET /api/purchases/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
-    if (rows.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
-    res.json({ success: true, data: rows[0] });
+    const [rows] = await pool.query('SELECT * FROM purchases WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const existing = Array.isArray(rows) ? rows[0] : rows;
+    if (!existing) return res.status(404).json({ success: false, error: 'Purchase not found' });
+    res.json({ success: true, data: existing });
   } catch (err) { next(err); }
 });
 
 // POST /api/purchases
-const { validatePurchase } = require('../middleware/validate');
-router.post('/', validatePurchase, async (req, res, next) => {
+router.post('/', validatePurchase, async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const { date, item_name, category, qty, unit_cost, notes } = req.body;
@@ -59,22 +61,23 @@ router.post('/', validatePurchase, async (req, res, next) => {
     const total = parseFloat((qtyNum * cost).toFixed(2));
 
     const [result] = await pool.query(
-      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '']
     );
 
-    const [newRow] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
-    res.status(201).json({ success: true, data: newRow[0] });
+    const newRow = Array.isArray(result) ? result[0] : result;
+    res.status(201).json({ success: true, data: newRow });
   } catch (err) { next(err); }
 });
 
 // PUT /api/purchases/:id
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
+    const [existingRows] = await pool.query('SELECT * FROM purchases WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const existing = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!existing) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
     const { date, item_name, category, qty, unit_cost, notes } = req.body;
     const updates: Record<string, any> = {};
@@ -86,8 +89,8 @@ router.put('/:id', async (req, res, next) => {
     if (notes !== undefined)     updates.notes = notes;
 
     if (updates.qty !== undefined || updates.unit_cost !== undefined) {
-      const q = updates.qty !== undefined ? updates.qty : existing[0].qty;
-      const c = updates.unit_cost !== undefined ? updates.unit_cost : parseFloat(existing[0].unit_cost);
+      const q = updates.qty !== undefined ? updates.qty : existing.qty;
+      const c = updates.unit_cost !== undefined ? updates.unit_cost : parseFloat(existing.unit_cost);
       updates.total = parseFloat((q * c).toFixed(2));
     }
 
@@ -95,23 +98,27 @@ router.put('/:id', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ? AND user_id = ?`, [...Object.values(updates), id, req.user.id]);
+    const keys = Object.keys(updates);
+    const setClauses = keys.map((k, idx) => `${k} = $${idx + 1}`).join(', ');
+    const values = Object.values(updates);
+    values.push(id, req.user.id);
+    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = $${values.length - 1} AND user_id = $${values.length}`, values);
 
-    const [updated] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updatedRows] = await pool.query('SELECT * FROM purchases WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    res.json({ success: true, data: Array.isArray(updatedRows) ? updatedRows[0] : updatedRows });
   } catch (err) { next(err); }
 });
 
 // DELETE /api/purchases/:id
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
-    const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
-    if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
-    await pool.query('DELETE FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const [existingRows] = await pool.query('SELECT * FROM purchases WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const existing = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!existing) return res.status(404).json({ success: false, error: 'Purchase not found' });
+    await pool.query('DELETE FROM purchases WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
     res.json({ success: true, message: 'Purchase deleted successfully' });
   } catch (err) { next(err); }
 });
 
-module.exports = router;
+export default router;
