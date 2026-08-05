@@ -15,22 +15,22 @@ export const getItems = async () => {
   }
 }
 
-export const createItem = async (data) => {
+export const createItem = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
   const payload = {
     name: data.name,
-    color_single: Number(data.color_single || 0),
-    color_double: Number(data.color_double || 0),
-    bw_single: Number(data.bw_single || 0),
-    bw_double: Number(data.bw_double || 0),
+    color_single: Number(data.color_single !== undefined ? data.color_single : (data.colorSingle || 0)),
+    color_double: Number(data.color_double !== undefined ? data.color_double : (data.colorDouble || 0)),
+    bw_single: Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle || 0)),
+    bw_double: Number(data.bw_double !== undefined ? data.bw_double : (data.bwDouble || 0)),
     stock: Number(data.stock || 0),
-    low_stock_alert: Number(data.low_stock_alert || 50)
+    low_stock_alert: Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert || 50))
   };
 
   try {
     const res = await api.post('/inventory', payload);
     return { data: { data: res.data.data } };
-  } catch (err) {
+  } catch (err: any) {
     if (err.response && err.response.status >= 400 && err.response.status < 500) {
       throw err;
     }

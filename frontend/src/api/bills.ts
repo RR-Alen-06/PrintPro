@@ -41,37 +41,45 @@ export const getBill = async (id: string) => {
   }
 }
 
-export const createBill = async (data) => {
+export const createBill = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const billPayload = {
-    id: data.id,
-    customer_id: data.customer_id,
-    date: data.date,
-    due_date: data.due_date || null,
+  const billPayload: any = {
+    customer_id: data.customer_id || data.customerId,
+    date: data.date || new Date().toISOString().slice(0, 10),
+    due_date: data.due_date || data.dueDate || null,
     subtotal: Number(data.subtotal || 0),
-    discount_type: data.discount_type || 'flat',
-    discount_value: Number(data.discount_value || 0),
-    gst_percent: Number(data.gst_percent || 0),
-    gst_amount: Number(data.gst_amount || 0),
+    discount_type: data.discount_type || data.discountType || 'flat',
+    discount_value: Number(data.discount_value !== undefined ? data.discount_value : (data.discountValue || 0)),
+    gst_percent: Number(data.gst_percent !== undefined ? data.gst_percent : (data.gstPercent || 0)),
+    gst_amount: Number(data.gst_amount !== undefined ? data.gst_amount : (data.gstAmount || 0)),
     total: Number(data.total || 0),
-    amount_paid: Number(data.amount_paid || 0),
-    balance: Number(data.balance || 0),
+    amount_paid: Number(data.amount_paid !== undefined ? data.amount_paid : (data.amountPaid || 0)),
+    balance: Number(data.balance !== undefined ? data.balance : (data.balance || 0)),
     status: data.status || 'unpaid',
     notes: data.notes || '',
-    items: (data.items || []).map(item => ({
-      item_name: item.item_name,
-      print_type: item.print_type || 'color',
-      sides: item.sides || 'single',
-      qty: Number(item.qty || 1),
-      unit_price: Number(item.unit_price || 0),
-      amount: Number(item.amount || (Number(item.qty || 1) * Number(item.unit_price || 0)))
-    }))
+    items: (data.items || []).map((item: any) => {
+      const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
+      const q = Number(item.qty || 1);
+      return {
+        item_name: item.item_name || item.itemName || item.name || 'Print Item',
+        print_type: item.print_type || item.printType || 'color',
+        sides: item.sides || 'single',
+        qty: q,
+        unit_price: uPrice,
+        amount: Number(item.amount !== undefined ? item.amount : (q * uPrice))
+      };
+    })
   };
+
+  // Only attach ID if it is a valid UUID
+  if (data.id && typeof data.id === 'string' && !data.id.startsWith('temp-') && !data.id.startsWith('BILL-') && !data.id.startsWith('INV/')) {
+    billPayload.id = data.id;
+  }
 
   try {
     const res = await api.post('/bills', billPayload);
     return { data: { data: res.data.data } };
-  } catch (err) {
+  } catch (err: any) {
     if (err.response && err.response.status >= 400 && err.response.status < 500) {
       throw err; // Re-throw 4xx client/validation errors directly to UI
     }

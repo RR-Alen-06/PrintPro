@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useBillMutations } from '../hooks/useBillsQuery'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -32,13 +34,15 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, recordPayment, processRefund, writeOffBill, showToast, syncFromCloud } = useAppContext()
+  const { business, customers, settings, bills, payments, advancePayments, showToast, syncFromCloud } = useAppContext()
+  const { createPayment } = usePaymentMutations()
+  const { updateBill: updateBillMutation } = useBillMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
-  const handleWriteOff = (billId, balanceAmt) => {
+  const handleWriteOff = async (billId, balanceAmt) => {
     if (window.confirm(`Are you sure you want to write off the outstanding balance of ₹${balanceAmt.toFixed(2)} for Invoice #${billId}? This cannot be undone.`)) {
-      writeOffBill(billId)
+      await updateBillMutation({ id: billId, data: { status: 'paid', balance: 0, notes: `Written off ₹${balanceAmt.toFixed(2)}` } })
       showToast(`Invoice #${billId} written off successfully!`, 'success')
     }
   }
@@ -118,17 +122,18 @@ const CustomerLedger = () => {
     return res.entries
   }, [bills, payments, advancePayments, selectedCustomerId, ledgerPeriod, settings])
 
-  const handleApplyPayment = () => {
+  const handleApplyPayment = async () => {
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
     if (cash + upi <= 0 || !selectedCustomer) return
 
-    recordPayment({
-      customerId: selectedCustomer.id,
-      cashAmount: cash,
-      upiAmount: upi,
+    await createPayment({
+      customer_id: selectedCustomer.id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: cash + upi,
+      payment_type: 'partial',
       notes: `Payment from ledger page`,
-      returnChangeUpi: returnChange ? Math.max(0, (cash + upi) - outstanding) : 0
     })
 
     setPayCash('')
