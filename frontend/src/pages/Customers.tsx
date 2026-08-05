@@ -195,7 +195,7 @@ const Customers = () => {
     const totalPaying = cash + upi
     if (totalPaying <= 0 || !selectedCustomer) return
 
-    await createPayment({
+    await (createPayment as any)({
       customer_id: selectedCustomer.id,
       cash_amount: cash,
       upi_amount: upi,
@@ -216,7 +216,7 @@ const Customers = () => {
     const totalPaying = cash + upi
     if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
 
-    await createPayment({
+    await (createPayment as any)({
       bill_id: bill.id,
       customer_id: bill.customerId || bill.customer_id,
       cash_amount: cash,
