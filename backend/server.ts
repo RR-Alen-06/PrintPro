@@ -189,5 +189,6 @@ if (require.main === module) {
   initializeDatabase().catch(err => {
     logger.error(`Database init failed during cold start: ${err.message}`);
   });
-  module.exports = app;
 }
+
+export default app;
