@@ -76,18 +76,18 @@
     }
   ],
 
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/:path*",
-      "destination": "/api/index.js"
+      "src": "/api/(.*)",
+      "dest": "api/index.js"
     },
     {
-      "source": "/assets/:path*",
-      "destination": "/assets/:path*"
+      "src": "/assets/(.*)",
+      "dest": "frontend/dist/assets/$1"
     },
     {
-      "source": "/:path*",
-      "destination": "/index"
+      "src": "/(.*)",
+      "dest": "frontend/dist/index.html"
     }
   ]
 }
