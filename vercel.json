@@ -8,7 +8,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
   "installCommand": "npm ci --prefer-offline",
-  "framework": "vite",
 
   "headers": [
     {
