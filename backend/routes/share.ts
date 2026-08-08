@@ -5,10 +5,17 @@ import fs from 'fs';
 
 const router = express.Router();
 
-// Ensure directory exists
-const uploadDir = path.join(__dirname, '..', 'uploads', 'receipts');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// Ensure directory exists (using /tmp in serverless or fallback)
+const uploadDir = process.env.VERCEL === '1' 
+  ? path.join('/tmp', 'uploads', 'receipts') 
+  : path.join(__dirname, '..', 'uploads', 'receipts');
+
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Could not create upload directory:', err);
 }
 
 // Multer configuration
