@@ -2321,7 +2321,11 @@ export const AppProvider = ({ children }: any) => {
     if (userId) {
       localStorage.removeItem(`printpro-state:${userId}`)
       localStorage.removeItem(`offline_sync_queue:${userId}`)
+      localStorage.removeItem(`PRINTPRO_REACT_QUERY_CACHE:${userId}`)
     }
+    localStorage.removeItem('PRINTPRO_REACT_QUERY_CACHE')
+
+    // Synchronously clear state first so App.tsx router guard evaluates immediately
     rawDispatch({ type: 'RESET_STATE' })
 
     try {

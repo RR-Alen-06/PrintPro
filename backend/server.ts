@@ -120,6 +120,8 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
+import settingsRoutes from './routes/settings';
+
 // ── Authenticated API routes ─────────────────────────────────────────────────
 app.use('/api', auth);
 
@@ -133,6 +135,7 @@ app.use('/api/profile',       profileRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/audit',         auditRoutes);
 app.use('/api/share',         shareRoutes);
+app.use('/api/settings',      settingsRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {
