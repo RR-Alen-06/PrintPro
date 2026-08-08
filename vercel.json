@@ -4,7 +4,7 @@
 
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm ci --prefer-offline",
+  "installCommand": "npm ci --prefer-offline && npm --prefix frontend ci --prefer-offline && npm --prefix backend ci --prefer-offline",
 
   "functions": {
     "api/index.ts": {
