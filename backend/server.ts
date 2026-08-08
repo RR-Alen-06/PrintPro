@@ -1,10 +1,3 @@
-if (process.env.VERCEL !== '1') {
-  try {
-    require('dotenv/config');
-  } catch (e) {
-    // Ignore dotenv missing in production
-  }
-}
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
