@@ -1,5 +1,6 @@
 import api from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
+import { mapBillFromApi } from './bills'
 
 export const getCustomers = async (type = 'all', search = '') => {
   try {
@@ -91,7 +92,8 @@ export const deleteCustomer = async (id) => {
 export const getCustomerBills = async (id) => {
   try {
     const res = await api.get(`/customers/${id}/bills`);
-    return { data: { data: res.data.data } };
+    const mapped = (res.data.data || []).map(mapBillFromApi);
+    return { data: { data: mapped } };
   } catch (err) {
     const { data, error } = await supabase
       .from('bills')
@@ -100,7 +102,8 @@ export const getCustomerBills = async (id) => {
       .is('deleted_at', null)
       .order('date', { ascending: false });
     if (error) throw error;
-    return { data: { data } };
+    const mapped = (data || []).map(mapBillFromApi);
+    return { data: { data: mapped } };
   }
 }
 
