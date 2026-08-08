@@ -25,6 +25,7 @@ import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
 import CustomerPortal from './pages/CustomerPortal'
+import ErrorBoundary from './components/common/ErrorBoundary'
 
 // Mobile Page Imports
 import MobileAuth from './pages/mobile/MobileAuth'
@@ -134,32 +135,34 @@ function App() {
       <div className="main-wrapper">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/customers" element={<Customers />} />
-            <Route path="/accounting" element={<Accounting />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/deleted-bills" element={<DeletedBills />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/data-management" element={<DataManagement />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/receipt" element={<Receipt />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/item-sales-report" element={<ItemSalesReport />} />
-            <Route path="/customer-ledger" element={<CustomerLedger />} />
-            <Route path="/customer-bills" element={<CustomerBills />} />
-            <Route path="/recurring-bills" element={<RecurringBills />} />
-            <Route path="/advance-payments" element={<AdvancePayments />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/group-billing" element={<GroupBilling />} />
-            <Route path="/refunds" element={<Refunds />} />
-            <Route path="/portal" element={<CustomerPortal />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/billing" element={<Billing />} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="/accounting" element={<Accounting />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/deleted-bills" element={<DeletedBills />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/data-management" element={<DataManagement />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/receipt" element={<Receipt />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/item-sales-report" element={<ItemSalesReport />} />
+              <Route path="/customer-ledger" element={<CustomerLedger />} />
+              <Route path="/customer-bills" element={<CustomerBills />} />
+              <Route path="/recurring-bills" element={<RecurringBills />} />
+              <Route path="/advance-payments" element={<AdvancePayments />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/group-billing" element={<GroupBilling />} />
+              <Route path="/refunds" element={<Refunds />} />
+              <Route path="/portal" element={<CustomerPortal />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </ErrorBoundary>
         </main>
       </div>
     </div>
