@@ -36,12 +36,20 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
+  'https://printpro-in.vercel.app',
   process.env.CORS_ORIGIN
 ].filter(Boolean);
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('http://localhost:')) {
+  origin: (origin: any, callback: any) => {
+    if (
+      !origin ||
+      allowedOrigins.indexOf(origin) !== -1 ||
+      origin.startsWith('http://localhost:') ||
+      origin.endsWith('-print-service.vercel.app') ||
+      /^https:\/\/print-pro-[a-z0-9-]+\.vercel\.app$/.test(origin) ||
+      /^https:\/\/printpro-[a-z0-9-]+\.vercel\.app$/.test(origin)
+    ) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));

@@ -8,7 +8,7 @@ export async function listCustomers(req: any, res: any, next: any) {
     let sql = 'SELECT * FROM customers WHERE user_id = $1';
     const params: any[] = [req.user.id];
 
-    if (type) {
+    if (type && type !== 'all') {
       params.push(type);
       sql += ` AND type = $${params.length}`;
     }
