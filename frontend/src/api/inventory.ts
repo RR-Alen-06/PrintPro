@@ -1,17 +1,34 @@
 import api from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 
+export const mapItemFromApi = (i: any) => ({
+  ...i,
+  id: i.id,
+  name: i.name || '',
+  type: i.type || 'print',
+  hsnCode: i.hsn_code || i.hsnCode || '',
+  sellingPrice: Number(i.selling_price !== undefined ? i.selling_price : (i.sellingPrice || 0)),
+  colorSingle: Number(i.color_single !== undefined ? i.color_single : (i.colorSingle || 0)),
+  colorDouble: Number(i.color_double !== undefined ? i.color_double : (i.colorDouble || 0)),
+  bwSingle: Number(i.bw_single !== undefined ? i.bw_single : (i.bwSingle || 0)),
+  bwDouble: Number(i.bw_double !== undefined ? i.bw_double : (i.bwDouble || 0)),
+  stock: Number(i.stock || 0),
+  lowStockAlert: Number(i.low_stock_alert !== undefined ? i.low_stock_alert : (i.lowStockAlert || 5))
+});
+
 export const getItems = async () => {
   try {
     const res = await api.get('/inventory');
-    return { data: { data: res.data.data } };
+    const mapped = (res.data.data || []).map(mapItemFromApi);
+    return { data: { data: mapped } };
   } catch (err) {
     const { data, error } = await supabase
       .from('inventory_items')
       .select('*')
       .order('name', { ascending: true });
     if (error) throw error;
-    return { data: { data } };
+    const mapped = (data || []).map(mapItemFromApi);
+    return { data: { data: mapped } };
   }
 }
 

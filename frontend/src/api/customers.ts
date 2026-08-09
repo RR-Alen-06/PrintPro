@@ -2,10 +2,27 @@ import api from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 import { mapBillFromApi } from './bills'
 
+export const mapCustomerFromApi = (c: any) => ({
+  ...c,
+  id: c.id,
+  customerCode: c.customer_code || c.customerCode || c.code || (typeof c.id === 'string' && !c.id.includes('-') ? c.id : undefined),
+  type: c.type || 'regular',
+  name: c.name || '',
+  phone: c.phone || '',
+  email: c.email || '',
+  address: c.address || '',
+  creditBalance: Number(c.credit_balance !== undefined ? c.credit_balance : (c.creditBalance || 0)),
+  advanceBalance: Number(c.advance_balance !== undefined ? c.advance_balance : (c.advanceBalance || c.credit_balance || 0)),
+  creditLimit: Number(c.credit_limit !== undefined ? c.credit_limit : (c.creditLimit || 0)),
+  loyaltyPoints: Number(c.loyalty_points !== undefined ? c.loyalty_points : (c.loyaltyPoints || 0)),
+  createdAt: c.created_at || c.createdAt || new Date().toISOString()
+});
+
 export const getCustomers = async (type = 'all', search = '') => {
   try {
     const res = await api.get('/customers', { params: { type, search } });
-    return { data: { data: res.data.data } };
+    const mapped = (res.data.data || []).map(mapCustomerFromApi);
+    return { data: { data: mapped } };
   } catch (err) {
     let query = supabase.from('customers').select('*');
     if (type && type !== 'all') query = query.eq('type', type);
@@ -13,18 +30,19 @@ export const getCustomers = async (type = 'all', search = '') => {
     query = query.order('created_at', { ascending: false });
     const { data, error } = await query;
     if (error) throw error;
-    return { data: { data } };
+    const mapped = (data || []).map(mapCustomerFromApi);
+    return { data: { data: mapped } };
   }
 }
 
 export const getCustomer = async (id) => {
   try {
     const res = await api.get(`/customers/${id}`);
-    return { data: { data: res.data.data } };
+    return { data: { data: mapCustomerFromApi(res.data.data) } };
   } catch (err) {
     const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
     if (error) throw error;
-    return { data: { data } };
+    return { data: { data: mapCustomerFromApi(data) } };
   }
 }
 

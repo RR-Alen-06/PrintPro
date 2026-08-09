@@ -1222,16 +1222,16 @@ export const AppProvider = ({ children }: any) => {
           const parsed = parseInventoryName(i.name)
           return {
             id: i.id,
-            name: parsed.name,
-            type: parsed.type,
-            hsnCode: parsed.hsnCode,
-            sellingPrice: parsed.sellingPrice,
-            colorSingle: Number(i.color_single || 0),
-            colorDouble: Number(i.color_double || 0),
-            bwSingle: Number(i.bw_single || 0),
-            bwDouble: Number(i.bw_double || 0),
-            stock: Number(i.stock || 0),
-            lowStockAlert: Number(i.low_stock_alert || 5)
+            name: i.name || parsed.name,
+            type: i.type || parsed.type,
+            hsnCode: i.hsnCode || i.hsn_code || parsed.hsnCode,
+            sellingPrice: Number(i.sellingPrice ?? i.selling_price ?? parsed.sellingPrice ?? 0),
+            colorSingle: Number(i.colorSingle ?? i.color_single ?? 0),
+            colorDouble: Number(i.colorDouble ?? i.color_double ?? 0),
+            bwSingle: Number(i.bwSingle ?? i.bw_single ?? 0),
+            bwDouble: Number(i.bwDouble ?? i.bw_double ?? 0),
+            stock: Number(i.stock ?? 0),
+            lowStockAlert: Number(i.lowStockAlert ?? i.low_stock_alert ?? 5)
           }
         })
 

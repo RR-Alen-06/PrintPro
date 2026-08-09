@@ -30,7 +30,7 @@ const DeletedBills = () => {
               {deletedBills.length > 0 ? (
                 deletedBills.map((bill) => (
                   <tr key={bill.id}>
-                    <td>{bill.id}</td>
+                    <td>{bill.invoiceNumber || bill.id}</td>
                     <td>{bill.customerName}</td>
                     <td>{bill.date}</td>
                     <td>₹{bill.total.toFixed(2)}</td>

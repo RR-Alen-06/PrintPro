@@ -2865,7 +2865,7 @@ const Billing = () => {
               {bills.filter((b) => !b.deleted).map((bill) => (
                 <tr key={bill.id}>
                   <td>
-                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>{bill.id}</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>{bill.invoiceNumber || bill.id}</div>
                     <span className={`badge ${bill.customerType === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.6rem', marginTop: '2px' }}>
                       {bill.customerType === 'regular' ? 'Regular' : 'Walk-in'}
                     </span>

@@ -348,7 +348,7 @@ const Search = () => {
                       <tr key={item.id}>
                         {searchType === 'bills' && (
                           <>
-                            <td>{item.id}</td>
+                            <td>{item.invoiceNumber || item.id}</td>
                             <td>{item.customerName}</td>
                             <td>{item.date}</td>
                             <td>₹{item.total.toFixed(2)}</td>
