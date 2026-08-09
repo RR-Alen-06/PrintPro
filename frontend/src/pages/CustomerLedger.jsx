@@ -488,12 +488,12 @@ const CustomerLedger = () => {
             >
               <optgroup label="Regular Customers">
                 {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                  <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>
                 ))}
               </optgroup>
               <optgroup label="Walk-in Customers">
                 {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                  <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>
                 ))}
               </optgroup>
             </select>
@@ -502,8 +502,8 @@ const CustomerLedger = () => {
               <div style={{ marginTop: '8px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.875rem' }}>
                 <div style={{ display: 'grid', gap: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span className="text-muted">ID</span>
-                    <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
+                    <span className="text-muted">Code</span>
+                    <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.customerCode || selectedCustomer.id}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span className="text-muted">Type</span>

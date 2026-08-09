@@ -222,7 +222,7 @@ export const LedgerService = {
         type: 'bill',
         date: bill.date,
         id: bill.id,
-        description: `Invoice #${bill.id}`,
+        description: `Invoice #${bill.invoiceNumber || bill.id}`,
         subtext: `${bill.items ? `${bill.items.length} item(s) · ` : ''}${statusText} (${breakdown})`,
         debit: bill.total,
         credit: 0,

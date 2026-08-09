@@ -615,7 +615,7 @@ const DataManagement = () => {
                   <tr key={idx}>
                     {selectedReport === 'bills' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{row.invoiceNumber || row.id}</td>
                         <td>{row.customerName}</td>
                         <td>{row.date}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.subtotal).toFixed(2)}</td>
@@ -628,7 +628,7 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'customers' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{row.customerCode || row.id}</td>
                         <td><span className={`badge ${row.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{row.type.toUpperCase()}</span></td>
                         <td>{row.name}</td>
                         <td>{row.phone || '—'}</td>
@@ -640,8 +640,8 @@ const DataManagement = () => {
                     {selectedReport === 'payments' && (
                       <>
                         <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
-                        <td>{row.billId}</td>
-                        <td>{row.customerId}</td>
+                        <td>{row.invoiceNumber || row.billId}</td>
+                        <td>{row.customerCode || row.customerId}</td>
                         <td>{row.date ? row.date.slice(0, 10) : ''}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.upiAmount || 0).toFixed(2)}</td>

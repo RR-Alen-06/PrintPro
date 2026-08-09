@@ -1010,7 +1010,7 @@ const Dashboard = () => {
             <tbody>
               {activeBills.slice(0, 6).map((bill, index) => (
                 <tr key={`${bill.id}-${index}`}>
-                  <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--accent)' }}>{bill.id}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--accent)' }}>{bill.invoiceNumber || bill.id}</td>
                   <td>{bill.customerName}</td>
                   <td>{bill.date}</td>
                   <td>₹{bill.total.toFixed(2)}</td>
