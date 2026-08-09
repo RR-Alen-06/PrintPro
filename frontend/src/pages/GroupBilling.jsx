@@ -287,7 +287,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
             </select>
             <button
               type="button"
@@ -2018,7 +2018,7 @@ const GroupBillsHistory = () => {
                     <div style={{ marginTop: '8px', fontSize: '12px', color: '#a1a1aa' }}>This will automatically settle:</div>
                     {previewSettlements.map(({ bill, apply }) => (
                       <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
-                        <span>✓ {bill.customerName} ({bill.id})</span>
+                        <span>✓ {bill.customerName} ({bill.invoiceNumber || bill.id})</span>
                         <strong style={{ color: '#10b981' }}>₹{apply.toFixed(2)}</strong>
                       </div>
                     ))}

@@ -281,7 +281,7 @@ const AdvancePayments = () => {
                       .filter((c) => c.type === 'regular' && (actionType === 'receive' || Number(c.advanceBalance || 0) > 0))
                       .map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
+                          {c.name} ({c.customerCode || c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
                         </option>
                       ))}
                   </optgroup>
@@ -290,7 +290,7 @@ const AdvancePayments = () => {
                       .filter((c) => c.type === 'random' && (actionType === 'receive' || Number(c.advanceBalance || 0) > 0))
                       .map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
+                          {c.name} ({c.customerCode || c.id}) - Bal: ₹{Number(c.advanceBalance || 0).toFixed(2)}
                         </option>
                       ))}
                   </optgroup>

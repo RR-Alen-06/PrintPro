@@ -198,7 +198,7 @@ const Receipt = () => {
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(50, 50, 50)
-    txt(`Bill ID: ${bill.id}`, MARGIN, y)
+    txt(`Bill ID: ${bill.invoiceNumber || bill.id}`, MARGIN, y)
     txt(`Date: ${bill.date}`, W - MARGIN, y, { align: 'right' })
     y += 5
     txt(`Customer: ${bill.customerName}`, MARGIN, y)
@@ -464,7 +464,7 @@ const Receipt = () => {
                   style={{ textAlign: 'left', justifyContent: 'flex-start', padding: '10px 14px' }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700 }}>{bill.id}</div>
+                    <div style={{ fontWeight: 700 }}>{bill.invoiceNumber || bill.id}</div>
                     <div style={{ fontSize: '12px', opacity: 0.75 }}>
                       {bill.customerName} · ₹{bill.total.toFixed(2)} ·{' '}
                       <span style={{ textTransform: 'capitalize' }}>{bill.status}</span>

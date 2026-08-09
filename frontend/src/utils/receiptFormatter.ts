@@ -52,7 +52,7 @@ export const formatWhatsAppReceipt = (bill: any, settings: any = {}, business: a
     result += `📞 ${business.phone}\n`
   }
   result += `\n`
-  result += `Bill No : ${bill.id}\n`
+  result += `Bill No : ${bill.invoiceNumber || bill.id}\n`
   
   // Format date cleanly e.g. 14-Jul-2026
   let formattedDate = bill.date || ''

@@ -457,12 +457,12 @@ const CustomerBills = () => {
           >
             <optgroup label="Regular Customers">
               {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>
               ))}
             </optgroup>
             <optgroup label="Walk-in Customers">
               {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>
               ))}
             </optgroup>
           </select>
@@ -518,7 +518,7 @@ const CustomerBills = () => {
                 <tbody>
                   {customerBills.map((bill) => (
                     <tr key={bill.id}>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{bill.id}</td>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{bill.invoiceNumber || bill.id}</td>
                       <td>{bill.date}</td>
                       <td style={{ textAlign: 'right' }}>{Number(bill.total || 0).toFixed(2)}</td>
                       <td style={{ textAlign: 'right' }}>{Number(bill.amountPaid || 0).toFixed(2)}</td>
@@ -557,7 +557,7 @@ const CustomerBills = () => {
                               style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
                               onClick={() => {
                                 setUpiModalAmount(bill.balance)
-                                setUpiModalNotes(`Bill #${bill.id} payment`)
+                                setUpiModalNotes(`Bill #${bill.invoiceNumber || bill.id} payment`)
                                 setShowUpiModal(true)
                               }}
                             >
@@ -571,7 +571,7 @@ const CustomerBills = () => {
                             onClick={() => {
                               showConfirm(
                                 'Delete Bill',
-                                `Are you sure you want to delete bill ${bill.id}? This will restore customer credits.`,
+                                `Are you sure you want to delete bill ${bill.invoiceNumber || bill.id}? This will restore customer credits.`,
                                 () => deleteBill(bill.id)
                               )
                             }}
@@ -595,7 +595,7 @@ const CustomerBills = () => {
           <div className="modal modal-lg" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '850px' }}>
             <div className="modal-header">
               <div>
-                <h3>Edit Bill - {editingBill.id}</h3>
+                <h3>Edit Bill - {editingBill.invoiceNumber || editingBill.id}</h3>
                 <p className="text-muted">Modify print items, quantities, pricing, and discount details.</p>
               </div>
               <button className="modal-close btn-icon" onClick={closeEditModal} type="button">
