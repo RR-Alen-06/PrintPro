@@ -571,7 +571,7 @@ const Customers = () => {
                     </span>
                   </div>
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    ID: <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
+                    Code: <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.customerCode || selectedCustomer.id}</strong>
                     {selectedCustomer.phone && ` · ${selectedCustomer.phone}`}
                     {selectedCustomer.email && ` · ${selectedCustomer.email}`}
                   </div>
@@ -664,7 +664,7 @@ const Customers = () => {
                                 {expandedBillId === bill.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                               </button>
                             </td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.id}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.invoiceNumber || bill.id}</td>
                             <td>{bill.date}</td>
                             <td>₹{bill.total.toFixed(2)}</td>
                             <td>₹{bill.amountPaid.toFixed(2)}</td>

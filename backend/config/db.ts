@@ -19,8 +19,11 @@ if (!projectRef) {
 }
 
 const region = 'ap-south-1';
-const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD || 'cek@123';
-const encodedPassword = encodeURIComponent(dbPassword);
+const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
+if (!dbPassword && !process.env.DATABASE_URL) {
+  throw new Error('Database configuration error: Missing SUPABASE_DB_PASSWORD or DATABASE_URL environment variable.');
+}
+const encodedPassword = dbPassword ? encodeURIComponent(dbPassword) : '';
 const connectionString = process.env.DATABASE_URL || 
   `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
 

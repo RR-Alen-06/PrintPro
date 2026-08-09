@@ -11,6 +11,7 @@ export interface BillFilters {
 export const mapBillFromApi = (b: any) => ({
   ...b,
   id: b.id,
+  invoiceNumber: b.invoice_number || b.invoiceNumber || (typeof b.id === 'string' && !b.id.includes('-') ? b.id : undefined),
   customerId: b.customer_id || b.customerId,
   customerName: b.customer_name || b.customerName || 'Walk-in Customer',
   date: b.date ? new Date(b.date).toISOString().slice(0, 10) : b.date,
