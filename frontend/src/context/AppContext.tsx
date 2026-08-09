@@ -1151,20 +1151,21 @@ export const AppProvider = ({ children }: any) => {
             notes = notes.replace(writeOffRegex, '').trim();
           }
 
+          const billCustId = b.customerId || b.customer_id;
           return {
             id: b.id,
-            customerId: b.customer_id,
-            customerName: mappedCustomers.find(c => String(c.id) === String(b.customer_id))?.name || b.customer_name || 'Walk-in Customer',
+            customerId: billCustId,
+            customerName: mappedCustomers.find(c => String(c.id) === String(billCustId))?.name || b.customerName || b.customer_name || 'Walk-in Customer',
             date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
             dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-            subtotal: Number(b.subtotal || 0),
-            discountType: b.discount_type || 'flat',
-            discountValue: Number(b.discount_value || 0),
-            gstPercent: Number(b.gst_percent || 0),
-            gstAmount: Number(b.gst_amount || 0),
-            total: Number(b.total || 0),
-            amountPaid: Number(b.amount_paid || 0),
-            balance: Number(b.balance || 0),
+            subtotal: Number(b.subtotal ?? b.subtotal ?? 0),
+            discountType: b.discountType || b.discount_type || 'flat',
+            discountValue: Number(b.discountValue ?? b.discount_value ?? 0),
+            gstPercent: Number(b.gstPercent ?? b.gst_percent ?? 0),
+            gstAmount: Number(b.gstAmount ?? b.gst_amount ?? 0),
+            total: Number(b.total ?? 0),
+            amountPaid: Number(b.amountPaid ?? b.amount_paid ?? 0),
+            balance: Number(b.balance ?? b.balance ?? 0),
             status: b.status || 'unpaid',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,

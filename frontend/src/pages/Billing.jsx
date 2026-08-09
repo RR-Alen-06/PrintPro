@@ -2871,9 +2871,9 @@ const Billing = () => {
                     </span>
                   </td>
                   <td>{bill.customerName}</td>
-                  <td>₹{bill.total.toFixed(2)}</td>
-                  <td>₹{bill.amountPaid.toFixed(2)}</td>
-                  <td style={{ color: bill.balance > 0 ? 'var(--warning)' : 'inherit' }}>₹{bill.balance.toFixed(2)}</td>
+                  <td>₹{Number(bill.total || 0).toFixed(2)}</td>
+                  <td>₹{Number(bill.amountPaid || 0).toFixed(2)}</td>
+                  <td style={{ color: Number(bill.balance || 0) > 0 ? 'var(--warning)' : 'inherit' }}>₹{Number(bill.balance || 0).toFixed(2)}</td>
                   <td>
                     <span className={`badge badge-${bill.status === 'written_off' ? 'written_off' : (bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid')}`}>
                       {bill.status === 'written_off' ? 'written off' : bill.status}
