@@ -179,7 +179,7 @@ const DataManagement = () => {
         { label: 'Status', w: 20 }
       ]
       rows = data.map(b => [
-        b.id || '',
+        b.invoiceNumber || b.id || '',
         b.customerName || '',
         b.date || '',
         fNum(b.subtotal),
@@ -201,7 +201,7 @@ const DataManagement = () => {
         { label: 'Advance Bal', w: 25 }
       ]
       rows = data.map(c => [
-        c.id || '',
+        c.customerCode || c.id || '',
         (c.type || '').toUpperCase(),
         c.name || '',
         c.phone || '—',
@@ -221,16 +221,20 @@ const DataManagement = () => {
         { label: 'Total Paid', w: 25 },
         { label: 'Excess Credit', w: 25 }
       ]
-      rows = data.map(p => [
-        p.id || '',
-        p.billId || '',
-        p.customerId || '',
-        p.date ? p.date.slice(0, 10) : '',
-        fNum(p.cashAmount),
-        fNum(p.upiAmount),
-        fNum(p.totalPaid),
-        fNum(p.excessCredit)
-      ])
+      rows = data.map(p => {
+        const targetBill = bills.find(b => String(b.id) === String(p.billId))
+        const targetCust = customers.find(c => String(c.id) === String(p.customerId || targetBill?.customerId))
+        return [
+          p.id || '',
+          targetBill?.invoiceNumber || p.billId || '',
+          targetCust?.customerCode || targetCust?.name || p.customerId || '',
+          p.date ? p.date.slice(0, 10) : '',
+          fNum(p.cashAmount),
+          fNum(p.upiAmount),
+          fNum(p.totalPaid),
+          fNum(p.excessCredit)
+        ]
+      })
     } else if (type === 'expenses') {
       title = "Expenses Report"
       cols = [

@@ -3,10 +3,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { logger } from '../lib/logger'
 import { syncEntityToCloud } from '../lib/syncService'
-import { getBills } from '../api/bills'
-import { getCustomers } from '../api/customers'
-import { getPayments } from '../api/payments'
-import { getItems } from '../api/inventory'
+import { getBills, mapBillFromApi } from '../api/bills'
+import { getCustomers, mapCustomerFromApi } from '../api/customers'
+import { getPayments, mapPaymentFromApi } from '../api/payments'
+import { getItems, mapItemFromApi } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
 import { getProfile } from '../api/profile'
 
@@ -1092,18 +1092,10 @@ export const AppProvider = ({ children }: any) => {
           }
         }
 
-        const mappedCustomers = fetchedCustomers.map(c => ({
-          id: c.id,
-          type: c.type || 'regular',
-          name: c.name || '',
-          phone: c.phone || '',
-          email: c.email || '',
-          address: c.address || '',
-          creditBalance: Number(c.credit_balance || 0),
-          advanceBalance: Number(c.credit_balance || 0),
-          creditLimit: Number(c.credit_limit || 0),
-          loyaltyPoints: Number(c.loyalty_points || 0),
-          createdAt: c.created_at || new Date().toISOString()
+        const mappedCustomers = fetchedCustomers.map(c => mapCustomerFromApi({
+          ...c,
+          creditBalance: Number(c.credit_balance !== undefined ? c.credit_balance : (c.creditBalance || 0)),
+          advanceBalance: Number(c.advance_balance !== undefined ? c.advance_balance : (c.advanceBalance || c.credit_balance || 0)),
         }));
 
         const cloudCreditNotes = [];
@@ -1124,7 +1116,7 @@ export const AppProvider = ({ children }: any) => {
               cloudCreditNotes.push({
                 id: cnId,
                 billId: b.id,
-                customerId: b.customer_id,
+                customerId: b.customer_id || b.customerId,
                 date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
                 items: cnItems,
                 total: cnTotal,
@@ -1153,48 +1145,18 @@ export const AppProvider = ({ children }: any) => {
           }
 
           const billCustId = b.customerId || b.customer_id;
+          const mapped = mapBillFromApi(b);
           return {
-            id: b.id,
-            customerId: billCustId,
-            customerName: mappedCustomers.find(c => String(c.id) === String(billCustId))?.name || b.customerName || b.customer_name || 'Walk-in Customer',
-            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
-            dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-            subtotal: Number(b.subtotal ?? b.subtotal ?? 0),
-            discountType: b.discountType || b.discount_type || 'flat',
-            discountValue: Number(b.discountValue ?? b.discount_value ?? 0),
-            gstPercent: Number(b.gstPercent ?? b.gst_percent ?? 0),
-            gstAmount: Number(b.gstAmount ?? b.gst_amount ?? 0),
-            total: Number(b.total ?? 0),
-            amountPaid: Number(b.amountPaid ?? b.amount_paid ?? 0),
-            balance: Number(b.balance ?? b.balance ?? 0),
-            status: b.status || 'unpaid',
+            ...mapped,
+            customerName: mappedCustomers.find(c => String(c.id) === String(billCustId))?.name || mapped.customerName || 'Walk-in Customer',
             loyaltyPointsEarned,
             loyaltyPointsRedeemed,
             writtenOffAmount,
-            notes: notes,
-            deleted: !!b.deleted_at,
-            items: (b.items || []).map(item => ({
-              name: item.item_name,
-              printType: item.print_type,
-              sides: item.sides,
-              qty: Number(item.qty || 0),
-              unitPrice: Number(item.unit_price || 0),
-              amount: Number(item.amount || 0)
-            }))
+            notes: notes
           };
         });
 
-        const mappedPayments = fetchedPayments.map(p => ({
-          id: p.id,
-          billId: p.bill_id,
-          customerId: p.customer_id,
-          date: p.date || new Date().toISOString(),
-          cashAmount: Number(p.cash_amount || 0),
-          upiAmount: Number(p.upi_amount || 0),
-          totalPaid: Number(p.total_paid || 0),
-          paymentType: p.payment_type || 'partial',
-          notes: p.notes || ''
-        }))
+        const mappedPayments = fetchedPayments.map(p => mapPaymentFromApi(p));
 
         const parseInventoryName = (dbName) => {
           if (!dbName || !dbName.includes('|')) {
