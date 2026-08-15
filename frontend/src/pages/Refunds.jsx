@@ -6,7 +6,7 @@ import { AlertCircle, ArrowLeftRight, Banknote, HelpCircle, Smartphone, RefreshC
 import EmptyState from '../components/common/EmptyState'
 
 const Refunds = () => {
-  const { deletedPayments, advancePayments } = useAppContext()
+  const { bills = [], deletedPayments, advancePayments } = useAppContext()
   const { data: serverPayments = [] } = usePayments()
   const { data: serverCustomers = [] } = useCustomers()
   const payments = serverPayments
@@ -66,21 +66,26 @@ const Refunds = () => {
   const refundLogs = useMemo(() => {
     const logs = []
     
-    // Helper to resolve customer name
-    const getCustomerName = (cId) => {
-      const c = (customers || []).find(cust => cust.id === cId)
-      return c ? c.name : 'Unknown Customer'
+    // Helper to resolve customer
+    const getCustomer = (cId) => {
+      return (customers || []).find(cust => String(cust.id) === String(cId))
     }
 
     // Add bill refunds
     refundStats.billRefundsList.forEach(r => {
+      const targetBill = (bills || []).find(b => String(b.id) === String(r.billId))
+      const targetCust = getCustomer(r.customerId || targetBill?.customerId)
+      const invoiceCode = r.invoiceNumber || targetBill?.invoiceNumber || r.billId || r.id
+      const custCode = targetCust?.customerCode || targetCust?.code || r.customerId
+
       logs.push({
         id: r.id,
         date: r.date,
         type: 'Bill Refund',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
-        description: `Refund for Bill #${r.billId}`,
+        customerCode: custCode,
+        customerName: targetCust?.name || r.customerName || 'Unknown Customer',
+        description: `Refund for Bill #${invoiceCode}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.totalPaid || 0),
@@ -91,13 +96,19 @@ const Refunds = () => {
 
     // Add deleted payments
     refundStats.delPaymentsList.forEach(r => {
+      const targetBill = (bills || []).find(b => String(b.id) === String(r.billId))
+      const targetCust = getCustomer(r.customerId || targetBill?.customerId)
+      const invoiceCode = r.invoiceNumber || targetBill?.invoiceNumber || r.billId || r.id
+      const custCode = targetCust?.customerCode || targetCust?.code || r.customerId
+
       logs.push({
         id: r.id,
         date: r.deletedAt || r.date,
         type: 'Payment Deletion',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
-        description: `Deleted Payment for Bill #${r.billId}`,
+        customerCode: custCode,
+        customerName: targetCust?.name || r.customerName || 'Unknown Customer',
+        description: `Deleted Payment for Bill #${invoiceCode}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.totalPaid || 0),
@@ -108,13 +119,17 @@ const Refunds = () => {
 
     // Add advance returns
     refundStats.advReturnsList.forEach(r => {
+      const targetCust = getCustomer(r.customerId)
+      const custCode = targetCust?.customerCode || targetCust?.code || r.customerId
+
       logs.push({
         id: r.id,
         date: r.date,
         type: 'Advance Return',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
-        description: `Returned Advance to Customer`,
+        customerCode: custCode,
+        customerName: targetCust?.name || 'Unknown Customer',
+        description: `Returned Advance to Customer (${custCode})`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.amount || 0),
@@ -125,7 +140,7 @@ const Refunds = () => {
 
     // Sort by date descending
     return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [refundStats, customers])
+  }, [refundStats, customers, bills])
 
   // Filter and search refund logs
   const filteredLogs = useMemo(() => {
@@ -134,7 +149,8 @@ const Refunds = () => {
       const matchesMethod = filterMethod === 'all' || log.method === filterMethod
       const matchesSearch = searchQuery.trim() === '' || 
         log.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.customerId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (log.customerCode && log.customerCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (log.customerId && log.customerId.toLowerCase().includes(searchQuery.toLowerCase())) ||
         log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         log.id.toLowerCase().includes(searchQuery.toLowerCase())
       
@@ -292,7 +308,7 @@ const Refunds = () => {
                         <User size={13} className="text-muted" />
                         <div>
                           <span style={{ fontWeight: 500 }}>{log.customerName}</span>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.customerId}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.customerCode || log.customerId}</div>
                         </div>
                       </div>
                     </td>

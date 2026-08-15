@@ -506,7 +506,9 @@ const AdvancePayments = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{ap.customerName || ap.customerId}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ap.customerId}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {customers.find(c => String(c.id) === String(ap.customerId))?.customerCode || ap.customerId}
+                        </div>
                       </td>
                       <td>{ap.date}</td>
                       <td style={{ fontWeight: 700, color: ap.amount < 0 ? 'var(--error)' : 'var(--success)' }}>
