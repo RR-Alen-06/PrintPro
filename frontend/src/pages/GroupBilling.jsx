@@ -1422,7 +1422,7 @@ const GroupBilling = () => {
                       <select className="form-input" style={{ flex: 1, fontSize: '13px' }} value={m.customerId}
                         onChange={(e) => updateSplitMember(m.id, { customerId: e.target.value })}>
                         <option value="">— Select Customer —</option>
-                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
                       </select>
                       <button
                         type="button"
