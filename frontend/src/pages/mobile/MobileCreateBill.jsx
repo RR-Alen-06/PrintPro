@@ -1,12 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
+import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   UserCheck, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search,
   Tag, Percent, Wallet, FileText, UserPlus, AlertCircle, Printer, Calendar,
-  Gift, Award, Clock, Sparkles
+  Gift, Award, Clock, Sparkles, Loader2
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -15,9 +18,15 @@ export default function MobileCreateBill() {
   const [searchParams] = useSearchParams()
   const editBillId = searchParams.get('edit')
 
-  const {
-    customers, inventory, bills, addBill, editBill, addCustomer, promoCodes, settings, showToast
-  } = useAppContext()
+  const { promoCodes, settings, showToast, addBill, editBill, addCustomer } = useAppContext()
+
+  // TanStack Queries & Mutations
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
+  const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
+  const { createBill: createBillMutation, updateBill: updateBillMutation, isCreatingBill, isUpdatingBill } = useBillMutations()
+  const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { createPayment } = usePaymentMutations()
 
   // Wizard Step State (1: Customer -> 2: Items -> 3: Payment)
   const [step, setStep] = useState(1)
@@ -48,7 +57,7 @@ export default function MobileCreateBill() {
   const [showAddItemSheet, setShowAddItemSheet] = useState(false)
 
   // Add Item Sheet State
-  const [selectedInventoryId, setSelectedInventoryId] = useState(inventory[0]?.id || '')
+  const [selectedInventoryId, setSelectedInventoryId] = useState('')
   const [customItemName, setCustomItemName] = useState('')
   const [isCustomItem, setIsCustomItem] = useState(false)
   const [itemPrintType, setItemPrintType] = useState('color') // 'color' | 'bw'
@@ -77,6 +86,13 @@ export default function MobileCreateBill() {
   const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Sync selectedInventoryId when serverInventory loads
+  useEffect(() => {
+    if (!selectedInventoryId && serverInventory.length > 0) {
+      setSelectedInventoryId(serverInventory[0].id)
+    }
+  }, [serverInventory, selectedInventoryId])
+
   // Load Portal Orders from localStorage
   useEffect(() => {
     const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
@@ -85,23 +101,23 @@ export default function MobileCreateBill() {
 
   // If in Edit Mode, populate existing bill data
   useEffect(() => {
-    if (editBillId) {
-      const existing = (bills || []).find(b => String(b.id) === String(editBillId))
+    if (editBillId && serverBills.length > 0) {
+      const existing = serverBills.find(b => String(b.id) === String(editBillId))
       if (existing) {
-        setSelectedCustomerId(existing.customerId)
+        setSelectedCustomerId(existing.customerId || existing.customer_id)
         setItemRows(existing.items || [])
-        setDiscountValue(existing.discount || 0)
+        setDiscountValue(existing.discountValue || existing.discount_value || existing.discount || 0)
         setNotes(existing.notes || '')
         setBillDate(existing.date || new Date().toISOString().slice(0, 10))
-        setDueDate(existing.dueDate || new Date().toISOString().slice(0, 10))
-        showToast(`Editing Bill #${existing.invoiceNumber || existing.id}`, 'info')
+        setDueDate(existing.dueDate || existing.due_date || new Date().toISOString().slice(0, 10))
+        showToast(`Editing Bill #${existing.invoiceNumber || existing.invoice_number || existing.id}`, 'info')
       }
     }
-  }, [editBillId, bills])
+  }, [editBillId, serverBills])
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
-    return (customers || []).filter(c => {
+    return (serverCustomers || []).filter(c => {
       if (c.deleted) return false
       if (customerType === 'regular' && c.type !== 'regular') return false
       if (customerType === 'random' && c.type !== 'random') return false
@@ -111,17 +127,17 @@ export default function MobileCreateBill() {
       }
       return true
     })
-  }, [customers, customerType, customerSearch])
+  }, [serverCustomers, customerType, customerSearch])
 
   // Current selected customer object
   const selectedCustomerObj = useMemo(() => {
-    return (customers || []).find(c => String(c.id) === String(selectedCustomerId))
-  }, [customers, selectedCustomerId])
+    return (serverCustomers || []).find(c => String(c.id) === String(selectedCustomerId))
+  }, [serverCustomers, selectedCustomerId])
 
   // Calculation helpers for Step 2 unit price
   const activeInventoryObj = useMemo(() => {
-    return (inventory || []).find(i => String(i.id) === String(selectedInventoryId))
-  }, [inventory, selectedInventoryId])
+    return (serverInventory || []).find(i => String(i.id) === String(selectedInventoryId))
+  }, [serverInventory, selectedInventoryId])
 
   const calculatedUnitPrice = useMemo(() => {
     if (isCustomItem) return Number(itemUnitPrice || 0)
@@ -146,12 +162,14 @@ export default function MobileCreateBill() {
       id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       itemId: isCustomItem ? '' : selectedInventoryId,
       itemName: name,
+      name: name,
       isCustom: isCustomItem,
       printType: itemPrintType,
       sides: itemSides,
       qty: qtyNum,
       pages: pagesNum,
       unitPrice: rate,
+      unit_price: rate,
       gstRate: Number(itemGstRate || 0),
       amount: totalAmount
     }
@@ -172,6 +190,46 @@ export default function MobileCreateBill() {
     setItemRows(prev => prev.filter(r => r.id !== rowId))
   }
 
+  // Quick Customer Creation
+  const handleAddNewCustomerSubmit = async (e) => {
+    e.preventDefault()
+    if (!newCustName.trim()) {
+      showToast('Customer name is required', 'error')
+      return
+    }
+
+    try {
+      const created = await createCustomerMutation({
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || '',
+        type: 'regular',
+        total_spent: 0,
+        balance_due: 0
+      })
+
+      if (addCustomer) {
+        addCustomer({
+          id: created?.id || `cust-${Date.now()}`,
+          name: newCustName.trim(),
+          phone: newCustPhone.trim() || '',
+          type: 'regular',
+          totalSpent: 0,
+          balanceDue: 0
+        })
+      }
+
+      if (created?.id) {
+        setSelectedCustomerId(created.id)
+      }
+      setShowAddCustomerModal(false)
+      setNewCustName('')
+      setNewCustPhone('')
+      showToast('New client registered successfully!', 'success')
+    } catch (err) {
+      showToast(err.message || 'Failed to create customer', 'error')
+    }
+  }
+
   // Load Portal Order into Wizard
   const handleLoadPortalOrder = (order) => {
     setCustomerType('random')
@@ -179,22 +237,24 @@ export default function MobileCreateBill() {
     setNewCustPhone(order.customerPhone || '')
 
     const newRows = (order.files || []).map((file, index) => {
-      const unitPrice = file.config.printType === 'color'
-        ? (file.config.sides === 'double' ? 15 : 10)
-        : (file.config.sides === 'double' ? 3 : 2)
+      const unitPrice = file.config?.printType === 'color'
+        ? (file.config?.sides === 'double' ? 15 : 10)
+        : (file.config?.sides === 'double' ? 3 : 2)
 
       return {
         id: `portal-row-${Date.now()}-${index}`,
         itemId: '',
         itemName: `${file.name}`,
+        name: `${file.name}`,
         isCustom: true,
-        printType: file.config.printType || 'color',
-        sides: file.config.sides || 'single',
-        qty: file.config.copies || 1,
+        printType: file.config?.printType || 'color',
+        sides: file.config?.sides || 'single',
+        qty: file.config?.copies || 1,
         pages: 1,
         unitPrice,
+        unit_price: unitPrice,
         gstRate: 0,
-        amount: unitPrice * (file.config.copies || 1)
+        amount: unitPrice * (file.config?.copies || 1)
       }
     })
 
@@ -212,8 +272,8 @@ export default function MobileCreateBill() {
   const loyaltyDiscount = useMemo(() => {
     if (!shouldRedeemLoyalty || !selectedCustomerObj) return 0
     const points = Number(loyaltyPointsRedeemed || 0)
-    const ratioPoints = settings.loyaltyRedeemRatioPoints || 150
-    const ratioRupees = settings.loyaltyRedeemRatioRupees || 5
+    const ratioPoints = settings?.loyaltyRedeemRatioPoints || 150
+    const ratioRupees = settings?.loyaltyRedeemRatioRupees || 5
     if (points <= 0 || ratioPoints <= 0) return 0
     return Math.min((points / ratioPoints) * ratioRupees, subtotal)
   }, [shouldRedeemLoyalty, selectedCustomerObj, loyaltyPointsRedeemed, settings, subtotal])
@@ -239,7 +299,7 @@ export default function MobileCreateBill() {
   // Advance Credit Deduction
   const advanceDeduction = useMemo(() => {
     if (!useAdvanceCredit || !selectedCustomerObj) return 0
-    const credit = Number(selectedCustomerObj.creditBalance || 0)
+    const credit = Number(selectedCustomerObj.creditBalance || selectedCustomerObj.credit_balance || 0)
     return Math.min(credit, Math.max(0, subtotal - calculatedDiscount))
   }, [useAdvanceCredit, selectedCustomerObj, subtotal, calculatedDiscount])
 
@@ -301,40 +361,83 @@ export default function MobileCreateBill() {
         }
       }
 
+      const existingBill = editBillId ? serverBills.find(b => String(b.id) === String(editBillId)) : null
+
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
-        invoiceNumber: editBillId ? ((bills.find(b => String(b.id) === String(editBillId)))?.invoiceNumber) : `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+        invoice_number: editBillId ? (existingBill?.invoiceNumber || existingBill?.invoice_number) : `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+        invoiceNumber: editBillId ? (existingBill?.invoiceNumber || existingBill?.invoice_number) : `INV-${Math.floor(1000 + Math.random() * 9000)}`,
         date: billDate,
+        due_date: dueDate,
         dueDate: dueDate,
+        estimated_completion: estimatedCompletion,
         estimatedCompletion,
+        customer_id: selectedCustomerId,
         customerId: selectedCustomerId,
+        customer_name: selectedCustomerObj?.name || 'Walk-in Customer',
         customerName: selectedCustomerObj?.name || 'Walk-in Customer',
+        customer_phone: selectedCustomerObj?.phone || '',
         customerPhone: selectedCustomerObj?.phone || '',
-        items: itemRows,
+        items: itemRows.map(r => ({
+          item_name: r.itemName || r.name || 'Print Item',
+          name: r.itemName || r.name || 'Print Item',
+          print_type: r.printType || 'color',
+          printType: r.printType || 'color',
+          sides: r.sides || 'single',
+          qty: Number(r.qty || 1),
+          unit_price: Number(r.unitPrice || r.unit_price || 0),
+          unitPrice: Number(r.unitPrice || r.unit_price || 0),
+          amount: Number(r.amount || 0)
+        })),
         subtotal,
+        discount_value: calculatedDiscount,
         discount: calculatedDiscount,
+        discount_type: discountType,
+        advance_deducted: advanceDeduction,
         advanceDeducted: advanceDeduction,
         total: grandTotal,
-        cashAmount: finalCash,
-        upiAmount: finalUpi,
-        totalPaid: finalCash + finalUpi,
+        amount_paid: finalCash + finalUpi,
+        amountPaid: finalCash + finalUpi,
         balance: Math.max(0, grandTotal - (finalCash + finalUpi)),
         status: finalStatus,
         notes,
-        createdAt: new Date().toISOString()
+        created_at: new Date().toISOString()
       }
 
-      if (editBillId && editBill) {
-        await editBill(billPayload)
+      let savedResultId = billPayload.id
+
+      if (editBillId) {
+        await updateBillMutation({ id: editBillId, data: billPayload })
+        if (editBill) editBill(billPayload)
         showToast(`Bill #${billPayload.invoiceNumber} updated successfully!`, 'success')
-      } else if (addBill) {
-        await addBill(billPayload)
+      } else {
+        const created = await createBillMutation(billPayload)
+        if (created?.id) savedResultId = created.id
+        if (addBill) addBill(billPayload)
         showToast(`Bill #${billPayload.invoiceNumber} created successfully!`, 'success')
+
+        // If upfront payment was made, record payment
+        if (finalCash + finalUpi > 0) {
+          try {
+            await createPayment({
+              bill_id: savedResultId,
+              customer_id: selectedCustomerId,
+              date: billDate,
+              cash_amount: finalCash,
+              upi_amount: finalUpi,
+              total_paid: finalCash + finalUpi,
+              payment_type: finalStatus === 'paid' ? 'full' : 'partial',
+              notes: 'Initial bill payment at POS checkout'
+            })
+          } catch (payErr) {
+            console.error('Upfront payment recording notice:', payErr)
+          }
+        }
       }
 
-      navigate(`/mobile/bill/${billPayload.id}`)
+      navigate(`/mobile/bill/${savedResultId}`)
     } catch (e) {
-      showToast('Failed to save bill', 'error')
+      showToast(e.message || 'Failed to save bill', 'error')
     } finally {
       setIsSubmitting(false)
     }
@@ -449,11 +552,63 @@ export default function MobileCreateBill() {
             />
           </div>
 
-          {/* Dates Config Card */}
-          <div className="mobile-card" style={{ marginBottom: '14px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          {/* Customer Selection Stack */}
+          {isLoadingCustomers ? (
+            <div className="mobile-card" style={{ textAlign: 'center', padding: '24px' }}>
+              <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading customers...</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto', marginBottom: '16px' }}>
+              {filteredCustomers.length === 0 ? (
+                <div className="mobile-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                  No {customerType} customers found. Tap "+ New Client" to create one.
+                </div>
+              ) : (
+                filteredCustomers.map(c => {
+                  const isSelected = String(c.id) === String(selectedCustomerId)
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setSelectedCustomerId(c.id)}
+                      style={{
+                        padding: '12px',
+                        background: isSelected ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-card)',
+                        border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        boxShadow: isSelected ? '0 0 10px rgba(255, 47, 176, 0.3)' : 'none'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {c.phone || 'No phone'} • Balance: ₹{Number(c.balanceDue || c.balance_due || 0).toFixed(2)}
+                        </div>
+                      </div>
+                      {isSelected && <Check size={20} style={{ color: 'var(--accent-primary)' }} />}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* Dates & Estimates Card */}
+          <div className="mobile-card" style={{ marginBottom: '16px' }}>
+            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-secondary)', margin: '0 0 12px 0' }}>
+              ORDER DATES & SCHEDULE
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>INVOICE DATE</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  INVOICE DATE
+                </label>
                 <input
                   type="date"
                   className="mobile-input"
@@ -462,7 +617,9 @@ export default function MobileCreateBill() {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>DUE DATE</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  DUE DATE
+                </label>
                 <input
                   type="date"
                   className="mobile-input"
@@ -473,128 +630,76 @@ export default function MobileCreateBill() {
             </div>
           </div>
 
-          {/* Customer List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '42vh', overflowY: 'auto', marginBottom: '20px' }}>
-            {filteredCustomers.length === 0 ? (
-              <div className="mobile-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                No customers found matching filter.
-              </div>
-            ) : (
-              filteredCustomers.map(c => {
-                const isSelected = String(c.id) === String(selectedCustomerId)
-                return (
-                  <div
-                    key={c.id}
-                    className="mobile-card"
-                    onClick={() => setSelectedCustomerId(c.id)}
-                    style={{
-                      cursor: 'pointer',
-                      borderColor: isSelected ? 'var(--accent-primary)' : 'var(--border-light)',
-                      background: isSelected ? 'rgba(255, 47, 176, 0.12)' : 'var(--bg-card)',
-                      boxShadow: isSelected ? '0 0 10px rgba(255, 47, 176, 0.3)' : 'none'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                          {c.name}
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          Phone: {c.phone || 'N/A'} • Credit Balance: <strong className="currency-num" style={{ color: 'var(--success)' }}>₹{Number(c.creditBalance || 0).toFixed(2)}</strong>
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <div style={{ padding: '6px', background: 'var(--accent-primary)', borderRadius: '50%', color: '#fff' }}>
-                          <Check size={16} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-
           <button
             className="mobile-btn mobile-btn-primary"
-            disabled={!selectedCustomerId}
-            onClick={() => setStep(2)}
+            onClick={() => {
+              if (!selectedCustomerId) {
+                showToast('Please select a customer first', 'error')
+                return
+              }
+              setStep(2)
+            }}
           >
-            NEXT: ADD PRINT ITEMS <ChevronRight size={18} />
+            Continue to Print Items <ChevronRight size={18} />
           </button>
         </div>
       )}
 
-      {/* STEP 2: PRINT ITEM SELECTION */}
+      {/* STEP 2: PRINT LINE ITEMS */}
       {step === 2 && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-                ORDER PRINT ITEMS
-              </h3>
-              <div style={{ fontSize: '0.78rem', color: 'var(--accent-secondary)' }}>
-                Client: {selectedCustomerObj?.name || 'Selected Customer'}
-              </div>
-            </div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+              PRINT ITEMS ({itemRows.length})
+            </h3>
             <button
               className="mobile-btn mobile-btn-primary"
               onClick={() => setShowAddItemSheet(true)}
-              style={{ minHeight: '38px', padding: '0 14px', fontSize: '0.8rem', width: 'auto' }}
+              style={{ minHeight: '36px', padding: '0 12px', fontSize: '0.78rem', width: 'auto' }}
             >
-              + Add Item
+              <Plus size={16} /> + Add Item
             </button>
           </div>
 
-          {/* Added Items List */}
+          {/* Items Stack */}
           {itemRows.length === 0 ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)', marginBottom: '20px' }}>
-              <Printer size={36} style={{ marginBottom: '8px', color: 'var(--accent-primary)', opacity: 0.6 }} />
-              <p style={{ margin: 0, fontSize: '0.9rem' }}>No print items added to this order yet.</p>
-              <button
-                className="mobile-btn mobile-btn-secondary"
-                onClick={() => setShowAddItemSheet(true)}
-                style={{ marginTop: '12px', width: 'auto', display: 'inline-flex' }}
-              >
-                + Add First Print Item
-              </button>
+            <div className="mobile-card" style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <Printer size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '10px' }} />
+              <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Items in Bill</h4>
+              <p style={{ fontSize: '0.82rem', margin: 0 }}>Tap "+ Add Item" to specify paper type, sides, and copies.</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-              {itemRows.map((r) => (
-                <div key={r.id} className="mobile-card">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+              {itemRows.map((item, idx) => (
+                <div key={item.id || idx} className="mobile-card" style={{ padding: '12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        {r.itemName}
+                        {item.itemName || item.name}
                       </div>
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                         <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                          {r.printType.toUpperCase()}
+                          {(item.printType || 'Color').toUpperCase()}
                         </span>
                         <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
-                          {r.sides.toUpperCase()}
+                          {(item.sides || 'Single').toUpperCase()}
                         </span>
-                        {Number(r.gstRate || 0) > 0 && (
-                          <span className="mobile-badge" style={{ fontSize: '0.65rem', background: 'rgba(168, 85, 247, 0.2)', color: 'var(--accent-tertiary)' }}>
-                            GST {r.gstRate}%
-                          </span>
-                        )}
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
-                          {r.qty} Qty × ₹{r.unitPrice.toFixed(2)}
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Qty: {item.qty} × ₹{Number(item.unitPrice || 0).toFixed(2)}
                         </span>
                       </div>
                     </div>
 
-                    <div style={{ textAlign: 'right' }}>
-                      <div className="currency-num" style={{ fontSize: '1.05rem', color: 'var(--accent-primary)' }}>
-                        ₹{r.amount.toFixed(2)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div className="currency-num" style={{ fontSize: '1.05rem', color: '#ffffff' }}>
+                        ₹{Number(item.amount || 0).toFixed(2)}
                       </div>
                       <button
-                        onClick={() => handleRemoveItem(r.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', marginTop: '6px' }}
+                        className="mobile-icon-btn"
+                        onClick={() => handleRemoveItem(item.id)}
+                        style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </div>
@@ -603,110 +708,73 @@ export default function MobileCreateBill() {
             </div>
           )}
 
-          {/* Subtotal Display */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', marginBottom: '20px', border: '1px solid var(--border)' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>SUBTOTAL ({itemRows.length} items)</span>
-            <span className="currency-num" style={{ fontSize: '1.25rem', color: '#ffffff' }}>₹{subtotal.toFixed(2)}</span>
+          {/* Subtotal Banner */}
+          <div className="mobile-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', background: 'var(--bg-input)' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>ORDER SUBTOTAL</span>
+            <span className="currency-num" style={{ fontSize: '1.25rem', color: 'var(--accent-primary)' }}>
+              ₹{subtotal.toFixed(2)}
+            </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
             <button className="mobile-btn mobile-btn-secondary" onClick={() => setStep(1)}>
               <ChevronLeft size={18} /> Back
             </button>
             <button
               className="mobile-btn mobile-btn-primary"
-              disabled={itemRows.length === 0}
-              onClick={() => setStep(3)}
+              onClick={() => {
+                if (itemRows.length === 0) {
+                  showToast('Please add at least one item', 'error')
+                  return
+                }
+                setStep(3)
+              }}
             >
-              NEXT: PAYMENT <ChevronRight size={18} />
+              Continue to Payment <ChevronRight size={18} />
             </button>
           </div>
         </div>
       )}
 
-      {/* STEP 3: PAYMENT & CONFIRMATION */}
+      {/* STEP 3: PAYMENT & SUMMARY */}
       {step === 3 && (
         <div>
           <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 14px 0', color: 'var(--text-primary)' }}>
-            PAYMENT SUMMARY & SAVE
+            BILL SUMMARY & PAYMENT
           </h3>
 
-          {/* Customer Advance Credit Usage */}
-          {Number(selectedCustomerObj?.creditBalance || 0) > 0 && (
-            <div className="mobile-card" style={{ borderColor: 'var(--success)', marginBottom: '14px', background: 'rgba(0, 255, 171, 0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--success)' }}>
-                    Customer Advance Credit Available
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    Available Credit: <strong className="currency-num">₹{Number(selectedCustomerObj.creditBalance).toFixed(2)}</strong>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUseAdvanceCredit(!useAdvanceCredit)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    background: useAdvanceCredit ? 'var(--success)' : 'var(--bg-input)',
-                    color: useAdvanceCredit ? '#000' : 'var(--text-primary)',
-                    border: '1px solid var(--success)',
-                    fontWeight: 700,
-                    fontSize: '0.78rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {useAdvanceCredit ? '✓ Credit Applied' : '+ Use Credit'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Loyalty Points Redemption */}
-          {settings.loyaltyEnabled !== false && (
-            <div className="mobile-card" style={{ marginBottom: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Award size={18} style={{ color: 'var(--accent-secondary)' }} />
-                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>Customer Loyalty Points</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShouldRedeemLoyalty(!shouldRedeemLoyalty)}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  {shouldRedeemLoyalty ? 'Cancel Redemption' : '+ Redeem Points'}
-                </button>
-              </div>
-
-              {shouldRedeemLoyalty && (
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <input
-                    type="number"
-                    className="mobile-input currency-num"
-                    placeholder="Enter Points (e.g. 150)"
-                    value={loyaltyPointsRedeemed}
-                    onChange={(e) => setLoyaltyPointsRedeemed(e.target.value)}
-                  />
-                  <div style={{ fontSize: '0.78rem', color: 'var(--success)', display: 'flex', alignItems: 'center' }} className="currency-num">
-                    = ₹{loyaltyDiscount.toFixed(2)} OFF
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Promo Code Card */}
+          {/* Discount & Promo Accordion */}
           <div className="mobile-card" style={{ marginBottom: '14px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-secondary)', marginBottom: '6px' }}>
-              APPLY PROMO CODE / COUPON
-            </label>
+            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-secondary)', margin: '0 0 10px 0' }}>
+              DISCOUNTS & PROMOTIONS
+            </h4>
+
+            {/* Discount Inputs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+              <select
+                className="mobile-input"
+                value={discountType}
+                onChange={(e) => setDiscountType(e.target.value)}
+              >
+                <option value="flat">Flat Amount (₹)</option>
+                <option value="percent">Percentage (%)</option>
+              </select>
+              <input
+                type="number"
+                step="0.01"
+                className="mobile-input currency-num"
+                placeholder="0.00"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+              />
+            </div>
+
+            {/* Promo Code Input */}
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
                 className="mobile-input"
-                placeholder="STUDENT10, BULK50..."
+                placeholder="Enter Promo Code..."
                 value={promoCodeInput}
                 onChange={(e) => setPromoCodeInput(e.target.value)}
               />
@@ -714,29 +782,24 @@ export default function MobileCreateBill() {
                 type="button"
                 className="mobile-btn mobile-btn-secondary"
                 onClick={handleApplyPromo}
-                style={{ width: 'auto', padding: '0 16px', fontSize: '0.82rem' }}
+                style={{ width: 'auto', padding: '0 12px', minHeight: '44px', fontSize: '0.8rem' }}
               >
                 Apply
               </button>
             </div>
-            {appliedPromo && (
-              <div style={{ fontSize: '0.78rem', color: 'var(--success)', marginTop: '6px' }}>
-                ✓ Coupon '{appliedPromo.code}' Applied ({appliedPromo.type === 'percent' ? `${appliedPromo.value}% OFF` : `₹${appliedPromo.value} OFF`})
-              </div>
-            )}
           </div>
 
-          {/* Payment Mode Selector */}
+          {/* Payment Method Selector */}
           <div className="mobile-card" style={{ marginBottom: '14px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-              PAYMENT METHOD
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0' }}>
+              SELECT PAYMENT METHOD
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
               <button
                 type="button"
                 className={`mobile-btn ${paymentMode === 'full_cash' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setPaymentMode('full_cash')}
-                style={{ minHeight: '42px', fontSize: '0.82rem' }}
+                style={{ minHeight: '40px', fontSize: '0.82rem' }}
               >
                 Full Cash
               </button>
@@ -744,7 +807,7 @@ export default function MobileCreateBill() {
                 type="button"
                 className={`mobile-btn ${paymentMode === 'full_upi' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setPaymentMode('full_upi')}
-                style={{ minHeight: '42px', fontSize: '0.82rem' }}
+                style={{ minHeight: '40px', fontSize: '0.82rem' }}
               >
                 Full UPI
               </button>
@@ -752,35 +815,38 @@ export default function MobileCreateBill() {
                 type="button"
                 className={`mobile-btn ${paymentMode === 'split' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setPaymentMode('split')}
-                style={{ minHeight: '42px', fontSize: '0.82rem' }}
+                style={{ minHeight: '40px', fontSize: '0.82rem' }}
               >
-                Split (Cash+UPI)
+                Split Pay
               </button>
               <button
                 type="button"
                 className={`mobile-btn ${paymentMode === 'credit' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setPaymentMode('credit')}
-                style={{ minHeight: '42px', fontSize: '0.82rem' }}
+                style={{ minHeight: '40px', fontSize: '0.82rem' }}
               >
-                Full Credit / Due
+                On Credit (Unpaid)
               </button>
             </div>
 
+            {/* Split Mode Inputs */}
             {paymentMode === 'split' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>CASH (INR)</label>
+                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>CASH AMOUNT</label>
                   <input
                     type="number"
+                    step="0.01"
                     className="mobile-input currency-num"
                     value={cashAmount}
                     onChange={(e) => setCashAmount(e.target.value)}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>UPI (INR)</label>
+                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>UPI AMOUNT</label>
                   <input
                     type="number"
+                    step="0.01"
                     className="mobile-input currency-num"
                     value={upiAmount}
                     onChange={(e) => setUpiAmount(e.target.value)}
@@ -790,26 +856,34 @@ export default function MobileCreateBill() {
             )}
           </div>
 
-          {/* Final Financial Totals Summary Card */}
-          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+          {/* Notes */}
+          <div className="mobile-card" style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              INTERNAL ORDER NOTES
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              placeholder="e.g. Urgent banner print for festival"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {/* Grand Total Final Card */}
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)', marginBottom: '16px', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               <span>Subtotal</span>
               <span className="currency-num">₹{subtotal.toFixed(2)}</span>
             </div>
             {calculatedDiscount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--accent-primary)', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-primary)', marginBottom: '6px' }}>
                 <span>Total Discount</span>
                 <span className="currency-num">-₹{calculatedDiscount.toFixed(2)}</span>
               </div>
             )}
-            {advanceDeduction > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--success)', marginBottom: '6px' }}>
-                <span>Advance Credit Applied</span>
-                <span className="currency-num">-₹{advanceDeduction.toFixed(2)}</span>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: '#ffffff', paddingTop: '8px', borderTop: '1px solid var(--border-light)' }}>
-              <span>FINAL TOTAL</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+              <span>FINAL GRAND TOTAL</span>
               <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 10px rgba(255, 47, 176, 0.4)' }}>
                 ₹{grandTotal.toFixed(2)}
               </span>
@@ -822,28 +896,66 @@ export default function MobileCreateBill() {
             </button>
             <button
               className="mobile-btn mobile-btn-primary"
-              disabled={isSubmitting}
               onClick={handleFinalizeBillSubmit}
+              disabled={isSubmitting || isCreatingBill || isUpdatingBill}
             >
-              {editBillId ? 'SAVE UPDATED BILL' : 'CONFIRM & SAVE BILL'}
+              {isSubmitting || isCreatingBill || isUpdatingBill ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                  <Loader2 size={18} className="spin" /> SAVING...
+                </span>
+              ) : (
+                editBillId ? 'Update Invoice' : 'Finalize & Print Invoice'
+              )}
             </button>
           </div>
         </div>
       )}
 
-      {/* Online Customer Portal Orders Modal Drawer */}
+      {/* Quick Add Customer Modal */}
+      {showAddCustomerModal && (
+        <div className="bottom-sheet-overlay" onClick={() => setShowAddCustomerModal(false)}>
+          <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
+            <div className="bottom-sheet-drag-handle" />
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '12px', color: 'var(--text-primary)' }}>
+              Register New Client
+            </h3>
+            <form onSubmit={handleAddNewCustomerSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input
+                type="text"
+                className="mobile-input"
+                placeholder="Full Customer Name *"
+                value={newCustName}
+                onChange={(e) => setNewCustName(e.target.value)}
+                required
+              />
+              <input
+                type="tel"
+                className="mobile-input"
+                placeholder="Phone Number"
+                value={newCustPhone}
+                onChange={(e) => setNewCustPhone(e.target.value)}
+              />
+              <button type="submit" className="mobile-btn mobile-btn-primary" disabled={isCreatingCustomer}>
+                {isCreatingCustomer ? 'Creating Client...' : 'Save & Select Client'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Portal Orders Modal */}
       <BottomSheet
         isOpen={showPortalOrdersModal}
         onClose={() => setShowPortalOrdersModal(false)}
-        title="Import Customer Portal Orders"
+        title="Pending Online Portal Orders"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {portalOrders.map(order => (
-            <div key={order.id} className="mobile-card" style={{ background: 'var(--bg-input)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div key={order.id} className="mobile-card" style={{ padding: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>{order.customerName}</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{order.customerPhone || 'Online Upload'} • {order.files?.length || 0} File(s)</div>
+                  <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)' }}>{order.customerName}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Files: {order.files?.length || 0} • Status: {order.status}</div>
                 </div>
                 <button
                   className="mobile-btn mobile-btn-primary"
@@ -895,7 +1007,7 @@ export default function MobileCreateBill() {
                 value={selectedInventoryId}
                 onChange={(e) => setSelectedInventoryId(e.target.value)}
               >
-                {(inventory || []).map(i => (
+                {(serverInventory || []).map(i => (
                   <option key={i.id} value={i.id}>{i.name}</option>
                 ))}
               </select>
