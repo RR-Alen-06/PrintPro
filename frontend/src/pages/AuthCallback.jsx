@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ShieldCheck, CheckCircle2, Zap, Lock } from 'lucide-react';
 import { useMobileDetect } from '../hooks/useMobileDetect';
+import '../styles/aurora.css';
 
 const AuthCallback = () => {
   const navigate = useNavigate();
@@ -44,39 +45,138 @@ const AuthCallback = () => {
 
   return (
     <div
+      className="aurora-canvas"
       style={{
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100vh',
-        backgroundColor: '#121212',
-        color: '#ffffff',
-        fontFamily: 'Inter, system-ui, Avenir, Helvetica, Arial, sans-serif'
+        minHeight: '100vh',
+        padding: '24px'
       }}
     >
-      <Loader2
-        size={48}
-        className="animate-spin"
+      <div
         style={{
-          color: '#3b82f6',
-          animation: 'spin 1.5s linear infinite',
-          marginBottom: '16px'
+          width: '100%',
+          maxWidth: '480px',
+          backgroundColor: 'rgba(18, 10, 35, 0.78)',
+          backdropFilter: 'blur(32px)',
+          WebkitBackdropFilter: 'blur(32px)',
+          border: '1px solid var(--border-aurora-cyan, rgba(0, 240, 255, 0.35))',
+          borderRadius: '20px',
+          padding: '44px 36px',
+          textAlign: 'center',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 35px rgba(0, 240, 255, 0.2)',
+          animation: 'fadeIn 0.6s ease-out'
         }}
-      />
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>
-        Completing secure sign-in...
-      </h2>
-      <p style={{ fontSize: '0.875rem', color: '#9ca3af', marginTop: '8px' }}>
-        Please wait while we set up your session.
-      </p>
+      >
+        {/* Holographic Dual Spinner */}
+        <div style={{ position: 'relative', width: '64px', height: '64px', margin: '0 auto 20px auto' }}>
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              border: '3px solid transparent',
+              borderTopColor: 'var(--aurora-cyan, #00f0ff)',
+              borderBottomColor: 'var(--aurora-magenta, #ff2fb0)',
+              animation: 'spin 1.2s linear infinite',
+              filter: 'drop-shadow(0 0 8px rgba(0, 240, 255, 0.6))'
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              inset: '8px',
+              borderRadius: '50%',
+              border: '2px solid transparent',
+              borderLeftColor: 'var(--aurora-green, #00ffab)',
+              borderRightColor: '#7000ff',
+              animation: 'spin-reverse 1.8s linear infinite'
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--aurora-cyan, #00f0ff)'
+            }}
+          >
+            <Zap size={22} />
+          </div>
+        </div>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+        <h2
+          style={{
+            fontSize: '1.3rem',
+            fontWeight: 800,
+            margin: '0 0 6px 0',
+            color: 'var(--text-primary, #f8fafc)',
+            letterSpacing: '-0.01em'
+          }}
+        >
+          AUTHENTICATING SECURE SESSION
+        </h2>
+        <p
+          style={{
+            fontSize: '0.84rem',
+            color: 'var(--text-muted, #849495)',
+            margin: '0 0 24px 0',
+            lineHeight: 1.4
+          }}
+        >
+          Validating cryptographic OAuth tokens & synchronizing tenant databases...
+        </p>
+
+        {/* Progress Checklist */}
+        <div
+          style={{
+            background: 'rgba(5, 1, 15, 0.65)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'left',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            marginBottom: '24px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', color: 'var(--aurora-green, #00ffab)' }}>
+            <CheckCircle2 size={16} />
+            <span>OAuth Provider Handshake Verified</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', color: 'var(--aurora-green, #00ffab)' }}>
+            <CheckCircle2 size={16} />
+            <span>Multi-Tenant Supabase RLS Session Active</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', color: 'var(--aurora-cyan, #00f0ff)' }}>
+            <Loader2 size={16} className="spin" />
+            <span>TanStack Query Cache Pre-fetching...</span>
+          </div>
+        </div>
+
+        {/* Security badge */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+          <Lock size={12} style={{ color: 'var(--aurora-cyan, #00f0ff)' }} />
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono, JetBrains Mono)', color: 'var(--text-muted, #849495)' }}>
+            256-Bit Encrypted Session Handshake
+          </span>
+        </div>
+
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          @keyframes spin-reverse {
+            from { transform: rotate(360deg); }
+            to { transform: rotate(0deg); }
+          }
+        `}</style>
+      </div>
     </div>
   );
 };

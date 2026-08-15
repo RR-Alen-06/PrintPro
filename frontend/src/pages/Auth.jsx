@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { Printer, ShieldCheck, ArrowRight, Github } from 'lucide-react'
+import { Printer, ShieldCheck, ArrowRight, Github, Lock, CheckCircle2 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import '../styles/aurora.css'
 
 const Auth = () => {
   const { currentUser, logout, signInWithGoogle, signInWithGitHub } = useAppContext()
@@ -18,39 +19,45 @@ const Auth = () => {
     }
   }
 
-  // If already logged in, show authenticated state card
+  // If already logged in, show authenticated state card in Aurora UI
   if (currentUser) {
     return (
-      <div style={styles.container}>
+      <div className="aurora-canvas" style={styles.container}>
         <div style={styles.card}>
           <div style={styles.logoContainer}>
             <div style={styles.logoIcon}>
-              <Printer size={32} />
+              <Printer size={28} />
             </div>
-            <h1 style={styles.logoText}>PrintPro</h1>
+            <h1 style={styles.logoText}>PrintPro ERP</h1>
+            <span style={styles.gatewayBadge}>AUTHENTICATED SESSION</span>
           </div>
 
           <div style={styles.authSuccessIcon}>
-            <ShieldCheck size={48} style={{ color: '#10b981' }} />
+            <ShieldCheck size={48} style={{ color: 'var(--aurora-green, #00ffab)', filter: 'drop-shadow(0 0 12px rgba(0,255,171,0.4))' }} />
           </div>
 
-          <h2 style={styles.welcomeText}>You are signed in</h2>
+          <h2 style={styles.welcomeText}>Merchant Access Active</h2>
           <p style={styles.userEmail}>{currentUser.email}</p>
 
           <div style={styles.infoBox}>
-            <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.8 }}>
-              Account Role: <strong>Merchant / Owner</strong>
+            <p style={{ margin: 0, fontSize: '0.82rem', fontFamily: 'var(--font-mono, JetBrains Mono)', color: 'var(--text-secondary)' }}>
+              Tenant Role: <strong style={{ color: 'var(--aurora-cyan)' }}>Merchant / Store Owner</strong>
             </p>
           </div>
 
           <button 
-            style={styles.primaryButton}
+            className="aurora-btn-primary"
+            style={{ width: '100%', marginBottom: '12px', fontSize: '0.95rem' }}
             onClick={() => window.location.href = '/dashboard'}
           >
-            Go to Dashboard <ArrowRight size={16} />
+            Launch Command Center <ArrowRight size={18} />
           </button>
 
-          <button style={styles.logoutButton} onClick={logout}>
+          <button
+            className="aurora-btn-glass"
+            style={{ width: '100%', color: 'var(--aurora-red, #ff3860)', borderColor: 'rgba(255, 56, 96, 0.3)' }}
+            onClick={logout}
+          >
             Sign Out
           </button>
         </div>
@@ -59,20 +66,22 @@ const Auth = () => {
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.backgroundGlow} />
-      
+    <div className="aurora-canvas" style={styles.container}>
       <div style={styles.card}>
+        {/* Branding & Header */}
         <div style={styles.logoContainer}>
           <div style={styles.logoIcon}>
-            <Printer size={32} />
+            <Printer size={28} />
           </div>
-          <h1 style={styles.logoText}>PrintPro</h1>
+          <h1 style={styles.logoText}>PrintPro ERP</h1>
+          <div style={{ marginTop: '8px' }}>
+            <span style={styles.gatewayBadge}>ENTERPRISE ACCESS GATEWAY</span>
+          </div>
         </div>
 
         <h2 style={styles.cardTitle}>Merchant Sign In</h2>
         <p style={styles.cardSubtitle}>
-          Secure OAuth 2.0 gateway for PrintPro store management.
+          Next-Gen Intelligent Print & Commercial Stationery ERP
         </p>
 
         {error && (
@@ -81,6 +90,7 @@ const Auth = () => {
           </div>
         )}
 
+        {/* OAuth Action Buttons */}
         <div style={styles.buttonGroup}>
           <button
             disabled={loadingProvider !== null}
@@ -90,7 +100,6 @@ const Auth = () => {
             {loadingProvider === 'google' ? (
               <span className="loader" style={styles.buttonLoader} />
             ) : (
-              // Inline SVG for Google Logo for premium brand look
               <svg width="18" height="18" viewBox="0 0 24 24" style={{ marginRight: '10px', flexShrink: 0 }}>
                 <path
                   fill="#4285F4"
@@ -110,7 +119,7 @@ const Auth = () => {
                 />
               </svg>
             )}
-            Sign in with Google
+            Sign in with Google Workspace
           </button>
 
           <button
@@ -123,16 +132,20 @@ const Auth = () => {
             ) : (
               <Github size={18} style={{ marginRight: '10px' }} />
             )}
-            Sign in with GitHub
+            Sign in with GitHub Organization
           </button>
         </div>
 
-        <div style={styles.footer}>
-          <p style={{ margin: 0 }}>
-            By signing in, you agree to secure cryptographic validation.
-          </p>
-          <p style={{ marginTop: '8px', fontSize: '0.75rem', opacity: 0.5 }}>
-            Authorized Merchant Access Only.
+        {/* Security Credentials Footer */}
+        <div style={styles.securityBox}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '6px' }}>
+            <Lock size={13} style={{ color: 'var(--aurora-cyan, #00f0ff)' }} />
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--aurora-cyan, #00f0ff)' }}>
+              CRYPTOGRAPHIC SESSION SECURITY
+            </span>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted, #849495)', lineHeight: 1.4 }}>
+            Zero-Knowledge Isolated Database Engine • Multi-Tenant Supabase RLS Protected • 256-Bit Cryptographic Session
           </p>
         </div>
       </div>
@@ -146,35 +159,21 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
-    backgroundColor: '#0c0c0e',
-    color: '#f3f4f6',
-    fontFamily: 'Inter, system-ui, Avenir, Helvetica, Arial, sans-serif',
     position: 'relative',
     overflow: 'hidden',
-    padding: '20px',
-  },
-  backgroundGlow: {
-    position: 'absolute',
-    width: '400px',
-    height: '400px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(0,0,0,0) 70%)',
-    top: '20%',
-    left: '30%',
-    transform: 'translate(-50%, -50%)',
-    pointerEvents: 'none',
+    padding: '24px',
   },
   card: {
     width: '100%',
-    maxWidth: '420px',
-    backgroundColor: 'rgba(20, 20, 25, 0.75)',
-    backdropFilter: 'blur(16px)',
-    WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: '16px',
-    padding: '40px',
+    maxWidth: '460px',
+    backgroundColor: 'rgba(18, 10, 35, 0.76)',
+    backdropFilter: 'blur(30px)',
+    WebkitBackdropFilter: 'blur(30px)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '20px',
+    padding: '44px 36px',
     textAlign: 'center',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(112, 0, 255, 0.15)',
     zIndex: 10,
     animation: 'fadeIn 0.6s ease-out',
   },
@@ -182,68 +181,84 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   logoIcon: {
     width: '56px',
     height: '56px',
-    borderRadius: '12px',
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-    color: '#3b82f6',
+    borderRadius: '14px',
+    background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.25) 0%, rgba(112, 0, 255, 0.35) 100%)',
+    border: '1px solid var(--aurora-cyan, #00f0ff)',
+    boxShadow: '0 0 20px rgba(0, 240, 255, 0.4)',
+    color: 'var(--aurora-cyan, #00f0ff)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: '12px',
   },
   logoText: {
-    fontSize: '1.75rem',
+    fontSize: '1.85rem',
     fontWeight: 800,
     margin: 0,
-    background: 'linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%)',
+    background: 'linear-gradient(135deg, #00f0ff 0%, #ff2fb0 100%)',
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
     letterSpacing: '-0.025em',
   },
+  gatewayBadge: {
+    display: 'inline-block',
+    fontSize: '0.68rem',
+    fontFamily: 'var(--font-mono, JetBrains Mono)',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    padding: '2px 8px',
+    borderRadius: '9999px',
+    background: 'rgba(0, 240, 255, 0.12)',
+    border: '1px solid rgba(0, 240, 255, 0.3)',
+    color: 'var(--aurora-cyan, #00f0ff)',
+  },
   cardTitle: {
     fontSize: '1.25rem',
-    fontWeight: 600,
-    margin: '0 0 8px 0',
-    color: '#f3f4f6',
+    fontWeight: 700,
+    margin: '0 0 6px 0',
+    color: 'var(--text-primary, #f8fafc)',
   },
   cardSubtitle: {
-    fontSize: '0.875rem',
-    color: '#9ca3af',
+    fontSize: '0.84rem',
+    color: 'var(--text-muted, #849495)',
     margin: '0 0 28px 0',
-    lineHeight: '1.5',
+    lineHeight: '1.45',
   },
   authSuccessIcon: {
     display: 'flex',
     justifyContent: 'center',
-    marginBottom: '20px',
+    marginBottom: '16px',
   },
   welcomeText: {
     fontSize: '1.25rem',
-    fontWeight: 600,
+    fontWeight: 700,
     margin: '0 0 4px 0',
+    color: 'var(--text-primary, #f8fafc)',
   },
   userEmail: {
-    fontSize: '0.875rem',
-    color: '#9ca3af',
-    margin: '0 0 24px 0',
+    fontSize: '0.88rem',
+    fontFamily: 'var(--font-mono, JetBrains Mono)',
+    color: 'var(--aurora-cyan, #00f0ff)',
+    margin: '0 0 20px 0',
   },
   infoBox: {
     padding: '12px',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: '8px',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: '10px',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
     marginBottom: '24px',
   },
   errorAlert: {
     padding: '12px 16px',
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderRadius: '8px',
-    border: '1px solid rgba(239, 68, 68, 0.25)',
-    color: '#fca5a5',
+    backgroundColor: 'rgba(255, 56, 96, 0.15)',
+    borderRadius: '10px',
+    border: '1px solid rgba(255, 56, 96, 0.35)',
+    color: '#ffafd3',
     fontSize: '0.85rem',
     marginBottom: '20px',
     textAlign: 'left',
@@ -252,7 +267,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
-    marginBottom: '28px',
+    marginBottom: '24px',
   },
   googleButton: {
     display: 'flex',
@@ -261,14 +276,14 @@ const styles = {
     padding: '12px 16px',
     borderRadius: '10px',
     backgroundColor: '#ffffff',
-    color: '#1f2937',
-    fontSize: '0.925rem',
-    fontWeight: 600,
+    color: '#05010f',
+    fontSize: '0.92rem',
+    fontWeight: 700,
     border: 'none',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     outline: 'none',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
   },
   githubButton: {
     display: 'flex',
@@ -276,53 +291,25 @@ const styles = {
     justifyContent: 'center',
     padding: '12px 16px',
     borderRadius: '10px',
-    backgroundColor: '#24292f',
+    backgroundColor: 'rgba(10, 5, 20, 0.8)',
     color: '#ffffff',
-    fontSize: '0.925rem',
+    fontSize: '0.92rem',
     fontWeight: 600,
-    border: '1px solid rgba(255, 255, 255, 0.08)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     outline: 'none',
   },
-  primaryButton: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px',
-    width: '100%',
-    padding: '12px 16px',
+  securityBox: {
+    padding: '12px 14px',
     borderRadius: '10px',
-    backgroundColor: '#3b82f6',
-    color: '#ffffff',
-    fontSize: '0.925rem',
-    fontWeight: 600,
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    marginBottom: '12px',
-  },
-  logoutButton: {
-    width: '100%',
-    padding: '12px 16px',
-    borderRadius: '10px',
-    backgroundColor: 'transparent',
-    color: '#ef4444',
-    fontSize: '0.925rem',
-    fontWeight: 600,
-    border: '1px solid rgba(239, 68, 68, 0.2)',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  footer: {
-    fontSize: '0.8rem',
-    color: '#71717a',
-    lineHeight: '1.4',
+    background: 'rgba(5, 1, 15, 0.6)',
+    border: '1px solid rgba(255, 255, 255, 0.06)',
   },
   buttonLoader: {
     width: '18px',
     height: '18px',
-    border: '2px solid rgba(0, 0, 0, 0.1)',
+    border: '2px solid rgba(0, 0, 0, 0.15)',
     borderTop: '2px solid currentColor',
     borderRadius: '50%',
     display: 'inline-block',

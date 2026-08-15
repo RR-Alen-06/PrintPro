@@ -1,0 +1,197 @@
+/* ==========================================================================
+   PrintPro Aurora UI Design System Tokens & Glassmorphism Utilities
+   ========================================================================== */
+
+:root {
+  /* Aurora Color Tokens */
+  --bg-void: #05010f;
+  --bg-space: #090417;
+  --bg-card-glass: rgba(18, 10, 35, 0.72);
+  --bg-card-glass-elevated: rgba(24, 14, 45, 0.85);
+  --bg-card-high-contrast: rgba(12, 6, 25, 0.92);
+  --bg-input-glass: rgba(10, 5, 20, 0.75);
+  
+  /* Luminous Neon Accents */
+  --aurora-cyan: #00f0ff;
+  --aurora-cyan-dim: rgba(0, 240, 255, 0.15);
+  --aurora-magenta: #ff2fb0;
+  --aurora-magenta-dim: rgba(255, 47, 176, 0.15);
+  --aurora-indigo: #7000ff;
+  --aurora-indigo-dim: rgba(112, 0, 255, 0.2);
+  --aurora-green: #00ffab;
+  --aurora-green-dim: rgba(0, 255, 171, 0.15);
+  --aurora-amber: #ffb800;
+  --aurora-amber-dim: rgba(255, 184, 0, 0.15);
+  --aurora-red: #ff3860;
+  --aurora-red-dim: rgba(255, 56, 96, 0.15);
+
+  /* Typography */
+  --font-display: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Glass Borders */
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-bright: rgba(255, 255, 255, 0.15);
+  --border-aurora-cyan: rgba(0, 240, 255, 0.35);
+  --border-aurora-magenta: rgba(255, 47, 176, 0.35);
+
+  /* Luminous Glows */
+  --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.25);
+  --glow-magenta: 0 0 20px rgba(255, 47, 176, 0.25);
+  --glow-indigo: 0 0 30px rgba(112, 0, 255, 0.3);
+  --glow-green: 0 0 15px rgba(0, 255, 171, 0.3);
+
+  /* Blur Depth */
+  --blur-panel: 24px;
+  --blur-modal: 40px;
+}
+
+/* ---------- Global Aurora Canvas Background ---------- */
+.aurora-canvas {
+  background-color: var(--bg-void);
+  background-image: 
+    radial-gradient(at 10% 15%, rgba(112, 0, 255, 0.22) 0px, transparent 55%),
+    radial-gradient(at 90% 10%, rgba(0, 240, 255, 0.18) 0px, transparent 50%),
+    radial-gradient(at 50% 85%, rgba(255, 47, 176, 0.15) 0px, transparent 60%),
+    radial-gradient(at 85% 75%, rgba(112, 0, 255, 0.25) 0px, transparent 50%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ---------- Glassmorphic Panel Classes ---------- */
+.aurora-glass-panel {
+  background: var(--bg-card-glass);
+  backdrop-filter: blur(var(--blur-panel));
+  -webkit-backdrop-filter: blur(var(--blur-panel));
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.aurora-glass-panel:hover {
+  border-color: var(--border-glass-bright);
+}
+
+.aurora-glass-card-high-contrast {
+  background: var(--bg-card-high-contrast);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid var(--border-aurora-cyan);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), var(--glow-cyan);
+}
+
+/* ---------- Sync Status Indicators ---------- */
+.aurora-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.aurora-sync-pill-synced {
+  background: var(--aurora-green-dim);
+  border: 1px solid var(--aurora-green);
+  color: var(--aurora-green);
+  box-shadow: 0 0 10px rgba(0, 255, 171, 0.25);
+}
+
+.aurora-sync-pill-syncing {
+  background: var(--aurora-cyan-dim);
+  border: 1px solid var(--aurora-cyan);
+  color: var(--aurora-cyan);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.aurora-sync-pill-pending {
+  background: var(--aurora-amber-dim);
+  border: 1px solid var(--aurora-amber);
+  color: var(--aurora-amber);
+}
+
+.aurora-sync-pill-failed {
+  background: var(--aurora-red-dim);
+  border: 1px solid var(--aurora-red);
+  color: var(--aurora-red);
+  box-shadow: 0 0 10px rgba(255, 56, 96, 0.25);
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(0.98); }
+}
+
+/* ---------- High-Fidelity Buttons ---------- */
+.aurora-btn-primary {
+  background: var(--aurora-cyan);
+  color: #05010f;
+  font-weight: 700;
+  font-family: var(--font-display);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: var(--glow-cyan);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aurora-btn-primary:hover {
+  background: #7df4ff;
+  transform: translateY(-1px);
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.45);
+}
+
+.aurora-btn-glass {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  font-weight: 600;
+  border: 1px solid var(--border-glass-bright);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.aurora-btn-glass:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--aurora-cyan);
+  color: var(--aurora-cyan);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+}
+
+/* ---------- Typography Helpers ---------- */
+.aurora-mono {
+  font-family: var(--font-mono);
+}
+
+.aurora-gradient-text-cyan {
+  background: linear-gradient(135deg, #00f0ff 0%, #7df4ff 50%, #ffffff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.aurora-gradient-text-magenta {
+  background: linear-gradient(135deg, #ff2fb0 0%, #ffafd3 50%, #ffffff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
