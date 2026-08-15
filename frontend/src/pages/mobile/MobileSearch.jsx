@@ -1,18 +1,25 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useBills } from '../../hooks/useBillsQuery'
+import { useCustomers } from '../../hooks/useCustomersQuery'
+import { useInventory } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import {
   Search as SearchIcon, X, Receipt, Users, Inbox,
   ChevronRight, Phone, Calendar, ArrowRight, DollarSign,
-  Package, Tag, CheckCircle2, AlertCircle, Clock
+  Package, Tag, CheckCircle2, AlertCircle, Clock, Loader2
 } from 'lucide-react'
 import { searchBills, searchCustomers, searchInventory } from '../../utils/search'
 import '../../styles/mobile.css'
 
 export default function MobileSearch() {
   const navigate = useNavigate()
-  const { bills, customers, inventory } = useAppContext()
+
+  // TanStack Queries
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: inventory = [], isLoading: isLoadingInventory } = useInventory()
 
   const [activeTab, setActiveTab] = useState('bills') // 'bills' | 'customers' | 'inventory'
   const [query, setQuery] = useState('')
@@ -37,7 +44,7 @@ export default function MobileSearch() {
     if (customerTypeFilter !== 'all') {
       filters.type = customerTypeFilter
     }
-    return searchCustomers((customers || []).filter(c => !c.deleted), query, filters)
+    return searchCustomers((customers || []).filter(c => !c.deleted && !c.deleted_at), query, filters)
   }, [customers, query, customerTypeFilter])
 
   // Filtered inventory
@@ -63,6 +70,10 @@ export default function MobileSearch() {
     if (s === 'partial') return { label: 'PARTIAL', cls: 'mobile-badge-warning' }
     return { label: 'UNPAID', cls: 'mobile-badge-error' }
   }
+
+  const isLoading = (activeTab === 'bills' && isLoadingBills) ||
+                    (activeTab === 'customers' && isLoadingCustomers) ||
+                    (activeTab === 'inventory' && isLoadingInventory)
 
   return (
     <MobileLayout title="Global Search" onSwitchToDesktop={() => navigate('/search')}>
@@ -248,156 +259,166 @@ export default function MobileSearch() {
         </div>
       )}
 
+      {/* Loading Indicator */}
+      {isLoading && (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '24px' }}>
+          <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
+          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Searching records...</p>
+        </div>
+      )}
+
       {/* Results Feed */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {/* BILLS TAB RESULTS */}
-        {activeTab === 'bills' && (
-          billResults.length === 0 ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-              <Receipt size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
-              <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Invoices Found</h4>
-              <p style={{ margin: 0, fontSize: '0.82rem' }}>No bills match query "{query}".</p>
-            </div>
-          ) : (
-            billResults.map((bill) => {
-              const badge = getStatusBadge(bill.status)
-              const invNum = bill.invoiceNumber || bill.id
-              return (
-                <div
-                  key={bill.id}
-                  className="mobile-card"
-                  onClick={() => navigate(`/mobile/bills/${bill.id}`)}
-                  style={{ cursor: 'pointer', padding: '14px', transition: 'var(--transition)' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <div>
-                      <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'Space Mono, monospace' }}>
-                        #{invNum}
-                      </div>
-                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
-                        {bill.customerName || 'Walk-in Customer'}
-                      </div>
-                    </div>
-                    <span className={`mobile-badge ${badge.cls}`} style={{ fontSize: '0.65rem' }}>
-                      {badge.label}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Date: {bill.date}
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: '6px' }}>Total:</span>
-                      <strong className="currency-num" style={{ fontSize: '1rem', color: '#ffffff' }}>
-                        ₹{Number(bill.total || 0).toLocaleString('en-IN')}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
-                    View Bill Detail <ChevronRight size={14} />
-                  </div>
-                </div>
-              )
-            })
-          )
-        )}
-
-        {/* CUSTOMERS TAB RESULTS */}
-        {activeTab === 'customers' && (
-          customerResults.length === 0 ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-              <Users size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
-              <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Clients Found</h4>
-              <p style={{ margin: 0, fontSize: '0.82rem' }}>No customers match query "{query}".</p>
-            </div>
-          ) : (
-            customerResults.map((c) => (
-              <div
-                key={c.id}
-                className="mobile-card"
-                onClick={() => navigate(`/mobile/customer-ledger?customerId=${c.id}`)}
-                style={{ cursor: 'pointer', padding: '14px' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)' }}>{c.name}</div>
-                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Phone: {c.phone || 'N/A'} • Code: {c.code || 'N/A'}
-                    </div>
-                  </div>
-                  <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`} style={{ fontSize: '0.65rem' }}>
-                    {(c.type || 'WALK-IN').toUpperCase()}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Outstanding Balance:</span>
-                  <strong className="currency-num" style={{ fontSize: '0.95rem', color: Number(c.creditBalance || 0) > 0 ? 'var(--error)' : 'var(--success)' }}>
-                    ₹{Number(c.creditBalance || 0).toLocaleString('en-IN')}
-                  </strong>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
-                  Open Ledger <ChevronRight size={14} />
-                </div>
+      {!isLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {/* BILLS TAB RESULTS */}
+          {activeTab === 'bills' && (
+            billResults.length === 0 ? (
+              <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                <Receipt size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
+                <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Invoices Found</h4>
+                <p style={{ margin: 0, fontSize: '0.82rem' }}>No bills match query "{query}".</p>
               </div>
-            )
-          ))
-        )}
+            ) : (
+              billResults.map((bill) => {
+                const badge = getStatusBadge(bill.status)
+                const invNum = bill.invoiceNumber || bill.invoice_number || bill.id
+                return (
+                  <div
+                    key={bill.id}
+                    className="mobile-card"
+                    onClick={() => navigate(`/mobile/bill/${bill.id}`)}
+                    style={{ cursor: 'pointer', padding: '14px', transition: 'var(--transition)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'Space Mono, monospace' }}>
+                          #{invNum}
+                        </div>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
+                          {bill.customerName || bill.customer_name || 'Walk-in Customer'}
+                        </div>
+                      </div>
+                      <span className={`mobile-badge ${badge.cls}`} style={{ fontSize: '0.65rem' }}>
+                        {badge.label}
+                      </span>
+                    </div>
 
-        {/* INVENTORY TAB RESULTS */}
-        {activeTab === 'inventory' && (
-          inventoryResults.length === 0 ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-              <Inbox size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
-              <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Catalog Items Found</h4>
-              <p style={{ margin: 0, fontSize: '0.82rem' }}>No inventory items match query "{query}".</p>
-            </div>
-          ) : (
-            inventoryResults.map((item) => {
-              const isProduct = item.type === 'product'
-              return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Date: {bill.date}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: '6px' }}>Total:</span>
+                        <strong className="currency-num" style={{ fontSize: '1rem', color: '#ffffff' }}>
+                          ₹{Number(bill.total || 0).toLocaleString('en-IN')}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                      View Bill Detail <ChevronRight size={14} />
+                    </div>
+                  </div>
+                )
+              })
+            )
+          )}
+
+          {/* CUSTOMERS TAB RESULTS */}
+          {activeTab === 'customers' && (
+            customerResults.length === 0 ? (
+              <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                <Users size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
+                <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Clients Found</h4>
+                <p style={{ margin: 0, fontSize: '0.82rem' }}>No customers match query "{query}".</p>
+              </div>
+            ) : (
+              customerResults.map((c) => (
                 <div
-                  key={item.id}
+                  key={c.id}
                   className="mobile-card"
-                  onClick={() => navigate('/mobile/inventory')}
+                  onClick={() => navigate(`/mobile/customer-ledger?customerId=${c.id}`)}
                   style={{ cursor: 'pointer', padding: '14px' }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                     <div>
-                      <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)' }}>{item.name}</div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        HSN: {item.hsnCode || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
+                      <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)' }}>{c.name}</div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Phone: {c.phone || 'N/A'} • Code: {c.code || 'N/A'}
                       </div>
                     </div>
-                    <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                      {(item.type || 'PRINT').toUpperCase()}
+                    <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`} style={{ fontSize: '0.65rem' }}>
+                      {(c.type || 'WALK-IN').toUpperCase()}
                     </span>
                   </div>
 
-                  {!isProduct ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.74rem' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle}</strong></span>
-                      <span style={{ color: 'var(--text-secondary)' }}>B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle}</strong></span>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.76rem' }}>
-                      <span>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
-                      <span>Price: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.sellingPrice}</strong></span>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Outstanding Balance:</span>
+                    <strong className="currency-num" style={{ fontSize: '0.95rem', color: Number(c.creditBalance || c.credit_balance || c.balanceDue || c.balance_due || 0) > 0 ? 'var(--error)' : 'var(--success)' }}>
+                      ₹{Number(c.creditBalance || c.credit_balance || c.balanceDue || c.balance_due || 0).toLocaleString('en-IN')}
+                    </strong>
+                  </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
-                    Manage In Inventory <ChevronRight size={14} />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
+                    Open Ledger <ChevronRight size={14} />
                   </div>
                 </div>
               )
-            })
-          )
-        )}
-      </div>
+            ))
+          )}
+
+          {/* INVENTORY TAB RESULTS */}
+          {activeTab === 'inventory' && (
+            inventoryResults.length === 0 ? (
+              <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                <Inbox size={40} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '10px' }} />
+                <h4 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>No Catalog Items Found</h4>
+                <p style={{ margin: 0, fontSize: '0.82rem' }}>No inventory items match query "{query}".</p>
+              </div>
+            ) : (
+              inventoryResults.map((item) => {
+                const isProduct = item.type === 'product'
+                return (
+                  <div
+                    key={item.id}
+                    className="mobile-card"
+                    onClick={() => navigate('/mobile/inventory')}
+                    style={{ cursor: 'pointer', padding: '14px' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)' }}>{item.name}</div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          HSN: {item.hsnCode || item.hsn_code || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
+                        </div>
+                      </div>
+                      <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
+                        {(item.type || 'PRINT').toUpperCase()}
+                      </span>
+                    </div>
+
+                    {!isProduct ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.74rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle ?? item.color_single ?? 10}</strong></span>
+                        <span style={{ color: 'var(--text-secondary)' }}>B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle ?? item.bw_single ?? 3}</strong></span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.76rem' }}>
+                        <span>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
+                        <span>Price: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.sellingPrice ?? item.selling_price ?? 0}</strong></span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                      Manage In Inventory <ChevronRight size={14} />
+                    </div>
+                  </div>
+                )
+              })
+            )
+          )}
+        </div>
+      )}
     </MobileLayout>
   )
 }

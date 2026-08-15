@@ -1,18 +1,29 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useBills } from '../../hooks/useBillsQuery'
+import { useCustomers } from '../../hooks/useCustomersQuery'
+import { usePayments, useInventory } from '../../hooks/useEntitiesQuery'
+import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import { jsPDF } from 'jspdf'
 import {
   BarChart3, TrendingUp, TrendingDown, DollarSign, Wallet,
   Calendar, Download, Users, Inbox, Banknote, Smartphone,
-  Layers, ChevronRight, Activity, Percent, ArrowUpRight, ArrowDownRight
+  Layers, ChevronRight, Activity, Percent, ArrowUpRight, ArrowDownRight, Loader2
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileAnalytics() {
   const navigate = useNavigate()
-  const { bills, payments, expenses, customers, inventory, showToast } = useAppContext()
+  const { showToast } = useAppContext()
+
+  // TanStack Queries
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
+  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: inventory = [], isLoading: isLoadingInventory } = useInventory()
 
   const [period, setPeriod] = useState('monthly') // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'all'
   const [customStartDate, setCustomStartDate] = useState('')
@@ -56,7 +67,7 @@ export default function MobileAnalytics() {
   const filteredBills = useMemo(() => {
     const { start, end } = activeDateRange
     return (bills || []).filter((b) => {
-      if (b.deleted || b.isGroupParent) return false
+      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
       if (!start || !end) return true
       const d = new Date(b.date)
       return d >= start && d <= end
@@ -84,24 +95,24 @@ export default function MobileAnalytics() {
   // Core Financial Aggregations
   const metrics = useMemo(() => {
     const totalRev = filteredBills.reduce((s, b) => s + Number(b.total || 0), 0)
-    const normalPayments = filteredPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
-    const refundPayments = filteredPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+    const normalPayments = filteredPayments.filter(p => !p.isRefund && !p.is_refund && p.paymentType !== 'refund' && Number(p.totalPaid || p.total_paid || 0) >= 0)
+    const refundPayments = filteredPayments.filter(p => p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0)
 
-    const totalCashCollected = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const totalUpiCollected = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const totalCashCollected = normalPayments.reduce((s, p) => s + Number(p.cashAmount || p.cash_amount || 0), 0)
+    const totalUpiCollected = normalPayments.reduce((s, p) => s + Number(p.upiAmount || p.upi_amount || 0), 0)
     const totalPaid = totalCashCollected + totalUpiCollected
 
     const totalCashExpenses = filteredExpenses.reduce((s, e) => s + Number(e.cashAmount || (e.paymentMethod === 'cash' ? e.amount : 0) || 0), 0)
     const totalUpiExpenses = filteredExpenses.reduce((s, e) => s + Number(e.upiAmount || (e.paymentMethod === 'upi' ? e.amount : 0) || (e.cashAmount === undefined ? e.amount : 0)), 0)
     const totalExp = filteredExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
 
-    const totalRefunds = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const totalRefunds = refundPayments.reduce((s, p) => s + Math.abs(Number(p.totalPaid || p.total_paid || 0)), 0)
     const totalOutstanding = filteredBills.reduce((s, b) => s + Number(b.balance || 0), 0)
     const netProfit = totalPaid - totalExp - totalRefunds
 
     const ordersCount = filteredBills.length
     const averageOrder = ordersCount > 0 ? totalRev / ordersCount : 0
-    const activeClientsCount = (customers || []).filter(c => !c.deleted).length
+    const activeClientsCount = (customers || []).filter(c => !c.deleted && !c.deleted_at).length
 
     // Payment preference percentages
     const paySum = totalCashCollected + totalUpiCollected
@@ -141,7 +152,7 @@ export default function MobileAnalytics() {
       const label = `${monthNames[mo]} ${String(yr).slice(-2)}`
 
       const sum = (bills || []).filter(b => {
-        if (b.deleted || b.isGroupParent) return false
+        if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
         const bd = new Date(b.date)
         return bd.getFullYear() === yr && bd.getMonth() === mo
       }).reduce((s, b) => s + Number(b.total || 0), 0)
@@ -157,8 +168,8 @@ export default function MobileAnalytics() {
   const topCustomers = useMemo(() => {
     const map = {}
     filteredBills.forEach(b => {
-      const cId = b.customerId || 'walkin'
-      const name = b.customerName || 'Walk-in Client'
+      const cId = b.customerId || b.customer_id || 'walkin'
+      const name = b.customerName || b.customer_name || 'Walk-in Client'
       if (!map[cId]) map[cId] = { name, total: 0, orders: 0 }
       map[cId].total += Number(b.total || 0)
       map[cId].orders += 1
@@ -174,7 +185,7 @@ export default function MobileAnalytics() {
     const map = {}
     filteredBills.forEach(b => {
       ;(b.items || []).forEach(item => {
-        const key = item.itemName || 'Custom Item'
+        const key = item.itemName || item.name || item.item_name || 'Custom Item'
         if (!map[key]) map[key] = { name: key, totalRev: 0, qty: 0 }
         map[key].totalRev += Number(item.amount || 0)
         map[key].qty += Number(item.qty || 1)
@@ -208,6 +219,8 @@ export default function MobileAnalytics() {
       showToast('Failed to export PDF', 'error')
     }
   }
+
+  const isLoading = isLoadingBills || isLoadingPayments || isLoadingExpenses
 
   return (
     <MobileLayout title="Store Analytics" onSwitchToDesktop={() => navigate('/analytics')}>
@@ -260,6 +273,14 @@ export default function MobileAnalytics() {
           </button>
         ))}
       </div>
+
+      {/* Loading Indicator */}
+      {isLoading && (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '20px', marginBottom: '14px' }}>
+          <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 6px auto' }} />
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Aggregating analytics data...</div>
+        </div>
+      )}
 
       {/* KPI Highlights Carousel / Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>

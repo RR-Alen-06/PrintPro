@@ -1,12 +1,17 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
+import { useBills } from '../../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
+import { useInventory, useInventoryMutations, usePayments } from '../../hooks/useEntitiesQuery'
+import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { jsPDF } from 'jspdf'
 import {
   Database, Download, Upload, RefreshCw, Trash2, FileSpreadsheet,
-  FileText, Calendar, CheckCircle, AlertTriangle, Layers
+  FileText, Calendar, CheckCircle, AlertTriangle, Layers, Loader2
 } from 'lucide-react'
 import {
   createFullBackup, exportBillsToCSV, exportCustomersToCSV,
@@ -20,10 +25,19 @@ import '../../styles/mobile.css'
 
 export default function MobileDataManagement() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const {
-    business, customers, inventory, bills, payments, expenses, settings,
-    addCustomer, addInventoryItem, syncFromCloud, showToast
+    business, settings, syncFromCloud, showToast, addCustomer: contextAddCustomer, addInventoryItem: contextAddInventoryItem
   } = useAppContext()
+
+  // TanStack Queries & Mutations
+  const { data: bills = [] } = useBills()
+  const { data: customers = [] } = useCustomers()
+  const { data: inventory = [] } = useInventory()
+  const { data: payments = [] } = usePayments()
+  const { data: expenses = [] } = useExpenses()
+  const { createCustomer: createCustomerMutation } = useCustomerMutations()
+  const { createItem: createInventoryMutation } = useInventoryMutations()
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [importType, setImportType] = useState('backup') // 'backup' | 'customers' | 'inventory'
@@ -51,7 +65,7 @@ export default function MobileDataManagement() {
   const handleExportCSV = (entity) => {
     try {
       if (entity === 'bills') {
-        const active = (bills || []).filter((b) => !b.deleted)
+        const active = (bills || []).filter((b) => !b.deleted && !b.deleted_at)
         exportBillsToCSV(active)
         showToast(`${active.length} bills exported to CSV`, 'success')
       } else if (entity === 'customers') {
@@ -102,14 +116,24 @@ export default function MobileDataManagement() {
         const data = await importFromCSV(file)
         const imported = importCustomersFromCSV(data)
         for (const c of imported) {
-          if (addCustomer) await addCustomer(c)
+          try {
+            await createCustomerMutation(c)
+          } catch (mErr) {
+            console.error('Customer import mutation notice:', mErr)
+          }
+          if (contextAddCustomer) await contextAddCustomer(c)
         }
         showToast(`${imported.length} customers imported successfully`, 'success')
       } else if (importType === 'inventory') {
         const data = await importFromCSV(file)
         const items = importInventoryFromCSV(data)
         for (const item of items) {
-          if (addInventoryItem) await addInventoryItem(item)
+          try {
+            await createInventoryMutation(item)
+          } catch (mErr) {
+            console.error('Inventory import mutation notice:', mErr)
+          }
+          if (contextAddInventoryItem) await contextAddInventoryItem(item)
         }
         showToast(`${items.length} inventory items imported successfully`, 'success')
       }
@@ -195,7 +219,7 @@ export default function MobileDataManagement() {
 
       if (selectedReportEntity === 'bills') {
         title = `Bills Report (${reportPeriod.toUpperCase()})`
-        data = filterByPeriod((bills || []).filter(b => !b.deleted), 'date')
+        data = filterByPeriod((bills || []).filter(b => !b.deleted && !b.deleted_at), 'date')
       } else if (selectedReportEntity === 'customers') {
         title = `Customers Report (${reportPeriod.toUpperCase()})`
         data = filterByPeriod(customers || [], 'createdAt')
@@ -229,11 +253,11 @@ export default function MobileDataManagement() {
         }
         let line = ''
         if (selectedReportEntity === 'bills') {
-          line = `#${item.invoiceNumber || item.id} | ${item.customerName || 'Walk-in'} | Date: ${item.date} | Total: ₹${fNum(item.total)} | Status: ${(item.status || '').toUpperCase()}`
+          line = `#${item.invoiceNumber || item.invoice_number || item.id} | ${item.customerName || item.customer_name || 'Walk-in'} | Date: ${item.date} | Total: ₹${fNum(item.total)} | Status: ${(item.status || '').toUpperCase()}`
         } else if (selectedReportEntity === 'customers') {
-          line = `${item.name} | Phone: ${item.phone || 'N/A'} | Type: ${item.type} | Credit: ₹${fNum(item.creditBalance)}`
+          line = `${item.name} | Phone: ${item.phone || 'N/A'} | Type: ${item.type} | Credit: ₹${fNum(item.creditBalance || item.credit_balance || 0)}`
         } else if (selectedReportEntity === 'payments') {
-          line = `Payment #${item.id} | Date: ${item.date?.slice(0,10)} | Paid: ₹${fNum(item.totalPaid)} | Cash: ₹${fNum(item.cashAmount)} | UPI: ₹${fNum(item.upiAmount)}`
+          line = `Payment #${item.id} | Date: ${item.date?.slice(0,10)} | Paid: ₹${fNum(item.totalPaid || item.total_paid || 0)} | Cash: ₹${fNum(item.cashAmount || item.cash_amount || 0)} | UPI: ₹${fNum(item.upiAmount || item.upi_amount || 0)}`
         } else if (selectedReportEntity === 'expenses') {
           line = `Expense #${item.id} | ${item.category || item.description} | Date: ${item.date} | Amount: ₹${fNum(item.amount)}`
         }
@@ -254,6 +278,7 @@ export default function MobileDataManagement() {
     setIsSyncing(true)
     try {
       if (syncFromCloud) await syncFromCloud()
+      await queryClient.invalidateQueries()
       showToast('Cloud database synchronized', 'success')
     } catch (e) {
       showToast('Sync failed', 'error')
