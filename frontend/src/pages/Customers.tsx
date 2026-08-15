@@ -492,7 +492,7 @@ const Customers = () => {
                             </span>
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                            {customer.id}
+                            {customer.customerCode || customer.id}
                           </div>
                           {customer.phone && (
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
