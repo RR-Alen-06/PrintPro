@@ -1,29 +1,29 @@
 import React from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAppContext } from './context/AppContext'
-import Sidebar from './components/layout/Sidebar'
 import Header from './components/layout/Header'
+import Sidebar from './components/layout/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Billing from './pages/Billing'
 import Customers from './pages/Customers'
 import Accounting from './pages/Accounting'
 import Inventory from './pages/Inventory'
-import NotificationsPage from './pages/Notifications'
-import DeletedBills from './pages/DeletedBills'
 import Settings from './pages/Settings'
 import DataManagement from './pages/DataManagement'
 import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
-import CustomerLedger from './pages/CustomerLedger'
+import AuthCallback from './pages/AuthCallback'
 import Analytics from './pages/Analytics'
 import ItemSalesReport from './pages/ItemSalesReport'
-import AdvancePayments from './pages/AdvancePayments'
+import CustomerLedger from './pages/CustomerLedger'
 import CustomerBills from './pages/CustomerBills'
-import AuthCallback from './pages/AuthCallback'
+import AdvancePayments from './pages/AdvancePayments'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
 import CustomerPortal from './pages/CustomerPortal'
+import NotificationsPage from './pages/Notifications'
+import DeletedBills from './pages/DeletedBills'
 import ErrorBoundary from './components/common/ErrorBoundary'
 
 // Mobile Page Imports
@@ -57,21 +57,28 @@ function App() {
   const { currentUser, isInitialLoading } = useAppContext()
   const location = useLocation()
   const navigate = useNavigate()
-  const { isMobile, isTablet, userPref, setUserPref } = useMobileDetect()
+  const { isMobile, isTablet, userPref, setUserPref, effectiveMode } = useMobileDetect()
 
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isMobileRoute = location.pathname.startsWith('/mobile')
   const isAuthCallback = location.pathname === '/auth/callback'
   const isAuthPage = location.pathname === '/auth'
 
-  // Render Auth pages in full screen layout (no sidebar/header)
+  // Render Auth Callback in full screen
   if (isAuthCallback) {
     return <AuthCallback />
   }
 
+  // Handle Auth Entry Point with Mobile Auto-Redirect
   if (isAuthPage) {
     if (currentUser && !isInitialLoading) {
+      if (effectiveMode === 'mobile' && userPref !== 'desktop') {
+        return <Navigate to="/mobile/dashboard" replace />
+      }
       return <Navigate to="/dashboard" replace />
+    }
+    if (effectiveMode === 'mobile' && userPref !== 'desktop') {
+      return <Navigate to="/mobile/auth" replace />
     }
     return <Auth />
   }
@@ -87,9 +94,19 @@ function App() {
     )
   }
 
-  // 2. Boot check complete, no active user session -> Redirect to /auth
+  // 2. Boot check complete, no active user session -> Redirect to auth entry point
   if (!currentUser) {
+    if (effectiveMode === 'mobile' && userPref !== 'desktop') {
+      return <Navigate to="/mobile/auth" replace />
+    }
     return <Navigate to="/auth" replace />
+  }
+
+  // 3. Auto-redirect on root "/" or direct "/dashboard" landing if on mobile device (respecting explicit userPref)
+  if (!isMobileRoute && effectiveMode === 'mobile' && userPref !== 'desktop') {
+    if (location.pathname === '/' || location.pathname === '/dashboard') {
+      return <Navigate to="/mobile/dashboard" replace />
+    }
   }
 
   // Render Mobile App Routes in standalone mobile layout
