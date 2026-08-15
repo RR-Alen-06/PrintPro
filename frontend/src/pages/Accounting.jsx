@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink } from 'lucide-react'
+import { useExpenses, useExpenseMutations } from '../hooks/useExpensesQuery'
+import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink, Loader2 } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
 
 const Accounting = () => {
-  const { bills, payments, expenses, advancePayments, customers, inventory, addExpense, deleteExpense, deletedPayments, syncFromCloud, showToast } = useAppContext()
+  const { bills, payments, advancePayments, customers, inventory, deletedPayments, syncFromCloud, showToast } = useAppContext()
+  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
 
   const today = new Date().toISOString().slice(0, 10)
   const [expForm, setExpForm] = useState({
@@ -341,7 +344,7 @@ const Accounting = () => {
     setExpError('')
   }
 
-  const handleAddExpense = (e) => {
+  const handleAddExpense = async (e) => {
     e.preventDefault()
     const amount = Number(expForm.amount)
     const cash = Number(expForm.cashAmount || 0)
@@ -354,18 +357,24 @@ const Accounting = () => {
       return
     }
 
-    addExpense({
-      date: expForm.date || today,
-      description: expForm.description.trim(),
-      amount,
-      cashAmount: cash,
-      upiAmount: upi,
-      receiptUrl: expForm.receiptUrl || '',
-    })
+    try {
+      await createExpense({
+        date: expForm.date || today,
+        description: expForm.description.trim(),
+        item_name: expForm.description.trim(),
+        amount,
+        total: amount,
+        cashAmount: cash,
+        upiAmount: upi,
+        receiptUrl: expForm.receiptUrl || '',
+      })
 
-    setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '', receiptUrl: '' })
-    setExpSuccess(true)
-    setTimeout(() => setExpSuccess(false), 3000)
+      setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '', receiptUrl: '' })
+      setExpSuccess(true)
+      setTimeout(() => setExpSuccess(false), 3000)
+    } catch (err) {
+      setExpError(err.message || 'Failed to save expense')
+    }
   }
 
   const sortedExpenses = useMemo(() => {
@@ -692,8 +701,16 @@ const Accounting = () => {
               <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
                 Cash + UPI must equal total amount.
               </p>
-              <button type="submit" className="btn btn-primary">
-                <Plus size={16} /> Save Expense
+              <button type="submit" className="btn btn-primary" disabled={isCreatingExpense}>
+                {isCreatingExpense ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Loader2 size={16} className="spin" /> Saving Expense...
+                  </span>
+                ) : (
+                  <>
+                    <Plus size={16} /> Save Expense
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -701,7 +718,12 @@ const Accounting = () => {
           {/* Expense Log */}
           <div className="card">
             <h2 style={{ marginBottom: '16px' }}>Expense Log ({sortedExpenses.length})</h2>
-            {sortedExpenses.length === 0 ? (
+            {isLoadingExpenses ? (
+              <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                <Loader2 size={32} className="spin" style={{ margin: '0 auto 12px', display: 'block', color: 'var(--accent)' }} />
+                Loading expenses from cloud...
+              </div>
+            ) : sortedExpenses.length === 0 ? (
               <EmptyState
                 Icon={TrendingDown}
                 title="No expenses recorded"
@@ -747,8 +769,16 @@ const Accounting = () => {
                             <button
                               className="btn btn-ghost btn-sm"
                               style={{ color: 'var(--error)' }}
-                              onClick={() => {
-                                if (window.confirm(`Delete expense "${exp.description}"?`)) deleteExpense(exp.id)
+                              disabled={isDeletingExpense}
+                              onClick={async () => {
+                                if (window.confirm(`Delete expense "${exp.description}"?`)) {
+                                  try {
+                                    await deleteExpense(exp.id)
+                                    showToast('Expense deleted', 'info')
+                                  } catch (err) {
+                                    showToast(err.message || 'Failed to delete expense', 'error')
+                                  }
+                                }
                               }}
                             >
                               <Trash2 size={14} />

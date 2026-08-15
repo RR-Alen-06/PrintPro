@@ -1,14 +1,23 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useExpenses, useExpenseMutations } from '../../hooks/useExpensesQuery'
+import { usePayments } from '../../hooks/useEntitiesQuery'
+import { useBills } from '../../hooks/useBillsQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { DollarSign, TrendingUp, TrendingDown, Plus, Trash2, Calendar, FileText, Search } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, Plus, Trash2, Calendar, FileText, Search, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileAccounting() {
   const navigate = useNavigate()
-  const { bills, payments, expenses, advancePayments, addExpense, deleteExpense, showToast } = useAppContext()
+  const { showToast } = useAppContext()
+
+  // TanStack Query & Mutation hooks
+  const { data: serverExpenses = [], isLoading: isLoadingExpenses, isError, error } = useExpenses()
+  const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverPayments = [] } = usePayments()
 
   const [filterCategory, setFilterCategory] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -22,9 +31,9 @@ export default function MobileAccounting() {
 
   // Accounting Financial Calculations matching desktop Accounting.jsx
   const financialTotals = useMemo(() => {
-    const totalRev = (bills || []).filter(b => !b.deleted).reduce((s, b) => s + Number(b.total || 0), 0)
-    const totalExp = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
-    const totalInflow = (payments || []).filter(p => !p.isRefund).reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const totalRev = (serverBills || []).filter(b => !b.deleted).reduce((s, b) => s + Number(b.total || 0), 0)
+    const totalExp = (serverExpenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
+    const totalInflow = (serverPayments || []).filter(p => !p.isRefund).reduce((s, p) => s + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const netProfit = totalInflow - totalExp
 
     return {
@@ -33,10 +42,10 @@ export default function MobileAccounting() {
       totalInflow,
       netProfit
     }
-  }, [bills, expenses, payments])
+  }, [serverBills, serverExpenses, serverPayments])
 
   const filteredExpenses = useMemo(() => {
-    return (expenses || []).filter(e => {
+    return (serverExpenses || []).filter(e => {
       if (filterCategory !== 'all' && e.category !== filterCategory) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
@@ -44,7 +53,7 @@ export default function MobileAccounting() {
       }
       return true
     }).sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [expenses, filterCategory, searchTerm])
+  }, [serverExpenses, filterCategory, searchTerm])
 
   const handleAddExpenseSubmit = async (e) => {
     e.preventDefault()
@@ -56,35 +65,33 @@ export default function MobileAccounting() {
 
     try {
       const payload = {
-        id: `exp-${Date.now()}`,
         category,
         amount: amt,
-        description: description || category,
+        total: amt,
+        description: description.trim() || category,
+        item_name: description.trim() || category,
         date,
-        createdAt: new Date().toISOString()
       }
 
-      if (addExpense) {
-        await addExpense(payload)
-      }
+      await createExpense(payload)
 
       showToast(`Recorded ₹${amt.toFixed(2)} expense!`, 'success')
       setAmount('')
       setDescription('')
       setShowAddModal(false)
     } catch (err) {
-      showToast('Failed to record expense', 'error')
+      showToast(err.message || 'Failed to record expense', 'error')
     }
   }
 
   const handleDeleteExpense = async (id) => {
-    try {
-      if (deleteExpense) {
+    if (window.confirm('Remove this expense entry?')) {
+      try {
         await deleteExpense(id)
+        showToast('Expense entry deleted', 'info')
+      } catch (err) {
+        showToast(err.message || 'Failed to delete expense', 'error')
       }
-      showToast('Expense entry deleted', 'info')
-    } catch (err) {
-      showToast('Failed to delete expense', 'error')
     }
   }
 
@@ -119,13 +126,29 @@ export default function MobileAccounting() {
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>EXPENSE JOURNAL</span>
           <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>OPERATIONAL EXPENSES</h2>
         </div>
-        <button className="mobile-btn mobile-btn-primary" onClick={() => setShowAddModal(true)} style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}>
+        <button
+          className="mobile-btn mobile-btn-primary"
+          onClick={() => setShowAddModal(true)}
+          disabled={isCreatingExpense}
+          style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}
+        >
           <Plus size={16} /> + Expense
         </button>
       </div>
 
       {/* Expenses Stack */}
-      {filteredExpenses.length === 0 ? (
+      {isLoadingExpenses ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '0.85rem' }}>Loading expenses from cloud...</div>
+        </div>
+      ) : isError ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '24px 16px', borderColor: 'var(--error)' }}>
+          <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--error)' }}>Failed to load expenses</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{error?.message || 'Network error'}</div>
+        </div>
+      ) : filteredExpenses.length === 0 ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
           <DollarSign size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '12px' }} />
           <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Expenses Recorded</h4>
@@ -149,7 +172,11 @@ export default function MobileAccounting() {
                 <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.68rem' }}>
                   {(exp.category || 'Expense').toUpperCase()}
                 </span>
-                <button onClick={() => handleDeleteExpense(exp.id)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+                <button
+                  onClick={() => handleDeleteExpense(exp.id)}
+                  style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '4px' }}
+                  title="Delete Expense"
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -189,8 +216,19 @@ export default function MobileAccounting() {
             <input type="text" className="mobile-input" placeholder="e.g. Purchased 10 Reams A4 Paper" value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }}>
-            Record Expense
+          <button
+            type="submit"
+            className="mobile-btn mobile-btn-primary"
+            disabled={isCreatingExpense}
+            style={{ marginTop: '8px' }}
+          >
+            {isCreatingExpense ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                <Loader2 size={16} className="spin" /> Saving Expense...
+              </span>
+            ) : (
+              'Record Expense'
+            )}
           </button>
         </form>
       </BottomSheet>
