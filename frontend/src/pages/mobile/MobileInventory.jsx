@@ -1,14 +1,19 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useInventory, useInventoryMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { Inbox, Plus, Pencil, Trash2, Search, Check, AlertTriangle, Package } from 'lucide-react'
+import { Inbox, Plus, Pencil, Trash2, Search, Check, AlertTriangle, Package, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileInventory() {
   const navigate = useNavigate()
-  const { inventory, addInventoryItem, updateInventoryItem, removeInventoryItem, showToast } = useAppContext()
+  const { showToast } = useAppContext()
+
+  // TanStack Query & Mutations (reusing desktop hooks)
+  const { data: serverInventory = [], isLoading: isLoadingInventory, isError, error } = useInventory()
+  const { createItem, updateItem, deleteItem, isCreatingItem, isUpdatingItem, isDeletingItem } = useInventoryMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all') // 'all' | 'print' | 'product'
@@ -24,10 +29,12 @@ export default function MobileInventory() {
   const [bwDouble, setBwDouble] = useState('')
   const [sellingPrice, setSellingPrice] = useState('')
   const [stockQty, setStockQty] = useState('')
+  const [lowStockAlert, setLowStockAlert] = useState('50')
   const [hsnCode, setHsnCode] = useState('')
 
   const filteredItems = useMemo(() => {
-    return (inventory || []).filter(item => {
+    return (serverInventory || []).filter(item => {
+      if (item.deleted) return false
       if (filterType !== 'all' && (item.type || 'print') !== filterType) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
@@ -35,7 +42,7 @@ export default function MobileInventory() {
       }
       return true
     })
-  }, [inventory, filterType, searchTerm])
+  }, [serverInventory, filterType, searchTerm])
 
   const openAddModal = () => {
     setEditingItem(null)
@@ -47,6 +54,7 @@ export default function MobileInventory() {
     setBwDouble('5')
     setSellingPrice('')
     setStockQty('')
+    setLowStockAlert('50')
     setHsnCode('')
     setShowAddModal(true)
   }
@@ -55,12 +63,13 @@ export default function MobileInventory() {
     setEditingItem(item)
     setFormName(item.name || '')
     setFormType(item.type || 'print')
-    setColorSingle(item.colorSingle || '')
-    setColorDouble(item.colorDouble || '')
-    setBwSingle(item.bwSingle || '')
-    setBwDouble(item.bwDouble || '')
-    setSellingPrice(item.sellingPrice || '')
-    setStockQty(item.stock || '')
+    setColorSingle(item.colorSingle !== undefined ? String(item.colorSingle) : '')
+    setColorDouble(item.colorDouble !== undefined ? String(item.colorDouble) : '')
+    setBwSingle(item.bwSingle !== undefined ? String(item.bwSingle) : '')
+    setBwDouble(item.bwDouble !== undefined ? String(item.bwDouble) : '')
+    setSellingPrice(item.sellingPrice !== undefined ? String(item.sellingPrice) : '')
+    setStockQty(item.stock !== undefined ? String(item.stock) : '')
+    setLowStockAlert(item.lowStockAlert !== undefined ? String(item.lowStockAlert) : '50')
     setHsnCode(item.hsnCode || '')
     setShowAddModal(true)
   }
@@ -75,42 +84,38 @@ export default function MobileInventory() {
     try {
       const payload = {
         name: formName.trim(),
-        type: formType,
-        colorSingle: formType === 'product' ? 0 : Number(colorSingle || 0),
-        colorDouble: formType === 'product' ? 0 : Number(colorDouble || 0),
-        bwSingle: formType === 'product' ? 0 : Number(bwSingle || 0),
-        bwDouble: formType === 'product' ? 0 : Number(bwDouble || 0),
-        sellingPrice: formType === 'product' ? Number(sellingPrice || 0) : 0,
-        stock: formType === 'product' ? Number(stockQty || 0) : 0,
-        hsnCode: hsnCode.trim()
+        color_single: formType === 'product' ? 0 : Number(colorSingle || 0),
+        color_double: formType === 'product' ? 0 : Number(colorDouble || 0),
+        bw_single: formType === 'product' ? 0 : Number(bwSingle || 0),
+        bw_double: formType === 'product' ? 0 : Number(bwDouble || 0),
+        selling_price: formType === 'product' ? Number(sellingPrice || 0) : 0,
+        stock: Number(stockQty || 0),
+        low_stock_alert: Number(lowStockAlert || 50),
       }
 
       if (editingItem) {
-        if (updateInventoryItem) {
-          await updateInventoryItem(editingItem.id, payload)
-        }
-        showToast(`Item '${payload.name}' updated!`, 'success')
+        await updateItem({ id: editingItem.id, data: payload })
+        showToast(`Item '${formName.trim()}' updated!`, 'success')
       } else {
-        if (addInventoryItem) {
-          await addInventoryItem(payload)
-        }
-        showToast(`Item '${payload.name}' added to inventory!`, 'success')
+        await createItem(payload)
+        showToast(`Item '${formName.trim()}' added to inventory!`, 'success')
       }
 
       setShowAddModal(false)
     } catch (err) {
-      showToast('Failed to save item', 'error')
+      showToast(err.message || 'Failed to save item', 'error')
     }
   }
 
-  const handleDelete = async (id) => {
-    try {
-      if (removeInventoryItem) {
-        await removeInventoryItem(id)
+  const handleDelete = async (item, e) => {
+    e.stopPropagation()
+    if (window.confirm(`Remove '${item.name}' from inventory catalog?`)) {
+      try {
+        await deleteItem(item.id)
+        showToast(`Inventory item '${item.name}' removed`, 'info')
+      } catch (err) {
+        showToast(err.message || 'Failed to delete item', 'error')
       }
-      showToast('Inventory item removed', 'info')
-    } catch (err) {
-      showToast('Failed to delete item', 'error')
     }
   }
 
@@ -121,7 +126,12 @@ export default function MobileInventory() {
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CATALOG & PRICING</span>
           <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>INVENTORY RATES</h2>
         </div>
-        <button className="mobile-btn mobile-btn-primary" onClick={openAddModal} style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}>
+        <button
+          className="mobile-btn mobile-btn-primary"
+          onClick={openAddModal}
+          disabled={isCreatingItem}
+          style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}
+        >
           <Plus size={16} /> + New Item
         </button>
       </div>
@@ -166,7 +176,18 @@ export default function MobileInventory() {
       </div>
 
       {/* Items List Stack */}
-      {filteredItems.length === 0 ? (
+      {isLoadingInventory ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '0.85rem' }}>Loading inventory from cloud...</div>
+        </div>
+      ) : isError ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '24px 16px', borderColor: 'var(--error)' }}>
+          <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--error)' }}>Failed to load inventory</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{error?.message || 'Network error'}</div>
+        </div>
+      ) : filteredItems.length === 0 ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
           <Inbox size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '12px' }} />
           <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Inventory Items Found</h4>
@@ -186,10 +207,18 @@ export default function MobileInventory() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <button onClick={() => openEditModal(item)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}>
+                    <button
+                      onClick={() => openEditModal(item)}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', padding: '4px' }}
+                      title="Edit Item"
+                    >
                       <Pencil size={16} />
                     </button>
-                    <button onClick={() => handleDelete(item.id)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer' }}>
+                    <button
+                      onClick={(e) => handleDelete(item, e)}
+                      style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '4px' }}
+                      title="Delete Item"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -265,12 +294,25 @@ export default function MobileInventory() {
           )}
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>HSN / SAC CODE</label>
-            <input type="text" className="mobile-input currency-num" placeholder="998912" value={hsnCode} onChange={(e) => setHsnCode(e.target.value)} />
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>LOW STOCK ALERT THRESHOLD</label>
+            <input type="number" className="mobile-input currency-num" value={lowStockAlert} onChange={(e) => setLowStockAlert(e.target.value)} />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }}>
-            Save Item to Inventory
+          <button
+            type="submit"
+            className="mobile-btn mobile-btn-primary"
+            disabled={isCreatingItem || isUpdatingItem}
+            style={{ marginTop: '8px' }}
+          >
+            {isCreatingItem || isUpdatingItem ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                <Loader2 size={16} className="spin" /> Saving...
+              </span>
+            ) : editingItem ? (
+              'Save Changes'
+            ) : (
+              'Save Item to Inventory'
+            )}
           </button>
         </form>
       </BottomSheet>
