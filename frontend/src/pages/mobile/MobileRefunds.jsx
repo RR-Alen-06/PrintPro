@@ -1,14 +1,18 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { usePayments } from '../../hooks/useEntitiesQuery'
+import { useCustomers } from '../../hooks/useCustomersQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { ArrowLeftRight, Banknote, Smartphone, RefreshCw, Trash2, User, Search, SlidersHorizontal, AlertCircle } from 'lucide-react'
+import { ArrowLeftRight, Banknote, Smartphone, RefreshCw, Trash2, User, Search, SlidersHorizontal, AlertCircle, Loader2 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileRefunds() {
   const navigate = useNavigate()
-  const { payments, deletedPayments, advancePayments, customers } = useAppContext()
+  const { deletedPayments, advancePayments } = useAppContext()
+  const { data: serverPayments = [], isLoading: isLoadingPayments } = usePayments()
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
 
   const [filterType, setFilterType] = useState('all') // 'all' | 'Bill Refund' | 'Payment Deletion' | 'Advance Return'
   const [filterMethod, setFilterMethod] = useState('all') // 'all' | 'cash' | 'upi'
@@ -17,7 +21,7 @@ export default function MobileRefunds() {
 
   // 1. Calculate Refund Stats matching desktop Refunds.jsx exact math
   const refundStats = useMemo(() => {
-    const billRefundsList = (payments || []).filter((p) => p.totalPaid < 0 || p.isRefund)
+    const billRefundsList = (serverPayments || []).filter((p) => Number(p.totalPaid || 0) < 0 || p.isRefund)
     const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
     const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
@@ -27,7 +31,7 @@ export default function MobileRefunds() {
     const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
 
-    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
+    const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount || 0) < 0 || ap.isReturn)
     const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
     const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
     const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
@@ -56,13 +60,13 @@ export default function MobileRefunds() {
       grandCash,
       grandUpi
     }
-  }, [payments, deletedPayments, advancePayments])
+  }, [serverPayments, deletedPayments, advancePayments])
 
   // 2. Build Unified Refund Logs matching desktop Refunds.jsx
   const refundLogs = useMemo(() => {
     const logs = []
     const getCustomerName = (cId) => {
-      const c = (customers || []).find(cust => cust.id === cId)
+      const c = (serverCustomers || []).find(cust => cust.id === cId)
       return c ? c.name : 'Unknown Customer'
     }
 
@@ -105,7 +109,7 @@ export default function MobileRefunds() {
         type: 'Advance Return',
         customerId: r.customerId,
         customerName: getCustomerName(r.customerId),
-        description: `Return of Advance Deposit`,
+        description: `Advance Refund Deposit #${r.id}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.amount || 0),
@@ -114,158 +118,151 @@ export default function MobileRefunds() {
       })
     })
 
-    logs.sort((a, b) => new Date(b.date) - new Date(a.date))
+    // Filter & Sort
     return logs
-  }, [refundStats, customers])
+      .filter(l => {
+        if (filterType !== 'all' && l.type !== filterType) return false
+        if (filterMethod !== 'all' && l.method !== filterMethod) return false
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim()
+          return l.customerName.toLowerCase().includes(q) ||
+                 l.description.toLowerCase().includes(q) ||
+                 l.notes.toLowerCase().includes(q)
+        }
+        return true
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [refundStats, serverCustomers, filterType, filterMethod, searchQuery])
 
-  // Filtered Logs
-  const filteredLogs = useMemo(() => {
-    return refundLogs.filter(log => {
-      if (filterType !== 'all' && log.type !== filterType) return false
-      if (filterMethod !== 'all' && log.method !== filterMethod && log.method !== 'split') return false
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim()
-        return log.customerName.toLowerCase().includes(q) ||
-          log.description.toLowerCase().includes(q) ||
-          log.notes.toLowerCase().includes(q) ||
-          String(log.customerId).toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [refundLogs, filterType, filterMethod, searchQuery])
+  const isLoading = isLoadingPayments || isLoadingCustomers
 
   return (
-    <MobileLayout title="Refund Audit Logs" onSwitchToDesktop={() => navigate('/refunds')}>
-      {/* 3 Horizontally Scrollable Stat Cards */}
-      <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
-        <div className="mobile-card mobile-card-glow" style={{ minWidth: '200px', flex: '0 0 auto', borderColor: 'var(--error)' }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL REFUND OUTFLOW</div>
-          <div className="currency-num" style={{ fontSize: '1.4rem', color: 'var(--error)', marginTop: '4px', textShadow: '0 0 8px rgba(255, 56, 96, 0.4)' }}>
+    <MobileLayout title="Refunds & Returns" onSwitchToDesktop={() => navigate('/refunds')}>
+      {/* Overview Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+        <div className="mobile-stat-card">
+          <div className="mobile-stat-label">TOTAL REVERSED</div>
+          <div className="mobile-stat-value currency-num" style={{ color: 'var(--error)' }}>
             ₹{refundStats.grandTotal.toLocaleString('en-IN')}
           </div>
-        </div>
-
-        <div className="mobile-card" style={{ minWidth: '180px', flex: '0 0 auto', borderColor: 'var(--accent-primary)' }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>CASH REFUNDS</div>
-          <div className="currency-num" style={{ fontSize: '1.4rem', color: 'var(--accent-primary)', marginTop: '4px' }}>
-            ₹{refundStats.grandCash.toLocaleString('en-IN')}
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+            {refundLogs.length} Reversal Records
           </div>
         </div>
 
-        <div className="mobile-card" style={{ minWidth: '180px', flex: '0 0 auto', borderColor: 'var(--accent-secondary)' }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>UPI REFUNDS</div>
-          <div className="currency-num" style={{ fontSize: '1.4rem', color: 'var(--accent-secondary)', marginTop: '4px' }}>
-            ₹{refundStats.grandUpi.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
-
-      {/* 3 Category Cards Stacked Vertically */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-        <div className="mobile-card" style={{ padding: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>Bill Edit Refunds</span>
-            <span className="currency-num" style={{ fontSize: '1rem', color: 'var(--error)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</span>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Cash: ₹{refundStats.billRefundsCash.toFixed(2)} | UPI: ₹{refundStats.billRefundsUpi.toFixed(2)} • {refundStats.billRefundsList.length} Event(s)
-          </div>
-        </div>
-
-        <div className="mobile-card" style={{ padding: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>Payment Deletions</span>
-            <span className="currency-num" style={{ fontSize: '1rem', color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</span>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Cash: ₹{refundStats.delPaymentsCash.toFixed(2)} | UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)} • {refundStats.delPaymentsList.length} Event(s)
-          </div>
-        </div>
-
-        <div className="mobile-card" style={{ padding: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>Advance Returns</span>
-            <span className="currency-num" style={{ fontSize: '1rem', color: 'var(--error)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</span>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Cash: ₹{refundStats.advReturnsCash.toFixed(2)} | UPI: ₹{refundStats.advReturnsUpi.toFixed(2)} • {refundStats.advReturnsList.length} Event(s)
+        <div className="mobile-stat-card">
+          <div className="mobile-stat-label">CASH / UPI SPLIT</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Cash: <strong className="currency-num" style={{ color: 'var(--text-primary)' }}>₹{refundStats.grandCash.toLocaleString('en-IN')}</strong>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              UPI: <strong className="currency-num" style={{ color: 'var(--accent-secondary)' }}>₹{refundStats.grandUpi.toLocaleString('en-IN')}</strong>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Search Bar + Filter Icon */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+      {/* Search & Filters */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
         <div style={{ position: 'relative', flex: 1 }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '15px', color: 'var(--accent-secondary)' }} />
           <input
             type="text"
             className="mobile-input"
             style={{ paddingLeft: '42px' }}
-            placeholder="Search customer, ID, notes..."
+            placeholder="Search refunds by client, note..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
         <button
-          className="mobile-icon-btn"
+          className={`mobile-btn ${filterType !== 'all' || filterMethod !== 'all' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
           onClick={() => setShowFilterModal(true)}
-          style={{ borderColor: filterType !== 'all' || filterMethod !== 'all' ? 'var(--accent-primary)' : 'var(--border)', minWidth: '46px' }}
+          style={{ width: 'auto', padding: '0 14px', minHeight: '48px' }}
+          title="Filter Refunds"
         >
-          <SlidersHorizontal size={20} />
+          <SlidersHorizontal size={18} />
         </button>
       </div>
 
-      {/* Refund Logs Cards Stack */}
-      {filteredLogs.length === 0 ? (
+      {/* Category Pills */}
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '14px' }}>
+        {[
+          { id: 'all', label: 'All' },
+          { id: 'Bill Refund', label: `Invoices (${refundStats.billRefundsList.length})` },
+          { id: 'Payment Deletion', label: `Deleted (${refundStats.delPaymentsList.length})` },
+          { id: 'Advance Return', label: `Advances (${refundStats.advReturnsList.length})` },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setFilterType(t.id)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              border: filterType === t.id ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+              background: filterType === t.id ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-card)',
+              color: filterType === t.id ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer'
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Reversals List */}
+      {isLoading ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-          <ArrowLeftRight size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '12px' }} />
-          <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Refund Records Match Filters</h4>
-          <p style={{ margin: 0, fontSize: '0.85rem' }}>Try clearing your search query or adjusting filter settings.</p>
+          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '0.85rem' }}>Loading refunds...</div>
+        </div>
+      ) : refundLogs.length === 0 ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+          <ArrowLeftRight size={36} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '10px' }} />
+          <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Refund Records Found</h4>
+          <p style={{ margin: 0, fontSize: '0.85rem' }}>No payment reversals match criteria.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredLogs.map(log => (
-            <div key={log.id} className="mobile-card">
+          {refundLogs.map(item => (
+            <div key={item.id} className="mobile-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                 <div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {log.customerName} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.customerId})</span>
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {log.description} • {log.date}
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.customerName}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {item.date} • {item.description}
                   </div>
                 </div>
-                <div className="currency-num" style={{ fontSize: '1.15rem', color: 'var(--error)' }}>
-                  -₹{log.total.toFixed(2)}
+                <div style={{ textAlign: 'right' }}>
+                  <div className="currency-num" style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--error)' }}>
+                    -₹{item.total.toLocaleString('en-IN')}
+                  </div>
+                  <span className="mobile-badge mobile-badge-danger" style={{ fontSize: '0.65rem', marginTop: '2px' }}>
+                    {item.type.toUpperCase()}
+                  </span>
                 </div>
               </div>
 
-              {log.notes && (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', fontStyle: 'italic' }}>
-                  "{log.notes}"
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                <span className="mobile-badge mobile-badge-error" style={{ fontSize: '0.68rem' }}>
-                  {log.type.toUpperCase()}
-                </span>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Cash: ₹{log.cash.toFixed(2)} | UPI: ₹{log.upi.toFixed(2)}
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                <span>Method: <strong>{item.method.toUpperCase()}</strong></span>
+                <span>{item.notes ? `Note: ${item.notes}` : 'System Logged'}</span>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Filter Bottom Sheet Drawer */}
-      <BottomSheet isOpen={showFilterModal} onClose={() => setShowFilterModal(false)} title="Filter Refund Audit Logs">
+      {/* Filter Bottom Sheet */}
+      <BottomSheet isOpen={showFilterModal} onClose={() => setShowFilterModal(false)} title="Filter Reversals">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>REFUND CATEGORY TYPE</label>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>REVERSAL CATEGORY</label>
             <select className="mobile-input" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="all">All Refund Categories</option>
+              <option value="all">All Categories</option>
               <option value="Bill Refund">Bill Refunds</option>
               <option value="Payment Deletion">Payment Deletions</option>
               <option value="Advance Return">Advance Returns</option>
@@ -276,12 +273,12 @@ export default function MobileRefunds() {
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>PAYMENT METHOD</label>
             <select className="mobile-input" value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
               <option value="all">All Methods</option>
-              <option value="cash">Cash Refunds</option>
-              <option value="upi">UPI Refunds</option>
+              <option value="cash">Cash Only</option>
+              <option value="upi">UPI Only</option>
             </select>
           </div>
 
-          <button className="mobile-btn mobile-btn-primary" onClick={() => setShowFilterModal(false)}>
+          <button className="mobile-btn mobile-btn-primary" onClick={() => setShowFilterModal(false)} style={{ marginTop: '8px' }}>
             Apply Filters
           </button>
         </div>
