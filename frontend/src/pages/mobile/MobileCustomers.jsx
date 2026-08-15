@@ -1,27 +1,58 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { Users, Search, Plus, Phone, Mail, FileText, ChevronRight, UserCheck } from 'lucide-react'
+import { Users, Search, Plus, Phone, Mail, ChevronRight, Edit3, Trash2, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileCustomers() {
   const navigate = useNavigate()
-  const { customers, addCustomer, showToast } = useAppContext()
+  const { showToast } = useAppContext()
+
+  // TanStack Query & Mutations (reusing the desktop hooks)
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers, isError, error } = useCustomers()
+  const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating, isDeleting } = useCustomerMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [customerTypeFilter, setCustomerTypeFilter] = useState('all') // 'all' | 'regular' | 'random'
-  const [showAddModal, setShowAddModal] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [editingId, setEditingId] = useState(null)
 
   // Form State
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [type, setType] = useState('regular')
+  const [creditLimit, setCreditLimit] = useState('')
+
+  const openAddModal = () => {
+    setEditMode(false)
+    setEditingId(null)
+    setName('')
+    setPhone('')
+    setEmail('')
+    setType('regular')
+    setCreditLimit('')
+    setShowModal(true)
+  }
+
+  const openEditModal = (c, e) => {
+    e.stopPropagation()
+    setEditMode(true)
+    setEditingId(c.id)
+    setName(c.name || '')
+    setPhone(c.phone || '')
+    setEmail(c.email || '')
+    setType(c.type || 'regular')
+    setCreditLimit(c.creditLimit || c.credit_limit || '')
+    setShowModal(true)
+  }
 
   const filteredCustomers = useMemo(() => {
-    return (customers || []).filter(c => {
+    return (serverCustomers || []).filter(c => {
       if (c.deleted) return false
       if (customerTypeFilter !== 'all' && c.type !== customerTypeFilter) return false
       if (searchTerm.trim()) {
@@ -30,9 +61,9 @@ export default function MobileCustomers() {
       }
       return true
     })
-  }, [customers, customerTypeFilter, searchTerm])
+  }, [serverCustomers, customerTypeFilter, searchTerm])
 
-  const handleAddSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name.trim()) {
       showToast('Please enter customer name', 'error')
@@ -40,27 +71,44 @@ export default function MobileCustomers() {
     }
 
     try {
-      const payload = {
-        id: `cust-${Date.now()}`,
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        type,
-        creditBalance: 0,
-        createdAt: new Date().toISOString()
+      if (editMode && editingId) {
+        await updateCustomer({
+          id: editingId,
+          data: {
+            name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim(),
+            type,
+            credit_limit: creditLimit ? Number(creditLimit) : 0,
+          }
+        })
+        showToast(`Customer '${name.trim()}' updated successfully!`, 'success')
+      } else {
+        await createCustomer({
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          type,
+          credit_limit: creditLimit ? Number(creditLimit) : 0,
+        })
+        showToast(`Customer '${name.trim()}' added successfully!`, 'success')
       }
 
-      if (addCustomer) {
-        await addCustomer(payload)
-      }
-
-      showToast(`Customer '${payload.name}' added successfully!`, 'success')
-      setName('')
-      setPhone('')
-      setEmail('')
-      setShowAddModal(false)
+      setShowModal(false)
     } catch (err) {
-      showToast('Failed to add customer', 'error')
+      showToast(err.message || 'Failed to save customer', 'error')
+    }
+  }
+
+  const handleDelete = async (c, e) => {
+    e.stopPropagation()
+    if (window.confirm(`Are you sure you want to delete customer '${c.name}'?`)) {
+      try {
+        await deleteCustomer(c.id)
+        showToast(`Customer '${c.name}' deleted`, 'success')
+      } catch (err) {
+        showToast(err.message || 'Failed to delete customer', 'error')
+      }
     }
   }
 
@@ -71,7 +119,12 @@ export default function MobileCustomers() {
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CLIENT DIRECTORY</span>
           <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>CUSTOMERS</h2>
         </div>
-        <button className="mobile-btn mobile-btn-primary" onClick={() => setShowAddModal(true)} style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}>
+        <button
+          className="mobile-btn mobile-btn-primary"
+          onClick={openAddModal}
+          disabled={isCreating}
+          style={{ width: 'auto', padding: '0 14px', fontSize: '0.8rem', minHeight: '38px' }}
+        >
           <Plus size={16} /> + New Client
         </button>
       </div>
@@ -116,7 +169,18 @@ export default function MobileCustomers() {
       </div>
 
       {/* Customer Cards List */}
-      {filteredCustomers.length === 0 ? (
+      {isLoadingCustomers ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '0.85rem' }}>Loading customers from cloud...</div>
+        </div>
+      ) : isError ? (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '24px 16px', borderColor: 'var(--error)' }}>
+          <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--error)' }}>Failed to load customers</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{error?.message || 'Network error'}</div>
+        </div>
+      ) : filteredCustomers.length === 0 ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
           <Users size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '12px' }} />
           <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Customers Match Filter</h4>
@@ -124,36 +188,60 @@ export default function MobileCustomers() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredCustomers.map(c => (
-            <div key={c.id} className="mobile-card" onClick={() => navigate(`/mobile/customer-ledger?customerId=${c.id}`)} style={{ cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                <div>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{c.name}</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Phone: {c.phone || 'N/A'} {c.email ? `• ${c.email}` : ''}
+          {filteredCustomers.map(c => {
+            const creditBal = Number(c.creditBalance || c.credit_balance || 0)
+            return (
+              <div
+                key={c.id}
+                className="mobile-card"
+                onClick={() => navigate(`/mobile/customer-ledger?customerId=${c.id}`)}
+                style={{ cursor: 'pointer', position: 'relative' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{c.name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Phone: {c.phone || 'N/A'} {c.email ? `• ${c.email}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`}>
+                      {(c.type || 'REGULAR').toUpperCase()}
+                    </span>
+                    <button
+                      onClick={(e) => openEditModal(c, e)}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
+                      title="Edit Customer"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => handleDelete(c, e)}
+                      style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }}
+                      title="Delete Customer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
-                <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`}>
-                  {c.type.toUpperCase()}
-                </span>
-              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                  Credit Balance: <strong className="currency-num" style={{ color: Number(c.creditBalance || 0) > 0 ? 'var(--success)' : 'var(--text-muted)' }}>₹{Number(c.creditBalance || 0).toFixed(2)}</strong>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
-                  Ledger <ChevronRight size={14} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    Credit Balance: <strong className="currency-num" style={{ color: creditBal > 0 ? 'var(--success)' : 'var(--text-muted)' }}>₹{creditBal.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
+                    Ledger <ChevronRight size={14} />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* Add Customer Bottom Sheet */}
-      <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add New Customer">
-        <form onSubmit={handleAddSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Add / Edit Customer Bottom Sheet */}
+      <BottomSheet isOpen={showModal} onClose={() => setShowModal(false)} title={editMode ? 'Edit Customer Record' : 'Add New Customer'}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CLIENT TYPE</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -177,8 +265,26 @@ export default function MobileCustomers() {
             <input type="email" className="mobile-input" placeholder="client@neoakira.io" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }}>
-            Save Customer Record
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CREDIT LIMIT (₹)</label>
+            <input type="number" className="mobile-input" placeholder="0.00" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} />
+          </div>
+
+          <button
+            type="submit"
+            className="mobile-btn mobile-btn-primary"
+            disabled={isCreating || isUpdating}
+            style={{ marginTop: '8px' }}
+          >
+            {isCreating || isUpdating ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                <Loader2 size={16} className="spin" /> Saving...
+              </span>
+            ) : editMode ? (
+              'Save Changes'
+            ) : (
+              'Save Customer Record'
+            )}
           </button>
         </form>
       </BottomSheet>
