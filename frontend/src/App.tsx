@@ -16,7 +16,6 @@ import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
 import CustomerLedger from './pages/CustomerLedger'
-import RecurringBills from './pages/RecurringBills'
 import Analytics from './pages/Analytics'
 import ItemSalesReport from './pages/ItemSalesReport'
 import AdvancePayments from './pages/AdvancePayments'
@@ -154,7 +153,6 @@ function App() {
               <Route path="/item-sales-report" element={<ItemSalesReport />} />
               <Route path="/customer-ledger" element={<CustomerLedger />} />
               <Route path="/customer-bills" element={<CustomerBills />} />
-              <Route path="/recurring-bills" element={<RecurringBills />} />
               <Route path="/advance-payments" element={<AdvancePayments />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/group-billing" element={<GroupBilling />} />

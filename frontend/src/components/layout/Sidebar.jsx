@@ -17,7 +17,6 @@ const navItems = [
   { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
   { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },
   { label: 'Customer Bills',   path: '/customer-bills',    icon: FileText,     permKey: 'customers' },
-  { label: 'Recurring Bills',  path: '/recurring-bills',   icon: RefreshCw,    permKey: 'recurringBills' },
   { label: 'Receipt',          path: '/receipt',           icon: Receipt,      permKey: 'receipt' },
   { label: 'Search',           path: '/search',            icon: SearchIcon,   permKey: 'search' },
   { label: 'Notifications',    path: '/notifications',     icon: Bell,         permKey: undefined },

@@ -398,7 +398,7 @@ const CustomerLedger = () => {
     
     const pdfUrlLine = pdfUrl ? `*Download Ledger PDF:* ${pdfUrl}%0A` : ''
 
-    const text = `*Ledger Statement for ${selectedCustomer.name} (${selectedCustomer.id})*%0A` +
+    const text = `*Ledger Statement for ${selectedCustomer.name} (${selectedCustomer.customerCode || selectedCustomer.id})*%0A` +
       `*Generated on:* ${dateStr}%0A` +
       `------------------------%0A` +
       `*Total Billed (Debits):* ₹${totalDebits.toFixed(2)}%0A` +
