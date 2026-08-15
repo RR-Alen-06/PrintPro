@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
+import { useCustomers } from '../../hooks/useCustomersQuery'
+import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { jsPDF } from 'jspdf'
@@ -8,7 +11,7 @@ import html2canvas from 'html2canvas'
 import {
   FileText, Download, CreditCard, QrCode, ArrowLeft, CheckCircle2,
   Clock, AlertTriangle, Phone, Mail, User, ShieldCheck, Share2, Wallet, DollarSign,
-  Pencil, Tag, RotateCcw, Percent, Check
+  Pencil, Tag, RotateCcw, Percent, Check, Loader2
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -16,28 +19,34 @@ export default function MobileBillDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const {
-    bills, customers, payments, recordPayment, business, settings,
-    showToast, applyPostDiscount, createCreditNote
+    business, settings, showToast, applyPostDiscount, createCreditNote, recordPayment: contextRecordPayment
   } = useAppContext()
+
+  // TanStack Queries & Mutations
+  const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverPayments = [], isLoading: isLoadingPayments } = usePayments()
+  const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
+  const { createPayment, isCreatingPayment } = usePaymentMutations()
 
   const invoiceRef = useRef(null)
 
   // Find target bill
   const bill = useMemo(() => {
-    return (bills || []).find(b => String(b.id) === String(id) || String(b.invoiceNumber) === String(id))
-  }, [bills, id])
+    return (serverBills || []).find(b => String(b.id) === String(id) || String(b.invoiceNumber || b.invoice_number) === String(id))
+  }, [serverBills, id])
 
   // Customer info
   const customer = useMemo(() => {
     if (!bill) return null
-    return (customers || []).find(c => String(c.id) === String(bill.customerId))
-  }, [customers, bill])
+    return (serverCustomers || []).find(c => String(c.id) === String(bill.customerId || bill.customer_id))
+  }, [serverCustomers, bill])
 
   // Related payments for this bill
   const billPayments = useMemo(() => {
     if (!bill) return []
-    return (payments || []).filter(p => String(p.billId) === String(bill.id))
-  }, [payments, bill])
+    return (serverPayments || []).filter(p => String(p.billId || p.bill_id) === String(bill.id))
+  }, [serverPayments, bill])
 
   // Payment Bottom Sheet state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -60,6 +69,17 @@ export default function MobileBillDetail() {
 
   // PDF Exporting state
   const [isExportingPdf, setIsExportingPdf] = useState(false)
+
+  if (isLoadingBills) {
+    return (
+      <MobileLayout title="Loading Invoice..." onSwitchToDesktop={() => navigate('/billing')}>
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '40px 16px', marginTop: '20px' }}>
+          <Loader2 size={36} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 12px auto' }} />
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Loading invoice details from cloud...</p>
+        </div>
+      </MobileLayout>
+    )
+  }
 
   if (!bill) {
     return (
@@ -119,7 +139,7 @@ export default function MobileBillDetail() {
         heightLeft -= pageHeight
       }
 
-      pdf.save(`Invoice_${bill.invoiceNumber || bill.id}.pdf`)
+      pdf.save(`Invoice_${bill.invoiceNumber || bill.invoice_number || bill.id}.pdf`)
       showToast('PDF Export Downloaded Successfully!', 'success')
     } catch (err) {
       console.error('PDF export error', err)
@@ -130,7 +150,7 @@ export default function MobileBillDetail() {
     }
   }
 
-  // Record Payment Submission
+  // Record Payment Submission via TanStack Mutation
   const handleRecordPaymentSubmit = async (e) => {
     e.preventDefault()
     const cash = Number(payCashAmount || 0)
@@ -148,18 +168,27 @@ export default function MobileBillDetail() {
     }
 
     try {
-      const payObj = {
-        id: `PAY-${Date.now()}`,
-        billId: bill.id,
+      await createPayment({
+        bill_id: bill.id,
+        customer_id: bill.customerId || bill.customer_id,
         date: new Date().toISOString().slice(0, 10),
-        cashAmount: cash,
-        upiAmount: upi,
-        totalPaid: totalNewPaid,
+        cash_amount: cash,
+        upi_amount: upi,
+        total_paid: totalNewPaid,
+        payment_type: totalNewPaid >= balanceDue ? 'full' : 'partial',
         notes: payNotes || 'Mobile Terminal Payment Record'
-      }
+      })
 
-      if (recordPayment) {
-        await recordPayment(payObj)
+      if (contextRecordPayment) {
+        contextRecordPayment({
+          id: `PAY-${Date.now()}`,
+          billId: bill.id,
+          date: new Date().toISOString().slice(0, 10),
+          cashAmount: cash,
+          upiAmount: upi,
+          totalPaid: totalNewPaid,
+          notes: payNotes || 'Mobile Terminal Payment Record'
+        })
       }
 
       showToast(`Recorded ₹${totalNewPaid.toFixed(2)} payment successfully!`, 'success')
@@ -168,7 +197,7 @@ export default function MobileBillDetail() {
       setPayNotes('')
       setShowPaymentModal(false)
     } catch (err) {
-      showToast('Failed to record payment', 'error')
+      showToast(err.message || 'Failed to record payment', 'error')
     }
   }
 
@@ -184,11 +213,25 @@ export default function MobileBillDetail() {
     try {
       if (applyPostDiscount) {
         await applyPostDiscount(bill.id, postDiscountType, val)
+      } else {
+        const discountAmt = postDiscountType === 'percent' ? (Number(bill.subtotal || bill.total || 0) * val) / 100 : val
+        const newTotal = Math.max(0, Number(bill.subtotal || bill.total || 0) - discountAmt)
+        const newBal = Math.max(0, newTotal - Number(bill.amountPaid || bill.amount_paid || 0))
+        await updateBillMutation({
+          id: bill.id,
+          data: {
+            discount_type: postDiscountType,
+            discount_value: val,
+            total: newTotal,
+            balance: newBal,
+            status: newBal <= 0 ? 'paid' : (newTotal > newBal ? 'partial' : 'unpaid')
+          }
+        })
       }
       showToast(`Applied post-bill discount successfully!`, 'success')
       setShowPostDiscountModal(false)
     } catch (err) {
-      showToast('Failed to apply discount', 'error')
+      showToast(err.message || 'Failed to apply discount', 'error')
     }
   }
 
@@ -199,7 +242,7 @@ export default function MobileBillDetail() {
     Object.entries(returnQtys).forEach(([itemId, qty]) => {
       const q = Number(qty)
       if (q > 0) {
-        const itemObj = bill.items.find(i => i.id === itemId || i.itemId === itemId)
+        const itemObj = (bill.items || []).find(i => String(i.id) === String(itemId) || String(i.itemId) === String(itemId))
         if (itemObj) {
           returnedItems.push({ ...itemObj, returnQty: q })
         }
@@ -218,7 +261,7 @@ export default function MobileBillDetail() {
       showToast('Credit Note created and inventory restocked!', 'success')
       setShowReturnModal(false)
     } catch (err) {
-      showToast('Failed to create credit note', 'error')
+      showToast(err.message || 'Failed to create credit note', 'error')
     }
   }
 
@@ -231,11 +274,11 @@ export default function MobileBillDetail() {
   // Generate UPI URI
   const upiId = business?.upiId || 'merchant@upi'
   const shopName = business?.shopName || 'PrintPro'
-  const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${balanceDue.toFixed(2)}&cu=INR&tn=Invoice%20${encodeURIComponent(bill.invoiceNumber || bill.id)}`
+  const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${balanceDue.toFixed(2)}&cu=INR&tn=Invoice%20${encodeURIComponent(bill.invoiceNumber || bill.invoice_number || bill.id)}`
 
   return (
     <MobileLayout
-      title={`Bill #${bill.invoiceNumber || bill.id}`}
+      title={`Bill #${bill.invoiceNumber || bill.invoice_number || bill.id}`}
       onSwitchToDesktop={() => navigate('/billing')}
     >
       {/* Target printable element for PDF generation */}
@@ -248,7 +291,7 @@ export default function MobileBillDetail() {
                 INVOICE TERMINAL RECORD
               </span>
               <h2 style={{ fontSize: '1.4rem', fontWeight: 900, margin: '2px 0 0 0', color: 'var(--text-primary)', fontFamily: 'JetBrains Mono' }}>
-                #{bill.invoiceNumber || bill.id}
+                #{bill.invoiceNumber || bill.invoice_number || bill.id}
               </h2>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                 Created: {bill.date} • Due: {bill.dueDate || 'On Receipt'}
@@ -257,7 +300,7 @@ export default function MobileBillDetail() {
 
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
               <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
-                {bill.status.toUpperCase()}
+                {(bill.status || 'unpaid').toUpperCase()}
               </span>
               <button
                 className="mobile-btn mobile-btn-secondary"
@@ -297,7 +340,7 @@ export default function MobileBillDetail() {
             </div>
             <div>
               <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {bill.customerName || customer?.name || 'Walk-in Customer'}
+                {bill.customerName || bill.customer_name || customer?.name || 'Walk-in Customer'}
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 Phone: {bill.customerPhone || customer?.phone || 'N/A'}
@@ -330,30 +373,30 @@ export default function MobileBillDetail() {
               key={idx}
               style={{
                 padding: '10px 0',
-                borderBottom: idx < bill.items.length - 1 ? '1px solid var(--border)' : 'none',
+                borderBottom: idx < (bill.items || []).length - 1 ? '1px solid var(--border)' : 'none',
                 display: 'flex',
-                justify: 'space-between',
+                justifyContent: 'space-between',
                 alignItems: 'center'
               }}
             >
               <div>
                 <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {item.itemName || item.description || 'Print Item'}
+                  {item.itemName || item.name || item.item_name || item.description || 'Print Item'}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
                   <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                    {(item.printType || 'Color').toUpperCase()}
+                    {(item.printType || item.print_type || 'Color').toUpperCase()}
                   </span>
                   <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
                     {(item.sides || 'Single').toUpperCase()}
                   </span>
-                  {Number(item.gstRate || 0) > 0 && (
+                  {Number(item.gstRate || item.gst_percent || 0) > 0 && (
                     <span className="mobile-badge" style={{ fontSize: '0.65rem', background: 'rgba(168, 85, 247, 0.2)', color: 'var(--accent-tertiary)' }}>
-                      GST {item.gstRate}%
+                      GST {item.gstRate || item.gst_percent}%
                     </span>
                   )}
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
-                    Qty: {item.qty || 1} × ₹{Number(item.unitPrice || 0).toFixed(2)}
+                    Qty: {item.qty || 1} × ₹{Number(item.unitPrice || item.unit_price || 0).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -381,13 +424,13 @@ export default function MobileBillDetail() {
                   (+ Edit Discount)
                 </button>
               </div>
-              <span className="currency-num">-₹{Number(bill.discount || 0).toFixed(2)}</span>
+              <span className="currency-num">-₹{Number(bill.discountValue || bill.discount_value || bill.discount || 0).toFixed(2)}</span>
             </div>
 
-            {Number(bill.gstAmount || 0) > 0 && (
+            {Number(bill.gstAmount || bill.gst_amount || 0) > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)' }}>
                 <span>GST Tax</span>
-                <span className="currency-num">+₹{Number(bill.gstAmount).toFixed(2)}</span>
+                <span className="currency-num">+₹{Number(bill.gstAmount || bill.gst_amount).toFixed(2)}</span>
               </div>
             )}
 
@@ -414,7 +457,7 @@ export default function MobileBillDetail() {
                 key={p.id || pIdx}
                 style={{
                   display: 'flex',
-                  justify: 'space-between',
+                  justifyContent: 'space-between',
                   alignItems: 'center',
                   padding: '8px 0',
                   borderBottom: pIdx < billPayments.length - 1 ? '1px solid var(--border)' : 'none'
@@ -425,11 +468,11 @@ export default function MobileBillDetail() {
                     {p.notes || 'Payment Received'}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    Date: {p.date} • Cash: ₹{Number(p.cashAmount || 0).toFixed(2)} | UPI: ₹{Number(p.upiAmount || 0).toFixed(2)}
+                    Date: {p.date} • Cash: ₹{Number(p.cashAmount || p.cash_amount || 0).toFixed(2)} | UPI: ₹{Number(p.upiAmount || p.upi_amount || 0).toFixed(2)}
                   </div>
                 </div>
                 <div className="currency-num" style={{ fontSize: '0.95rem', color: 'var(--success)' }}>
-                  +₹{Number(p.totalPaid || 0).toFixed(2)}
+                  +₹{Number(p.totalPaid || p.total_paid || 0).toFixed(2)}
                 </div>
               </div>
             ))
@@ -488,7 +531,7 @@ export default function MobileBillDetail() {
       <BottomSheet
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
-        title={`Record Payment — Bill #${bill.invoiceNumber || bill.id}`}
+        title={`Record Payment — Bill #${bill.invoiceNumber || bill.invoice_number || bill.id}`}
       >
         <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ padding: '10px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -548,8 +591,8 @@ export default function MobileBillDetail() {
             />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }}>
-            Confirm & Save Payment Record
+          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }} disabled={isCreatingPayment}>
+            {isCreatingPayment ? 'Saving Payment...' : 'Confirm & Save Payment Record'}
           </button>
         </form>
       </BottomSheet>
@@ -600,8 +643,8 @@ export default function MobileBillDetail() {
             />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary">
-            Apply Discount to Invoice
+          <button type="submit" className="mobile-btn mobile-btn-primary" disabled={isUpdatingBill}>
+            {isUpdatingBill ? 'Applying...' : 'Apply Discount to Invoice'}
           </button>
         </form>
       </BottomSheet>
@@ -620,7 +663,7 @@ export default function MobileBillDetail() {
           {(bill.items || []).map(item => (
             <div key={item.id || item.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
               <div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>{item.itemName}</div>
+                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>{item.itemName || item.name}</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ordered Qty: {item.qty}</div>
               </div>
               <input
