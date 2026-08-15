@@ -369,7 +369,9 @@ const Accounting = () => {
   }
 
   const sortedExpenses = useMemo(() => {
-    return [...(expenses || [])].sort((a, b) => new Date(b.date) - new Date(a.date))
+    return [...(expenses || [])].sort((a, b) => 
+      String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true })
+    )
   }, [expenses])
 
   const [isSyncing, setIsSyncing] = useState(false)
