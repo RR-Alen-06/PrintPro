@@ -35,12 +35,15 @@
   --border-glass-bright: rgba(255, 255, 255, 0.15);
   --border-aurora-cyan: rgba(0, 240, 255, 0.35);
   --border-aurora-magenta: rgba(255, 47, 176, 0.35);
+  --border-aurora-green: rgba(0, 255, 171, 0.35);
+  --border-aurora-amber: rgba(255, 184, 0, 0.35);
 
   /* Luminous Glows */
   --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.25);
   --glow-magenta: 0 0 20px rgba(255, 47, 176, 0.25);
   --glow-indigo: 0 0 30px rgba(112, 0, 255, 0.3);
   --glow-green: 0 0 15px rgba(0, 255, 171, 0.3);
+  --glow-amber: 0 0 15px rgba(255, 184, 0, 0.3);
 
   /* Blur Depth */
   --blur-panel: 24px;
@@ -83,6 +86,116 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), var(--glow-cyan);
 }
 
+/* ---------- KPI Glow Cards ---------- */
+.aurora-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.aurora-kpi-card {
+  background: var(--bg-card-glass);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 20px 18px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s ease;
+}
+
+.aurora-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+.aurora-kpi-card.cyan {
+  border-color: var(--border-aurora-cyan);
+}
+.aurora-kpi-card.cyan:hover {
+  box-shadow: var(--glow-cyan);
+}
+
+.aurora-kpi-card.green {
+  border-color: var(--border-aurora-green);
+}
+.aurora-kpi-card.green:hover {
+  box-shadow: var(--glow-green);
+}
+
+.aurora-kpi-card.magenta {
+  border-color: var(--border-aurora-magenta);
+}
+.aurora-kpi-card.magenta:hover {
+  box-shadow: var(--glow-magenta);
+}
+
+.aurora-kpi-card.amber {
+  border-color: var(--border-aurora-amber);
+}
+.aurora-kpi-card.amber:hover {
+  box-shadow: var(--glow-amber);
+}
+
+.aurora-kpi-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.aurora-kpi-val {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.aurora-kpi-sub {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* ---------- POS & Billing Layout ---------- */
+.aurora-pos-container {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .aurora-pos-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.aurora-total-banner {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.12) 0%, rgba(112, 0, 255, 0.15) 100%);
+  border: 1px solid var(--aurora-cyan);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--glow-cyan);
+  margin-bottom: 16px;
+}
+
+.aurora-total-banner-val {
+  font-size: 2.2rem;
+  font-weight: 900;
+  font-family: var(--font-mono);
+  color: var(--aurora-cyan);
+  text-shadow: 0 0 16px rgba(0, 240, 255, 0.5);
+  line-height: 1.1;
+}
+
 /* ---------- Sync Status Indicators ---------- */
 .aurora-sync-pill {
   display: inline-flex;
@@ -90,11 +203,12 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .aurora-sync-pill-synced {

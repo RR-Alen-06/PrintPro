@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Search, Bell, PlusSquare, LogOut, User, Menu } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useNavigate } from 'react-router-dom'
+import SyncStatusPill from '../common/SyncStatusPill'
 
 const Header = ({ onMenuClick }) => {
   const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } = useAppContext()
@@ -22,16 +23,19 @@ const Header = ({ onMenuClick }) => {
   }
 
   return (
-    <header className="header">
+    <header className="header" style={{ backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', background: 'rgba(9, 4, 23, 0.82)', borderBottom: '1px solid var(--border-glass, rgba(255, 255, 255, 0.08))' }}>
       <div className="header-left">
         <button className="header-menu-btn" type="button" aria-label="Toggle menu" onClick={onMenuClick}>
           <Menu size={18} />
         </button>
-        <div className="header-title">PrintPro Business Manager</div>
+        <div className="header-title" style={{ fontWeight: 800, letterSpacing: '-0.01em', background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          PrintPro Business Manager
+        </div>
       </div>
-      <div className="header-right">
-        <form className="header-search" onSubmit={handleSearch} autoComplete="off" style={{ display: 'flex', alignItems: 'center' }}>
-          <Search size={16} style={{ flexShrink: 0 }} />
+      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        <SyncStatusPill />
+        <form className="header-search" onSubmit={handleSearch} autoComplete="off" style={{ display: 'flex', alignItems: 'center', background: 'rgba(18, 10, 35, 0.7)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px' }}>
+          <Search size={16} style={{ flexShrink: 0, color: 'var(--aurora-cyan, #00f0ff)' }} />
           <input
             type="search"
             placeholder="Search bills, customers, inventory…"
