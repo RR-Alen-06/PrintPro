@@ -151,7 +151,9 @@ const Inventory = () => {
     }
   }
 
-  const visibleInventory = inventory.filter((item) => !deletedIds.has(item.id))
+  const visibleInventory = inventory
+    .filter((item) => !deletedIds.has(item.id))
+    .sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
 
   return (
     <div>
