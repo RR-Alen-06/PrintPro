@@ -152,7 +152,7 @@ function App() {
   }
 
   return (
-    <div className="app-layout">
+    <div className="app-layout aurora-canvas">
       {isTablet && !userPref && !isMobileRoute && (
         <ViewportBanner
           onSwitchToMobile={() => {

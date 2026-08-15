@@ -1,49 +1,52 @@
+@import './styles/aurora.css';
+
 /* ============================================
-   PrintPro Design System - Premium Dark Theme
+   PrintPro Design System - Aurora UI Desktop Theme
    ============================================ */
 
 /* ---------- CSS Variables ---------- */
 :root {
   /* Backgrounds */
-  --bg-main: #06060c;
-  --bg-card: rgba(14, 14, 28, 0.75);
-  --bg-elevated: rgba(22, 22, 45, 0.75);
-  --bg-hover: rgba(32, 32, 64, 0.75);
-  --bg-input: #0b0b14;
+  --bg-main: #05010f;
+  --bg-card: rgba(18, 10, 35, 0.72);
+  --bg-elevated: rgba(24, 14, 45, 0.85);
+  --bg-hover: rgba(35, 20, 65, 0.75);
+  --bg-input: rgba(10, 5, 20, 0.85);
 
   /* Accents */
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-light: rgba(99, 102, 241, 0.15);
-  --violet: #8b5cf6;
-  --cyan: #22d3ee;
+  --accent: #00f0ff;
+  --accent-hover: #7df4ff;
+  --accent-light: rgba(0, 240, 255, 0.12);
+  --violet: #7000ff;
+  --cyan: #00f0ff;
+  --magenta: #ff2fb0;
 
   /* Text */
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
-  --text-muted: #64748b;
-  --text-inverse: #06060c;
+  --text-muted: #849495;
+  --text-inverse: #05010f;
 
   /* Status */
-  --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --error: #ef4444;
-  --error-bg: rgba(239, 68, 68, 0.12);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.12);
+  --success: #00ffab;
+  --success-bg: rgba(0, 255, 171, 0.12);
+  --warning: #ffb800;
+  --warning-bg: rgba(255, 184, 0, 0.12);
+  --error: #ff3860;
+  --error-bg: rgba(255, 56, 96, 0.12);
+  --info: #00f0ff;
+  --info-bg: rgba(0, 240, 255, 0.12);
 
   /* Borders */
-  --border: rgba(255, 255, 255, 0.05);
-  --border-light: rgba(255, 255, 255, 0.12);
-  --border-accent: rgba(99, 102, 241, 0.3);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.15);
+  --border-accent: rgba(0, 240, 255, 0.35);
 
   /* Gradients */
-  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  --gradient-accent-hover: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
-  --gradient-card: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(168, 85, 247, 0.02) 100%);
-  --gradient-sidebar: linear-gradient(180deg, #090912 0%, #05050b 100%);
+  --gradient-accent: linear-gradient(135deg, #00f0ff 0%, #7000ff 100%);
+  --gradient-accent-hover: linear-gradient(135deg, #7df4ff 0%, #a178ff 100%);
+  --gradient-card: linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(112, 0, 255, 0.04) 100%);
+  --gradient-sidebar: linear-gradient(180deg, rgba(14, 8, 28, 0.85) 0%, rgba(5, 1, 15, 0.95) 100%);
 
   /* Layout */
   --sidebar-width: 260px;
@@ -59,7 +62,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.25);
+  --shadow-glow: 0 0 24px rgba(0, 240, 255, 0.25);
 
   /* Transitions */
   --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
