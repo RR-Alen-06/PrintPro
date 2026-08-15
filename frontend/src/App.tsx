@@ -33,7 +33,6 @@ import MobileBillingList from './pages/mobile/MobileBillingList'
 import MobileBillDetail from './pages/mobile/MobileBillDetail'
 import MobileCreateBill from './pages/mobile/MobileCreateBill'
 import MobileSettings from './pages/mobile/MobileSettings'
-import MobileRecurringBills from './pages/mobile/MobileRecurringBills'
 import MobileRefunds from './pages/mobile/MobileRefunds'
 import MobileCustomers from './pages/mobile/MobileCustomers'
 import MobileCustomerLedger from './pages/mobile/MobileCustomerLedger'
@@ -100,7 +99,6 @@ function App() {
         <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
         <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
         <Route path="/mobile/settings" element={<MobileSettings />} />
-        <Route path="/mobile/recurring-bills" element={<MobileRecurringBills />} />
         <Route path="/mobile/refunds" element={<MobileRefunds />} />
         <Route path="/mobile/customers" element={<MobileCustomers />} />
         <Route path="/mobile/customer-ledger" element={<MobileCustomerLedger />} />

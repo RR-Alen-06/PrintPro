@@ -40,7 +40,6 @@ const initialState = {
       analytics: false,
       inventory: false,
       ledger: false,
-      recurringBills: false,
       receipt: true,
       search: true,
       dataManagement: false,
@@ -72,7 +71,6 @@ const initialState = {
     portalEnabled: true,
     silentThermalPrint: false,
   },
-  recurringBills: [],
   currentUser: null,
   customerGroups: [],
   groupBills: [],
@@ -518,24 +516,6 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         business: { ...state.business, ...action.payload },
-      }
-    }
-    case 'ADD_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: [...state.recurringBills, action.payload],
-      }
-    }
-    case 'UPDATE_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: state.recurringBills.map((bill) => (bill.id === action.payload.id ? { ...bill, ...action.payload.updates } : bill)),
-      }
-    }
-    case 'DELETE_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: state.recurringBills.filter((bill) => bill.id !== action.payload),
       }
     }
     case 'ADD_CUSTOMER_GROUP': {
@@ -2784,13 +2764,6 @@ export const AppProvider = ({ children }: any) => {
       clearAllNotifications: () => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS' }),
       updateSettings: (updates) => dispatch({ type: 'UPDATE_SETTINGS', payload: updates }),
       updateBusiness: (updates) => dispatch({ type: 'UPDATE_BUSINESS', payload: updates }),
-      addRecurringBill: (bill) => {
-        const recId = generateSeqId(state, 'REC')
-        dispatch({ type: 'INCREMENT_COUNTER', payload: 'REC' })
-        dispatch({ type: 'ADD_RECURRING_BILL', payload: { ...bill, id: recId } })
-      },
-      updateRecurringBill: (id, updates) => dispatch({ type: 'UPDATE_RECURRING_BILL', payload: { id, updates } }),
-      deleteRecurringBill: (id) => dispatch({ type: 'DELETE_RECURRING_BILL', payload: id }),
       logout,
       addCustomerGroup: (group) => {
         const grpId2 = generateSeqId(state, 'GRP')
