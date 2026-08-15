@@ -17,7 +17,7 @@ const Receipt = () => {
       pn: business.shopName || 'PrintPro',
       am: amount.toFixed(2),
       cu: 'INR',
-      tn: `Receipt ${selectedBill?.id || ''}`,
+      tn: `Receipt ${selectedBill?.invoiceNumber || selectedBill?.id || ''}`,
     })
     return `upi://pay?${params.toString()}`
   }
@@ -40,7 +40,7 @@ const Receipt = () => {
     const text = buildShareText(selectedBill)
     if (navigator.share) {
       try {
-        await navigator.share({ title: `Receipt ${selectedBill.id}`, text })
+        await navigator.share({ title: `Receipt ${selectedBill.invoiceNumber || selectedBill.id}`, text })
       } catch (_) {/* user cancelled */}
     } else {
       // Fallback: copy to clipboard
