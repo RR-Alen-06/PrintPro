@@ -2,29 +2,34 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Loader2 } from 'lucide-react';
+import { useMobileDetect } from '../hooks/useMobileDetect';
 
 const AuthCallback = () => {
   const navigate = useNavigate();
+  const { effectiveMode } = useMobileDetect();
 
   useEffect(() => {
+    const dashboardRoute = effectiveMode === 'mobile' ? '/mobile/dashboard' : '/dashboard';
+    const authRoute = effectiveMode === 'mobile' ? '/mobile/auth' : '/auth';
+
     // Check if user session exists and redirect
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        navigate('/dashboard', { replace: true });
+        navigate(dashboardRoute, { replace: true });
       } else {
         // Give it a moment to let the callback process
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
           if (session) {
             subscription.unsubscribe();
-            navigate('/dashboard', { replace: true });
+            navigate(dashboardRoute, { replace: true });
           }
         });
 
         // Timeout fallback to login after 5s if not authenticated
         const timer = setTimeout(() => {
           subscription.unsubscribe();
-          navigate('/auth', { replace: true });
+          navigate(authRoute, { replace: true });
         }, 5000);
 
         return () => {
@@ -35,7 +40,7 @@ const AuthCallback = () => {
     };
 
     checkSession();
-  }, [navigate]);
+  }, [navigate, effectiveMode]);
 
   return (
     <div
