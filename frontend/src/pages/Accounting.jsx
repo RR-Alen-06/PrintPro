@@ -34,7 +34,7 @@ const Accounting = () => {
     const b2cList = []
 
     activeBills.forEach(b => {
-      const cust = customers.find(c => c.id === b.customerId)
+      const cust = customers.find(c => String(c.id) === String(b.customerId))
       const gstin = cust?.gstin || ''
       
       let billTaxable = 0
@@ -105,7 +105,7 @@ const Accounting = () => {
       totalGST += billGST
 
       const record = {
-        billId: b.id,
+        billId: b.invoiceNumber || b.id,
         date: b.date,
         customerName: b.customerName,
         gstin,
@@ -274,11 +274,17 @@ const Accounting = () => {
     
     // Add bill refunds
     refundStats.billRefundsList.forEach(r => {
+      const targetBill = bills.find(b => String(b.id) === String(r.billId))
+      const targetCust = customers.find(c => String(c.id) === String(r.customerId || targetBill?.customerId))
+      const invoiceCode = r.invoiceNumber || targetBill?.invoiceNumber || r.billId || r.id
+
       logs.push({
-        id: r.id,
+        id: invoiceCode,
+        rawId: r.id,
         date: r.date,
+        customerName: r.customerName || targetCust?.name || 'Customer',
         type: 'Bill Refund',
-        description: `Refund for Bill #${r.billId}`,
+        description: `Refund for Bill #${invoiceCode}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.totalPaid || 0),
@@ -288,25 +294,36 @@ const Accounting = () => {
 
     // Add deleted payments
     refundStats.delPaymentsList.forEach(r => {
+      const targetBill = bills.find(b => String(b.id) === String(r.billId))
+      const targetCust = customers.find(c => String(c.id) === String(r.customerId || targetBill?.customerId))
+      const invoiceCode = r.invoiceNumber || targetBill?.invoiceNumber || r.billId || r.id
+
       logs.push({
-        id: r.id,
+        id: invoiceCode,
+        rawId: r.id,
         date: r.deletedAt || r.date,
+        customerName: r.customerName || targetCust?.name || 'Customer',
         type: 'Payment Deletion',
-        description: `Deleted Payment for Bill #${r.billId}`,
+        description: `Deleted Payment for Bill #${invoiceCode}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.totalPaid || 0),
-        notes: `Deleted on ${new Date(r.deletedAt).toLocaleDateString()}`,
+        notes: `Deleted on ${new Date(r.deletedAt || r.date).toLocaleDateString()}`,
       })
     })
 
     // Add advance returns
     refundStats.advReturnsList.forEach(r => {
+      const targetCust = customers.find(c => String(c.id) === String(r.customerId))
+      const custCode = targetCust?.customerCode || r.customerId
+
       logs.push({
         id: r.id,
+        rawId: r.id,
         date: r.date,
+        customerName: targetCust?.name || 'Customer',
         type: 'Advance Return',
-        description: `Returned Advance to Customer #${r.customerId}`,
+        description: `Returned Advance to Customer (${custCode})`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
         total: Math.abs(r.amount || 0),
@@ -316,7 +333,7 @@ const Accounting = () => {
 
     // Sort by date descending
     return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [refundStats])
+  }, [refundStats, bills, customers])
 
   // ── Expense form ──────────────────────────────────────────────────────────
   const handleExpenseChange = (field, value) => {

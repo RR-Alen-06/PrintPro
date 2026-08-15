@@ -226,11 +226,13 @@ const ItemSalesReport = () => {
     doc.line(12, y, W - 12, y)
     y += 8
 
+    const grandRev = salesData.grandRevenue || 0;
+
     // Summary widgets
     doc.setFontSize(11)
     doc.setFont('helvetica', 'bold')
     doc.text(`Total Quantity Sold: ${salesData.grandQty} units`, 15, y)
-    doc.text(`Total Revenue: Rs. ${salesData.grandRevenue.toFixed(2)}`, W - 15, y, { align: 'right' })
+    doc.text(`Total Revenue: Rs. ${grandRev.toFixed(2)}`, W - 15, y, { align: 'right' })
     y += 12
 
     // Top Selling Table
@@ -242,7 +244,8 @@ const ItemSalesReport = () => {
     doc.setFont('helvetica', 'bold')
     doc.text('Rank', 15, y)
     doc.text('Item Name', 30, y)
-    doc.text('Qty Sold', W - 50, y, { align: 'right' })
+    doc.text('Qty Sold', W - 65, y, { align: 'right' })
+    doc.text('Share %', W - 40, y, { align: 'right' })
     doc.text('Revenue', W - 15, y, { align: 'right' })
     y += 5
     doc.line(15, y, W - 15, y)
@@ -251,9 +254,11 @@ const ItemSalesReport = () => {
     doc.setFont('helvetica', 'normal')
     salesData.topSelling.forEach((item, idx) => {
       if (y > 270) { doc.addPage(); y = 15 }
+      const sharePct = grandRev > 0 ? ((item.revenue / grandRev) * 100).toFixed(1) : '0.0';
       doc.text(String(idx + 1), 15, y)
-      doc.text(item.name.substring(0, 35), 30, y)
-      doc.text(String(item.qty), W - 50, y, { align: 'right' })
+      doc.text(item.name.substring(0, 30), 30, y)
+      doc.text(String(item.qty), W - 65, y, { align: 'right' })
+      doc.text(`${sharePct}%`, W - 40, y, { align: 'right' })
       doc.text(`Rs. ${item.revenue.toFixed(2)}`, W - 15, y, { align: 'right' })
       y += 6
     })
@@ -269,8 +274,9 @@ const ItemSalesReport = () => {
 
     doc.setFontSize(9)
     Object.entries(salesData.printTypeRevenue).forEach(([type, rev]) => {
+      const sharePct = grandRev > 0 ? ((rev / grandRev) * 100).toFixed(1) : '0.0';
       doc.setFont('helvetica', 'normal')
-      doc.text(type, 20, y)
+      doc.text(`${type} (${sharePct}%)`, 20, y)
       doc.text(`Rs. ${rev.toFixed(2)}`, W - 15, y, { align: 'right' })
       y += 6
     })
@@ -280,9 +286,11 @@ const ItemSalesReport = () => {
 
   // Export CSV / Excel
   const downloadCSV = () => {
-    let csvContent = 'data:text/csv;charset=utf-8,Rank,Item,Quantity,Revenue\n'
+    const grandRev = salesData.grandRevenue || 0;
+    let csvContent = 'data:text/csv;charset=utf-8,Rank,Item,Quantity,Revenue,Share %\n'
     salesData.topSelling.forEach((item, index) => {
-      csvContent += `${index + 1},"${item.name}",${item.qty},${item.revenue}\n`
+      const sharePct = grandRev > 0 ? ((item.revenue / grandRev) * 100).toFixed(1) : '0.0';
+      csvContent += `${index + 1},"${item.name}",${item.qty},${item.revenue},${sharePct}%\n`
     })
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement('a')
@@ -480,12 +488,15 @@ const ItemSalesReport = () => {
           <div className="card">
             <h2 style={{ fontSize: '1.2rem', marginBottom: '16px' }}>Revenue by Print Type</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {Object.entries(salesData.printTypeRevenue).map(([type, rev]) => (
-                <div key={type} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                  <span className="text-muted">{type}</span>
-                  <strong>₹{rev.toFixed(2)}</strong>
-                </div>
-              ))}
+              {Object.entries(salesData.printTypeRevenue).map(([type, rev]) => {
+                const sharePct = (salesData.grandRevenue || 0) > 0 ? ((rev / salesData.grandRevenue) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={type} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <span className="text-muted">{type} <span style={{ fontSize: '0.78rem', color: 'var(--accent)' }}>({sharePct}%)</span></span>
+                    <strong>₹{rev.toFixed(2)}</strong>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
