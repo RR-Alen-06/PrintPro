@@ -5,6 +5,7 @@ import { createPayment, deletePayment } from '../api/payments';
 import { createPurchase, deletePurchase } from '../api/purchases';
 import { updateProfile } from '../api/profile';
 import { supabase } from './supabase';
+import { logger } from './logger';
 import api from '../api';
 
 /**
@@ -238,7 +239,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
           .single();
 
         if (fetchErr) {
-          console.error(`Failed to fetch customer ${customerId} for balance sync:`, fetchErr);
+          logger.error(`Failed to fetch customer ${customerId} for balance sync:`, fetchErr);
           break;
         }
 
@@ -251,7 +252,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
           .eq('id', customerId);
 
         if (updateErr) {
-          console.error(`Failed to update customer ${customerId} balance to ${newBalance}:`, updateErr);
+          logger.error(`Failed to update customer ${customerId} balance to ${newBalance}:`, updateErr);
           throw updateErr;
         }
         break;
@@ -261,7 +262,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
         break;
     }
   } catch (err) {
-    console.error('Failed to sync entity to cloud backend:', action, err);
+    logger.error('Failed to sync entity to cloud backend:', action, err);
     throw err;
   }
 };
@@ -271,7 +272,7 @@ export const clearAllCloudData = async () => {
     const response = await api.delete('/settings/clear-all');
     return response.data;
   } catch (err: any) {
-    console.error('Failed to clear cloud database data:', err);
+    logger.error('Failed to clear cloud database data:', err);
     throw err;
   }
 };

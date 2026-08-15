@@ -20,8 +20,12 @@ if (!projectRef) {
 
 const region = 'ap-south-1';
 const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
-if (!dbPassword && !process.env.DATABASE_URL) {
-  throw new Error('Database configuration error: Missing SUPABASE_DB_PASSWORD or DATABASE_URL environment variable.');
+if (!process.env.DATABASE_URL && (!dbPassword || dbPassword.trim() === '')) {
+  throw new Error(
+    'CRITICAL SECURITY ERROR: Database password is missing! ' +
+    'Set SUPABASE_DB_PASSWORD or DATABASE_URL in your environment. ' +
+    'Hardcoded fallback credentials are strictly prohibited.'
+  );
 }
 const encodedPassword = dbPassword ? encodeURIComponent(dbPassword) : '';
 const connectionString = process.env.DATABASE_URL || 

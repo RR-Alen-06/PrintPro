@@ -1,5 +1,6 @@
 import React from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { logger } from '../../lib/logger'
 
 interface ErrorBoundaryProps {
   children: React.ReactNode
@@ -21,7 +22,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Unhandled UI Render Crash:', error, errorInfo)
+    logger.error('Unhandled UI Render Crash:', error, errorInfo)
   }
 
   handleReload = () => {
@@ -31,6 +32,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   render() {
     if (this.state.hasError) {
+      const isDev = import.meta.env.DEV
+      const displayMessage = isDev
+        ? (this.state.error?.message || 'An unexpected rendering error occurred.')
+        : 'An unexpected application error occurred. Please try reloading the page.'
+
       return (
         <div style={{
           display: 'flex',
@@ -51,7 +57,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             Something went wrong rendering this section
           </h2>
           <p style={{ color: 'var(--text-secondary, #94a3b8)', maxWidth: '500px', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-            {this.state.error?.message || 'An unexpected rendering error occurred.'}
+            {displayMessage}
           </p>
           <button
             onClick={this.handleReload}
