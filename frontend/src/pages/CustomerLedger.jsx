@@ -213,7 +213,7 @@ const CustomerLedger = () => {
     }
     const rows = [
       [`Customer Ledger Statement - ${selectedCustomer?.name}`, '', '', '', '', ''],
-      [`Customer ID:`, selectedCustomer?.id || '', '', '', '', ''],
+      [`Customer Code:`, selectedCustomer?.customerCode || selectedCustomer?.id || '', '', '', '', ''],
       [`Generated:`, date.toLocaleString(), '', '', '', ''],
       ['', '', '', '', '', ''],
       ['Date', 'Type', 'Description', 'Debit (Rs)', 'Credit (Rs)', 'Balance (Rs)'],

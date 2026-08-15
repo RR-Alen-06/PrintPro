@@ -97,8 +97,8 @@ const Customers = () => {
     customerBills.forEach(b => {
       events.push({
         date: b.date,
-        type: `Invoice #${b.id}`,
-        refId: b.id,
+        type: `Invoice #${b.invoiceNumber || b.id}`,
+        refId: b.invoiceNumber || b.id,
         debit: Number(b.total || 0),
         credit: 0,
       })
