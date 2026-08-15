@@ -63,24 +63,11 @@ function App() {
   const isMobileRoute = location.pathname.startsWith('/mobile')
   const isAuthCallback = location.pathname === '/auth/callback'
   const isAuthPage = location.pathname === '/auth'
+  const isMobileAuthPage = location.pathname === '/mobile/auth'
 
   // Render Auth Callback in full screen
   if (isAuthCallback) {
     return <AuthCallback />
-  }
-
-  // Handle Auth Entry Point with Mobile Auto-Redirect
-  if (isAuthPage) {
-    if (currentUser && !isInitialLoading) {
-      if (effectiveMode === 'mobile' && userPref !== 'desktop') {
-        return <Navigate to="/mobile/dashboard" replace />
-      }
-      return <Navigate to="/dashboard" replace />
-    }
-    if (effectiveMode === 'mobile' && userPref !== 'desktop') {
-      return <Navigate to="/mobile/auth" replace />
-    }
-    return <Auth />
   }
 
   // 1. Initial boot / session check in progress -> Show loading spinner
@@ -94,7 +81,29 @@ function App() {
     )
   }
 
-  // 2. Boot check complete, no active user session -> Redirect to auth entry point
+  // Handle Mobile Auth Page directly (prevents infinite redirect loop when !currentUser on /mobile/auth)
+  if (isMobileAuthPage) {
+    if (currentUser) {
+      return <Navigate to="/mobile/dashboard" replace />
+    }
+    return <MobileAuth />
+  }
+
+  // Handle Desktop Auth Page
+  if (isAuthPage) {
+    if (currentUser) {
+      if (effectiveMode === 'mobile' && userPref !== 'desktop') {
+        return <Navigate to="/mobile/dashboard" replace />
+      }
+      return <Navigate to="/dashboard" replace />
+    }
+    if (effectiveMode === 'mobile' && userPref !== 'desktop') {
+      return <Navigate to="/mobile/auth" replace />
+    }
+    return <Auth />
+  }
+
+  // 2. Unauthenticated visitor trying to access protected routes -> Redirect to appropriate auth page
   if (!currentUser) {
     if (effectiveMode === 'mobile' && userPref !== 'desktop') {
       return <Navigate to="/mobile/auth" replace />
@@ -109,34 +118,36 @@ function App() {
     }
   }
 
-  // Render Mobile App Routes in standalone mobile layout
+  // Render Mobile App Routes in standalone mobile layout wrapped in ErrorBoundary
   if (isMobileRoute) {
     return (
-      <Routes>
-        <Route path="/mobile/auth" element={<MobileAuth />} />
-        <Route path="/mobile/dashboard" element={<MobileDashboard />} />
-        <Route path="/mobile/billing" element={<MobileBillingList />} />
-        <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
-        <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
-        <Route path="/mobile/settings" element={<MobileSettings />} />
-        <Route path="/mobile/refunds" element={<MobileRefunds />} />
-        <Route path="/mobile/customers" element={<MobileCustomers />} />
-        <Route path="/mobile/customer-ledger" element={<MobileCustomerLedger />} />
-        <Route path="/mobile/inventory" element={<MobileInventory />} />
-        <Route path="/mobile/advance-payments" element={<MobileAdvancePayments />} />
-        <Route path="/mobile/accounting" element={<MobileAccounting />} />
-        <Route path="/mobile/analytics" element={<MobileAnalytics />} />
-        <Route path="/mobile/group-billing" element={<MobileGroupBilling />} />
-        <Route path="/mobile/customer-bills" element={<MobileCustomerBills />} />
-        <Route path="/mobile/portal" element={<MobileCustomerPortal />} />
-        <Route path="/mobile/receipt" element={<MobileReceipt />} />
-        <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
-        <Route path="/mobile/data-management" element={<MobileDataManagement />} />
-        <Route path="/mobile/notifications" element={<MobileNotifications />} />
-        <Route path="/mobile/deleted-bills" element={<MobileDeletedBills />} />
-        <Route path="/mobile/search" element={<MobileSearch />} />
-        <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/mobile/auth" element={<MobileAuth />} />
+          <Route path="/mobile/dashboard" element={<MobileDashboard />} />
+          <Route path="/mobile/billing" element={<MobileBillingList />} />
+          <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
+          <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
+          <Route path="/mobile/settings" element={<MobileSettings />} />
+          <Route path="/mobile/refunds" element={<MobileRefunds />} />
+          <Route path="/mobile/customers" element={<MobileCustomers />} />
+          <Route path="/mobile/customer-ledger" element={<MobileCustomerLedger />} />
+          <Route path="/mobile/inventory" element={<MobileInventory />} />
+          <Route path="/mobile/advance-payments" element={<MobileAdvancePayments />} />
+          <Route path="/mobile/accounting" element={<MobileAccounting />} />
+          <Route path="/mobile/analytics" element={<MobileAnalytics />} />
+          <Route path="/mobile/group-billing" element={<MobileGroupBilling />} />
+          <Route path="/mobile/customer-bills" element={<MobileCustomerBills />} />
+          <Route path="/mobile/portal" element={<MobileCustomerPortal />} />
+          <Route path="/mobile/receipt" element={<MobileReceipt />} />
+          <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
+          <Route path="/mobile/data-management" element={<MobileDataManagement />} />
+          <Route path="/mobile/notifications" element={<MobileNotifications />} />
+          <Route path="/mobile/deleted-bills" element={<MobileDeletedBills />} />
+          <Route path="/mobile/search" element={<MobileSearch />} />
+          <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />
+        </Routes>
+      </ErrorBoundary>
     )
   }
 
