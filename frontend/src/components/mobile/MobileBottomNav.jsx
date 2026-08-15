@@ -3,7 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Receipt, PlusCircle, Settings, Grid,
   ArrowLeftRight, Users, BookOpen, Inbox, Wallet,
-  DollarSign, BarChart3, Layers, FileText, Upload, Printer, Database
+  DollarSign, BarChart3, Layers, FileText, Upload, Printer, Database,
+  Search, Bell, Trash2, Tag
 } from 'lucide-react'
 import BottomSheet from './BottomSheet'
 
@@ -19,6 +20,9 @@ export default function MobileBottomNav() {
   ]
 
   const moreModules = [
+    { to: '/mobile/search', label: 'Global Search', icon: Search },
+    { to: '/mobile/notifications', label: 'Notifications', icon: Bell },
+    { to: '/mobile/deleted-bills', label: 'Deleted Bills', icon: Trash2 },
     { to: '/mobile/refunds', label: 'Refund Logs', icon: ArrowLeftRight },
     { to: '/mobile/customers', label: 'Customers Directory', icon: Users },
     { to: '/mobile/customer-ledger', label: 'Customer Ledger', icon: BookOpen },
@@ -30,7 +34,7 @@ export default function MobileBottomNav() {
     { to: '/mobile/customer-bills', label: 'Customer Invoices', icon: FileText },
     { to: '/mobile/portal', label: 'Upload Portal', icon: Upload },
     { to: '/mobile/receipt', label: 'Thermal Receipt', icon: Printer },
-    { to: '/mobile/item-sales-report', label: 'Item Sales Report', icon: TagIcon },
+    { to: '/mobile/item-sales-report', label: 'Item Sales Report', icon: Tag },
     { to: '/mobile/data-management', label: 'Data & Backup', icon: Database },
   ]
 
