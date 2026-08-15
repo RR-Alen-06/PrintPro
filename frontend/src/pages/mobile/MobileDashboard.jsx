@@ -1,21 +1,34 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
+import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
+import { usePayments } from '../../hooks/useEntitiesQuery'
+import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   TrendingUp, CreditCard, Clock, Wallet, CheckCircle, RefreshCw, FileText,
   PlusCircle, UserPlus, ArrowRight, MessageSquare, Download, AlertTriangle, ChevronRight,
-  Filter, Calendar, Activity, Receipt, ArrowDownRight, ArrowUpRight
+  Filter, Calendar, Activity, Receipt, ArrowDownRight, ArrowUpRight, Loader2
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileDashboard() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const {
-    business, bills, customers, advancePayments, payments, expenses,
-    syncFromCloud, showToast, addCustomer, updateBill
+    business, syncFromCloud, showToast, addCustomer: contextAddCustomer, updateBill: contextUpdateBill
   } = useAppContext()
+
+  // TanStack Queries & Mutations
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
+  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('today') // 'today' | 'week' | 'month' | 'fy' | 'custom' | 'all'
@@ -42,7 +55,10 @@ export default function MobileDashboard() {
   const handleSync = async () => {
     setIsSyncing(true)
     try {
-      await syncFromCloud()
+      if (syncFromCloud) {
+        await syncFromCloud()
+      }
+      await queryClient.invalidateQueries()
       showToast('Cloud Data Synced Successfully', 'success')
     } catch (e) {
       showToast('Sync Failed: Check network connection', 'error')
@@ -85,7 +101,7 @@ export default function MobileDashboard() {
   const filteredBills = useMemo(() => {
     const { start, end } = activeDateRange
     return (bills || []).filter((b) => {
-      if (b.deleted || b.isGroupParent) return false
+      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
       if (!start || !end) return true
       const d = new Date(b.date)
       return d >= start && d <= end
@@ -99,7 +115,7 @@ export default function MobileDashboard() {
     const pendingAmount = unpaidBills.reduce((sum, b) => sum + Number(b.balance || 0), 0)
 
     const periodPayments = (payments || []).filter((p) => {
-      if (p.isRefund) return false
+      if (p.isRefund || p.is_refund) return false
       const d = new Date(p.date)
       if (activeDateRange.start && d < activeDateRange.start) return false
       if (activeDateRange.end && d > activeDateRange.end) return false
@@ -109,8 +125,8 @@ export default function MobileDashboard() {
     let cashTotal = 0
     let upiTotal = 0
     periodPayments.forEach(p => {
-      cashTotal += Number(p.cashAmount || 0)
-      upiTotal += Number(p.upiAmount || 0)
+      cashTotal += Number(p.cashAmount || p.cash_amount || 0)
+      upiTotal += Number(p.upiAmount || p.upi_amount || 0)
     })
     const cashInflow = cashTotal + upiTotal
 
@@ -121,8 +137,8 @@ export default function MobileDashboard() {
       return true
     }).reduce((sum, e) => sum + Number(e.amount || 0), 0)
 
-    const refundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid) < 0))
-    const totalRefunds = refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    const refundPayments = (payments || []).filter(p => (p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0))
+    const totalRefunds = refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || p.total_paid || 0)), 0)
 
     const netCashFlow = cashInflow - periodExpenses - totalRefunds
 
@@ -143,21 +159,29 @@ export default function MobileDashboard() {
   const recentOrders = useMemo(() => {
     let list = [...filteredBills]
     if (jobStatusFilter !== 'all') {
-      list = list.filter(b => (b.jobStatus || b.status) === jobStatusFilter)
+      list = list.filter(b => (b.jobStatus || b.job_status || b.status) === jobStatusFilter)
     }
-    list.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
+    list.sort((a, b) => new Date(b.date || b.createdAt || b.created_at) - new Date(a.date || a.createdAt || a.created_at))
     return list.slice(0, 8)
   }, [filteredBills, jobStatusFilter])
 
   // Direct Job Status Updater
   const handleUpdateJobStatus = async (billId, newStatus) => {
     try {
-      if (updateBill) {
-        await updateBill(billId, { jobStatus: newStatus, status: newStatus === 'delivered' ? 'paid' : undefined })
+      await updateBillMutation({
+        id: billId,
+        data: {
+          job_status: newStatus,
+          jobStatus: newStatus,
+          status: newStatus === 'delivered' ? 'paid' : undefined
+        }
+      })
+      if (contextUpdateBill) {
+        contextUpdateBill(billId, { jobStatus: newStatus, status: newStatus === 'delivered' ? 'paid' : undefined })
       }
       showToast(`Job status updated to ${newStatus.toUpperCase()}`, 'success')
     } catch (e) {
-      showToast('Failed to update status', 'error')
+      showToast(e.message || 'Failed to update status', 'error')
     }
   }
 
@@ -171,16 +195,19 @@ export default function MobileDashboard() {
 
     try {
       const payload = {
-        id: `cust-${Date.now()}`,
         name: newCustName.trim(),
         phone: newCustPhone.trim(),
         email: newCustEmail.trim(),
         type: newCustType,
-        creditBalance: 0,
-        createdAt: new Date().toISOString()
+        credit_balance: 0,
+        creditBalance: 0
       }
-      if (addCustomer) {
-        await addCustomer(payload)
+      const created = await createCustomerMutation(payload)
+      if (contextAddCustomer) {
+        contextAddCustomer({
+          id: created?.id || `cust-${Date.now()}`,
+          ...payload
+        })
       }
       showToast(`Customer '${payload.name}' added successfully!`, 'success')
       setNewCustName('')
@@ -188,20 +215,20 @@ export default function MobileDashboard() {
       setNewCustEmail('')
       setShowAddCustomerModal(false)
     } catch (err) {
-      showToast('Failed to add customer', 'error')
+      showToast(err.message || 'Failed to add customer', 'error')
     }
   }
 
   // WhatsApp Alert Trigger
   const handleSendWhatsApp = (bill) => {
-    const cust = customers.find(c => c.id === bill.customerId)
-    const phone = bill.customerPhone || cust?.phone || ''
+    const cust = customers.find(c => String(c.id) === String(bill.customerId || bill.customer_id))
+    const phone = bill.customerPhone || bill.customer_phone || cust?.phone || ''
     const cleanPhone = phone.replace(/[^0-9]/g, '')
     const shopName = business?.shopName || 'PrintPro'
-    const invId = bill.invoiceNumber || bill.id
+    const invId = bill.invoiceNumber || bill.invoice_number || bill.id
     const due = Number(bill.balance || bill.total || 0).toFixed(2)
 
-    const text = `Hello ${bill.customerName || 'Customer'},\nYour print order *${invId}* is READY for pickup at ${shopName}!\nBalance Due: ₹${due}.\nThank you for choosing ${shopName}!`
+    const text = `Hello ${bill.customerName || bill.customer_name || 'Customer'},\nYour print order *${invId}* is READY for pickup at ${shopName}!\nBalance Due: ₹${due}.\nThank you for choosing ${shopName}!`
     const url = cleanPhone
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
@@ -212,9 +239,9 @@ export default function MobileDashboard() {
   const handleExportCSV = () => {
     const headers = ['Invoice #', 'Date', 'Customer', 'Total (INR)', 'Balance (INR)', 'Status']
     const rows = filteredBills.map(b => [
-      `"${b.invoiceNumber || b.id}"`,
+      `"${b.invoiceNumber || b.invoice_number || b.id}"`,
       `"${b.date}"`,
-      `"${b.customerName || 'Walk-in'}"`,
+      `"${b.customerName || b.customer_name || 'Walk-in'}"`,
       Number(b.total || 0).toFixed(2),
       Number(b.balance || 0).toFixed(2),
       `"${b.status}"`
@@ -477,13 +504,18 @@ export default function MobileDashboard() {
         </div>
 
         {/* Orders Stack */}
-        {recentOrders.length === 0 ? (
+        {isLoadingBills ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+            <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Loading recent orders...</div>
+          </div>
+        ) : recentOrders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
             No recent orders match filter.
           </div>
         ) : (
           recentOrders.map((bill) => {
-            const isReady = (bill.jobStatus || bill.status) === 'ready'
+            const isReady = (bill.jobStatus || bill.job_status || bill.status) === 'ready'
             return (
               <div
                 key={bill.id}
@@ -491,23 +523,23 @@ export default function MobileDashboard() {
                   padding: '10px 0',
                   borderBottom: '1px solid var(--border)',
                   display: 'flex',
-                  justify: 'space-between',
+                  justifyContent: 'space-between',
                   alignItems: 'center'
                 }}
               >
                 <div onClick={() => navigate(`/mobile/bill/${bill.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
                   <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {bill.customerName || 'Walk-in Customer'}
+                    {bill.customerName || bill.customer_name || 'Walk-in Customer'}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
-                    #{bill.invoiceNumber || bill.id} • ₹{Number(bill.total || 0).toFixed(2)}
+                    #{bill.invoiceNumber || bill.invoice_number || bill.id} • ₹{Number(bill.total || 0).toFixed(2)}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {/* Job Status Updater Dropdown */}
                   <select
-                    value={bill.jobStatus || bill.status || 'pending'}
+                    value={bill.jobStatus || bill.job_status || bill.status || 'pending'}
                     onChange={(e) => handleUpdateJobStatus(bill.id, e.target.value)}
                     style={{
                       background: 'var(--bg-input)',
@@ -614,8 +646,8 @@ export default function MobileDashboard() {
             />
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }}>
-            Save Customer Record
+          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }} disabled={isCreatingCustomer}>
+            {isCreatingCustomer ? 'Saving Customer...' : 'Save Customer Record'}
           </button>
         </form>
       </BottomSheet>

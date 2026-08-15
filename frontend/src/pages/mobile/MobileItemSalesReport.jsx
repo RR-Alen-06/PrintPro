@@ -1,21 +1,21 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppContext } from '../../context/AppContext'
+import { useBills } from '../../hooks/useBillsQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
-import { BarChart3, Search, Printer, Tag } from 'lucide-react'
+import { BarChart3, Search, Printer, Tag, Loader2 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileItemSalesReport() {
   const navigate = useNavigate()
-  const { bills } = useAppContext()
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const [searchTerm, setSearchTerm] = useState('')
 
   // Item Sales Aggregations
   const itemReportData = useMemo(() => {
     const map = {}
-    ;(bills || []).filter(b => !b.deleted).forEach(b => {
+    ;(bills || []).filter(b => !b.deleted && !b.deleted_at).forEach(b => {
       ;(b.items || []).forEach(item => {
-        const key = item.itemName || 'Custom Item'
+        const key = item.itemName || item.name || item.item_name || 'Custom Item'
         if (!map[key]) {
           map[key] = { name: key, totalQty: 0, totalRev: 0, ordersCount: 0 }
         }
@@ -57,29 +57,39 @@ export default function MobileItemSalesReport() {
         />
       </div>
 
+      {/* Loading indicator */}
+      {isLoadingBills && (
+        <div className="mobile-card" style={{ textAlign: 'center', padding: '24px' }}>
+          <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
+          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Calculating sales analytics...</p>
+        </div>
+      )}
+
       {/* Item Performance Stack */}
-      {filteredData.length === 0 ? (
+      {!isLoadingBills && filteredData.length === 0 ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
           No item sales records found.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredData.map(item => (
-            <div key={item.name} className="mobile-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                <div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    {item.totalQty} Units Sold • {item.ordersCount} Orders
+        !isLoadingBills && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {filteredData.map(item => (
+              <div key={item.name} className="mobile-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      {item.totalQty} Units Sold • {item.ordersCount} Orders
+                    </div>
+                  </div>
+                  <div className="currency-num" style={{ fontSize: '1.15rem', color: 'var(--accent-primary)' }}>
+                    ₹{item.totalRev.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="currency-num" style={{ fontSize: '1.15rem', color: 'var(--accent-primary)' }}>
-                  ₹{item.totalRev.toLocaleString('en-IN')}
-                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       )}
     </MobileLayout>
   )
