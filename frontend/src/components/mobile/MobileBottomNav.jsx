@@ -3,7 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Receipt, PlusCircle, Settings, Grid,
   RefreshCcw, ArrowLeftRight, Users, BookOpen, Inbox, Wallet,
-  DollarSign, BarChart3, Layers, FileText, Upload, Printer, Database
+  DollarSign, BarChart3, Layers, FileText, Upload, Printer, Database,
+  Search, Bell, Trash2
 } from 'lucide-react'
 import BottomSheet from './BottomSheet'
 
@@ -19,6 +20,9 @@ export default function MobileBottomNav() {
   ]
 
   const moreModules = [
+    { to: '/mobile/search', label: 'Global Search', icon: Search },
+    { to: '/mobile/notifications', label: 'Notifications', icon: Bell },
+    { to: '/mobile/deleted-bills', label: 'Deleted Bills', icon: Trash2 },
     { to: '/mobile/recurring-bills', label: 'Recurring Bills', icon: RefreshCcw },
     { to: '/mobile/refunds', label: 'Refund Logs', icon: ArrowLeftRight },
     { to: '/mobile/customers', label: 'Customers Directory', icon: Users },

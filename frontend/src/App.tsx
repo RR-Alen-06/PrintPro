@@ -47,6 +47,9 @@ import MobileCustomerPortal from './pages/mobile/MobileCustomerPortal'
 import MobileReceipt from './pages/mobile/MobileReceipt'
 import MobileItemSalesReport from './pages/mobile/MobileItemSalesReport'
 import MobileDataManagement from './pages/mobile/MobileDataManagement'
+import MobileNotifications from './pages/mobile/MobileNotifications'
+import MobileDeletedBills from './pages/mobile/MobileDeletedBills'
+import MobileSearch from './pages/mobile/MobileSearch'
 
 import ViewportBanner from './components/mobile/ViewportBanner'
 import { useMobileDetect } from './hooks/useMobileDetect'
@@ -114,6 +117,9 @@ function App() {
         <Route path="/mobile/receipt" element={<MobileReceipt />} />
         <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
         <Route path="/mobile/data-management" element={<MobileDataManagement />} />
+        <Route path="/mobile/notifications" element={<MobileNotifications />} />
+        <Route path="/mobile/deleted-bills" element={<MobileDeletedBills />} />
+        <Route path="/mobile/search" element={<MobileSearch />} />
         <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />
       </Routes>
     )
