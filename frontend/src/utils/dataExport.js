@@ -105,14 +105,14 @@ export const exportInventoryToCSV = (inventory, filename = 'inventory-export.csv
 export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') => {
   const flatPayments = payments.map((payment) => ({
     'Payment ID': payment.id,
-    'Bill ID': payment.billId,
-    'Customer ID': payment.customerId,
+    'Bill / Invoice': payment.invoiceNumber || payment.billId || '',
+    'Customer Code / ID': payment.customerCode || payment.customerId || '',
     'Date': payment.date ? payment.date.slice(0, 10) : '',
-    'Cash': payment.cashAmount,
-    'UPI': payment.upiAmount,
-    'Total Paid': payment.totalPaid,
-    'Payment Type': payment.paymentType,
-    'Excess Credit': payment.excessCredit || 0,
+    'Cash (₹)': Number(payment.cashAmount || 0).toFixed(2),
+    'UPI (₹)': Number(payment.upiAmount || 0).toFixed(2),
+    'Total Paid (₹)': Number(payment.totalPaid || 0).toFixed(2),
+    'Payment Type': payment.paymentType || '',
+    'Excess Credit (₹)': Number(payment.excessCredit || 0).toFixed(2),
   }))
   exportToCSV(flatPayments, filename)
 }
