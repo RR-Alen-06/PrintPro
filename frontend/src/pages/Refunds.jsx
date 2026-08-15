@@ -138,8 +138,10 @@ const Refunds = () => {
       })
     })
 
-    // Sort by date descending
-    return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
+    // Sort by ID ascending
+    return logs.sort((a, b) => 
+      String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true })
+    )
   }, [refundStats, customers, bills])
 
   // Filter and search refund logs

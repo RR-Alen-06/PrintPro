@@ -20,7 +20,7 @@ const CustomerBills = () => {
     if (!selectedCustomerId) return []
     return bills
       .filter((b) => !b.deleted && b.customerId === selectedCustomerId)
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .sort((a, b) => String(a.invoiceNumber || a.id).localeCompare(String(b.invoiceNumber || b.id), undefined, { numeric: true }))
   }, [bills, selectedCustomerId])
 
   // ── Edit modal states ──
