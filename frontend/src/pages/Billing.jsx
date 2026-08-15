@@ -2129,7 +2129,7 @@ const Billing = () => {
                   <option value="">-- Select regular customer --</option>
                   {activeRegular.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.id})
+                      {c.name} ({c.customerCode || c.id})
                     </option>
                   ))}
                 </select>
@@ -2157,7 +2157,7 @@ const Billing = () => {
                     <option value="">-- Select walk-in customer --</option>
                     {activeRandom.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} ({c.id})
+                        {c.name} ({c.customerCode || c.id})
                       </option>
                     ))}
                   </select>
