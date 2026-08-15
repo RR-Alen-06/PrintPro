@@ -15,6 +15,12 @@ export function useMobileDetect() {
     }
   })
 
+  // User-Agent detection for mobile devices (iOS, Android, Mobile Safari, Chrome Mobile, Touch)
+  const isUserAgentMobile = typeof navigator !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '') ||
+    (typeof window !== 'undefined' && 'ontouchstart' in window && window.innerWidth < 1024)
+  )
+
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth)
@@ -28,7 +34,7 @@ export function useMobileDetect() {
     }
   }, [])
 
-  const setUserPref = (pref) => {
+  const setUserPref = (pref: string | null) => {
     try {
       if (pref === null) {
         localStorage.removeItem(STORAGE_KEY)
@@ -42,20 +48,20 @@ export function useMobileDetect() {
   }
 
   // Thresholds
-  const isPhone = windowWidth < 480
-  const isTablet = windowWidth >= 480 && windowWidth < 768
-  const isMobileViewport = windowWidth < 768
+  const isPhone = windowWidth < 480 || (isUserAgentMobile && windowWidth < 768)
+  const isTablet = (windowWidth >= 480 && windowWidth < 768 && !isUserAgentMobile) || (isUserAgentMobile && windowWidth >= 768 && windowWidth < 1024)
+  const isMobileViewport = windowWidth < 768 || isUserAgentMobile
 
   // Effective mode decision:
-  // If user explicitly chose 'desktop', force desktop mode regardless of width.
-  // If user explicitly chose 'mobile', force mobile mode regardless of width.
-  // Otherwise, auto-switch for phones (<480px), show banner for tablets (480-768px).
-  let effectiveMode = 'desktop'
+  // 1. If user explicitly chose 'desktop', force desktop mode regardless of width/userAgent.
+  // 2. If user explicitly chose 'mobile', force mobile mode regardless of width/userAgent.
+  // 3. Otherwise (first-ever visit / no pref): auto-switch to mobile if userAgent is mobile OR viewport is phone (<480px) or mobile viewport (<768px).
+  let effectiveMode: 'desktop' | 'mobile' = 'desktop'
   if (userPref === 'desktop') {
     effectiveMode = 'desktop'
   } else if (userPref === 'mobile') {
     effectiveMode = 'mobile'
-  } else if (isPhone) {
+  } else if (isPhone || (isUserAgentMobile && windowWidth < 1024) || windowWidth < 768) {
     effectiveMode = 'mobile'
   } else {
     effectiveMode = 'desktop'
@@ -66,7 +72,7 @@ export function useMobileDetect() {
     isPhone,
     isTablet,
     isMobileViewport,
-    isMobile: isPhone || isMobileViewport,
+    isMobile: isPhone || isMobileViewport || isUserAgentMobile,
     userPref,
     effectiveMode,
     setUserPref,
