@@ -1085,17 +1085,27 @@ const CustomerBills = () => {
                         </div>
                         {customerUpiId ? (
                           <>
-                            {refundQrGenerated && (
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
-                                <img
-                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}`}
-                                  alt="Refund QR Code"
-                                  style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
-                                  width={100} height={100}
-                                />
-                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan to pay customer ₹{refundInfo.directRefund.toFixed(2)}</span>
-                              </div>
-                            )}
+                            {refundQrGenerated && (() => {
+                              const refundAmt = Number(refundInfo.directRefund || 0);
+                              if (isNaN(refundAmt) || refundAmt <= 0) {
+                                return (
+                                  <div style={{ marginTop: '10px', padding: '8px 12px', background: 'var(--error-bg)', color: 'var(--error)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600 }}>
+                                    ⚠️ Unable to generate payment link — invalid or zero refund amount (₹{refundInfo.directRefund}).
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
+                                  <img
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundAmt.toFixed(2)}&cu=INR&tn=Refund`)}`}
+                                    alt="Refund QR Code"
+                                    style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                    width={100} height={100}
+                                  />
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan to pay customer ₹{refundAmt.toFixed(2)}</span>
+                                </div>
+                              );
+                            })()}
                           </>
                         ) : (
                           <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Enter Customer UPI ID to enable QR code.</p>

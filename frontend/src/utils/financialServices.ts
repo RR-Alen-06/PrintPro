@@ -258,17 +258,20 @@ export const LedgerService = {
         creditAmt = Math.max(0, creditAmt);
       }
 
+      const targetBill = bills.find((b: any) => String(b.id) === String(payment.billId));
+      const billCode = payment.invoiceNumber || targetBill?.invoiceNumber || payment.billId;
+
       entries.push({
         type: isRefund ? 'refund' : (payment.isGroupPayment ? 'group_payment' : 'payment'),
         date: payment.date,
         id: payment.id,
         description: isRefund 
-          ? `Refund — Bill #${payment.billId}` 
+          ? `Refund — Bill #${billCode}` 
           : (payment.isGroupPayment 
               ? `Full Group Payment — ${payment.groupBillId}` 
-              : `Payment — ${payment.billId || 'General'}`),
+              : `Payment — ${billCode || 'General'}`),
         subtext: payment.isGroupPayment 
-          ? `Paid ₹${payment.totalPaid.toFixed(2)} for Split Group ${payment.groupBillId}`
+          ? `Paid ₹${Number(payment.totalPaid || 0).toFixed(2)} for Split Group ${payment.groupBillId}`
           : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(payment.upiAmount || 0).toFixed(2)}`,
         debit: isRefund ? Math.abs(creditAmt) : 0,
         credit: isRefund ? 0 : creditAmt,
