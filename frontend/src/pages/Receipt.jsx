@@ -51,8 +51,9 @@ const Receipt = () => {
   const filteredBills = bills
     .filter((b) => !b.deleted)
     .filter((b) =>
-      b.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.customerName.toLowerCase().includes(searchQuery.toLowerCase())
+      (b.invoiceNumber && b.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.id && b.id.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.customerName && b.customerName.toLowerCase().includes(searchQuery.toLowerCase()))
     )
 
   const getQrCodeBase64 = (upiLink) => {
