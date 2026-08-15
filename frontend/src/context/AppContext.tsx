@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { logger } from '../lib/logger'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
 import { getCustomers } from '../api/customers'
@@ -942,10 +943,10 @@ export const AppProvider = ({ children }: any) => {
       }
 
       currentUserId = session.user.id;
-      console.log(`=== AUTHENTICATION DIAGNOSTICS (${reason}) ===`);
-      console.log('User ID:', session.user.id);
-      console.log('Email:', session.user.email);
-      console.log('==================================');
+      logger.log(`=== AUTHENTICATION DIAGNOSTICS (${reason}) ===`);
+      logger.log('User ID:', session.user.id);
+      logger.log('Email:', session.user.email);
+      logger.log('==================================');
 
       const userState = loadState(session.user.id);
       if (userState && userState !== initialState) {
