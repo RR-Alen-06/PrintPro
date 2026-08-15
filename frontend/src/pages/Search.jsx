@@ -194,7 +194,7 @@ const Search = () => {
                   <option value="">All Customers</option>
                   {customers.map((customer) => (
                     <option key={customer.id} value={customer.id}>
-                      {customer.name}
+                      {customer.name} ({customer.customerCode || customer.id})
                     </option>
                   ))}
                 </select>
@@ -359,7 +359,7 @@ const Search = () => {
                         )}
                         {searchType === 'customers' && (
                           <>
-                            <td>{item.id}</td>
+                            <td>{item.customerCode || item.id}</td>
                             <td>{item.name}</td>
                             <td>{item.type}</td>
                             <td>{item.phone}</td>
