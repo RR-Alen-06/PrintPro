@@ -70,13 +70,33 @@ export const createCustomer = async (data: any) => {
     if (err.response && err.response.status >= 400 && err.response.status < 500) {
       throw err;
     }
+    // Generate customer_code on direct Supabase fallback path
+    let customerCode = data.customer_code || data.customerCode;
+    if (!customerCode) {
+      const prefix = (payload.type === 'regular' ? 'RC' : 'WC');
+      const { data: maxRows } = await supabase
+        .from('customers')
+        .select('customer_code')
+        .eq('user_id', user?.id)
+        .like('customer_code', `${prefix}%`)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      let nextNum = 1;
+      if (maxRows && maxRows.length > 0 && maxRows[0].customer_code) {
+        const numPart = maxRows[0].customer_code.replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      customerCode = `${prefix}${String(nextNum).padStart(4, '0')}`;
+    }
+
     const { data: inserted, error } = await supabase
       .from('customers')
-      .upsert([{ ...payload, user_id: user?.id }])
+      .upsert([{ ...payload, customer_code: customerCode, user_id: user?.id }])
       .select()
       .single();
     if (error) throw error;
-    return { data: { data: inserted } };
+    return { data: { data: mapCustomerFromApi(inserted) } };
   }
 }
 
