@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePaymentMutations } from '../hooks/useEntitiesQuery'
-import { useBillMutations } from '../hooks/useBillsQuery'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
+import { TableSkeleton, SkeletonBox } from '../components/common/Skeleton'
 import { LedgerService } from '../utils/financialServices'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
@@ -34,9 +36,15 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, showToast, syncFromCloud } = useAppContext()
+  const { business, customers: contextCustomers, settings, bills: contextBills, payments, advancePayments, showToast, syncFromCloud } = useAppContext()
+  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverBills, isLoading: isLoadingBills } = useBills()
+  const customers = serverCustomers || contextCustomers || []
+  const bills = serverBills || contextBills || []
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
+
+  const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0)
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -480,6 +488,9 @@ const CustomerLedger = () => {
           {/* Customer Selector */}
           <div className="card" style={{ width: '100%' }}>
             <h2 style={{ marginBottom: '16px', fontSize: '1.2rem', fontWeight: 700 }}>Select Customer</h2>
+            {isDataLoading && activeCustomers.length === 0 ? (
+              <SkeletonBox height="42px" borderRadius="var(--radius-md)" style={{ marginBottom: '12px' }} />
+            ) : (
             <select
               className="form-select"
               value={selectedCustomerId}
@@ -497,6 +508,7 @@ const CustomerLedger = () => {
                 ))}
               </optgroup>
             </select>
+            )}
 
             {selectedCustomer && (
               <div style={{ marginTop: '8px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.875rem' }}>
@@ -868,7 +880,9 @@ const CustomerLedger = () => {
             </div>
           </div>
 
-          {ledgerEntries.length === 0 ? (
+          {isDataLoading && ledgerEntries.length === 0 ? (
+            <TableSkeleton rows={5} columns={6} />
+          ) : ledgerEntries.length === 0 ? (
             <EmptyState
               Icon={AlertCircle}
               title="No transactions found"

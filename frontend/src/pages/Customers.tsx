@@ -5,6 +5,7 @@ import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { usePaymentMutations } from '../hooks/useEntitiesQuery'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
+import { ListSkeleton } from '../components/common/Skeleton'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -447,7 +448,9 @@ const Customers = () => {
               </h2>
             </div>
             <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-              {filteredCustomers.length === 0 ? (
+              {isLoadingCustomers && filteredCustomers.length === 0 ? (
+                <ListSkeleton rows={5} />
+              ) : filteredCustomers.length === 0 ? (
                 <EmptyState
                   Icon={Users as any}
                   title="No customers found"

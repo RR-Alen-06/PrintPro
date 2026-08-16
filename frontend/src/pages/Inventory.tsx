@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useInventory, useInventoryMutations } from '../hooks/useEntitiesQuery'
 import EmptyState from '../components/common/EmptyState'
+import { TableSkeleton } from '../components/common/Skeleton'
 import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
 
 const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', stock: '', lowStockAlert: '', hsnCode: '' }
@@ -14,7 +15,7 @@ const priceFields = [
 ]
 
 const Inventory = () => {
-  const { data: serverInventory = [] } = useInventory()
+  const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
   const { createItem, updateItem, deleteItem } = useInventoryMutations()
   const inventory: any[] = serverInventory
 
@@ -304,6 +305,9 @@ const Inventory = () => {
         </div>
 
         <div className="table-container">
+          {isLoadingInventory && visibleInventory.length === 0 ? (
+            <TableSkeleton rows={5} columns={6} />
+          ) : (
           <table className="table">
             <thead>
               <tr>
@@ -490,6 +494,7 @@ const Inventory = () => {
               })}
             </tbody>
           </table>
+          )}
         </div>
       </div>
     </div>
