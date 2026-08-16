@@ -3,11 +3,12 @@ import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
-import { useCustomerMutations } from '../hooks/useCustomersQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
+import { SkeletonBox } from '../components/common/Skeleton'
 
 
 const makeInitialRow = (inventory) => ({
@@ -24,8 +25,10 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
-  const { data: bills = [] } = useBills()
+  const { business, customers: contextCustomers, settings, inventory, payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
+  const customers = serverCustomers || contextCustomers || []
   const { createBill, updateBill: updateBillMutation } = useBillMutations()
   const { createCustomer } = useCustomerMutations()
   const location = useLocation()
@@ -2118,7 +2121,9 @@ const Billing = () => {
           <div className="form-group">
             <label className="form-label">Customer</label>
 
-            {customerType === 'regular' ? (
+            {isLoadingCustomers && customers.length === 0 ? (
+              <SkeletonBox height="42px" borderRadius="var(--radius-md)" />
+            ) : customerType === 'regular' ? (
               /* ── Regular: grouped dropdown of all regular customers ── */
               <>
                 <select

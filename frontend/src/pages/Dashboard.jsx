@@ -2,7 +2,10 @@ import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
 import EmptyState from '../components/common/EmptyState'
+import { CardSkeleton, TableSkeleton } from '../components/common/Skeleton'
 import { DashboardService } from '../utils/financialServices'
 
 const parseLocalDate = (dateInput) => {
@@ -27,7 +30,12 @@ const formatCurrency = (val) => {
 }
 
 const Dashboard = () => {
-  const { bills, customers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast, updateBill } = useAppContext()
+  const { bills: contextBills, customers: contextCustomers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast, updateBill } = useAppContext()
+  const { data: serverBills, isLoading: isLoadingBills } = useBills()
+  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
+  const bills = serverBills || contextBills || []
+  const customers = serverCustomers || contextCustomers || []
+  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
   const navigate = useNavigate()
   const today = new Date()
 
@@ -516,6 +524,9 @@ const Dashboard = () => {
           <span style={{ width: '4px', height: '14px', background: 'var(--gradient-accent)', borderRadius: '2px', display: 'inline-block' }} />
           Financial Performance
         </h3>
+        {isDataLoading ? (
+          <CardSkeleton count={4} />
+        ) : (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '20px' }}>
           <div className="stat-card">
             <div className="stat-card-header">
@@ -575,6 +586,7 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Operations & Receivables Section */}
@@ -583,6 +595,9 @@ const Dashboard = () => {
           <span style={{ width: '4px', height: '14px', background: 'var(--gradient-accent)', borderRadius: '2px', display: 'inline-block' }} />
           Operations & Receivables
         </h3>
+        {isDataLoading ? (
+          <CardSkeleton count={3} />
+        ) : (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
           <div className="stat-card">
             <div className="stat-card-header">
@@ -617,6 +632,7 @@ const Dashboard = () => {
             <div className="stat-card-sub">Active debtors in ledger</div>
           </div>
         </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '24px' }}>
@@ -632,7 +648,9 @@ const Dashboard = () => {
           </button>
         </div>
 
-        {pendingDues.length === 0 ? (
+        {isDataLoading ? (
+          <TableSkeleton rows={4} columns={5} />
+        ) : pendingDues.length === 0 ? (
           <EmptyState
             Icon={CheckCircle}
             title="All bills settled"
@@ -1096,6 +1114,9 @@ const Dashboard = () => {
           <Clock size={18} /> Recent Transactions
         </h3>
         <div className="table-container">
+          {isDataLoading ? (
+            <TableSkeleton rows={4} columns={4} />
+          ) : (
           <table className="table">
             <thead>
               <tr>
@@ -1130,6 +1151,7 @@ const Dashboard = () => {
               )}
             </tbody>
           </table>
+          )}
         </div>
       </div>
 
