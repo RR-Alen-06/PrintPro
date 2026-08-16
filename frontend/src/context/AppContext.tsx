@@ -87,7 +87,34 @@ const isUUID = (str) => {
 const loadState = (userId) => {
   try {
     if (!userId) return initialState
-    const stored = localStorage.getItem(`printpro-state:${userId}`)
+    let stored = localStorage.getItem(`printpro-state:${userId}`)
+
+    // =========================================================================
+    // TEMPORARY SCAFFOLDING: Legacy migration bridge for pre-TanStack-Query users
+    // If user has no scoped key yet, migrate legacy global 'printpro-state' key.
+    // Can be safely removed after a transition period (~a few months) once all users migrate.
+    // =========================================================================
+    if (!stored) {
+      try {
+        const legacyStored = localStorage.getItem('printpro-state')
+        if (legacyStored) {
+          const parsedLegacy = JSON.parse(legacyStored)
+          if (parsedLegacy && typeof parsedLegacy === 'object') {
+            localStorage.setItem(`printpro-state:${userId}`, legacyStored)
+            // Confirm the new key was written successfully before deleting the old key
+            if (localStorage.getItem(`printpro-state:${userId}`) === legacyStored) {
+              localStorage.removeItem('printpro-state')
+              console.log(`[Migration Bridge] Successfully migrated legacy localStorage to printpro-state:${userId}`)
+            }
+            stored = legacyStored
+          }
+        }
+      } catch (migrationErr) {
+        // Defensive: corrupted or unexpected old-format data must not crash login flow
+        console.warn('[Migration Bridge] Failed to migrate legacy localStorage, falling through to fresh cloud sync:', migrationErr)
+      }
+    }
+
     if (!stored) return initialState
     const parsed = JSON.parse(stored)
     
