@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useBills } from '../hooks/useBillsQuery'
+import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
@@ -20,13 +21,17 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, bills, payments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverBills } = useBills()
+  const { data: serverPayments } = usePayments()
   const { createCustomer, updateCustomer, deleteCustomer } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
   const customers = serverCustomers
+  const bills = serverBills || contextBills || []
+  const payments = serverPayments || contextPayments || []
 
   const copyUpiLink = (link) => {
     if (!link) return

@@ -183,6 +183,7 @@ export default function MobileBillDetail() {
         contextRecordPayment({
           id: `PAY-${Date.now()}`,
           billId: bill.id,
+          customerId: bill.customerId || bill.customer_id,
           date: new Date().toISOString().slice(0, 10),
           cashAmount: cash,
           upiAmount: upi,
