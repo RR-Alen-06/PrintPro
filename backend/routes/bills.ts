@@ -10,7 +10,7 @@ import {
   applyDiscount,
 } from '../controllers/billController';
 import { getPaymentsForBill } from '../controllers/paymentController';
-import { validateBill } from '../middleware/validate';
+import { validateBill, validateUpdateBill } from '../middleware/validate';
 
 const router = express.Router();
 
@@ -30,7 +30,7 @@ router.get('/:id', getBill);
 router.post('/', validateBill, createBill);
 
 // PUT /api/bills/:id
-router.put('/:id', validateBill, updateBill);
+router.put('/:id', validateUpdateBill, updateBill);
 
 // DELETE /api/bills/:id (soft delete)
 router.delete('/:id', deleteBill);

@@ -4,6 +4,7 @@ import {
   customerSchema,
   inventoryItemSchema,
   billSchema,
+  updateBillSchema,
   paymentSchema,
   purchaseSchema,
   profileSchema
@@ -32,6 +33,7 @@ export const validateRequest = (schema: ZodSchema) => {
 export const validateCustomer = validateRequest(customerSchema);
 export const validateInventoryItem = validateRequest(inventoryItemSchema);
 export const validateBill = validateRequest(billSchema);
+export const validateUpdateBill = validateRequest(updateBillSchema);
 export const validatePayment = validateRequest(paymentSchema);
 export const validatePurchase = validateRequest(purchaseSchema);
 export const validateProfile = validateRequest(profileSchema);

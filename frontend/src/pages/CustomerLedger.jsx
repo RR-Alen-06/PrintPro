@@ -3,7 +3,7 @@ import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertC
 import { useAppContext } from '../context/AppContext'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
-import { usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -36,11 +36,13 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers: contextCustomers, settings, bills: contextBills, payments, advancePayments, showToast, syncFromCloud } = useAppContext()
+  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud } = useAppContext()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
+  const { data: serverPayments } = usePayments()
   const customers = serverCustomers || contextCustomers || []
   const bills = serverBills || contextBills || []
+  const payments = serverPayments || contextPayments || []
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
 

@@ -51,6 +51,8 @@ export const billSchema = z.object({
   items: z.array(billItemSchema).optional()
 });
 
+export const updateBillSchema = billSchema.partial();
+
 export const paymentSchema = z.object({
   bill_id: z.string().min(1, 'Bill ID is required'),
   customer_id: z.string().min(1, 'Customer ID is required'),

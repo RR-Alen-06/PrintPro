@@ -272,45 +272,105 @@ export async function createBill(req: any, res: any, next: any) {
 
 // PUT /:id - Update bill
 export async function updateBill(req: any, res: any, next: any) {
+  const pool = getPool();
+  const conn = await pool.getConnection();
   try {
-    const pool = getPool();
-    const { id } = req.params;
-    const { due_date, notes, status } = req.body;
+    await conn.beginTransaction();
 
-    const [existing] = await pool.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, req.user.id]);
+    const { id } = req.params;
+    const {
+      customer_id,
+      date,
+      due_date,
+      subtotal,
+      discount_type,
+      discount_value,
+      gst_percent,
+      gst_amount,
+      total,
+      amount_paid,
+      balance,
+      status,
+      notes,
+      items
+    } = req.body;
+
+    const [existing] = await conn.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, req.user.id]);
     if (existing.length === 0) {
+      await conn.rollback();
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const updates: Record<string, any> = {};
+    if (customer_id !== undefined) updates.customer_id = customer_id;
+    if (date !== undefined) updates.date = date;
     if (due_date !== undefined) updates.due_date = due_date;
-    if (notes !== undefined) updates.notes = notes;
+    if (subtotal !== undefined) updates.subtotal = parseFloat(subtotal) || 0;
+    if (discount_type !== undefined) updates.discount_type = discount_type;
+    if (discount_value !== undefined) updates.discount_value = parseFloat(discount_value) || 0;
+    if (gst_percent !== undefined) updates.gst_percent = parseFloat(gst_percent) || 0;
+    if (gst_amount !== undefined) updates.gst_amount = parseFloat(gst_amount) || 0;
+    if (total !== undefined) updates.total = parseFloat(total) || 0;
+    if (amount_paid !== undefined) updates.amount_paid = parseFloat(amount_paid) || 0;
+    if (balance !== undefined) updates.balance = parseFloat(balance) || 0;
     if (status !== undefined) updates.status = status;
+    if (notes !== undefined) updates.notes = notes;
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ success: false, error: 'No fields to update' });
+    if (Object.keys(updates).length > 0) {
+      const keys = Object.keys(updates);
+      const setClauses = keys.map((key, idx) => `${key} = $${idx + 1}`).join(', ');
+      const values = Object.values(updates);
+      values.push(id, req.user.id);
+
+      await conn.query(
+        `UPDATE bills SET ${setClauses}, updated_at = NOW() WHERE id = $${keys.length + 1} AND user_id = $${keys.length + 2}`,
+        values
+      );
     }
 
-    const keys = Object.keys(updates);
-    const setClauses = keys.map((key, idx) => `${key} = $${idx + 1}`).join(', ');
-    const values = Object.values(updates);
-    values.push(id, req.user.id);
-
-    await pool.query(
-      `UPDATE bills SET ${setClauses}, updated_at = NOW() WHERE id = $${keys.length + 1} AND user_id = $${keys.length + 2}`,
-      values
-    );
+    // If items are provided, replace bill_items
+    if (Array.isArray(items) && items.length > 0) {
+      await conn.query('DELETE FROM bill_items WHERE bill_id = $1 AND user_id = $2', [id, req.user.id]);
+      for (const item of items) {
+        const uPrice = parseFloat(item.unit_price) || 0;
+        const q = parseFloat(item.qty) || 1;
+        const amt = parseFloat((item.amount !== undefined ? parseFloat(item.amount) : q * uPrice).toFixed(2));
+        await conn.query(
+          `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [req.user.id, id, item.item_name || item.name || 'Print Item', item.print_type || 'color', item.sides || 'single', q, uPrice, amt]
+        );
+      }
+    }
 
     // Audit log
-    await pool.query(
+    await conn.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [req.user.id, 'UPDATE', 'bill', id, JSON.stringify(existing[0]), JSON.stringify(updates)]
+      [req.user.id, 'UPDATE', 'bill', id, JSON.stringify(existing[0]), JSON.stringify({ ...updates, items: items?.length })]
     );
 
-    const [updated] = await pool.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    await conn.commit();
+
+    const [updated] = await pool.query(
+      `SELECT b.*, c.name AS customer_name, c.phone AS customer_phone
+       FROM bills b LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.id = $1 AND b.user_id = $2`,
+      [id, req.user.id]
+    );
+    const [updatedItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = $1 AND user_id = $2', [id, req.user.id]);
+
+    res.json({
+      success: true,
+      data: {
+        ...updated[0],
+        items: updatedItems
+      }
+    });
   } catch (err) {
+    await conn.rollback();
     next(err);
+  } finally {
+    conn.release();
   }
 }
 
