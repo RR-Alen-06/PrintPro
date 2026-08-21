@@ -36,14 +36,28 @@ export function usePaymentMutations() {
       await queryClient.cancelQueries({ queryKey: userPaymentsKey })
       const previousPayments = queryClient.getQueryData(userPaymentsKey) || []
 
+      const cash = Number(newPayment.cash_amount !== undefined ? newPayment.cash_amount : (newPayment.cashAmount || 0))
+      const upi = Number(newPayment.upi_amount !== undefined ? newPayment.upi_amount : (newPayment.upiAmount || 0))
+      const total = Number(newPayment.total_paid !== undefined ? newPayment.total_paid : (newPayment.totalPaid || (cash + upi)))
+      const billId = newPayment.bill_id || newPayment.billId
+      const customerId = newPayment.customer_id || newPayment.customerId
+      const pType = newPayment.payment_type || newPayment.paymentType || 'partial'
+
       const optimisticPayment = {
         id: newPayment.id || `temp-pay-${Date.now()}`,
-        bill_id: newPayment.bill_id,
-        customer_id: newPayment.customer_id,
-        cash_amount: newPayment.cash_amount || 0,
-        upi_amount: newPayment.upi_amount || 0,
-        total_paid: newPayment.total_paid || 0,
-        payment_type: newPayment.payment_type || 'partial',
+        billId,
+        bill_id: billId,
+        customerId,
+        customer_id: customerId,
+        date: newPayment.date || new Date().toISOString().slice(0, 10),
+        cashAmount: cash,
+        cash_amount: cash,
+        upiAmount: upi,
+        upi_amount: upi,
+        totalPaid: total,
+        total_paid: total,
+        paymentType: pType,
+        payment_type: pType,
         notes: newPayment.notes || '',
         isOptimistic: true,
       }
