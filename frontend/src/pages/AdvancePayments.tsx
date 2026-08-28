@@ -1,10 +1,13 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useCustomerMutations } from '../hooks/useCustomersQuery'
+import { ApiService } from '../services/apiService'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
   const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer, syncState } = useAppContext()
+  const { createCustomer } = useCustomerMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -109,24 +112,24 @@ const AdvancePayments = () => {
       if (mode === 'new') {
         if (!newName.trim()) { setFormError('Customer name is required.'); return }
         try {
-          const newCustId = await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
-          custId = newCustId
+          const createdCust = await (createCustomer as any)({
+            type: newType,
+            name: newName.trim(),
+            phone: newPhone.trim(),
+            email: '',
+            credit_balance: 0,
+            credit_limit: 0,
+          })
+          custId = createdCust?.id || await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
           custName = newName.trim()
-
-          // Poll syncState for customer creation completion
-          let attempts = 0
-          while (attempts < 10) {
-            await new Promise(resolve => setTimeout(resolve, 300))
-            const currentSyncStatus = syncState?.[newCustId]
-            if (currentSyncStatus === 'synced') break
-            if (currentSyncStatus === 'failed') {
-              throw new Error('Customer creation failed to sync to cloud database.')
-            }
-            attempts++
+        } catch (custErr: any) {
+          try {
+            custId = await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
+            custName = newName.trim()
+          } catch (e: any) {
+            setFormError(`Failed to save customer: ${custErr.message || 'Sync error'}`)
+            return
           }
-        } catch (custErr) {
-          setFormError(`Failed to save customer: ${custErr.message || 'Sync error'}`)
-          return
         }
       } else {
         if (!custId) { setFormError('Select a customer.'); return }
