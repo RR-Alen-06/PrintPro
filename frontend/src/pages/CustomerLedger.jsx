@@ -4,6 +4,7 @@ import { useAppContext } from '../context/AppContext'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { ApiService } from '../services/apiService'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -36,7 +37,7 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud } = useAppContext()
+  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud, processRefund } = useAppContext()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverPayments } = usePayments()
@@ -117,8 +118,6 @@ const CustomerLedger = () => {
     })
   }, [payments, selectedCustomerId])
 
-  // Build full ledger timeline with period filter
-  // Build full ledger timeline with period filter
   // Build full ledger timeline with period filter using LedgerService
   const ledgerEntries = useMemo(() => {
     const res = LedgerService.calculateLedger({
@@ -137,14 +136,24 @@ const CustomerLedger = () => {
     const upi = Number(payUpi || 0)
     if (cash + upi <= 0 || !selectedCustomer) return
 
-    await createPayment({
-      customer_id: selectedCustomer.id,
-      cash_amount: cash,
-      upi_amount: upi,
-      total_paid: cash + upi,
-      payment_type: 'partial',
-      notes: `Payment from ledger page`,
-    })
+    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
+    try {
+      await ApiService.recordCustomerPayment({
+        customer_id: selectedCustomer.id,
+        amount: cash + upi,
+        payment_method: method,
+        notes: `Payment from ledger page (${method})`,
+      })
+    } catch {
+      await createPayment({
+        customer_id: selectedCustomer.id,
+        cash_amount: cash,
+        upi_amount: upi,
+        total_paid: cash + upi,
+        payment_type: 'partial',
+        notes: `Payment from ledger page`,
+      })
+    }
 
     setPayCash('')
     setPayUpi('')

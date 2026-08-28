@@ -4,6 +4,8 @@ import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { ApiService } from '../services/apiService'
+import { LedgerService } from '../services/ledgerService'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
@@ -85,49 +87,20 @@ const Customers = () => {
 
   const ledgerData = useMemo(() => {
     if (!selectedCustomer) return []
-    const customerBills = bills.filter(b => b.customerId === selectedCustomer.id && !b.deleted)
-    const customerPayments = payments.filter(p => p.customerId === selectedCustomer.id)
-
-    const events = []
-
-    if (selectedCustomer.openingBalance && Number(selectedCustomer.openingBalance) > 0) {
-      events.push({
-        date: selectedCustomer.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-        type: 'Opening Balance',
-        refId: 'OB',
-        debit: Number(selectedCustomer.openingBalance),
-        credit: 0,
-      })
-    }
-
-    customerBills.forEach(b => {
-      events.push({
-        date: b.date,
-        type: `Invoice #${b.invoiceNumber || b.id}`,
-        refId: b.invoiceNumber || b.id,
-        debit: Number(b.total || 0),
-        credit: 0,
-      })
+    const customerBills = bills.filter((b: any) => b.customerId === selectedCustomer.id && !b.deleted)
+    const customerPayments = payments.filter((p: any) => p.customerId === selectedCustomer.id)
+    const res = LedgerService.buildCustomerLedger({
+      bills: customerBills,
+      payments: customerPayments
     })
-
-    customerPayments.forEach(p => {
-      const isRefund = p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0
-      events.push({
-        date: p.date,
-        type: isRefund ? 'Refund Outflow' : `Payment (via ${p.method || 'Cash/UPI'})`,
-        refId: p.id,
-        debit: isRefund ? Math.abs(Number(p.totalPaid || 0)) : 0,
-        credit: isRefund ? 0 : Number(p.totalPaid || 0),
-      })
-    })
-
-    events.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-    let running = 0
-    return events.map(ev => {
-      running += ev.debit - ev.credit
-      return { ...ev, balance: running }
-    })
+    return res.entries.map(e => ({
+      date: e.date?.slice(0, 10) || e.date,
+      type: e.type === 'BILL' ? `Invoice #${e.reference_no}` : e.description,
+      refId: e.reference_no,
+      debit: e.bill_amount,
+      credit: e.paid_amount,
+      balance: e.running_balance
+    }))
   }, [selectedCustomer, bills, payments])
 
   const handleShareLedgerWhatsApp = () => {
@@ -172,8 +145,6 @@ const Customers = () => {
     })
   }, [customers, searchQuery, filterType])
 
-
-
   // Bills for selected customer (non-deleted, newest first)
   const customerBills = useMemo(() => {
     if (!selectedCustomerId) return []
@@ -184,31 +155,52 @@ const Customers = () => {
 
   // Outstanding balance for selected customer
   const outstandingBalance = useMemo(() => {
-    return customerBills.reduce((sum, b) => sum + Number(b.balance || 0), 0)
-  }, [customerBills])
+    if (!selectedCustomer) return 0
+    const summary = LedgerService.computeCustomerSummary({
+      customer: selectedCustomer,
+      bills,
+      payments
+    })
+    return summary.balance_due
+  }, [selectedCustomer, bills, payments])
 
   // Total outstanding for any customer (for list display)
-  const getCustomerOutstanding = (customerId) => {
-    return bills
-      .filter((b) => !b.deleted && b.customerId === customerId)
-      .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+  const getCustomerOutstanding = (customerId: string) => {
+    const cust = customers.find((c: any) => c.id === customerId)
+    if (!cust) return 0
+    const summary = LedgerService.computeCustomerSummary({
+      customer: cust,
+      bills,
+      payments
+    })
+    return summary.balance_due
   }
 
-  // Apply payment to oldest unpaid bills first via FIFO (handled in Backend)
+  // Apply payment to oldest unpaid bills first via FIFO
   const handleApplyPayment = async () => {
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
     const totalPaying = cash + upi
     if (totalPaying <= 0 || !selectedCustomer) return
 
-    await (createPayment as any)({
-      customer_id: selectedCustomer.id,
-      cash_amount: cash,
-      upi_amount: upi,
-      total_paid: totalPaying,
-      payment_type: 'partial',
-      notes: `Payment from customer page`,
-    })
+    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
+    try {
+      await ApiService.recordCustomerPayment({
+        customer_id: selectedCustomer.id,
+        amount: totalPaying,
+        payment_method: method,
+        notes: `Payment from customer page (${method})`,
+      })
+    } catch {
+      await (createPayment as any)({
+        customer_id: selectedCustomer.id,
+        cash_amount: cash,
+        upi_amount: upi,
+        total_paid: totalPaying,
+        payment_type: 'partial',
+        notes: `Payment from customer page`,
+      })
+    }
 
     setPayCash(0)
     setPayUpi(0)
@@ -222,15 +214,26 @@ const Customers = () => {
     const totalPaying = cash + upi
     if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
 
-    await (createPayment as any)({
-      bill_id: bill.id,
-      customer_id: bill.customerId || bill.customer_id,
-      cash_amount: cash,
-      upi_amount: upi,
-      total_paid: totalPaying,
-      payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
-      notes: `Selective payment for bill ${bill.id}`,
-    })
+    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
+    try {
+      await ApiService.recordCustomerPayment({
+        customer_id: bill.customerId || bill.customer_id,
+        bill_id: bill.id,
+        amount: totalPaying,
+        payment_method: method,
+        notes: `Selective payment for bill ${bill.id}`,
+      })
+    } catch {
+      await (createPayment as any)({
+        bill_id: bill.id,
+        customer_id: bill.customerId || bill.customer_id,
+        cash_amount: cash,
+        upi_amount: upi,
+        total_paid: totalPaying,
+        payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
+        notes: `Selective payment for bill ${bill.id}`,
+      })
+    }
 
     setTargetBillPayId(null)
     setTargetCash(0)

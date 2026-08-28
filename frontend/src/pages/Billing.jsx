@@ -4,6 +4,8 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { ApiService } from '../services/apiService'
+import { BillingService } from '../services/billingService'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
@@ -1403,8 +1405,40 @@ const Billing = () => {
         return
       }
 
-      const createdBill = await createBill(billPayload)
-      const newBillId = createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
+      let createdBill = null
+      try {
+        createdBill = await ApiService.createBill({
+          customer_id: customerIdToUse || null,
+          customer_name: customerNameToUse,
+          total: subtotal,
+          discount: discountAmount + (loyaltyDiscount || 0),
+          rounding_method: 'None',
+          rounding_adjustment: 0,
+          grand_total: total,
+          cash_paid: finalCashAmount,
+          upi_paid: finalUpiAmount,
+          advance_used: appliedAdvance,
+          points_to_redeem: pointsRedeemed,
+          loyalty_points_earned: pointsRedeemed > 0 ? 0 : Math.max(1, Math.floor(total / 100)),
+          notes,
+          estimated_completion: estimatedCompletion || undefined,
+          items: mergedItemRows.map((row) => ({
+            item_id: row.itemId || null,
+            item_name: row.itemName || 'Print Item',
+            print_type: row.printType || 'color',
+            sides: row.sides || 'single',
+            qty: Number(row.qty),
+            unit_price: Number(row.unitPrice),
+            amount: Number(row.amount),
+            gst_rate: Number(row.gstRate || 0),
+          })),
+        })
+      } catch (apiErr) {
+        console.warn('Falling back to standard mutation:', apiErr)
+        createdBill = await createBill(billPayload)
+      }
+
+      const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
       const paid = Number(billPayload.amountPaid || billPayload.amount_paid || 0)
       const bal = Math.max((billPayload.total || 0) - paid, 0)
       const status = paid >= (billPayload.total || 0) ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
@@ -1412,13 +1446,14 @@ const Billing = () => {
         ...billPayload,
         id: createdBill?.id || newBillId,
         invoice_number: newBillId,
+        bill_number: newBillId,
         amountPaid: paid,
         balance: bal,
         status: status,
       }
       setCreatedBillObj(fullBillObj)
       setLastBillId(createdBill?.id || newBillId)
-      showToast(`Bill created successfully!`, 'success')
+      showToast(`Bill #${newBillId} created successfully!`, 'success')
       resetForm()
     } catch (err) {
       showAlert(`Failed to create bill: ${err.message}`, 'error')
