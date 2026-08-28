@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useExpenses, useExpenseMutations } from '../hooks/useExpensesQuery'
+import { ApiService } from '../services/apiService'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink, Loader2 } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
@@ -358,16 +359,28 @@ const Accounting = () => {
     }
 
     try {
-      await createExpense({
-        date: expForm.date || today,
-        description: expForm.description.trim(),
-        item_name: expForm.description.trim(),
-        amount,
-        total: amount,
-        cashAmount: cash,
-        upiAmount: upi,
-        receiptUrl: expForm.receiptUrl || '',
-      })
+      try {
+        await ApiService.addExpense({
+          title: expForm.description.trim(),
+          amount,
+          cash_amount: cash,
+          upi_amount: upi,
+          category: 'Shop Expense',
+          date: expForm.date || today,
+          receipt_url: expForm.receiptUrl || undefined,
+        })
+      } catch {
+        await createExpense({
+          date: expForm.date || today,
+          description: expForm.description.trim(),
+          item_name: expForm.description.trim(),
+          amount,
+          total: amount,
+          cashAmount: cash,
+          upiAmount: upi,
+          receiptUrl: expForm.receiptUrl || '',
+        })
+      }
 
       setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '', receiptUrl: '' })
       setExpSuccess(true)

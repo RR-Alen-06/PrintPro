@@ -36,6 +36,9 @@ export const createItem = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
   const payload = {
     name: data.name,
+    type: data.type || 'print',
+    hsn_code: data.hsn_code || data.hsnCode || null,
+    selling_price: Number(data.selling_price !== undefined ? data.selling_price : (data.sellingPrice || 0)),
     color_single: Number(data.color_single !== undefined ? data.color_single : (data.colorSingle || 0)),
     color_double: Number(data.color_double !== undefined ? data.color_double : (data.colorDouble || 0)),
     bw_single: Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle || 0)),
@@ -46,7 +49,7 @@ export const createItem = async (data: any) => {
 
   try {
     const res = await api.post('/inventory', payload);
-    return { data: { data: res.data.data } };
+    return { data: { data: mapItemFromApi(res.data.data) } };
   } catch (err: any) {
     if (err.response && err.response.status >= 400 && err.response.status < 500) {
       throw err;
@@ -57,23 +60,49 @@ export const createItem = async (data: any) => {
       .select()
       .single();
     if (error) throw error;
-    return { data: { data: inserted } };
+    return { data: { data: mapItemFromApi(inserted) } };
   }
 }
 
 export const updateItem = async (id, data) => {
+  const payload: any = {};
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.type !== undefined) payload.type = data.type;
+  if (data.hsn_code !== undefined || data.hsnCode !== undefined) {
+    payload.hsn_code = data.hsn_code || data.hsnCode || null;
+  }
+  if (data.selling_price !== undefined || data.sellingPrice !== undefined) {
+    payload.selling_price = Number(data.selling_price !== undefined ? data.selling_price : data.sellingPrice);
+  }
+  if (data.color_single !== undefined || data.colorSingle !== undefined) {
+    payload.color_single = Number(data.color_single !== undefined ? data.color_single : data.colorSingle);
+  }
+  if (data.color_double !== undefined || data.colorDouble !== undefined) {
+    payload.color_double = Number(data.color_double !== undefined ? data.color_double : data.colorDouble);
+  }
+  if (data.bw_single !== undefined || data.bwSingle !== undefined) {
+    payload.bw_single = Number(data.bw_single !== undefined ? data.bw_single : data.bwSingle);
+  }
+  if (data.bw_double !== undefined || data.bwDouble !== undefined) {
+    payload.bw_double = Number(data.bw_double !== undefined ? data.bw_double : data.bwDouble);
+  }
+  if (data.stock !== undefined) payload.stock = Number(data.stock);
+  if (data.low_stock_alert !== undefined || data.lowStockAlert !== undefined) {
+    payload.low_stock_alert = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : data.lowStockAlert);
+  }
+
   try {
-    const res = await api.put(`/inventory/${id}`, data);
-    return { data: { data: res.data.data } };
+    const res = await api.put(`/inventory/${id}`, payload);
+    return { data: { data: mapItemFromApi(res.data.data) } };
   } catch (err) {
     const { data: updated, error } = await supabase
       .from('inventory_items')
-      .update(data)
+      .update(payload)
       .eq('id', id)
       .select()
       .single();
     if (error) throw error;
-    return { data: { data: updated } };
+    return { data: { data: mapItemFromApi(updated) } };
   }
 }
 

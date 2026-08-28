@@ -71,6 +71,9 @@ const Inventory = () => {
     try {
       await (createItem as any)({
         name: addForm.name.trim(),
+        type: addForm.type || 'print',
+        hsn_code: addForm.hsnCode?.trim() || null,
+        selling_price: addForm.type === 'product' ? Number(addForm.sellingPrice || 0) : 0,
         color_single: addForm.type === 'product' ? 0 : Number(addForm.colorSingle || 0),
         color_double: addForm.type === 'product' ? 0 : Number(addForm.colorDouble || 0),
         bw_single: addForm.type === 'product' ? 0 : Number(addForm.bwSingle || 0),
@@ -125,6 +128,9 @@ const Inventory = () => {
         id,
         data: {
           name: editForm.name.trim(),
+          type: editForm.type || 'print',
+          hsn_code: editForm.hsnCode?.trim() || null,
+          selling_price: editForm.type === 'product' ? Number(editForm.sellingPrice || 0) : 0,
           color_single: editForm.type === 'product' ? 0 : Number(editForm.colorSingle || 0),
           color_double: editForm.type === 'product' ? 0 : Number(editForm.colorDouble || 0),
           bw_single: editForm.type === 'product' ? 0 : Number(editForm.bwSingle || 0),

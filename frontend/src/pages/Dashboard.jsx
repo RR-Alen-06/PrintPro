@@ -4,6 +4,8 @@ import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, Che
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
+import { ApiService } from '../services/apiService'
+import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { CardSkeleton, TableSkeleton } from '../components/common/Skeleton'
 import { DashboardService } from '../utils/financialServices'
@@ -283,6 +285,14 @@ const Dashboard = () => {
   const pendingAmount = dashboardStats.pendingAmount
   const totalRefunds = dashboardStats.totalRefunds
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
+
+  const paymentReconciliation = useMemo(() => {
+    return ReconciliationService.computePaymentReconciliation({
+      bills: filteredData.bills,
+      payments: filteredData.payments,
+      customersAdvanceBalance: totalCustomerAdvance,
+    })
+  }, [filteredData, totalCustomerAdvance])
 
   const agingReport = useMemo(() => {
     return DashboardService.calculateAgingReport(bills)
