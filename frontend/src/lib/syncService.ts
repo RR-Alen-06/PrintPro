@@ -63,7 +63,10 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
 
       case 'ADD_INVENTORY_ITEM':
         return await createItem({
-          name: `${payload.name} | type:${payload.type || 'print'} | hsn:${payload.hsnCode || ''} | price:${payload.sellingPrice || 0}`,
+          name: payload.name,
+          type: payload.type || 'print',
+          hsn_code: payload.hsnCode || null,
+          selling_price: payload.sellingPrice || 0,
           color_single: payload.colorSingle || 0,
           color_double: payload.colorDouble || 0,
           bw_single: payload.bwSingle || 0,
@@ -75,7 +78,10 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
       case 'UPDATE_INVENTORY_ITEM':
         if (payload.id) {
           await updateItem(payload.id, {
-            name: `${payload.updates.name} | type:${payload.updates.type || 'print'} | hsn:${payload.updates.hsnCode || ''} | price:${payload.updates.sellingPrice || 0}`,
+            name: payload.updates.name,
+            type: payload.updates.type || 'print',
+            hsn_code: payload.updates.hsnCode || null,
+            selling_price: payload.updates.sellingPrice || 0,
             color_single: payload.updates.colorSingle,
             color_double: payload.updates.colorDouble,
             bw_single: payload.updates.bwSingle,
