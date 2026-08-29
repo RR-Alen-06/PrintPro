@@ -1,40 +1,20 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { ReconciliationService } from '../services/reconciliationService'
 import PeriodReport from '../components/PeriodReport'
 import { Banknote, Smartphone, Tag, ShieldAlert, RefreshCw, Box, Users } from 'lucide-react'
 
 const PERIODS = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom', 'all']
 
-const getPeriodRange = (period) => {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (period === 'daily') return { start: today, end: new Date(today.getTime() + 86400000 - 1) }
-  if (period === 'weekly') {
-    const day = today.getDay()
-    const mon = new Date(today); mon.setDate(today.getDate() - (day === 0 ? 6 : day - 1))
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-    return { start: mon, end: sun }
-  }
-  if (period === 'monthly') {
-    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0) }
-  }
-  if (period === 'quarterly') {
-    const q = Math.floor(now.getMonth() / 3)
-    return { start: new Date(now.getFullYear(), q * 3, 1), end: new Date(now.getFullYear(), q * 3 + 3, 0) }
-  }
-  if (period === 'yearly') {
-    return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31) }
-  }
-  return null // 'all' or 'custom'
-}
-
 const filterByDate = (items, dateKey, range) => {
-  if (!range) return items
+  if (!range || (!range.start && !range.startDate)) return items
+  const start = range.start || range.startDate
+  const end = range.end || range.endDate
   return items.filter((item) => {
     const d = item[dateKey] ? new Date(item[dateKey]) : null
     if (!d) return false
-    const afterStart = range.start ? d >= range.start : true
-    const beforeEnd = range.end ? d <= range.end : true
+    const afterStart = start ? d >= start : true
+    const beforeEnd = end ? d <= end : true
     return afterStart && beforeEnd
   })
 }
@@ -46,20 +26,14 @@ const Analytics = () => {
   const [customEndDate, setCustomEndDate] = useState('')
 
   const range = useMemo(() => {
-    if (period === 'custom') {
-      let start = null
-      if (customStartDate) {
-        const [y, m, d] = customStartDate.split('-').map(Number)
-        start = new Date(y, m - 1, d, 0, 0, 0, 0)
-      }
-      let end = null
-      if (customEndDate) {
-        const [y, m, d] = customEndDate.split('-').map(Number)
-        end = new Date(y, m - 1, d, 23, 59, 59, 999)
-      }
-      return { start, end }
-    }
-    return getPeriodRange(period)
+    if (period === 'all') return null
+    const bounds = ReconciliationService.getDateRangeBounds(
+      period,
+      period === 'custom' && customStartDate && customEndDate
+        ? { from: customStartDate, to: customEndDate }
+        : undefined
+    )
+    return { start: bounds.startDate, end: bounds.endDate }
   }, [period, customStartDate, customEndDate])
 
   const filteredBills = useMemo(() => filterByDate(bills.filter(b => !b.deleted && !b.isGroupParent), 'date', range), [bills, range])
