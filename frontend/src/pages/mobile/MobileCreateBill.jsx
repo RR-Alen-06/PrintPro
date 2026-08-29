@@ -4,6 +4,7 @@ import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { SequenceService } from '../../services/sequenceService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
@@ -362,11 +363,14 @@ export default function MobileCreateBill() {
       }
 
       const existingBill = editBillId ? serverBills.find(b => String(b.id) === String(editBillId)) : null
+      const generatedInvoiceNo = editBillId
+        ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `BILL-${editBillId}`)
+        : await SequenceService.getNextSequence('BILL')
 
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
-        invoice_number: editBillId ? (existingBill?.invoiceNumber || existingBill?.invoice_number) : `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-        invoiceNumber: editBillId ? (existingBill?.invoiceNumber || existingBill?.invoice_number) : `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+        invoice_number: generatedInvoiceNo,
+        invoiceNumber: generatedInvoiceNo,
         date: billDate,
         due_date: dueDate,
         dueDate: dueDate,
