@@ -5,6 +5,8 @@ import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { SequenceService } from '../../services/sequenceService'
+import { LoyaltyService } from '../../services/loyaltyService'
+import { CreditService } from '../../services/creditService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
@@ -269,14 +271,12 @@ export default function MobileCreateBill() {
     return itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
   }, [itemRows])
 
-  // Loyalty Discount Calculation
+  // Loyalty Discount Calculation via Headless LoyaltyService
   const loyaltyDiscount = useMemo(() => {
     if (!shouldRedeemLoyalty || !selectedCustomerObj) return 0
     const points = Number(loyaltyPointsRedeemed || 0)
-    const ratioPoints = settings?.loyaltyRedeemRatioPoints || 150
-    const ratioRupees = settings?.loyaltyRedeemRatioRupees || 5
-    if (points <= 0 || ratioPoints <= 0) return 0
-    return Math.min((points / ratioPoints) * ratioRupees, subtotal)
+    const available = Number(selectedCustomerObj.loyalty_points || selectedCustomerObj.loyaltyPoints || 0)
+    return LoyaltyService.calculateRedemptionDiscount(points, available, subtotal, settings)
   }, [shouldRedeemLoyalty, selectedCustomerObj, loyaltyPointsRedeemed, settings, subtotal])
 
   const calculatedDiscount = useMemo(() => {
@@ -297,16 +297,17 @@ export default function MobileCreateBill() {
     return Math.min(disc, subtotal)
   }, [subtotal, discountType, discountValue, appliedPromo, loyaltyDiscount])
 
-  // Advance Credit Deduction
+  // Advance Credit Deduction via Headless CreditService
+  const netBeforeAdvance = Math.max(0, subtotal - calculatedDiscount)
   const advanceDeduction = useMemo(() => {
     if (!useAdvanceCredit || !selectedCustomerObj) return 0
     const credit = Number(selectedCustomerObj.creditBalance || selectedCustomerObj.credit_balance || 0)
-    return Math.min(credit, Math.max(0, subtotal - calculatedDiscount))
-  }, [useAdvanceCredit, selectedCustomerObj, subtotal, calculatedDiscount])
+    return CreditService.calculateAdvanceDrawdown(credit, netBeforeAdvance).advanceUsed
+  }, [useAdvanceCredit, selectedCustomerObj, netBeforeAdvance])
 
   const grandTotal = useMemo(() => {
-    return Math.max(0, subtotal - calculatedDiscount - advanceDeduction)
-  }, [subtotal, calculatedDiscount, advanceDeduction])
+    return Math.max(0, netBeforeAdvance - advanceDeduction)
+  }, [netBeforeAdvance, advanceDeduction])
 
   // Apply Promo Code
   const handleApplyPromo = () => {
