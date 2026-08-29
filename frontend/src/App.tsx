@@ -21,7 +21,6 @@ import CustomerBills from './pages/CustomerBills'
 import AdvancePayments from './pages/AdvancePayments'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
-import CustomerPortal from './pages/CustomerPortal'
 import NotificationsPage from './pages/Notifications'
 import DeletedBills from './pages/DeletedBills'
 import ErrorBoundary from './components/common/ErrorBoundary'
@@ -42,7 +41,6 @@ import MobileAccounting from './pages/mobile/MobileAccounting'
 import MobileAnalytics from './pages/mobile/MobileAnalytics'
 import MobileGroupBilling from './pages/mobile/MobileGroupBilling'
 import MobileCustomerBills from './pages/mobile/MobileCustomerBills'
-import MobileCustomerPortal from './pages/mobile/MobileCustomerPortal'
 import MobileReceipt from './pages/mobile/MobileReceipt'
 import MobileItemSalesReport from './pages/mobile/MobileItemSalesReport'
 import MobileDataManagement from './pages/mobile/MobileDataManagement'
@@ -138,7 +136,6 @@ function App() {
           <Route path="/mobile/analytics" element={<MobileAnalytics />} />
           <Route path="/mobile/group-billing" element={<MobileGroupBilling />} />
           <Route path="/mobile/customer-bills" element={<MobileCustomerBills />} />
-          <Route path="/mobile/portal" element={<MobileCustomerPortal />} />
           <Route path="/mobile/receipt" element={<MobileReceipt />} />
           <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
           <Route path="/mobile/data-management" element={<MobileDataManagement />} />
@@ -189,7 +186,6 @@ function App() {
               <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/group-billing" element={<GroupBilling />} />
               <Route path="/refunds" element={<Refunds />} />
-              <Route path="/portal" element={<CustomerPortal />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </ErrorBoundary>

@@ -26,7 +26,6 @@ const Settings = () => {
     viewMode: settings.viewMode || 'monthly',
     refundsEnabled: settings.refundsEnabled !== false,
     fyInvoicePrefixing: settings.fyInvoicePrefixing === true,
-    portalEnabled: settings.portalEnabled === true,
   })
   const [acctSaved, setAcctSaved] = useState(false)
 
@@ -233,7 +232,6 @@ const Settings = () => {
       viewMode: acct.viewMode,
       refundsEnabled: acct.refundsEnabled,
       fyInvoicePrefixing: acct.fyInvoicePrefixing,
-      portalEnabled: acct.portalEnabled,
     })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
@@ -441,23 +439,6 @@ const Settings = () => {
               </label>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
                 Generate tax invoices prefixed with the current FY (e.g. INV/26-27/0001) and reset sequence back to 1 every April 1st.
-              </p>
-            </div>
-          </div>
-
-          <div className="form-row" style={{ marginBottom: '16px' }}>
-            <div className="form-group" style={{ marginBottom: '0' }}>
-              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={acct.portalEnabled}
-                  onChange={(e) => setAcct((a) => ({ ...a, portalEnabled: e.target.checked }))}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <span style={{ fontWeight: 600 }}>Enable Customer Upload Portal</span>
-              </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                Allow customers to upload files (PDF, images, documents) via a public portal link. Uploaded orders appear in a "POS Online Orders" queue on the Billing page.
               </p>
             </div>
           </div>
