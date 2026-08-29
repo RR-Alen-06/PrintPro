@@ -61,7 +61,8 @@ const DataManagement = () => {
         if (!validateBackupFile(data)) throw new Error('Invalid backup file format')
         const restored = restoreFromBackup(data)
         showImport('Backup restored — reloading in 2s…')
-        localStorage.setItem('printpro-state', JSON.stringify(restored))
+        const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
+        localStorage.setItem(userKey, JSON.stringify(restored))
         setTimeout(() => window.location.reload(), 2000)
       } else if (importType === 'customers') {
         const data = await importFromCSV(file)
