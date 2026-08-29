@@ -33,6 +33,20 @@ export function useBill(id) {
   })
 }
 
+export function useDeletedBills() {
+  const { currentUser } = useAppContext()
+  const userId = currentUser?.id
+
+  return useQuery({
+    queryKey: [...BILLS_QUERY_KEY, 'deleted', userId],
+    queryFn: async () => {
+      const res = await billsApi.getDeletedBills()
+      return res.data?.data || []
+    },
+    enabled: !!userId,
+  })
+}
+
 export function useBillMutations() {
   const queryClient = useQueryClient()
   const { currentUser } = useAppContext()
@@ -128,12 +142,25 @@ export function useBillMutations() {
     },
   })
 
+  const restoreBillMutation = useMutation({
+    mutationFn: async (id) => {
+      await billsApi.restoreBill(id)
+      return id
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+    },
+  })
+
   return {
     createBill: createBillMutation.mutateAsync,
     updateBill: updateBillMutation.mutateAsync,
     deleteBill: deleteBillMutation.mutateAsync,
+    restoreBill: restoreBillMutation.mutateAsync,
     isCreatingBill: createBillMutation.isPending,
     isUpdatingBill: updateBillMutation.isPending,
     isDeletingBill: deleteBillMutation.isPending,
+    isRestoringBill: restoreBillMutation.isPending,
   }
 }
