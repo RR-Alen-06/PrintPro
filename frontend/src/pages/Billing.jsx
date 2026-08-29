@@ -113,21 +113,6 @@ const Billing = () => {
   const [showUpiQrModal, setShowUpiQrModal] = useState(false)
   const [upiQrAmount, setUpiQrAmount] = useState(0)
 
-  // Portal orders state
-  const [portalOrders, setPortalOrders] = useState([])
-  const [activePortalOrderId, setActivePortalOrderId] = useState('')
-
-  useEffect(() => {
-    const loadPortalOrders = () => {
-      const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-      setPortalOrders(orders.filter(o => o.status !== 'completed'))
-    }
-    loadPortalOrders()
-    // Poll every 5 seconds to get updates in real time
-    const interval = setInterval(loadPortalOrders, 5000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Auto-select regular customer if unselected when customers load
   useEffect(() => {
     if (!customerId && customerType === 'regular') {
@@ -162,87 +147,6 @@ const Billing = () => {
       })
     }
   }, [inventory])
-
-  const completePortalOrder = () => {
-    if (!activePortalOrderId) return
-    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-    const updated = orders.map(o => o.id === activePortalOrderId ? { ...o, status: 'completed' } : o)
-    localStorage.setItem('portal_orders', JSON.stringify(updated))
-    setPortalOrders(updated.filter(o => o.status !== 'completed'))
-    setActivePortalOrderId('')
-  }
-
-  const handleAddDemoPortalOrder = () => {
-    const demoOrder = {
-      id: `portal-${Date.now()}`,
-      customerName: 'Alex Smith (Online Upload)',
-      customerPhone: '+1 555-0199',
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-      files: [
-        {
-          id: `file-1`,
-          name: 'Presentation_Slides_Color.pdf',
-          config: {
-            copies: 2,
-            printType: 'color',
-            sides: 'double',
-          },
-        },
-        {
-          id: `file-2`,
-          name: 'Architectural_Plans_BW.pdf',
-          config: {
-            copies: 5,
-            printType: 'bw',
-            sides: 'single',
-          },
-        },
-      ],
-    }
-    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-    const updated = [demoOrder, ...orders]
-    localStorage.setItem('portal_orders', JSON.stringify(updated))
-    setPortalOrders(updated.filter(o => o.status !== 'completed'))
-    showToast('Demo online order added to POS queue!', 'success')
-  }
-
-  const handleSelectPortalOrder = (order) => {
-    setCustomerType('random')
-    setRandomMode('new')
-    setCustomerName(order.customerName)
-    setCustomerPhone(order.customerPhone || '')
-    
-    // Map uploaded files to rows
-    const newRows = order.files.map((file, index) => {
-      // Find matching item in inventory based on printType
-      const matched = inventory.find(item => 
-        item.itemType === 'service' && 
-        item.name?.toLowerCase().includes(file.config.printType === 'color' ? 'color' : 'black')
-      ) || inventory[0]
-      
-      const unitPrice = file.config.printType === 'color'
-        ? (file.config.sides === 'double' ? (matched?.colorDouble || 15) : (matched?.colorSingle || 10))
-        : (file.config.sides === 'double' ? (matched?.bwDouble || 3) : (matched?.bwSingle || 2))
-
-      return {
-        id: `row-${Date.now()}-${index}`,
-        itemId: matched?.id || '',
-        itemName: `${file.name} (${file.config.printType === 'color' ? 'Color' : 'B&W'}, ${file.config.sides === 'double' ? 'Double' : 'Single'})`,
-        isCustom: true,
-        printType: file.config.printType,
-        sides: file.config.sides,
-        qty: file.config.copies || 1,
-        unitPrice: unitPrice,
-        amount: unitPrice * (file.config.copies || 1),
-        gstRate: matched?.gstRate || 0,
-      }
-    })
-    
-    setItemRows(newRows)
-    showToast(`Loaded portal order from ${order.customerName}`, 'success')
-    setActivePortalOrderId(order.id)
-  }
 
   const billRef = useRef(null)
   const barcodeBufferRef = useRef('')
@@ -1485,7 +1389,6 @@ const Billing = () => {
     setLoyaltyPointsRedeemedInput('')
     setShouldRedeemPoints(false)
     setChangeHandling('advance')
-    completePortalOrder()
   }
 
   const handleRoundingChoice = (roundedTotal) => {
@@ -1919,31 +1822,6 @@ const Billing = () => {
       doc.setTextColor(0, 0, 0)
     }
 
-    // Customer Upload Portal QR Code
-    if (settings.portalEnabled !== false) {
-      checkNewPage(30)
-      y += 2
-      const portalUrl = 'http://localhost:5173/portal'
-      const portalQrBase64 = await getQrCodeBase64(portalUrl)
-      if (portalQrBase64) {
-        try {
-          doc.addImage(portalQrBase64, 'PNG', MARGIN, y, 20, 20)
-          doc.setFontSize(8)
-          doc.setFont('helvetica', 'bold')
-          doc.setTextColor(rgb.r, rgb.g, rgb.b)
-          text('Upload Next Print Order Online!', MARGIN + 24, y + 6)
-          doc.setFontSize(7.5)
-          doc.setFont('helvetica', 'normal')
-          doc.setTextColor(100, 100, 100)
-          text('Scan this QR code to submit documents directly from your phone.', MARGIN + 24, y + 12)
-          text(`Portal: ${portalUrl}`, MARGIN + 24, y + 17)
-          y += 24
-        } catch (e) {
-          console.error('Failed to add portal QR code', e)
-        }
-      }
-    }
-
     // Legal Declaration / Footer Note
     if (settings.pdfLegalFooter) {
       checkNewPage(12)
@@ -2009,96 +1887,6 @@ const Billing = () => {
         />
       ) : (
         <>
-          {/* POS Online Orders Queue */}
-          {settings.portalEnabled !== false && (
-            <div className="card" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'rgba(99,102,241,0.03)', padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                  <ClipboardList size={20} style={{ color: 'var(--accent)' }} />
-                  POS Online Orders Queue ({portalOrders.length})
-                </h3>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={handleAddDemoPortalOrder}
-                >
-                  <Plus size={13} /> Add Demo Online Order
-                </button>
-              </div>
-
-              {portalOrders.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No pending customer portal orders. Uploaded customer files will automatically appear here.</span>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={handleAddDemoPortalOrder} style={{ fontSize: '0.78rem' }}>
-                    Create Test Order
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                  {portalOrders.map(order => (
-                    <div key={order.id} style={{
-                      padding: '12px',
-                      background: 'var(--bg-card)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      width: 'calc(50% - 6px)',
-                      minWidth: '280px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ fontWeight: 700 }}>{order.customerName}</span>
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        {order.customerPhone && (
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                            Phone: {order.customerPhone}
-                          </p>
-                        )}
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                          {order.files.map(f => (
-                            <div key={f.id} style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                              • {f.name} ({f.config.copies}x {f.config.printType === 'color' ? 'Color' : 'B&W'})
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem' }}
-                          onClick={() => handleSelectPortalOrder(order)}
-                        >
-                          Load to Bill
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          style={{ color: 'var(--error)', padding: '6px 10px', fontSize: '0.8rem' }}
-                          onClick={() => {
-                            const updated = portalOrders.filter(o => o.id !== order.id)
-                            const allOrders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-                            const newAll = allOrders.map(o => o.id === order.id ? { ...o, status: 'completed' } : o)
-                            localStorage.setItem('portal_orders', JSON.stringify(newAll))
-                            setPortalOrders(updated)
-                          }}
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           <form className="card" onSubmit={handleSubmit} autoComplete="off">
         <div className="bill-view-header">
           <div>
