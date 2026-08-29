@@ -34,10 +34,6 @@ export default function MobileCreateBill() {
   // Wizard Step State (1: Customer -> 2: Items -> 3: Payment)
   const [step, setStep] = useState(1)
 
-  // Portal Orders state
-  const [portalOrders, setPortalOrders] = useState([])
-  const [showPortalOrdersModal, setShowPortalOrdersModal] = useState(false)
-
   // Step 1: Customer Selection
   const [customerType, setCustomerType] = useState('regular')
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
@@ -95,12 +91,6 @@ export default function MobileCreateBill() {
       setSelectedInventoryId(serverInventory[0].id)
     }
   }, [serverInventory, selectedInventoryId])
-
-  // Load Portal Orders from localStorage
-  useEffect(() => {
-    const orders = JSON.parse(localStorage.getItem('portal_orders') || '[]')
-    setPortalOrders(orders.filter(o => o.status !== 'completed'))
-  }, [])
 
   // If in Edit Mode, populate existing bill data
   useEffect(() => {
@@ -231,39 +221,6 @@ export default function MobileCreateBill() {
     } catch (err) {
       showToast(err.message || 'Failed to create customer', 'error')
     }
-  }
-
-  // Load Portal Order into Wizard
-  const handleLoadPortalOrder = (order) => {
-    setCustomerType('random')
-    setNewCustName(order.customerName)
-    setNewCustPhone(order.customerPhone || '')
-
-    const newRows = (order.files || []).map((file, index) => {
-      const unitPrice = file.config?.printType === 'color'
-        ? (file.config?.sides === 'double' ? 15 : 10)
-        : (file.config?.sides === 'double' ? 3 : 2)
-
-      return {
-        id: `portal-row-${Date.now()}-${index}`,
-        itemId: '',
-        itemName: `${file.name}`,
-        name: `${file.name}`,
-        isCustom: true,
-        printType: file.config?.printType || 'color',
-        sides: file.config?.sides || 'single',
-        qty: file.config?.copies || 1,
-        pages: 1,
-        unitPrice,
-        unit_price: unitPrice,
-        gstRate: 0,
-        amount: unitPrice * (file.config?.copies || 1)
-      }
-    })
-
-    setItemRows(newRows)
-    setShowPortalOrdersModal(false)
-    showToast(`Loaded online order from ${order.customerName}`, 'success')
   }
 
   // Subtotal & Financial Totals
@@ -487,26 +444,6 @@ export default function MobileCreateBill() {
           )
         })}
       </div>
-
-      {/* Online Customer Portal Orders Quick Loader Banner */}
-      {portalOrders.length > 0 && (
-        <div
-          className="mobile-card"
-          onClick={() => setShowPortalOrdersModal(true)}
-          style={{ cursor: 'pointer', borderColor: 'var(--accent-secondary)', background: 'rgba(0, 240, 255, 0.1)', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles size={20} style={{ color: 'var(--accent-secondary)' }} />
-            <div>
-              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {portalOrders.length} Online Portal Order(s) Pending!
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Tap to import customer files directly into POS</div>
-            </div>
-          </div>
-          <ChevronRight size={18} style={{ color: 'var(--accent-secondary)' }} />
-        </div>
-      )}
 
       {/* STEP 1: CUSTOMER SELECTION */}
       {step === 1 && (
@@ -947,33 +884,6 @@ export default function MobileCreateBill() {
           </div>
         </div>
       )}
-
-      {/* Portal Orders Modal */}
-      <BottomSheet
-        isOpen={showPortalOrdersModal}
-        onClose={() => setShowPortalOrdersModal(false)}
-        title="Pending Online Portal Orders"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {portalOrders.map(order => (
-            <div key={order.id} className="mobile-card" style={{ padding: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)' }}>{order.customerName}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Files: {order.files?.length || 0} • Status: {order.status}</div>
-                </div>
-                <button
-                  className="mobile-btn mobile-btn-primary"
-                  onClick={() => handleLoadPortalOrder(order)}
-                  style={{ minHeight: '34px', padding: '0 12px', fontSize: '0.78rem' }}
-                >
-                  Import Order
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </BottomSheet>
 
       {/* Add Item Bottom Sheet Drawer */}
       <BottomSheet
