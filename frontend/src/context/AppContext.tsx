@@ -69,7 +69,6 @@ export const initialState = {
     footerNotes: '',
     showGstBreakdown: true,
     showUpiQrCode: true,
-    portalEnabled: true,
     silentThermalPrint: false,
   },
   currentUser: null,

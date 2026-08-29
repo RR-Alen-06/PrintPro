@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Receipt, PlusCircle, Settings, Grid,
   ArrowLeftRight, Users, BookOpen, Inbox, Wallet,
-  DollarSign, BarChart3, Layers, FileText, Upload, Printer, Database,
+  DollarSign, BarChart3, Layers, FileText, Printer, Database,
   Search, Bell, Trash2, Tag
 } from 'lucide-react'
 import BottomSheet from './BottomSheet'
@@ -32,7 +32,6 @@ export default function MobileBottomNav() {
     { to: '/mobile/analytics', label: 'Store Analytics', icon: BarChart3 },
     { to: '/mobile/group-billing', label: 'Group Billing', icon: Layers },
     { to: '/mobile/customer-bills', label: 'Customer Invoices', icon: FileText },
-    { to: '/mobile/portal', label: 'Upload Portal', icon: Upload },
     { to: '/mobile/receipt', label: 'Thermal Receipt', icon: Printer },
     { to: '/mobile/item-sales-report', label: 'Item Sales Report', icon: Tag },
     { to: '/mobile/data-management', label: 'Data & Backup', icon: Database },

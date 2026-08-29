@@ -31,7 +31,6 @@ export default function MobileSettings() {
   // Accounting defaults state
   const [gstRate, setGstRate] = useState(settings.gstRate ?? 0)
   const [fyPrefixing, setFyPrefixing] = useState(settings.fyInvoicePrefixing === true)
-  const [portalEnabled, setPortalEnabled] = useState(settings.portalEnabled === true)
 
   // Invoice Branding & PDF settings
   const [branding, setBranding] = useState({
@@ -108,7 +107,6 @@ export default function MobileSettings() {
       updateSettings({
         gstRate: Number(gstRate),
         fyInvoicePrefixing: fyPrefixing,
-        portalEnabled: portalEnabled,
         ...branding
       })
     }
