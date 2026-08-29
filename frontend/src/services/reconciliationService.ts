@@ -1,5 +1,15 @@
 import { DateFilterOption, PaymentSummary } from '../types/billing';
 
+export interface DrawerVarianceResult {
+  openingBalance: number;
+  cashSales: number;
+  cashExpenses: number;
+  expectedCash: number;
+  physicalCount: number;
+  variance: number;
+  status: 'balanced' | 'surplus' | 'shortage';
+}
+
 export class ReconciliationService {
   /**
    * Calculates boundary dates for given filter option.
@@ -51,6 +61,63 @@ export class ReconciliationService {
       default:
         return {};
     }
+  }
+
+  /**
+   * Calculates total cash from currency denomination counts.
+   */
+  static calculateDenominationsTotal(denominations: Record<number | string, number>): number {
+    let total = 0;
+    Object.entries(denominations || {}).forEach(([denom, count]) => {
+      const d = Number(denom);
+      const c = Number(count);
+      if (!isNaN(d) && !isNaN(c) && c > 0) {
+        total += d * c;
+      }
+    });
+    return Number(total.toFixed(2));
+  }
+
+  /**
+   * Calculates drawer reconciliation variance:
+   * expectedCash = openingBalance + cashSales - cashExpenses
+   * variance = physicalCount - expectedCash
+   */
+  static calculateDrawerVariance({
+    openingBalance = 0,
+    cashSales = 0,
+    cashExpenses = 0,
+    physicalCount = 0,
+  }: {
+    openingBalance?: number;
+    cashSales?: number;
+    cashExpenses?: number;
+    physicalCount?: number;
+  }): DrawerVarianceResult {
+    const opening = Number(openingBalance || 0);
+    const sales = Number(cashSales || 0);
+    const expenses = Number(cashExpenses || 0);
+    const count = Number(physicalCount || 0);
+
+    const expectedCash = Number((opening + sales - expenses).toFixed(2));
+    const variance = Number((count - expectedCash).toFixed(2));
+
+    let status: 'balanced' | 'surplus' | 'shortage' = 'balanced';
+    if (variance > 0.01) {
+      status = 'surplus';
+    } else if (variance < -0.01) {
+      status = 'shortage';
+    }
+
+    return {
+      openingBalance: opening,
+      cashSales: sales,
+      cashExpenses: expenses,
+      expectedCash,
+      physicalCount: count,
+      variance,
+      status,
+    };
   }
 
   /**
