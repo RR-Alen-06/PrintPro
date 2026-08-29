@@ -1,12 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Search as SearchIcon, X, ArrowUpDown } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { useInventory } from '../hooks/useEntitiesQuery'
 import { searchBills, searchCustomers, searchInventory, sortResults } from '../utils/search'
 import { useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 
 const Search = () => {
-  const { bills, customers, inventory } = useAppContext()
+  const { bills: contextBills, customers: contextCustomers, inventory: contextInventory } = useAppContext()
+  const { data: serverBills } = useBills()
+  const { data: serverCustomers } = useCustomers()
+  const { data: serverInventory } = useInventory()
+
+  const bills = serverBills || contextBills || []
+  const customers = serverCustomers || contextCustomers || []
+  const inventory = serverInventory || contextInventory || []
+
   const [searchParams] = useSearchParams()
   const [searchType, setSearchType] = useState('bills')
   const [query, setQuery] = useState(() => searchParams.get('q') || '')
