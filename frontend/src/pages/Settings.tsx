@@ -5,7 +5,7 @@ import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Shield
 import { clearAllCloudData } from '../lib/syncService'
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, currentUser } = useAppContext()
   const { data: serverProfile = {} } = useProfile()
   const { updateProfile } = useProfileMutations()
 
@@ -247,6 +247,9 @@ const Settings = () => {
         showToast('Clearing all cloud database records...', 'info')
         try {
           await clearAllCloudData()
+          if (currentUser?.id) {
+            localStorage.removeItem(`printpro-state:${currentUser.id}`)
+          }
           localStorage.removeItem('printpro-state')
           showToast('All database and local data successfully cleared!', 'success')
           setTimeout(() => {
