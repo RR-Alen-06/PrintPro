@@ -1,14 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 
-declare global {
-  interface ImportMetaEnv {
-    VITE_SUPABASE_URL: string;
-    VITE_SUPABASE_PUBLISHABLE_KEY: string;
-    VITE_SUPABASE_ANON_KEY: string;
-  }
-}
-
 const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ''
 
