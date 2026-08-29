@@ -12,39 +12,40 @@ import { getProfile } from '../api/profile'
 
 const AppContext = createContext(null)
 
-const initialState = {
-  business: {
-    shopName: '',
-    ownerName: '',
-    phone: '',
-    address: '',
-    gstin: '',
-    upiId: '',
-  },
+export const initialState = {
   customers: [],
   inventory: [],
   bills: [],
   payments: [],
-  advancePayments: [],
-  creditNotes: [],
   expenses: [],
+  advancePayments: [],
   notifications: [],
+  business: {
+    shopName: 'PrintPro - Printing Business Manager',
+    ownerName: '',
+    phone: '',
+    email: '',
+    address: '',
+    gstin: '',
+    upiId: '',
+  },
   settings: {
     gstRate: 0,
+    theme: 'dark',
+    currency: '₹',
+    invoicePrefix: 'INV',
+    customerPrefix: 'CUS',
+    inventoryPrefix: 'ITM',
+    receiptSize: 'thermal',
+    autoBackup: false,
     viewMode: 'monthly',
+    refundsEnabled: true,
+    fyInvoicePrefixing: false,
     staffPermissions: {
-      billing: true,
-      customers: true,
-      advancePayments: true,
-      accounting: false,
-      analytics: false,
-      inventory: false,
-      ledger: false,
-      receipt: true,
-      search: true,
-      dataManagement: false,
-      deletedBills: false,
-      settings: false,
+      staffCanDiscount: true,
+      staffCanDelete: false,
+      staffCanExport: false,
+      staffCanSettings: false,
     },
     // Loyalty Program Settings
     loyaltyEnabled: true,
@@ -79,12 +80,12 @@ const initialState = {
   idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
-const isUUID = (str) => {
+const isUUID = (str: any) => {
   if (typeof str !== 'string') return false
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str)
 }
 
-const loadState = (userId) => {
+export const loadState = (userId: string | null | undefined) => {
   try {
     if (!userId) return initialState
     let stored = localStorage.getItem(`printpro-state:${userId}`)
@@ -119,8 +120,8 @@ const loadState = (userId) => {
     const parsed = JSON.parse(stored)
     
     // Purge stale local cache if customers or bills contain non-UUID primary keys from before the migration
-    const hasStaleCustomers = Array.isArray(parsed.customers) && parsed.customers.some(c => c.id && !isUUID(c.id))
-    const hasStaleBills = Array.isArray(parsed.bills) && parsed.bills.some(b => b.id && !isUUID(b.id))
+    const hasStaleCustomers = Array.isArray(parsed.customers) && parsed.customers.some((c: any) => c.id && !isUUID(c.id))
+    const hasStaleBills = Array.isArray(parsed.bills) && parsed.bills.some((b: any) => b.id && !isUUID(b.id))
     if (hasStaleCustomers || hasStaleBills) {
       console.warn('Stale non-UUID customer or bill IDs detected in localStorage. Invalidating local cache for fresh cloud sync.')
       localStorage.removeItem(`printpro-state:${userId}`)
@@ -147,7 +148,7 @@ const loadState = (userId) => {
   }
 }
 
-const saveState = (state, userId) => {
+export const saveState = (state: any, userId: string | null | undefined) => {
   try {
     if (!userId) return
     const { currentUser, users, customers, bills, payments, inventory, purchases, ...rest } = state // Managed by TanStack Query persister
