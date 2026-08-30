@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { useInventory } from '../hooks/useEntitiesQuery'
 import { Calendar, Layers, Filter, Printer, Download, Share2, Copy, Check, TrendingUp, TrendingDown, Users, FileText } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 
@@ -43,7 +46,14 @@ const getPeriodRange = (period) => {
 }
 
 const ItemSalesReport = () => {
-  const { bills, customers, inventory } = useAppContext()
+  const { bills: contextBills = [], customers: contextCustomers = [], inventory: contextInventory = [] } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
 
   // Filter States
   const [period, setPeriod] = useState('monthly')

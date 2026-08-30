@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
+import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import PeriodReport from '../components/PeriodReport'
 import { Banknote, Smartphone, Tag, ShieldAlert, RefreshCw, Box, Users } from 'lucide-react'
@@ -20,7 +24,18 @@ const filterByDate = (items, dateKey, range) => {
 }
 
 const Analytics = () => {
-  const { bills, customers, inventory, payments, expenses, advancePayments, promoCodes, auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { bills: contextBills = [], customers: contextCustomers = [], inventory: contextInventory = [], payments: contextPayments = [], expenses: contextExpenses = [], advancePayments, promoCodes, auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverExpenses = [] } = useExpenses()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const expenses = serverExpenses.length > 0 ? serverExpenses : contextExpenses
   const [period, setPeriod] = useState('monthly')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')

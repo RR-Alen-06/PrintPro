@@ -1,11 +1,22 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { useBillMutations } from '../hooks/useBillsQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
 import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
-  const { business, customers, bills, inventory, payments, showAlert, showConfirm, settings } = useAppContext()
+  const { business, customers: contextCustomers = [], bills: contextBills = [], inventory: contextInventory = [], payments: contextPayments = [], showAlert, showConfirm, settings } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverPayments = [] } = usePayments()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
