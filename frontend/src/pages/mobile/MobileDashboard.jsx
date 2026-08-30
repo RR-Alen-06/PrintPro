@@ -42,7 +42,6 @@ export default function MobileDashboard() {
     new Date().getMonth() >= 3 ? String(new Date().getFullYear()) : String(new Date().getFullYear() - 1)
   )
 
-  const [jobStatusFilter, setJobStatusFilter] = useState('all') // 'all' | 'pending' | 'in_progress' | 'ready' | 'overdue' | 'delivered'
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
 
   // Customer Modal Form

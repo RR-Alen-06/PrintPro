@@ -227,4 +227,136 @@ export class LedgerService {
       created_at: customer.created_at || customer.createdAt || new Date().toISOString(),
     };
   }
+
+  /**
+   * Builds chronological customer ledger timeline compatible with UI view components.
+   */
+  static calculateLedger({
+    customerId,
+    bills = [],
+    payments = [],
+    advancePayments = [],
+  }: {
+    customerId: string;
+    bills?: any[];
+    payments?: any[];
+    advancePayments?: any[];
+    period?: string;
+    settings?: any;
+  }) {
+    const entries: any[] = [];
+    const selectedBills = bills.filter((b) => b.customerId === customerId && !b.deleted);
+    const selectedPayments = payments.filter(
+      (p) => p.customerId === customerId && !p.notes?.includes('advance deposit')
+    );
+    const selectedAdvances = (advancePayments || []).filter((a) => a.customerId === customerId);
+
+    // Initial pass of bills
+    selectedBills.forEach((bill) => {
+      const advUsed = Number(bill.advanceUsed || 0);
+      const bal = Number(bill.balance || 0);
+      const statusText = bill.settledByGroupPayment
+        ? 'Settled By Group Payment'
+        : String(bill.status || '').toUpperCase();
+      const breakdown = `₹${Number(bill.total || 0).toFixed(2)}${
+        advUsed > 0 ? `; ₹${advUsed.toFixed(2)} advance used` : ''
+      }${bal > 0 ? `, ₹${bal.toFixed(2)} pending` : ''}`;
+
+      entries.push({
+        type: 'bill',
+        date: bill.date,
+        id: bill.id,
+        description: `Invoice #${bill.invoiceNumber || bill.id}`,
+        subtext: `${bill.items ? `${bill.items.length} item(s) · ` : ''}${statusText} (${breakdown})`,
+        debit: Number(bill.total || 0),
+        credit: 0,
+        balance: 0,
+      });
+
+      if (bill.settledByGroupPayment) {
+        entries.push({
+          type: 'group_settlement',
+          date: bill.date,
+          id: `SETTLE-${bill.id}`,
+          description: `Settled By Group Payment (${bill.groupBillId})`,
+          subtext: `Paid on behalf by Customer ID ${bill.groupPayerId}`,
+          debit: 0,
+          credit: Number(bill.total || 0),
+          balance: 0,
+        });
+      }
+    });
+
+    // Initial pass of payments
+    selectedPayments.forEach((payment) => {
+      const excess = Number(payment.excessCredit || 0);
+      const isRefund =
+        Number(payment.totalPaid || 0) < 0 ||
+        payment.paymentType === 'refund' ||
+        payment.isRefund;
+      let creditAmt = Number(payment.totalPaid || 0) + excess;
+
+      if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
+        const settledForOthers = payment.groupSettlements.reduce(
+          (s: number, st: any) => s + Number(st.amount || 0),
+          0
+        );
+        creditAmt -= settledForOthers;
+        creditAmt = Math.max(0, creditAmt);
+      }
+
+      const targetBill = bills.find((b: any) => String(b.id) === String(payment.billId));
+      const billCode = payment.invoiceNumber || targetBill?.invoiceNumber || payment.billId;
+
+      entries.push({
+        type: isRefund ? 'refund' : payment.isGroupPayment ? 'group_payment' : 'payment',
+        date: payment.date,
+        id: payment.id,
+        description: isRefund
+          ? `Refund — Bill #${billCode}`
+          : payment.isGroupPayment
+          ? `Full Group Payment — ${payment.groupBillId}`
+          : `Payment — ${billCode || 'General'}`,
+        subtext: payment.isGroupPayment
+          ? `Paid ₹${Number(payment.totalPaid || 0).toFixed(2)} for Split Group ${payment.groupBillId}`
+          : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(
+              payment.upiAmount || 0
+            ).toFixed(2)}`,
+        debit: isRefund ? Math.abs(creditAmt) : 0,
+        credit: isRefund ? 0 : creditAmt,
+        balance: 0,
+      });
+    });
+
+    // Initial pass of advance deposits
+    selectedAdvances.forEach((adv) => {
+      const isReturn = adv.isReturn || adv.amount < 0;
+      const amt = Number(adv.amount || 0);
+      entries.push({
+        type: isReturn ? 'advance_return' : 'advance',
+        date: adv.date,
+        id: adv.id,
+        description: isReturn ? `Advance Return` : `Advance Deposit`,
+        subtext: `Ref: ${adv.id}${adv.notes ? ` · ${adv.notes}` : ''}`,
+        debit: isReturn ? Math.abs(amt) : 0,
+        credit: isReturn ? 0 : amt,
+        balance: 0,
+      });
+    });
+
+    // Chronological Sort
+    entries.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Calculate rolling balances
+    let rolling = 0;
+    const finalEntries = entries.map((entry) => {
+      rolling = Number((rolling + entry.credit - entry.debit).toFixed(2));
+      return { ...entry, balance: rolling };
+    });
+
+    return {
+      entries: finalEntries,
+      closingBalance: rolling,
+    };
+  }
 }
