@@ -253,7 +253,6 @@ export class ApiService {
     points_to_redeem?: number;
     loyalty_points_earned?: number;
     notes?: string;
-    estimated_completion?: string;
     items: Array<{
       item_id?: string | null;
       item_name: string;

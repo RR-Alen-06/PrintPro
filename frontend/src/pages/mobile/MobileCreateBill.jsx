@@ -49,7 +49,6 @@ export default function MobileCreateBill() {
     next.setDate(next.getDate() + 7)
     return next.toISOString().slice(0, 10)
   })
-  const [estimatedCompletion, setEstimatedCompletion] = useState('')
 
   // Step 2: Print Items List
   const [itemRows, setItemRows] = useState([])
@@ -332,8 +331,6 @@ export default function MobileCreateBill() {
         date: billDate,
         due_date: dueDate,
         dueDate: dueDate,
-        estimated_completion: estimatedCompletion,
-        estimatedCompletion,
         customer_id: selectedCustomerId,
         customerId: selectedCustomerId,
         customer_name: selectedCustomerObj?.name || 'Walk-in Customer',
