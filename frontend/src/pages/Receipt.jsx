@@ -2,11 +2,21 @@ import React, { useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments } from '../hooks/useEntitiesQuery'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 
 const Receipt = () => {
-  const { bills, payments, customers, business, settings, showAlert, showToast } = useAppContext()
+  const { bills: contextBills = [], payments: contextPayments = [], customers: contextCustomers = [], business, settings, showAlert, showToast } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 

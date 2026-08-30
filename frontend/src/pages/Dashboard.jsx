@@ -4,6 +4,8 @@ import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, Che
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments } from '../hooks/useEntitiesQuery'
+import { useExpenses } from '../hooks/useExpensesQuery'
 import { ApiService } from '../services/apiService'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
@@ -32,11 +34,15 @@ const formatCurrency = (val) => {
 }
 
 const Dashboard = () => {
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments, deletedPayments, expenses, syncFromCloud, showToast, updateBill } = useAppContext()
+  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], syncFromCloud, showToast, updateBill } = useAppContext()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverPayments } = usePayments()
+  const { data: serverExpenses } = useExpenses()
   const bills = serverBills || contextBills || []
   const customers = serverCustomers || contextCustomers || []
+  const payments = serverPayments || contextPayments || []
+  const expenses = serverExpenses || contextExpenses || []
   const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
   const navigate = useNavigate()
   const today = new Date()

@@ -1,10 +1,20 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { usePayments } from '../hooks/useEntitiesQuery'
+import { useExpenses } from '../hooks/useExpensesQuery'
 import { jsPDF } from 'jspdf'
 import { Calendar, Download, Share2, Copy, Check, MessageSquare, Mail } from 'lucide-react'
 
 const PeriodReport = () => {
-  const { bills, payments, expenses, advancePayments, business } = useAppContext()
+  const { bills: contextBills = [], payments: contextPayments = [], expenses: contextExpenses = [], advancePayments, business } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverPayments = [] } = usePayments()
+  const { data: serverExpenses = [] } = useExpenses()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const expenses = serverExpenses.length > 0 ? serverExpenses : contextExpenses
 
   const [reportType, setReportType] = useState('monthly') // 'monthly' | 'yearly'
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear().toString())

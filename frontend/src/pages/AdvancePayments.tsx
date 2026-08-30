@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { useCustomerMutations } from '../hooks/useCustomersQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { ApiService } from '../services/apiService'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer, syncState } = useAppContext()
+  const { business, customers: contextCustomers = [], advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer, syncState } = useAppContext()
+  const { data: serverCustomers = [] } = useCustomers()
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
   const { createCustomer } = useCustomerMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])

@@ -2,11 +2,26 @@ import React, { useRef, useState } from 'react'
 import { Download, Upload, CheckCircle, X, AlertTriangle } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
+import { useExpenses } from '../hooks/useExpensesQuery'
 import { createFullBackup, exportBillsToCSV, exportCustomersToCSV, exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV } from '../utils/dataExport'
 import { importFromJSON, importCustomersFromCSV, importInventoryFromCSV, importFromCSV, validateBackupFile, restoreFromBackup } from '../utils/dataImport'
 
 const DataManagement = () => {
-  const { business, customers, inventory, bills, payments, expenses, settings, addCustomer, addInventoryItem } = useAppContext()
+  const { business, customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], payments: contextPayments = [], expenses: contextExpenses = [], settings, addCustomer, addInventoryItem } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverPayments = [] } = usePayments()
+  const { data: serverExpenses = [] } = useExpenses()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const expenses = serverExpenses.length > 0 ? serverExpenses : contextExpenses
   const [exportMessage, setExportMessage] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const [importType, setImportType] = useState('backup')

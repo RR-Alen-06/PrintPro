@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
-import { useInventory } from '../hooks/useEntitiesQuery'
+import { useInventory, usePayments } from '../hooks/useEntitiesQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { useBills } from '../hooks/useBillsQuery'
 
@@ -1799,9 +1799,15 @@ const GroupBilling = () => {
   )
 }
 
-// ── Group Bills History List ───────────────────────────────────────────────────
 const GroupBillsHistory = () => {
-  const { groupBills = [], bills, customers, recordSpecificBillPayment, recordSplitGroupPayment, payments = [] } = useAppContext()
+  const { groupBills = [], bills: contextBills = [], customers: contextCustomers = [], recordSpecificBillPayment, recordSplitGroupPayment, payments: contextPayments = [] } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
+
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
   const [payModalGroup, setPayModalGroup] = useState(null)

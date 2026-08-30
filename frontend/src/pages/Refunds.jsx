@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useBills } from '../hooks/useBillsQuery'
 import { usePayments } from '../hooks/useEntitiesQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { AlertCircle, ArrowLeftRight, Banknote, HelpCircle, Smartphone, RefreshCw, Trash2, User } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const Refunds = () => {
-  const { bills = [], deletedPayments, advancePayments } = useAppContext()
+  const { bills: contextBills = [], deletedPayments, advancePayments } = useAppContext()
+  const { data: serverBills = [] } = useBills()
   const { data: serverPayments = [] } = usePayments()
   const { data: serverCustomers = [] } = useCustomers()
+  const bills = serverBills.length > 0 ? serverBills : contextBills
   const payments = serverPayments
   const customers = serverCustomers
   

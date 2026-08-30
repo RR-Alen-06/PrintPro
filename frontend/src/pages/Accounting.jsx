@@ -1,14 +1,27 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useExpenses, useExpenseMutations } from '../hooks/useExpensesQuery'
+import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
 import { ApiService } from '../services/apiService'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink, Loader2 } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
 
 const Accounting = () => {
-  const { bills, payments, advancePayments, customers, inventory, deletedPayments, syncFromCloud, showToast } = useAppContext()
-  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { bills: contextBills = [], payments: contextPayments = [], advancePayments, customers: contextCustomers = [], inventory: contextInventory = [], deletedPayments, syncFromCloud, showToast } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverExpenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  
+  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const expenses = serverExpenses
   const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
 
   const today = new Date().toISOString().slice(0, 10)
