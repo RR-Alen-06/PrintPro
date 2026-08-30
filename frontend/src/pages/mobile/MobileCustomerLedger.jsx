@@ -4,7 +4,7 @@ import { useAppContext } from '../../context/AppContext'
 import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
-import { LedgerService } from '../../utils/financialServices'
+import { LedgerService } from '../../services/ledgerService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {

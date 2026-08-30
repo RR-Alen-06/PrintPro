@@ -140,7 +140,9 @@ app.use('/api/settings',      settingsRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {
-  logger.warn(`404 Not Found — ${req.method} ${req.originalUrl}`);
+  const sanitizedMethod = String(req.method || '').replace(/[\r\n]/g, '');
+  const sanitizedUrl = String(req.originalUrl || '').replace(/[\r\n]/g, '');
+  logger.warn(`404 Not Found — ${sanitizedMethod} ${sanitizedUrl}`);
   res.status(404).json({
     success: false,
     error:   `Cannot ${req.method} ${req.originalUrl}`,
