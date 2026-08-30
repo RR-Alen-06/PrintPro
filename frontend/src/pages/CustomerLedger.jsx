@@ -9,7 +9,7 @@ import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
 import { TableSkeleton, SkeletonBox } from '../components/common/Skeleton'
-import { LedgerService } from '../utils/financialServices'
+import { LedgerService } from '../services/ledgerService'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 

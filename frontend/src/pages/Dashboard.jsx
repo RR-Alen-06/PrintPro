@@ -10,7 +10,7 @@ import { ApiService } from '../services/apiService'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { CardSkeleton, TableSkeleton } from '../components/common/Skeleton'
-import { DashboardService } from '../utils/financialServices'
+import { DashboardService } from '../services/dashboardService'
 
 const parseLocalDate = (dateInput) => {
   if (!dateInput) return null
@@ -49,7 +49,6 @@ const Dashboard = () => {
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState(null)
-  const [jobStatusFilter, setJobStatusFilter] = useState('all') // 'all', 'pending', 'in_progress', 'ready', 'overdue', 'delivered'
 
   const handleSync = async () => {
     setIsSyncing(true)
@@ -93,20 +92,6 @@ const Dashboard = () => {
     link.click()
     document.body.removeChild(link)
     showToast('Financial CSV Report downloaded successfully!', 'success')
-  }
-
-  const handleSendWhatsAppPickupAlert = (job) => {
-    const custPhone = job.customerPhone || customers.find(c => c.id === job.customerId)?.phone || ''
-    const cleanPhone = custPhone.replace(/[^0-9]/g, '')
-    const shopName = business?.name || 'PrintPro'
-    const invId = job.invoiceNumber || job.id
-    const amount = Number(job.balance || job.total || 0).toFixed(2)
-
-    const text = `Hello ${job.customerName || 'Customer'},\nYour print order *${invId}* is READY for pickup at ${shopName}!\nBalance Due: ₹${amount}.\nThank you for choosing ${shopName}!`
-    const url = cleanPhone
-      ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
-      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
   }
 
   const [filterType, setFilterType] = useState('all') // 'all', 'today', 'week', 'month', 'fy', 'custom'
@@ -1287,197 +1272,6 @@ const Dashboard = () => {
                   </span>
                 </div>
               </>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* Job Delivery Completion Tracker */}
-      {(() => {
-        const getJobStatus = (b) => {
-          if (b.deliveryStatus) return b.deliveryStatus
-          if (b.jobStatus) return b.jobStatus
-          if (b.status === 'completed') return 'delivered'
-          return 'pending'
-        }
-
-        const todaysStart = new Date()
-        todaysStart.setHours(0,0,0,0)
-
-        const allJobs = (bills || []).filter(b => !b.deleted && !b.isGroupParent && b.estimatedCompletion)
-
-        const overdueJobs = allJobs.filter(b => {
-          const compDate = parseLocalDate(b.estimatedCompletion)
-          const st = getJobStatus(b)
-          return compDate && compDate < todaysStart && st !== 'delivered'
-        }).sort((a, b) => (parseLocalDate(a.estimatedCompletion) || 0) - (parseLocalDate(b.estimatedCompletion) || 0))
-
-        const pendingJobsList = allJobs.filter(b => getJobStatus(b) === 'pending')
-        const inProgressJobsList = allJobs.filter(b => getJobStatus(b) === 'in_progress' || getJobStatus(b) === 'ready')
-        const deliveredJobsList = allJobs.filter(b => getJobStatus(b) === 'delivered')
-
-        const totalJobsCount = allJobs.length
-        const completedJobsCount = deliveredJobsList.length
-        const completionPct = totalJobsCount > 0 ? Math.round((completedJobsCount / totalJobsCount) * 100) : 0
-
-        const filteredJobs = allJobs.filter(j => {
-          const st = getJobStatus(j)
-          const compDate = parseLocalDate(j.estimatedCompletion)
-          const isOverdue = compDate && compDate < todaysStart && st !== 'delivered'
-
-          if (jobStatusFilter === 'pending') return st === 'pending'
-          if (jobStatusFilter === 'in_progress') return st === 'in_progress' || st === 'ready'
-          if (jobStatusFilter === 'overdue') return isOverdue
-          if (jobStatusFilter === 'delivered') return st === 'delivered'
-          return true
-        }).sort((a, b) => (parseLocalDate(a.estimatedCompletion) || 0) - (parseLocalDate(b.estimatedCompletion) || 0))
-
-        return (
-          <div className="card" style={{ marginTop: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Clock size={20} style={{ color: 'var(--accent)' }} /> Job Delivery Tracker
-              </h3>
-              
-              {/* Job Filter Tabs */}
-              <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
-                {[
-                  { id: 'all', label: `All (${totalJobsCount})` },
-                  { id: 'pending', label: `Pending (${pendingJobsList.length})` },
-                  { id: 'in_progress', label: `In Progress (${inProgressJobsList.length})` },
-                  { id: 'overdue', label: `Overdue (${overdueJobs.length})` },
-                  { id: 'delivered', label: `Delivered (${deliveredJobsList.length})` },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={`btn btn-xs ${jobStatusFilter === tab.id ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => setJobStatusFilter(tab.id)}
-                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Overall Completion Progress Bar */}
-            <div style={{ marginBottom: '20px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
-                <span>Overall Delivery Completion Rate</span>
-                <span style={{ color: 'var(--success)' }}>{completionPct}% ({completedJobsCount}/{totalJobsCount} Jobs Delivered)</span>
-              </div>
-              <div style={{ background: 'var(--border-light)', height: '10px', borderRadius: '5px', overflow: 'hidden' }}>
-                <div style={{
-                  background: 'linear-gradient(90deg, var(--accent), var(--success))',
-                  height: '100%',
-                  width: `${completionPct}%`,
-                  transition: 'width 0.5s ease'
-                }} />
-              </div>
-            </div>
-
-            {/* Overdue Warning Alert */}
-            {overdueJobs.length > 0 && jobStatusFilter !== 'delivered' && (
-              <div style={{ marginBottom: '16px', padding: '12px 16px', background: 'var(--error-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-md)' }}>
-                <strong style={{ color: 'var(--error)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={15} /> {overdueJobs.length} Job{overdueJobs.length > 1 ? 's' : ''} Past Estimated Completion Date
-                </strong>
-                <div style={{ marginTop: '8px', fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {overdueJobs.slice(0, 3).map(j => (
-                    <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(239,68,68,0.2)', paddingBottom: '4px' }}>
-                      <span><strong>{j.invoiceNumber || j.id}</strong> — {j.customerName}</span>
-                      <span style={{ color: 'var(--error)', fontWeight: 600 }}>Due: {j.estimatedCompletion}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {filteredJobs.length > 0 ? (
-              <div className="table-container">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Invoice ID</th>
-                      <th>Customer</th>
-                      <th>Est. Completion</th>
-                      <th>Current Status</th>
-                      <th>Action / Update</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredJobs.map(j => {
-                      const st = getJobStatus(j)
-                      const compDate = parseLocalDate(j.estimatedCompletion)
-                      const isOverdue = compDate && compDate < todaysStart && st !== 'delivered'
-                      const daysLeft = compDate ? Math.ceil((compDate - todaysStart) / (1000 * 60 * 60 * 24)) : 0
-
-                      return (
-                        <tr key={j.id}>
-                          <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--accent)' }}>{j.invoiceNumber || j.id}</td>
-                          <td>{j.customerName}</td>
-                          <td>{j.estimatedCompletion}</td>
-                          <td>
-                            {isOverdue ? (
-                              <span className="badge badge-error" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                <AlertTriangle size={12} /> Overdue
-                              </span>
-                            ) : st === 'delivered' ? (
-                              <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                <CheckCircle size={12} /> Delivered
-                              </span>
-                            ) : st === 'in_progress' ? (
-                              <span className="badge badge-info">In Progress</span>
-                            ) : st === 'ready' ? (
-                              <span className="badge badge-warning">Ready for Pickup</span>
-                            ) : (
-                              <span className={`badge ${daysLeft <= 1 ? 'badge-warning' : 'badge-primary'}`}>
-                                {daysLeft === 0 ? 'Due Today' : `${daysLeft} d left`}
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <select
-                                className="form-select"
-                                style={{ padding: '4px 8px', fontSize: '0.78rem', width: '120px' }}
-                                value={st}
-                                onChange={(e) => {
-                                  const newStatus = e.target.value
-                                  updateBill(j.id, { deliveryStatus: newStatus })
-                                  showToast(`Job ${j.invoiceNumber || j.id} status updated to ${newStatus}`, 'success')
-                                }}
-                              >
-                                <option value="pending">Pending</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="ready">Ready</option>
-                                <option value="delivered">Delivered</option>
-                              </select>
-
-                              {(st === 'ready' || st === 'delivered') && (
-                                <button
-                                  type="button"
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#22c55e', borderColor: 'rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.08)' }}
-                                  title="Send WhatsApp Pickup Alert"
-                                  onClick={() => handleSendWhatsAppPickupAlert(j)}
-                                >
-                                  WhatsApp Alert
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px' }}>
-                No jobs match the selected filter tab.
-              </p>
             )}
           </div>
         )
