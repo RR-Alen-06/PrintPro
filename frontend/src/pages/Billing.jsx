@@ -61,7 +61,6 @@ const Billing = () => {
   const [cashAmount, setCashAmount] = useState(0)
   const [upiAmount, setUpiAmount] = useState(0)
   const [notes, setNotes] = useState('')
-  const [estimatedCompletion, setEstimatedCompletion] = useState('')
   const [paymentMode, setPaymentMode] = useState('partial')
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
   const [followUpCash, setFollowUpCash] = useState(0)
@@ -1284,7 +1283,6 @@ const Billing = () => {
         status: finalAmountPaid >= total ? 'paid' : (finalAmountPaid > 0 ? 'partial' : 'unpaid'),
         advanceUsed: appliedAdvance,
         notes,
-        estimatedCompletion: estimatedCompletion || null,
         paymentMode,
         promoCode: appliedPromo?.code || null,
         promoDiscount: appliedPromo ? discountAmount : 0,
@@ -1328,7 +1326,6 @@ const Billing = () => {
           points_to_redeem: pointsRedeemed,
           loyalty_points_earned: pointsRedeemed > 0 ? 0 : Math.max(1, Math.floor(total / 100)),
           notes,
-          estimated_completion: estimatedCompletion || undefined,
           items: mergedItemRows.map((row) => ({
             item_id: row.itemId || null,
             item_name: row.itemName || 'Print Item',
@@ -2406,11 +2403,6 @@ const Billing = () => {
           <div className="form-group">
             <label className="form-label">Notes</label>
             <textarea className="form-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Job notes or print remarks" />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Est. Completion Date</label>
-            <input className="form-input" type="date" value={estimatedCompletion} onChange={(e) => setEstimatedCompletion(e.target.value)} />
-            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Set a deadline for this job to track delivery on the dashboard.</p>
           </div>
         </div>
 
