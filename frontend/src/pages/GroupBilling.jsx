@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { useInventory } from '../hooks/useEntitiesQuery'
+import { useCustomers } from '../hooks/useCustomersQuery'
+import { useBills } from '../hooks/useBillsQuery'
 
 const makeItemRow = (inventory) => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -559,7 +562,13 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
-  const { customers, inventory, bills, addGroupBill, showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
+  const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], addGroupBill, showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverBills = [] } = useBills()
+  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const bills = serverBills.length > 0 ? serverBills : contextBills
 
   // ── Inline Add Customer modal state ─────────────────────────────────────────
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)

@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { useInventory } from '../hooks/useEntitiesQuery'
 import { ApiService } from '../services/apiService'
 import { BillingService } from '../services/billingService'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
@@ -27,10 +28,12 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers: contextCustomers, settings, inventory, payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
   const customers = serverCustomers || contextCustomers || []
+  const inventory = (serverInventory && serverInventory.length > 0) ? serverInventory : contextInventory
   const { createBill, updateBill: updateBillMutation } = useBillMutations()
   const { createCustomer } = useCustomerMutations()
   const location = useLocation()
