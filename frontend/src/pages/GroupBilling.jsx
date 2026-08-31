@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { useInventory, usePayments } from '../hooks/useEntitiesQuery'
-import { useCustomers } from '../hooks/useCustomersQuery'
-import { useBills } from '../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useGroupBills, useGroupBillMutations } from '../hooks/useGroupBillsQuery'
 
 const makeItemRow = (inventory) => ({
@@ -563,10 +563,12 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
-  const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
+  const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], showAlert, showToast, settings, promoCodes } = useAppContext()
   const { data: serverInventory = [] } = useInventory()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverBills = [] } = useBills()
+  const { createBill } = useBillMutations()
+  const { createCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
@@ -801,10 +803,13 @@ const GroupBilling = () => {
       })
     )
 
-  const handleNewCustomerSubmit = (e) => {
+  const handleSaveNewCustomer = async (e) => {
     e.preventDefault()
     const errs = {}
     if (!newCustomerForm.name.trim()) errs.name = 'Name is required'
+    if (newCustomerForm.phone.trim() && !/^\d{10}$/.test(newCustomerForm.phone.trim())) {
+      errs.phone = 'Phone must be a valid 10-digit number'
+    }
 
     if (Object.keys(errs).length > 0) {
       setNewCustomerErrors(errs)
@@ -812,16 +817,14 @@ const GroupBilling = () => {
     }
 
     try {
-      const newCustId = addCustomer({
+      const created = await createCustomer({
         type: newCustomerForm.type,
         name: newCustomerForm.name.trim(),
         phone: newCustomerForm.phone.trim(),
         email: newCustomerForm.email.trim(),
-        creditBalance: 0,
-        openingCash: 0,
-        openingUpi: 0,
-        status: 'active'
+        credit_balance: 0,
       })
+      const newCustId = created?.id || `cust-${Date.now()}`
 
       setNewCustomerSuccess(`Customer "${newCustomerForm.name.trim()}" added successfully!`)
 
@@ -966,12 +969,48 @@ const GroupBilling = () => {
     })
 
     try {
+      const createdBillIds = []
+      for (const m of groupMembers) {
+        const memberPaid = Number(m.cashPaid || 0) + Number(m.upiPaid || 0)
+        const childBillPayload = {
+          customerId: m.customerId,
+          date,
+          due_date: dueDate,
+          items: m.items,
+          subtotal: m.subtotal,
+          gstAmount: m.gstAmount,
+          cgst: m.cgst,
+          sgst: m.sgst,
+          discountType: m.discountType,
+          discountValue: m.discountValue,
+          discountAmount: m.discountAmount,
+          promoCode: m.promoCode,
+          promoDiscount: m.promoDiscount,
+          loyaltyDiscount: m.loyaltyDiscount,
+          loyaltyPointsRedeemed: m.loyaltyPointsRedeemed,
+          total: m.total,
+          amountPaid: memberPaid,
+          cashPaid: Number(m.cashPaid || 0),
+          upiPaid: Number(m.upiPaid || 0),
+          notes: notes ? `${notes} (Shared Group)` : 'Shared Group Bill',
+        }
+        try {
+          const createdChild = await createBill(childBillPayload)
+          const childId = createdChild?.id || createdChild?.invoice_number || createdChild?.bill_number
+          if (childId) createdBillIds.push(childId)
+        } catch (childErr) {
+          console.warn('Child bill creation note:', childErr?.message)
+        }
+      }
+
       const created = await serverCreateGroupBill({
         type: 'shared',
         members: groupMembers,
         date,
         due_date: dueDate,
         notes,
+        member_bill_ids: createdBillIds,
+        memberBillIds: createdBillIds,
       })
       const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
@@ -1058,12 +1097,48 @@ const GroupBilling = () => {
     })
 
     try {
+      const createdBillIds = []
+      for (const sm of splitGroupMembers) {
+        const memberPaid = Number(sm.cashPaid || 0) + Number(sm.upiPaid || 0)
+        const childBillPayload = {
+          customerId: sm.customerId,
+          date,
+          due_date: dueDate,
+          items: sm.items,
+          subtotal: sm.subtotal,
+          gstAmount: sm.gstAmount,
+          cgst: sm.cgst,
+          sgst: sm.sgst,
+          discountType: sm.discountType,
+          discountValue: sm.discountValue,
+          discountAmount: sm.discountAmount,
+          promoCode: sm.promoCode,
+          promoDiscount: sm.promoDiscount,
+          loyaltyDiscount: sm.loyaltyDiscount,
+          loyaltyPointsRedeemed: sm.loyaltyPointsRedeemed,
+          total: sm.total,
+          amountPaid: memberPaid,
+          cashPaid: Number(sm.cashPaid || 0),
+          upiPaid: Number(sm.upiPaid || 0),
+          notes: notes ? `${notes} (Split Group)` : 'Split Group Bill',
+        }
+        try {
+          const createdChild = await createBill(childBillPayload)
+          const childId = createdChild?.id || createdChild?.invoice_number || createdChild?.bill_number
+          if (childId) createdBillIds.push(childId)
+        } catch (childErr) {
+          console.warn('Child bill creation note:', childErr?.message)
+        }
+      }
+
       const created = await serverCreateGroupBill({
         type: 'split',
         members: splitGroupMembers,
         date,
         due_date: dueDate,
         notes,
+        member_bill_ids: createdBillIds,
+        memberBillIds: createdBillIds,
       })
       const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
@@ -1805,13 +1880,11 @@ const GroupBilling = () => {
 }
 
 const GroupBillsHistory = () => {
-  const { groupBills: serverGroupBills = [] } = useGroupBills()
-  const { groupBills: contextGroupBills = [] } = useAppContext()
+  const { groupBills = [] } = useGroupBills()
   const { data: bills = [] } = useBills()
   const { data: customers = [] } = useCustomers()
   const { data: payments = [] } = usePayments()
 
-  const groupBills = serverGroupBills.length > 0 ? serverGroupBills : contextGroupBills
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
   const [payModalGroup, setPayModalGroup] = useState(null)
@@ -1824,11 +1897,18 @@ const GroupBillsHistory = () => {
     return <div style={{ color: '#52525b', fontSize: '14px', padding: '24px', textAlign: 'center', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '8px' }}>No group bills created yet.</div>
   }
 
-  const getGroupBal = (grp) =>
-    (grp.memberBillIds || [])
+  const getGroupBal = (grp) => {
+    const memberBills = (grp.memberBillIds || [])
       .map(id => bills.find(b => b.id === id && !b.deleted))
       .filter(Boolean)
-      .reduce((s, b) => s + (b.balance || 0), 0)
+    if (memberBills.length > 0) {
+      return memberBills.reduce((s, b) => s + (b.balance || 0), 0)
+    }
+    if (Array.isArray(grp.members) && grp.members.length > 0) {
+      return grp.members.reduce((s, m) => s + Math.max(0, (m.total || 0) - ((m.cashPaid || 0) + (m.upiPaid || 0))), 0)
+    }
+    return 0
+  }
 
   const openPayModal = (bill, grp) => {
     setPayModalBill(bill)
@@ -1843,15 +1923,20 @@ const GroupBillsHistory = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {[...groupBills].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 20).map((grp) => {
-        // Always look up bills by stored memberBillIds — never filter by groupBillId to avoid including parent bills
+      {[...groupBills].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)).slice(0, 20).map((grp) => {
+        // Always look up bills by stored memberBillIds
         const memberBills = (grp.memberBillIds || [])
           .map((id) => bills.find((b) => b.id === id && !b.deleted))
           .filter(Boolean)
-        // Totals computed live from actual child bill data
-        const totalAmount = memberBills.reduce((s, b) => s + b.total, 0)
-        const paidAmount = memberBills.reduce((s, b) => s + (b.amountPaid || 0), 0)
-        const balanceAmount = memberBills.reduce((s, b) => s + (b.balance || 0), 0)
+        // Totals computed live from child bills or embedded member specs
+        const totalAmount = memberBills.length > 0
+          ? memberBills.reduce((s, b) => s + b.total, 0)
+          : (Array.isArray(grp.members) ? grp.members.reduce((s, m) => s + (m.total || 0), 0) : 0)
+        const paidAmount = memberBills.length > 0
+          ? memberBills.reduce((s, b) => s + (b.amountPaid || 0), 0)
+          : (Array.isArray(grp.members) ? grp.members.reduce((s, m) => s + ((m.cashPaid || 0) + (m.upiPaid || 0)), 0) : 0)
+        const balanceAmount = Math.max(0, totalAmount - paidAmount)
+        const memberCount = memberBills.length > 0 ? memberBills.length : (Array.isArray(grp.members) ? grp.members.length : 0)
         const isExpanded = expanded === grp.id
         const groupPayment = payments.find(p => p.groupBillId === grp.id && p.isGroupPayment)
 
@@ -1866,7 +1951,7 @@ const GroupBillsHistory = () => {
                 <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', background: grp.type === 'split' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.12)', color: grp.type === 'split' ? '#818cf8' : '#10b981', fontWeight: 600 }}>
                   {grp.type === 'split' ? 'Split' : 'Shared'}
                 </span>
-                <span style={{ fontSize: '13px', color: '#a1a1aa' }}>{memberBills.length} members · {grp.date}</span>
+                <span style={{ fontSize: '13px', color: '#a1a1aa' }}>{memberCount} members · {grp.date}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <span style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635' }}>₹{totalAmount.toFixed(2)}</span>

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -6,7 +7,6 @@ import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { usePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
-import { ApiService } from '../services/apiService'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { CardSkeleton, TableSkeleton } from '../components/common/Skeleton'
@@ -34,7 +34,8 @@ const formatCurrency = (val) => {
 }
 
 const Dashboard = () => {
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], syncFromCloud, showToast, updateBill } = useAppContext()
+  const queryClient = useQueryClient()
+  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill } = useAppContext()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverPayments } = usePayments()
@@ -53,10 +54,10 @@ const Dashboard = () => {
   const handleSync = async () => {
     setIsSyncing(true)
     try {
-      await syncFromCloud()
-      showToast('Data synced successfully', 'success')
+      await queryClient.invalidateQueries()
+      showToast('Data refreshed successfully', 'success')
     } catch (e) {
-      showToast('Failed to sync data', 'error')
+      showToast('Failed to refresh data', 'error')
     } finally {
       setIsSyncing(false)
     }

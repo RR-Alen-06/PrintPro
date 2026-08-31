@@ -45,9 +45,12 @@ router.post('/', async (req: any, res: any, next: any) => {
       date = new Date().toISOString().slice(0, 10),
       due_date = null,
       notes = '',
-      member_bill_ids = [],
+      member_bill_ids,
+      memberBillIds,
       members = [],
     } = req.body;
+
+    const finalMemberBillIds = member_bill_ids || memberBillIds || [];
 
     const params = [
       req.user.id,
@@ -55,7 +58,7 @@ router.post('/', async (req: any, res: any, next: any) => {
       date,
       due_date,
       notes,
-      member_bill_ids,
+      finalMemberBillIds,
       JSON.stringify(members),
     ];
 
@@ -87,14 +90,14 @@ router.put('/:id', async (req: any, res: any, next: any) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { type, date, due_date, notes, member_bill_ids, members } = req.body;
+    const { type, date, due_date, notes, member_bill_ids, memberBillIds, members } = req.body;
 
     const updates: Record<string, any> = {};
     if (type !== undefined) updates.type = type;
     if (date !== undefined) updates.date = date;
     if (due_date !== undefined) updates.due_date = due_date;
     if (notes !== undefined) updates.notes = notes;
-    if (member_bill_ids !== undefined) updates.member_bill_ids = member_bill_ids;
+    if (member_bill_ids !== undefined || memberBillIds !== undefined) updates.member_bill_ids = member_bill_ids || memberBillIds;
     if (members !== undefined) updates.members = JSON.stringify(members);
 
     if (Object.keys(updates).length === 0) {
