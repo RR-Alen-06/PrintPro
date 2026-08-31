@@ -28,6 +28,7 @@ export const mapBillFromApi = (b: any) => ({
   deleted: !!b.deleted_at,
   items: (b.items || []).map((item: any) => ({
     ...item,
+    itemId: item.item_id || item.itemId || item.id,
     name: item.item_name || item.itemName || item.name,
     printType: item.print_type || item.printType,
     sides: item.sides,
@@ -92,6 +93,7 @@ export const createBill = async (data: any) => {
       const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
       const q = Number(item.qty || 1);
       return {
+        item_id: item.item_id || item.itemId || null,
         item_name: item.item_name || item.itemName || item.name || 'Print Item',
         print_type: item.print_type || item.printType || 'color',
         sides: item.sides || 'single',

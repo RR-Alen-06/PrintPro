@@ -14,9 +14,9 @@ const Search = () => {
   const { data: serverCustomers } = useCustomers()
   const { data: serverInventory } = useInventory()
 
-  const bills = serverBills || contextBills || []
-  const customers = serverCustomers || contextCustomers || []
-  const inventory = serverInventory || contextInventory || []
+  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
+  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
+  const inventory = serverInventory?.length > 0 ? serverInventory : (contextInventory || [])
 
   const [searchParams] = useSearchParams()
   const [searchType, setSearchType] = useState('bills')

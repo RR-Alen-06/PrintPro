@@ -1310,37 +1310,7 @@ const Billing = () => {
         return
       }
 
-      let createdBill = null
-      try {
-        createdBill = await ApiService.createBill({
-          customer_id: customerIdToUse || null,
-          customer_name: customerNameToUse,
-          total: subtotal,
-          discount: discountAmount + (loyaltyDiscount || 0),
-          rounding_method: 'None',
-          rounding_adjustment: 0,
-          grand_total: total,
-          cash_paid: finalCashAmount,
-          upi_paid: finalUpiAmount,
-          advance_used: appliedAdvance,
-          points_to_redeem: pointsRedeemed,
-          loyalty_points_earned: pointsRedeemed > 0 ? 0 : Math.max(1, Math.floor(total / 100)),
-          notes,
-          items: mergedItemRows.map((row) => ({
-            item_id: row.itemId || null,
-            item_name: row.itemName || 'Print Item',
-            print_type: row.printType || 'color',
-            sides: row.sides || 'single',
-            qty: Number(row.qty),
-            unit_price: Number(row.unitPrice),
-            amount: Number(row.amount),
-            gst_rate: Number(row.gstRate || 0),
-          })),
-        })
-      } catch (apiErr) {
-        console.warn('Falling back to standard mutation:', apiErr)
-        createdBill = await createBill(billPayload)
-      }
+      const createdBill = await createBill(billPayload)
 
       const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
       const paid = Number(billPayload.amountPaid || billPayload.amount_paid || 0)
@@ -1391,7 +1361,7 @@ const Billing = () => {
     setChangeHandling('advance')
   }
 
-  const handleRoundingChoice = (roundedTotal) => {
+  const handleRoundingChoice = async (roundedTotal) => {
     if (!pendingBillPayload) return
     const originalTotal = pendingBillPayload.total
     const diff = roundedTotal - originalTotal
@@ -1407,21 +1377,28 @@ const Billing = () => {
     if (isEditing) {
       processEditBillSave(finalPayload)
     } else {
-      const newBillId = addBill(finalPayload)
-      const paid = Number(finalPayload.amountPaid || 0)
-      const bal = Math.max(finalPayload.total - paid, 0)
-      const status = paid >= finalPayload.total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
-      const fullBillObj = {
-        ...finalPayload,
-        id: newBillId,
-        amountPaid: paid,
-        balance: bal,
-        status: status,
+      try {
+        const createdBill = await createBill(finalPayload)
+        const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
+        const paid = Number(finalPayload.amountPaid || finalPayload.amount_paid || 0)
+        const bal = Math.max((finalPayload.total || 0) - paid, 0)
+        const status = paid >= (finalPayload.total || 0) ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+        const fullBillObj = {
+          ...finalPayload,
+          id: createdBill?.id || newBillId,
+          invoice_number: newBillId,
+          bill_number: newBillId,
+          amountPaid: paid,
+          balance: bal,
+          status: status,
+        }
+        setCreatedBillObj(fullBillObj)
+        setLastBillId(createdBill?.id || newBillId)
+        showToast(`Bill #${newBillId} created successfully!`, 'success')
+        resetForm()
+      } catch (err) {
+        showAlert(`Failed to create rounded bill: ${err.message}`, 'error')
       }
-      setCreatedBillObj(fullBillObj)
-      setLastBillId(newBillId)
-      showToast(`Bill ${newBillId} created successfully!`, 'success')
-      resetForm()
     }
   }
 

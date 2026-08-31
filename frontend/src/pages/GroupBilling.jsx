@@ -4,6 +4,7 @@ import { useAppContext } from '../context/AppContext'
 import { useInventory, usePayments } from '../hooks/useEntitiesQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { useBills } from '../hooks/useBillsQuery'
+import { useGroupBills, useGroupBillMutations } from '../hooks/useGroupBillsQuery'
 
 const makeItemRow = (inventory) => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -562,10 +563,11 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
-  const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], addGroupBill, showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
+  const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
   const { data: serverInventory = [] } = useInventory()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverBills = [] } = useBills()
+  const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
   const bills = serverBills.length > 0 ? serverBills : contextBills
@@ -868,7 +870,7 @@ const GroupBilling = () => {
   }
 
   // ── Submit shared/addon ────────────────────────────────────────────────────
-  const handleSharedSubmit = (e) => {
+  const handleSharedSubmit = async (e) => {
     e.preventDefault()
     if (members.some((m) => !m.customerId)) {
       showAlert('Please select a customer for all members.', 'error'); return
@@ -964,13 +966,16 @@ const GroupBilling = () => {
     })
 
     try {
-      const grpId = addGroupBill({
+      const created = await serverCreateGroupBill({
         type: 'shared',
         members: groupMembers,
-        date, dueDate, notes,
+        date,
+        due_date: dueDate,
+        notes,
       })
+      const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
-      showToast(`Group bill ${grpId} created with ${members.length} member(s)!`, 'success')
+      showToast(`Group bill created with ${members.length} member(s)!`, 'success')
       resetAll()
     } catch (err) {
       showAlert(`Failed to create group bill: ${err.message}`, 'error')
@@ -979,7 +984,7 @@ const GroupBilling = () => {
   }
 
   // ── Submit split ───────────────────────────────────────────────────────────
-  const handleSplitSubmit = (e) => {
+  const handleSplitSubmit = async (e) => {
     e.preventDefault()
     if (splitMembers.some((m) => !m.customerId)) {
       showAlert('Please select a customer for all split members.', 'error'); return
@@ -1053,16 +1058,16 @@ const GroupBilling = () => {
     })
 
     try {
-      const grpId = addGroupBill({
+      const created = await serverCreateGroupBill({
         type: 'split',
         members: splitGroupMembers,
-        date, dueDate, notes,
-        splitTotal: splitSubtotal,
-        splitCount,
-        roundingMode,
+        date,
+        due_date: dueDate,
+        notes,
       })
+      const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
-      showToast(`Split group bill ${grpId} created — ₹${splitAmount} × ${splitCount} members!`, 'success')
+      showToast(`Split group bill created — ₹${splitAmount} × ${splitCount} members!`, 'success')
       resetAll()
     } catch (err) {
       showAlert(`Failed to create split bill: ${err.message}`, 'error')
@@ -1800,14 +1805,13 @@ const GroupBilling = () => {
 }
 
 const GroupBillsHistory = () => {
-  const { groupBills = [], bills: contextBills = [], customers: contextCustomers = [], recordSpecificBillPayment, recordSplitGroupPayment, payments: contextPayments = [] } = useAppContext()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverPayments = [] } = usePayments()
+  const { groupBills: serverGroupBills = [] } = useGroupBills()
+  const { groupBills: contextGroupBills = [] } = useAppContext()
+  const { data: bills = [] } = useBills()
+  const { data: customers = [] } = useCustomers()
+  const { data: payments = [] } = usePayments()
 
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const groupBills = serverGroupBills.length > 0 ? serverGroupBills : contextGroupBills
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
   const [payModalGroup, setPayModalGroup] = useState(null)

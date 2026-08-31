@@ -39,10 +39,10 @@ const Dashboard = () => {
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverPayments } = usePayments()
   const { data: serverExpenses } = useExpenses()
-  const bills = serverBills || contextBills || []
-  const customers = serverCustomers || contextCustomers || []
-  const payments = serverPayments || contextPayments || []
-  const expenses = serverExpenses || contextExpenses || []
+  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
+  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
+  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
+  const expenses = serverExpenses?.length > 0 ? serverExpenses : (contextExpenses || [])
   const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
   const navigate = useNavigate()
   const today = new Date()

@@ -184,23 +184,14 @@ const Customers = () => {
     if (totalPaying <= 0 || !selectedCustomer) return
 
     const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
-    try {
-      await ApiService.recordCustomerPayment({
-        customer_id: selectedCustomer.id,
-        amount: totalPaying,
-        payment_method: method,
-        notes: `Payment from customer page (${method})`,
-      })
-    } catch {
-      await (createPayment as any)({
-        customer_id: selectedCustomer.id,
-        cash_amount: cash,
-        upi_amount: upi,
-        total_paid: totalPaying,
-        payment_type: 'partial',
-        notes: `Payment from customer page`,
-      })
-    }
+    await (createPayment as any)({
+      customer_id: selectedCustomer.id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: totalPaying,
+      payment_type: 'partial',
+      notes: `Payment from customer page (${method})`,
+    })
 
     setPayCash(0)
     setPayUpi(0)
@@ -215,25 +206,15 @@ const Customers = () => {
     if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
 
     const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
-    try {
-      await ApiService.recordCustomerPayment({
-        customer_id: bill.customerId || bill.customer_id,
-        bill_id: bill.id,
-        amount: totalPaying,
-        payment_method: method,
-        notes: `Selective payment for bill ${bill.id}`,
-      })
-    } catch {
-      await (createPayment as any)({
-        bill_id: bill.id,
-        customer_id: bill.customerId || bill.customer_id,
-        cash_amount: cash,
-        upi_amount: upi,
-        total_paid: totalPaying,
-        payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
-        notes: `Selective payment for bill ${bill.id}`,
-      })
-    }
+    await (createPayment as any)({
+      bill_id: bill.id,
+      customer_id: bill.customerId || bill.customer_id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: totalPaying,
+      payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
+      notes: `Selective payment for bill ${bill.id} (${method})`,
+    })
 
     setTargetBillPayId(null)
     setTargetCash(0)
