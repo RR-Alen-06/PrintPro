@@ -96,6 +96,23 @@ export const getPayments = async () => {
   }
 }
 
+export const getDeletedPayments = async () => {
+  try {
+    const res = await api.get('/payments/deleted');
+    const mapped = (res.data.data || []).map(mapPaymentFromApi);
+    return { data: { data: mapped } };
+  } catch (err) {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .or('is_refund.eq.true,total_paid.lt.0')
+      .order('date', { ascending: false });
+    if (error) throw error;
+    const mapped = (data || []).map(mapPaymentFromApi);
+    return { data: { data: mapped } };
+  }
+}
+
 export const deletePayment = async (id) => {
   try {
     await api.delete(`/payments/${id}`);
@@ -106,3 +123,4 @@ export const deletePayment = async (id) => {
     return { data: { success: true } };
   }
 }
+

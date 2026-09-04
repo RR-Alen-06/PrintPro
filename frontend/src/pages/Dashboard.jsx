@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -6,7 +7,6 @@ import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { usePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
-import { ApiService } from '../services/apiService'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { CardSkeleton, TableSkeleton } from '../components/common/Skeleton'
@@ -34,15 +34,16 @@ const formatCurrency = (val) => {
 }
 
 const Dashboard = () => {
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], syncFromCloud, showToast, updateBill } = useAppContext()
+  const queryClient = useQueryClient()
+  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill } = useAppContext()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverPayments } = usePayments()
   const { data: serverExpenses } = useExpenses()
-  const bills = serverBills || contextBills || []
-  const customers = serverCustomers || contextCustomers || []
-  const payments = serverPayments || contextPayments || []
-  const expenses = serverExpenses || contextExpenses || []
+  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
+  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
+  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
+  const expenses = serverExpenses?.length > 0 ? serverExpenses : (contextExpenses || [])
   const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
   const navigate = useNavigate()
   const today = new Date()
@@ -53,10 +54,10 @@ const Dashboard = () => {
   const handleSync = async () => {
     setIsSyncing(true)
     try {
-      await syncFromCloud()
-      showToast('Data synced successfully', 'success')
+      await queryClient.invalidateQueries()
+      showToast('Data refreshed successfully', 'success')
     } catch (e) {
-      showToast('Failed to sync data', 'error')
+      showToast('Failed to refresh data', 'error')
     } finally {
       setIsSyncing(false)
     }

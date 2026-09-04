@@ -1,9 +1,14 @@
 import React from 'react'
 import { useAppContext } from '../context/AppContext'
+import { useNotifications, useNotificationMutations } from '../hooks/useNotificationsQuery'
 import { Bell } from 'lucide-react'
 
 const NotificationsPage = () => {
-  const { notifications, markNotificationRead, markAllNotificationsRead } = useAppContext()
+  const { notifications: contextNotifications } = useAppContext()
+  const { notifications: serverNotifications, isLoading } = useNotifications()
+  const { markRead, markAllRead } = useNotificationMutations()
+
+  const notifications = serverNotifications?.length > 0 ? serverNotifications : (contextNotifications || [])
 
   return (
     <div>
@@ -18,7 +23,7 @@ const NotificationsPage = () => {
             <h2>Notification Center</h2>
           </div>
           {notifications.some((note) => !note.read) && (
-            <button className="btn btn-secondary btn-sm" onClick={markAllNotificationsRead}>
+            <button className="btn btn-secondary btn-sm" onClick={() => markAllRead()}>
               Mark all as read
             </button>
           )}
@@ -43,13 +48,20 @@ const NotificationsPage = () => {
                   <td>{note.date}</td>
                   <td>
                     {!note.read && (
-                      <button className="btn btn-sm btn-secondary" onClick={() => markNotificationRead(note.id)}>
+                      <button className="btn btn-sm btn-secondary" onClick={() => markRead(note.id)}>
                         Mark read
                       </button>
                     )}
                   </td>
                 </tr>
               ))}
+              {notifications.length === 0 && !isLoading && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: '#6b7280' }}>
+                    No active notifications
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

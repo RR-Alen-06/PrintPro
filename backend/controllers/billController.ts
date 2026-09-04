@@ -40,19 +40,25 @@ export async function listBills(req: any, res: any, next: any) {
     const [rows] = await pool.query(sql, params);
     
     // Fetch and map associated bill items
-    if (rows.length > 0) {
-      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = $1', [req.user.id]);
-      const itemsMap: Record<string, any[]> = {};
-      allItems.forEach((item: any) => {
-        if (!itemsMap[item.bill_id]) {
-          itemsMap[item.bill_id] = [];
-        }
-        itemsMap[item.bill_id].push(item);
-      });
-      rows.forEach((bill: any) => {
-        bill.items = itemsMap[bill.id] || [];
-      });
+    if (rows.length === 0) {
+      return res.json({ success: true, data: [] });
     }
+
+    const billIds = rows.map((b: any) => b.id);
+    const [allItems] = await pool.query(
+      'SELECT * FROM bill_items WHERE bill_id = ANY($1::uuid[]) AND user_id = $2',
+      [billIds, req.user.id]
+    );
+    const itemsMap: Record<string, any[]> = {};
+    allItems.forEach((item: any) => {
+      if (!itemsMap[item.bill_id]) {
+        itemsMap[item.bill_id] = [];
+      }
+      itemsMap[item.bill_id].push(item);
+    });
+    rows.forEach((bill: any) => {
+      bill.items = itemsMap[bill.id] || [];
+    });
 
     res.json({ success: true, data: rows });
   } catch (err) {
@@ -72,19 +78,25 @@ export async function listDeletedBills(req: any, res: any, next: any) {
       [req.user.id]
     );
 
-    if (rows.length > 0) {
-      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = $1', [req.user.id]);
-      const itemsMap: Record<string, any[]> = {};
-      allItems.forEach((item: any) => {
-        if (!itemsMap[item.bill_id]) {
-          itemsMap[item.bill_id] = [];
-        }
-        itemsMap[item.bill_id].push(item);
-      });
-      rows.forEach((bill: any) => {
-        bill.items = itemsMap[bill.id] || [];
-      });
+    if (rows.length === 0) {
+      return res.json({ success: true, data: [] });
     }
+
+    const billIds = rows.map((b: any) => b.id);
+    const [allItems] = await pool.query(
+      'SELECT * FROM bill_items WHERE bill_id = ANY($1::uuid[]) AND user_id = $2',
+      [billIds, req.user.id]
+    );
+    const itemsMap: Record<string, any[]> = {};
+    allItems.forEach((item: any) => {
+      if (!itemsMap[item.bill_id]) {
+        itemsMap[item.bill_id] = [];
+      }
+      itemsMap[item.bill_id].push(item);
+    });
+    rows.forEach((bill: any) => {
+      bill.items = itemsMap[bill.id] || [];
+    });
 
     res.json({ success: true, data: rows });
   } catch (err) {

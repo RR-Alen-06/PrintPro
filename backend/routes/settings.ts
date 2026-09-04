@@ -20,7 +20,8 @@ router.delete('/clear-all', async (req: any, res: any, next: any) => {
     // 2. Delete bill items (references bills)
     await conn.query('DELETE FROM bill_items WHERE user_id = $1', [userId]);
 
-    // 3. Delete bills
+    // 3. Delete bills & group bills
+    await conn.query('DELETE FROM group_bills WHERE user_id = $1', [userId]);
     await conn.query('DELETE FROM bills WHERE user_id = $1', [userId]);
 
     // 4. Delete purchases/expenses

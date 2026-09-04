@@ -226,6 +226,26 @@ export async function getCustomerBills(req: any, res: any, next: any) {
       [id, req.user.id]
     );
 
+    if (bills.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const billIds = bills.map((b: any) => b.id);
+    const [allItems] = await pool.query(
+      'SELECT * FROM bill_items WHERE bill_id = ANY($1::uuid[]) AND user_id = $2',
+      [billIds, req.user.id]
+    );
+    const itemsMap: Record<string, any[]> = {};
+    allItems.forEach((item: any) => {
+      if (!itemsMap[item.bill_id]) {
+        itemsMap[item.bill_id] = [];
+      }
+      itemsMap[item.bill_id].push(item);
+    });
+    bills.forEach((bill: any) => {
+      bill.items = itemsMap[bill.id] || [];
+    });
+
     res.json({ success: true, data: bills });
   } catch (err) {
     next(err);

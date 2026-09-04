@@ -5,6 +5,9 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  getCustomerBills,
+  getCustomerPayments,
+  getCustomerStatement,
 } from '../controllers/customerController';
 import { validateCustomer } from '../middleware/validate';
 
@@ -15,6 +18,15 @@ router.get('/', listCustomers);
 
 // GET /api/customers/:id
 router.get('/:id', getCustomer);
+
+// GET /api/customers/:id/bills
+router.get('/:id/bills', getCustomerBills);
+
+// GET /api/customers/:id/payments
+router.get('/:id/payments', getCustomerPayments);
+
+// GET /api/customers/:id/statement
+router.get('/:id/statement', getCustomerStatement);
 
 // POST /api/customers
 router.post('/', validateCustomer, createCustomer);

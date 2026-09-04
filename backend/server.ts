@@ -122,21 +122,25 @@ app.get('/api/health', async (req, res) => {
 });
 
 import settingsRoutes from './routes/settings';
+import advancePaymentRoutes from './routes/advancePayments';
+import groupBillRoutes from './routes/groupBills';
 
 // ── Authenticated API routes ─────────────────────────────────────────────────
 app.use('/api', auth);
 
-app.use('/api/customers',     customerRoutes);
-app.use('/api/bills',         billRoutes);
-app.use('/api/payments',      paymentRoutes);
-app.use('/api/inventory',     inventoryRoutes);
-app.use('/api/purchases',     purchaseRoutes);
-app.use('/api/reports',       reportRoutes);
-app.use('/api/profile',       profileRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/audit',         auditRoutes);
-app.use('/api/share',         shareRoutes);
-app.use('/api/settings',      settingsRoutes);
+app.use('/api/customers',        customerRoutes);
+app.use('/api/bills',            billRoutes);
+app.use('/api/payments',         paymentRoutes);
+app.use('/api/inventory',        inventoryRoutes);
+app.use('/api/purchases',        purchaseRoutes);
+app.use('/api/reports',          reportRoutes);
+app.use('/api/profile',          profileRoutes);
+app.use('/api/notifications',    notificationRoutes);
+app.use('/api/audit',            auditRoutes);
+app.use('/api/share',            shareRoutes);
+app.use('/api/settings',         settingsRoutes);
+app.use('/api/advance-payments', advancePaymentRoutes);
+app.use('/api/group-bills',      groupBillRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {

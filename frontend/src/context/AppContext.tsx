@@ -686,48 +686,7 @@ const baseReducer = (state, action) => {
 }
 
 const reducer = (state, action) => {
-  let nextState = baseReducer(state, action)
-  if (nextState && nextState !== state) {
-    const pointsEnabled = nextState.settings?.loyaltyEnabled !== false
-    
-    // Calculate new loyalty points for all customers dynamically
-    const updatedCustomers = nextState.customers.map((customer) => {
-      if (customer.deleted) return customer
-
-      // Points are only earned from fully paid bills (status === 'paid')
-      const pointsEarned = nextState.bills
-        .filter((b) => b.customerId === customer.id && !b.deleted && b.status === 'paid')
-        .reduce((sum, b) => sum + (b.loyaltyPointsEarned || 0), 0)
-
-      // Points redeemed are subtracted from all bills
-      const pointsRedeemed = nextState.bills
-        .filter((b) => b.customerId === customer.id && !b.deleted)
-        .reduce((sum, b) => sum + (b.loyaltyPointsRedeemed || 0), 0)
-
-      const loyaltyPoints = pointsEnabled ? Math.max(0, pointsEarned - pointsRedeemed) : 0
-
-      if (customer.loyaltyPoints !== loyaltyPoints) {
-        return { ...customer, loyaltyPoints }
-      }
-      return customer
-    })
-
-    // Sync customerTotalLoyaltyPoints on all bills
-    const updatedBills = nextState.bills.map((bill) => {
-      const cust = updatedCustomers.find((c) => c.id === bill.customerId)
-      if (cust && bill.customerTotalLoyaltyPoints !== cust.loyaltyPoints) {
-        return { ...bill, customerTotalLoyaltyPoints: cust.loyaltyPoints }
-      }
-      return bill
-    })
-
-    nextState = {
-      ...nextState,
-      customers: updatedCustomers,
-      bills: updatedBills,
-    }
-  }
-  return nextState
+  return baseReducer(state, action)
 }
 
 const getFinancialYearString = (dateString) => {
@@ -1293,7 +1252,6 @@ export const AppProvider = ({ children }: any) => {
       realtimeDebounce = setTimeout(() => {
         console.log('Realtime Postgres change detected: invalidating TanStack Query caches across tabs/devices...')
         queryClient.invalidateQueries()
-        syncFromCloud()
       }, 500)
     }
 
@@ -1301,7 +1259,6 @@ export const AppProvider = ({ children }: any) => {
       if (document.visibilityState === 'visible' && state.currentUser) {
         console.log('Window focused: re-synchronizing multi-device data from cloud...')
         queryClient.invalidateQueries()
-        syncFromCloud()
       }
     }
 

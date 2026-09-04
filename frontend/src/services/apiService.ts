@@ -3,6 +3,7 @@ import { SequenceService } from './sequenceService';
 import { BillingService } from './billingService';
 import { LedgerService } from './ledgerService';
 import { ReconciliationService } from './reconciliationService';
+import { getCustomers as fetchCustomersApi, getCustomer as fetchCustomerApi } from '../api/customers';
 import {
   CustomerSummary,
   CustomerLedgerEntry,
@@ -23,42 +24,23 @@ export class ApiService {
 
   // ── CUSTOMERS ────────────────────────────────────────────────────────────
   static async getCustomers(): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .is('deleted_at', null)
-      .order('name', { ascending: true });
-
-    if (error) {
-      console.warn('Error fetching customers:', error.message);
+    try {
+      const res = await fetchCustomersApi();
+      return res.data?.data || [];
+    } catch (error: any) {
+      console.warn('Error fetching customers:', error?.message);
       return [];
     }
-    return (data || []).map((c) => ({
-      ...c,
-      phone: c.mobile || c.phone,
-      advanceBalance: Number(c.advance_balance || 0),
-      creditBalance: Number(c.advance_balance || 0),
-      creditLimit: Number(c.credit_limit || 0),
-      loyaltyPoints: Number(c.loyalty_points || 0),
-    }));
   }
 
   static async getCustomerById(id: string): Promise<any | null> {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !data) return null;
-    return {
-      ...data,
-      phone: data.mobile || data.phone,
-      advanceBalance: Number(data.advance_balance || 0),
-      creditBalance: Number(data.advance_balance || 0),
-      creditLimit: Number(data.credit_limit || 0),
-      loyaltyPoints: Number(data.loyalty_points || 0),
-    };
+    try {
+      const res = await fetchCustomerApi(id);
+      return res.data?.data || null;
+    } catch (error: any) {
+      console.warn('Error fetching customer by ID:', error?.message);
+      return null;
+    }
   }
 
   static async addCustomer(customer: {

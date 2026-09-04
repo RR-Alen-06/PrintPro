@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as paymentsApi from '../api/payments'
 import * as inventoryApi from '../api/inventory'
 import * as purchasesApi from '../api/purchases'
+import * as advancePaymentsApi from '../api/advancePayments'
 import { useAppContext } from '../context/AppContext'
 
 // ── 1. PAYMENTS HOOKS ────────────────────────────────────────────────────────
@@ -347,3 +348,78 @@ export function usePurchaseMutations() {
     isDeletingPurchase: deletePurchaseMutation.isPending,
   }
 }
+
+// ── 4. DELETED / REFUND PAYMENTS HOOK ────────────────────────────────────────
+export const DELETED_PAYMENTS_QUERY_KEY = ['deleted-payments']
+
+export function useDeletedPayments() {
+  const { currentUser } = useAppContext()
+  const userId = currentUser?.id
+
+  return useQuery({
+    queryKey: [...DELETED_PAYMENTS_QUERY_KEY, userId],
+    queryFn: async () => {
+      const res = await paymentsApi.getDeletedPayments()
+      return res.data?.data || []
+    },
+    enabled: !!userId,
+    staleTime: 30000,
+  })
+}
+
+// ── 5. ADVANCE PAYMENTS HOOKS ────────────────────────────────────────────────
+export const ADVANCE_PAYMENTS_QUERY_KEY = ['advance-payments']
+
+export function useAdvancePayments() {
+  const { currentUser } = useAppContext()
+  const userId = currentUser?.id
+
+  return useQuery({
+    queryKey: [...ADVANCE_PAYMENTS_QUERY_KEY, userId],
+    queryFn: async () => {
+      const res = await advancePaymentsApi.getAdvancePayments()
+      return res.data?.data || []
+    },
+    enabled: !!userId,
+    staleTime: 30000,
+  })
+}
+
+export function useAdvancePaymentMutations() {
+  const queryClient = useQueryClient()
+  const { currentUser } = useAppContext()
+  const userId = currentUser?.id
+  const queryKey = [...ADVANCE_PAYMENTS_QUERY_KEY, userId]
+
+  const createAdvance = useMutation({
+    mutationFn: async (payload) => {
+      const res = await advancePaymentsApi.createAdvancePayment(payload)
+      return res.data?.data
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+
+  const deleteAdvance = useMutation({
+    mutationFn: async (id) => {
+      await advancePaymentsApi.deleteAdvancePayment(id)
+      return id
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+
+  return {
+    addAdvancePayment: createAdvance.mutateAsync,
+    deleteAdvancePayment: deleteAdvance.mutateAsync,
+    isAddingAdvance: createAdvance.isPending,
+    isDeletingAdvance: deleteAdvance.isPending,
+  }
+}
+
