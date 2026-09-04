@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useCustomers } from '../../hooks/useCustomersQuery'
+import { useAdvancePayments, useAdvancePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { Wallet, Plus, Trash2, Search, User, CheckCircle, Loader2 } from 'lucide-react'
@@ -9,8 +10,10 @@ import '../../styles/mobile.css'
 
 export default function MobileAdvancePayments() {
   const navigate = useNavigate()
-  const { advancePayments, addAdvancePayment, deleteAdvancePayment, showToast } = useAppContext()
+  const { showToast } = useAppContext()
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: advancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
+  const { addAdvancePayment, deleteAdvancePayment } = useAdvancePaymentMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
@@ -54,7 +57,6 @@ export default function MobileAdvancePayments() {
 
     try {
       const payload = {
-        id: `adv-${Date.now()}`,
         customerId: selectedCustomerId,
         customerName: getCustomerName(selectedCustomerId),
         date: new Date().toISOString().slice(0, 10),
@@ -64,9 +66,7 @@ export default function MobileAdvancePayments() {
         notes: notes || 'Advance Deposit'
       }
 
-      if (addAdvancePayment) {
-        await addAdvancePayment(payload)
-      }
+      await addAdvancePayment(payload)
 
       showToast(`Recorded ₹${total.toFixed(2)} advance deposit!`, 'success')
       setCashAmount('')
@@ -74,19 +74,17 @@ export default function MobileAdvancePayments() {
       setNotes('')
       setShowAddModal(false)
     } catch (err) {
-      showToast('Failed to record advance deposit', 'error')
+      showToast('Failed to record advance deposit: ' + (err?.message || 'Error'), 'error')
     }
   }
 
   const handleDelete = async (id) => {
     if (window.confirm('Delete this advance deposit record?')) {
       try {
-        if (deleteAdvancePayment) {
-          await deleteAdvancePayment(id)
-        }
+        await deleteAdvancePayment(id)
         showToast('Advance deposit record deleted', 'info')
       } catch (err) {
-        showToast('Failed to delete advance deposit', 'error')
+        showToast('Failed to delete advance deposit: ' + (err?.message || 'Error'), 'error')
       }
     }
   }

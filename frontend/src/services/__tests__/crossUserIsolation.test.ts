@@ -200,4 +200,52 @@ describe('Cross-User Data Isolation & Sync State Machine (Phase 2)', () => {
       expect(retryableList[0].entityType).toBe(entityType)
     })
   })
+
+  describe('Query Key Scoping & Mappers Integrity (PrintPro Full Fix)', () => {
+    it('ensures mapBillFromApi correctly preserves itemId from item_id and item.itemId', async () => {
+      const { mapBillFromApi } = await import('../../api/bills')
+      const rawApiBill = {
+        id: 'bill-uuid-1',
+        customer_id: 'cust-uuid-1',
+        total: '250.00',
+        items: [
+          {
+            item_id: 'inv-item-101',
+            item_name: 'Glossy A4 Print',
+            print_type: 'color',
+            sides: 'single',
+            qty: 5,
+            unit_price: 50,
+            amount: 250,
+          },
+        ],
+      }
+
+      const mapped = mapBillFromApi(rawApiBill)
+      expect(mapped.items[0].itemId).toBe('inv-item-101')
+      expect(mapped.items[0].name).toBe('Glossy A4 Print')
+    })
+
+    it('ensures mapAdvancePaymentFromApi properly maps and normalizes advance payments', async () => {
+      const { mapAdvancePaymentFromApi } = await import('../../api/advancePayments')
+      const rawAdv = {
+        id: 'adv-1',
+        customer_id: 'cust-99',
+        customer_name: 'Bob Ross',
+        amount: '500',
+        cash_amount: '300',
+        upi_amount: '200',
+        created_at: '2026-08-31T12:00:00Z',
+      }
+
+      const mapped = mapAdvancePaymentFromApi(rawAdv)
+      expect(mapped.id).toBe('adv-1')
+      expect(mapped.customerId).toBe('cust-99')
+      expect(mapped.customerName).toBe('Bob Ross')
+      expect(mapped.amount).toBe(500)
+      expect(mapped.cashAmount).toBe(300)
+      expect(mapped.upiAmount).toBe(200)
+    })
+  })
 })
+

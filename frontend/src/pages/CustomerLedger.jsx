@@ -4,7 +4,6 @@ import { useAppContext } from '../context/AppContext'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
-import { ApiService } from '../services/apiService'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -41,9 +40,9 @@ const CustomerLedger = () => {
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverPayments } = usePayments()
-  const customers = serverCustomers || contextCustomers || []
-  const bills = serverBills || contextBills || []
-  const payments = serverPayments || contextPayments || []
+  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
+  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
+  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
 
@@ -136,24 +135,14 @@ const CustomerLedger = () => {
     const upi = Number(payUpi || 0)
     if (cash + upi <= 0 || !selectedCustomer) return
 
-    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
-    try {
-      await ApiService.recordCustomerPayment({
-        customer_id: selectedCustomer.id,
-        amount: cash + upi,
-        payment_method: method,
-        notes: `Payment from ledger page (${method})`,
-      })
-    } catch {
-      await createPayment({
-        customer_id: selectedCustomer.id,
-        cash_amount: cash,
-        upi_amount: upi,
-        total_paid: cash + upi,
-        payment_type: 'partial',
-        notes: `Payment from ledger page`,
-      })
-    }
+    await createPayment({
+      customer_id: selectedCustomer.id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: cash + upi,
+      payment_type: 'partial',
+      notes: `Payment from ledger page (${method})`,
+    })
 
     setPayCash('')
     setPayUpi('')

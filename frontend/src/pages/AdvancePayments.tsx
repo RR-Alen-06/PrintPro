@@ -1,14 +1,19 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { useAdvancePayments, useAdvancePaymentMutations } from '../hooks/useEntitiesQuery'
 import { ApiService } from '../services/apiService'
 import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { business, customers: contextCustomers = [], advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer, syncState } = useAppContext()
+  const { business, customers: contextCustomers = [], addCustomer } = useAppContext()
   const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
+  const { addAdvancePayment: serverAddAdvance, deleteAdvancePayment: serverDeleteAdvance } = useAdvancePaymentMutations()
+
   const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const advancePayments = serverAdvancePayments
   const { createCustomer } = useCustomerMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
@@ -141,27 +146,25 @@ const AdvancePayments = () => {
     const cash = cashAmt !== '' ? Number(cashAmt) : totalAmount
     const upi = cashAmt !== '' ? Number(upiAmt || 0) : 0
 
-    const ref = actionType === 'receive'
-      ? addAdvancePayment({
-          customerId: custId,
-          customerName: custName,
-          amount: totalAmount,
-          cashAmount: cash,
-          upiAmount: upi,
-          date: payDate,
-          notes,
-        })
-      : returnAdvancePayment({
-          customerId: custId,
-          customerName: custName,
-          amount: totalAmount,
-          cashAmount: cash,
-          upiAmount: upi,
-          date: payDate,
-          notes,
-        })
+    const advancePayload = {
+      customerId: custId,
+      customerName: custName,
+      amount: actionType === 'receive' ? totalAmount : -totalAmount,
+      cashAmount: cash,
+      upiAmount: upi,
+      date: payDate,
+      notes,
+      isReturn: actionType === 'return',
+    }
 
-    setSuccessRef(ref)
+    try {
+      const res = await serverAddAdvance(advancePayload)
+      const ref = res?.id || `ADV-${Date.now()}`
+      setSuccessRef(ref)
+    } catch (err: any) {
+      setFormError(`Failed to save advance payment: ${err?.message || 'Server error'}`)
+      return
+    }
     // Reset form
     setMode('existing')
     setSelectedCustomerId('')

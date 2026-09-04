@@ -4,7 +4,8 @@ import {
   getPaymentsForBill,
   getPaymentsByCustomer,
   listAllPayments,
-  deletePayment
+  deletePayment,
+  getDeletedPayments,
 } from '../controllers/paymentController';
 import { validatePayment } from '../middleware/validate';
 
@@ -15,6 +16,9 @@ router.post('/', validatePayment, recordPayment);
 
 // GET /api/payments
 router.get('/', listAllPayments);
+
+// GET /api/payments/deleted
+router.get('/deleted', getDeletedPayments);
 
 // GET /api/payments/bill/:billId
 router.get('/bill/:billId', getPaymentsForBill);
