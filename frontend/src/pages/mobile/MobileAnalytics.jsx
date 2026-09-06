@@ -10,13 +10,14 @@ import { jsPDF } from 'jspdf'
 import {
   BarChart3, TrendingUp, TrendingDown, DollarSign, Wallet,
   Calendar, Download, Users, Inbox, Banknote, Smartphone,
-  Layers, ChevronRight, Activity, Percent, ArrowUpRight, ArrowDownRight, Loader2
+  Layers, ChevronRight, Activity, Percent, ArrowUpRight, ArrowDownRight,
+  Loader2, Tag, ShieldAlert, FileText, Printer
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileAnalytics() {
   const navigate = useNavigate()
-  const { showToast } = useAppContext()
+  const { showToast, promoCodes = [], advancePayments = [] } = useAppContext()
 
   // TanStack Queries
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
@@ -25,7 +26,7 @@ export default function MobileAnalytics() {
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: inventory = [], isLoading: isLoadingInventory } = useInventory()
 
-  const [period, setPeriod] = useState('monthly') // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'all'
+  const [period, setPeriod] = useState('monthly') // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom' | 'all'
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
 
@@ -139,7 +140,7 @@ export default function MobileAnalytics() {
     }
   }, [filteredBills, filteredPayments, filteredExpenses, customers])
 
-  // Revenue Trends over past 6 units (e.g. days or months)
+  // Revenue Trends over past 6 units
   const trendData = useMemo(() => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     const today = new Date()
@@ -197,6 +198,170 @@ export default function MobileAnalytics() {
     return list.map(l => ({ ...l, percent: Math.max(10, (l.totalRev / maxItem) * 100) }))
   }, [filteredBills])
 
+  // Service Analysis
+  const categorizeService = (name = '') => {
+    const n = (name || '').toLowerCase()
+    if (n.includes('paper') || n.includes('print') || n.includes('copy') || n.includes('photocopy') || n.includes('a4') || n.includes('a5')) {
+      return 'Printing/Photocopy'
+    }
+    if (n.includes('lamination') || n.includes('laminating')) {
+      return 'Lamination'
+    }
+    if (n.includes('binding') || n.includes('spiral')) {
+      return 'Binding'
+    }
+    if (n.includes('design') || n.includes('logo') || n.includes('editing')) {
+      return 'Design'
+    }
+    return 'Other'
+  }
+
+  const serviceAnalysis = useMemo(() => {
+    const categories = {
+      'Printing/Photocopy': 0,
+      'Lamination': 0,
+      'Binding': 0,
+      'Design': 0,
+      'Other': 0,
+    }
+
+    filteredBills.forEach((bill) => {
+      bill.items?.forEach((item) => {
+        const cat = categorizeService(item.itemName || item.name || item.item_name)
+        categories[cat] = (categories[cat] || 0) + Number(item.amount || 0)
+      })
+    })
+
+    const total = Object.values(categories).reduce((sum, v) => sum + v, 0)
+    const maxVal = Math.max(...Object.values(categories), 1)
+
+    return Object.entries(categories)
+      .map(([label, value]) => ({
+        label,
+        value,
+        share: value / maxVal,
+        percent: total > 0 ? (value / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.value - a.value)
+  }, [filteredBills])
+
+  // Print Type Breakdown
+  const printTypeBreakdown = useMemo(() => {
+    const types = {
+      'Color Single': { qty: 0, revenue: 0 },
+      'Color Double': { qty: 0, revenue: 0 },
+      'B/W Single': { qty: 0, revenue: 0 },
+      'B/W Double': { qty: 0, revenue: 0 },
+    }
+
+    filteredBills.forEach((bill) => {
+      ;(bill.items || []).forEach((item) => {
+        const pType = (item.printType || 'bw').toLowerCase() === 'color' ? 'Color' : 'B/W'
+        const pSides = (item.sides || 'single').toLowerCase() === 'double' ? 'Double' : 'Single'
+        const key = `${pType} ${pSides}`
+        if (types[key]) {
+          types[key].qty += Number(item.qty || 0)
+          types[key].revenue += Number(item.amount || 0)
+        }
+      })
+    })
+
+    const maxRev = Math.max(...Object.values(types).map(t => t.revenue), 1)
+    return Object.entries(types).map(([label, data]) => ({
+      label,
+      qty: data.qty,
+      revenue: data.revenue,
+      percent: Math.max(5, (data.revenue / maxRev) * 100)
+    }))
+  }, [filteredBills])
+
+  // Monthly Cash vs UPI Trend Table (6 months)
+  const monthlyCashUpi = useMemo(() => {
+    const months = {}
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date()
+      d.setMonth(d.getMonth() - i)
+      const key = d.toLocaleString('default', { month: 'short', year: 'numeric' })
+      months[key] = { cash: 0, upi: 0 }
+    }
+
+    payments.forEach((p) => {
+      const d = new Date(p.date)
+      const key = d.toLocaleString('default', { month: 'short', year: 'numeric' })
+      if (key in months) {
+        months[key].cash += Number(p.cashAmount || p.cash_amount || 0)
+        months[key].upi += Number(p.upiAmount || p.upi_amount || 0)
+      }
+    })
+
+    ;(advancePayments || []).forEach((ap) => {
+      if (ap.amount <= 0) return
+      const d = new Date(ap.date)
+      const key = d.toLocaleString('default', { month: 'short', year: 'numeric' })
+      if (key in months) {
+        months[key].cash += Number(ap.cashAmount || 0)
+        months[key].upi += Number(ap.upiAmount || 0)
+      }
+    })
+
+    return Object.entries(months).map(([name, v]) => ({
+      name,
+      cash: v.cash,
+      upi: v.upi,
+      total: v.cash + v.upi
+    }))
+  }, [payments, advancePayments])
+
+  // Discount Analytics
+  const discountAnalytics = useMemo(() => {
+    const billsWithDiscount = filteredBills.filter((b) => Number(b.discountValue || b.discountAmount || 0) > 0)
+    const totalDiscount = billsWithDiscount.reduce((s, b) => s + Number(b.discountValue || b.discountAmount || 0), 0)
+    const avgDiscount = billsWithDiscount.length ? totalDiscount / billsWithDiscount.length : 0
+    return { totalDiscount, avgDiscount, count: billsWithDiscount.length }
+  }, [filteredBills])
+
+  // Promo Code Analytics
+  const promoAnalytics = useMemo(() => {
+    const codeMap = {}
+    filteredBills.forEach(b => {
+      if (b.promoCode || b.promo_code) {
+        const cUpper = (b.promoCode || b.promo_code).toUpperCase()
+        if (!codeMap[cUpper]) {
+          codeMap[cUpper] = {
+            code: cUpper,
+            totalUses: 0,
+            uniqueCustomers: new Set(),
+            totalDiscount: 0
+          }
+        }
+        codeMap[cUpper].totalUses += 1
+        if (b.customerId || b.customer_id) {
+          codeMap[cUpper].uniqueCustomers.add(b.customerId || b.customer_id)
+        }
+        codeMap[cUpper].totalDiscount += Number(b.promoDiscount || b.discountAmount || b.discountValue || 0)
+      }
+    })
+
+    return Object.values(codeMap).map(item => ({
+      ...item,
+      uniqueCustomers: item.uniqueCustomers.size
+    }))
+  }, [filteredBills])
+
+  // Top Debtors
+  const topDebtors = useMemo(() => {
+    return (customers || [])
+      .filter(c => !c.deleted && !c.deleted_at && Number(c.balance || 0) > 0)
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        balance: Number(c.balance || 0)
+      }))
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 5)
+  }, [customers])
+
   // Download PDF Report
   const handleDownloadPDF = () => {
     try {
@@ -244,13 +409,14 @@ export default function MobileAnalytics() {
       </div>
 
       {/* Period Filter Pills */}
-      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '10px' }}>
         {[
           { id: 'daily', label: 'Today' },
           { id: 'weekly', label: 'Weekly' },
           { id: 'monthly', label: 'Monthly' },
           { id: 'quarterly', label: 'Quarterly' },
           { id: 'yearly', label: 'Yearly' },
+          { id: 'custom', label: 'Custom' },
           { id: 'all', label: 'All Time' },
         ].map((p) => (
           <button
@@ -274,6 +440,38 @@ export default function MobileAnalytics() {
         ))}
       </div>
 
+      {/* Custom Date Inputs */}
+      {period === 'custom' && (
+        <div className="mobile-card" style={{ padding: '10px', marginBottom: '14px', background: 'var(--bg-surface)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                START DATE
+              </label>
+              <input
+                type="date"
+                className="mobile-input"
+                style={{ fontSize: '0.75rem', padding: '6px 8px' }}
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                END DATE
+              </label>
+              <input
+                type="date"
+                className="mobile-input"
+                style={{ fontSize: '0.75rem', padding: '6px 8px' }}
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading Indicator */}
       {isLoading && (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '20px', marginBottom: '14px' }}>
@@ -282,7 +480,7 @@ export default function MobileAnalytics() {
         </div>
       )}
 
-      {/* KPI Highlights Carousel / Grid */}
+      {/* KPI Highlights Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
         <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>NET CASH PROFIT</div>
@@ -367,7 +565,6 @@ export default function MobileAnalytics() {
           PAYMENT METHOD BREAKDOWN
         </h4>
 
-        {/* Stacked Preference Bar */}
         <div style={{ height: '18px', borderRadius: 'var(--radius-full)', background: 'var(--bg-input)', overflow: 'hidden', display: 'flex', marginBottom: '8px' }}>
           <div style={{ width: `${metrics.cashPercent}%`, background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800, color: '#0f172a' }}>
             {metrics.cashPercent > 20 && `Cash ${metrics.cashPercent.toFixed(0)}%`}
@@ -397,7 +594,175 @@ export default function MobileAnalytics() {
         </div>
       </div>
 
-      {/* Visual Monthly Revenue Trends Chart */}
+      {/* Print Type Breakdown */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Printer size={15} style={{ color: 'var(--accent-primary)' }} /> PRINT TYPE BREAKDOWN
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {printTypeBreakdown.map((pt, idx) => (
+            <div key={idx}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{pt.label} ({pt.qty} pages)</span>
+                <span className="currency-num" style={{ fontWeight: 800, color: 'var(--accent-primary)' }}>
+                  ₹{pt.revenue.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div style={{ height: '6px', borderRadius: 'var(--radius-full)', background: 'var(--bg-input)', overflow: 'hidden' }}>
+                <div style={{ width: `${pt.percent}%`, height: '100%', background: idx % 2 === 0 ? '#00f0ff' : '#ff2fb0' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Service Analysis */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Layers size={15} style={{ color: 'var(--accent-secondary)' }} /> SERVICE ANALYSIS
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {serviceAnalysis.map((srv, idx) => (
+            <div key={idx}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{srv.label} ({srv.percent.toFixed(0)}%)</span>
+                <span className="currency-num" style={{ fontWeight: 800, color: 'var(--success)' }}>
+                  ₹{srv.value.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div style={{ height: '6px', borderRadius: 'var(--radius-full)', background: 'var(--bg-input)', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(5, srv.percent)}%`, height: '100%', background: '#10b981' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Discount Analytics */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Percent size={15} style={{ color: 'var(--warning)' }} /> DISCOUNT ANALYTICS
+        </h4>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+          <div style={{ background: 'var(--bg-input)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>TOTAL GIVEN</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--warning)', marginTop: '2px' }}>
+              ₹{discountAnalytics.totalDiscount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-input)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>AVG / BILL</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
+              ₹{discountAnalytics.avgDiscount.toFixed(1)}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-input)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>DISCOUNTED</div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--accent-primary)', marginTop: '2px' }}>
+              {discountAnalytics.count} bills
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Promo Code Analytics */}
+      {promoAnalytics.length > 0 && (
+        <div className="mobile-card" style={{ marginBottom: '16px' }}>
+          <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Tag size={15} style={{ color: '#ff2fb0' }} /> PROMO CODE USAGE
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {promoAnalytics.map((promo, idx) => (
+              <div key={idx} style={{ background: 'var(--bg-input)', padding: '10px', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 800, color: '#ff2fb0', fontSize: '0.82rem' }}>{promo.code}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {promo.totalUses} uses • {promo.uniqueCustomers} customers
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--warning)' }}>
+                    -₹{promo.totalDiscount.toLocaleString('en-IN')}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>saved</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Monthly Cash vs UPI Trend Table */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0' }}>
+          MONTHLY CASH VS UPI INFLOW
+        </h4>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                <th style={{ padding: '6px 4px' }}>Month</th>
+                <th style={{ padding: '6px 4px', textAlign: 'right' }}>Cash</th>
+                <th style={{ padding: '6px 4px', textAlign: 'right' }}>UPI</th>
+                <th style={{ padding: '6px 4px', textAlign: 'right' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthlyCashUpi.map((row, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <td style={{ padding: '8px 4px', fontWeight: 700, color: 'var(--text-secondary)' }}>{row.name}</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'right', color: '#10b981', fontWeight: 700 }}>₹{row.cash.toLocaleString('en-IN')}</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'right', color: '#00f0ff', fontWeight: 700 }}>₹{row.upi.toLocaleString('en-IN')}</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 800, color: 'var(--text-primary)' }}>₹{row.total.toLocaleString('en-IN')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Top 5 Debtors */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ShieldAlert size={15} style={{ color: 'var(--error)' }} /> TOP DEBTORS (OUTSTANDING)
+        </h4>
+        {topDebtors.length === 0 ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
+            No pending customer debts 🎉
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {topDebtors.map((deb, idx) => (
+              <div
+                key={idx}
+                onClick={() => navigate(`/mobile/customers/${deb.id}`)}
+                style={{
+                  background: 'var(--bg-input)',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.82rem' }}>{deb.name}</div>
+                  {deb.phone && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{deb.phone}</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 900, color: 'var(--error)' }}>
+                    ₹{deb.balance.toLocaleString('en-IN')}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>due</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Visual 6-Month Revenue Trends Chart */}
       <div className="mobile-card" style={{ marginBottom: '16px' }}>
         <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 14px 0' }}>
           6-MONTH REVENUE TRAJECTORY
@@ -487,3 +852,4 @@ export default function MobileAnalytics() {
     </MobileLayout>
   )
 }
+
