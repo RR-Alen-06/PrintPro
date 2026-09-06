@@ -76,10 +76,11 @@ describe('Save Latency & Query Optimization Tests', () => {
     })
 
     it('replaces optimistic customer with server response seamlessly', () => {
-      const optimisticCust = {
+      const optimisticCust: { id: string; name: string; type: string; isOptimistic: boolean; customer_code?: string } = {
         id: 'temp-cust-999',
         name: 'Alpha Traders',
         type: 'regular',
+        customer_code: '',
         isOptimistic: true,
       }
 
