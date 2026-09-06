@@ -568,7 +568,7 @@ const GroupBilling = () => {
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverBills = [] } = useBills()
   const { createBill } = useBillMutations()
-  const { createCustomer } = useCustomerMutations()
+  const { createCustomer, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
@@ -805,8 +805,11 @@ const GroupBilling = () => {
 
   const handleSaveNewCustomer = async (e) => {
     e.preventDefault()
+    if (isCreatingCustomer) return
     const errs = {}
-    if (!newCustomerForm.name.trim()) errs.name = 'Name is required'
+    if (!newCustomerForm.name.trim()) {
+      errs.name = 'Customer name is required'
+    }
     if (newCustomerForm.phone.trim() && !/^\d{10}$/.test(newCustomerForm.phone.trim())) {
       errs.phone = 'Phone must be a valid 10-digit number'
     }
@@ -1868,8 +1871,17 @@ const GroupBilling = () => {
               </div>
 
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddCustomerModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Customer</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAddCustomerModal(false)} disabled={isCreatingCustomer}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isCreatingCustomer} style={{ minWidth: '130px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  {isCreatingCustomer ? (
+                    <>
+                      <span style={{ width: '14px', height: '14px', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.75s linear infinite' }}></span>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    'Save Customer'
+                  )}
+                </button>
               </div>
             </form>
           </div>
