@@ -3,6 +3,7 @@ import { isValidUUID } from '../../lib/uuid'
 import { mapPaymentFromApi } from '../../api/payments'
 import { mapBillFromApi } from '../../api/bills'
 import { mapCustomerFromApi } from '../../api/customers'
+import { formatWhatsAppReceipt } from '../../utils/receiptFormatter'
 
 describe('UUID Validation & Entity Resilience Tests', () => {
   describe('isValidUUID helper', () => {
@@ -96,4 +97,75 @@ describe('UUID Validation & Entity Resilience Tests', () => {
       expect(mapped.items[0].amount).toBe(100)
     })
   })
+
+  describe('Receipt Formatting for Mobile & WhatsApp Sharing', () => {
+    it('formatWhatsAppReceipt generates complete itemized text and ledger details', () => {
+      const bill = {
+        id: 'bill-1',
+        invoiceNumber: 'BILL-2001',
+        date: '2026-09-06',
+        customerId: 'cust-1',
+        customerName: 'Alex Smith',
+        subtotal: 250,
+        discountAmount: 20,
+        gstAmount: 15,
+        total: 245,
+        items: [
+          {
+            name: 'A4 Color Print',
+            printType: 'color',
+            sides: 'single',
+            qty: 20,
+            unitPrice: 10,
+            amount: 200
+          },
+          {
+            name: 'Photo Paper Glossy',
+            printType: 'color',
+            sides: 'double',
+            qty: 2,
+            unitPrice: 25,
+            amount: 50
+          }
+        ]
+      }
+
+      const business = {
+        shopName: 'Neo Print Studio',
+        phone: '+91 9988776655'
+      }
+
+      const extraData = {
+        bills: [],
+        payments: [
+          {
+            id: 'pay-1',
+            billId: 'bill-1',
+            cashAmount: 200,
+            upiAmount: 45
+          }
+        ],
+        customers: [
+          {
+            id: 'cust-1',
+            name: 'Alex Smith',
+            code: 'RC0001',
+            advanceBalance: 50
+          }
+        ]
+      }
+
+      const formatted = formatWhatsAppReceipt(bill, {}, business, 'https://example.com/receipt.pdf', extraData)
+      expect(formatted).toContain('NEO PRINT STUDIO')
+      expect(formatted).toContain('Bill No : BILL-2001')
+      expect(formatted).toContain('A4 Color Print COLOR Single')
+      expect(formatted).toContain('Qty : 20 × ₹10.00 = ₹200.00')
+      expect(formatted).toContain('Subtotal              ₹250.00')
+      expect(formatted).toContain('Current Bill Total* ₹245.00')
+      expect(formatted).toContain('Cash Paid                 ₹200.00')
+      expect(formatted).toContain('UPI Paid                  ₹45.00')
+      expect(formatted).toContain('Download PDF Receipt:* https://example.com/receipt.pdf')
+    })
+  })
 })
+
