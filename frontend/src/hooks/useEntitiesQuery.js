@@ -19,6 +19,7 @@ export function usePayments() {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
 
@@ -67,15 +68,31 @@ export function usePaymentMutations() {
 
       return { previousPayments, userPaymentsKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userPaymentsKey = [...PAYMENTS_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userPaymentsKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((p) =>
+                p.isOptimistic && (p.id === variables.id || (p.bill_id && p.bill_id === variables.bill_id))
+                  ? { ...serverData, isOptimistic: false }
+                  : p
+              )
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousPayments && context?.userPaymentsKey) {
         queryClient.setQueryData(context.userPaymentsKey, context.previousPayments)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY })
-      queryClient.invalidateQueries({ queryKey: ['bills'] })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      // Payment list updated optimistically; invalidate dependent balances with 1500ms delay
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['bills'] })
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+      }, 1500)
     },
   })
 
@@ -99,9 +116,10 @@ export function usePaymentMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY })
-      queryClient.invalidateQueries({ queryKey: ['bills'] })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['bills'] })
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+      }, 1500)
     },
   })
 
@@ -127,6 +145,7 @@ export function useInventory() {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 10, // 10 minutes (changes infrequently)
   })
 }
 
@@ -161,13 +180,27 @@ export function useInventoryMutations() {
 
       return { previousItems, userInventoryKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userInventoryKey = [...INVENTORY_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userInventoryKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((i) =>
+                i.isOptimistic && (i.id === variables.id || i.name === variables.name)
+                  ? { ...serverData, isOptimistic: false }
+                  : i
+              )
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousItems && context?.userInventoryKey) {
         queryClient.setQueryData(context.userInventoryKey, context.previousItems)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
+      // Optimistic cache covers this mutation
     },
   })
 
@@ -187,13 +220,23 @@ export function useInventoryMutations() {
 
       return { previousItems, userInventoryKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userInventoryKey = [...INVENTORY_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userInventoryKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((i) => (i.id === variables.id ? { ...serverData, isOptimistic: false } : i))
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousItems && context?.userInventoryKey) {
         queryClient.setQueryData(context.userInventoryKey, context.previousItems)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
+      // Handled via optimistic and onSuccess update
     },
   })
 
@@ -217,7 +260,7 @@ export function useInventoryMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
+      // Handled optimistically
     },
   })
 
@@ -245,6 +288,7 @@ export function usePurchases() {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
 
@@ -279,13 +323,27 @@ export function usePurchaseMutations() {
 
       return { previousPurchases, userPurchasesKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userPurchasesKey = [...PURCHASES_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userPurchasesKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((p) =>
+                p.isOptimistic && (p.id === variables.id || p.item_name === variables.item_name)
+                  ? { ...serverData, isOptimistic: false }
+                  : p
+              )
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousPurchases && context?.userPurchasesKey) {
         queryClient.setQueryData(context.userPurchasesKey, context.previousPurchases)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: PURCHASES_QUERY_KEY })
+      // Optimistic cache update handles this
     },
   })
 
@@ -305,13 +363,23 @@ export function usePurchaseMutations() {
 
       return { previousPurchases, userPurchasesKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userPurchasesKey = [...PURCHASES_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userPurchasesKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((p) => (p.id === variables.id ? { ...serverData, isOptimistic: false } : p))
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousPurchases && context?.userPurchasesKey) {
         queryClient.setQueryData(context.userPurchasesKey, context.previousPurchases)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: PURCHASES_QUERY_KEY })
+      // Handled via optimistic update
     },
   })
 
@@ -335,7 +403,7 @@ export function usePurchaseMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: PURCHASES_QUERY_KEY })
+      // Handled optimistically
     },
   })
 
@@ -363,7 +431,7 @@ export function useDeletedPayments() {
       return res.data?.data || []
     },
     enabled: !!userId,
-    staleTime: 30000,
+    staleTime: 1000 * 60 * 10, // 10 minutes
   })
 }
 
@@ -381,7 +449,7 @@ export function useAdvancePayments() {
       return res.data?.data || []
     },
     enabled: !!userId,
-    staleTime: 30000,
+    staleTime: 1000 * 60 * 10, // 10 minutes
   })
 }
 
@@ -398,8 +466,10 @@ export function useAdvancePaymentMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
-      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+        queryClient.invalidateQueries({ queryKey: ['profile'] })
+      }, 1500)
     },
   })
 
@@ -410,8 +480,10 @@ export function useAdvancePaymentMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
-      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+        queryClient.invalidateQueries({ queryKey: ['profile'] })
+      }, 1500)
     },
   })
 

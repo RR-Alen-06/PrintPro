@@ -1,6 +1,7 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, LogOut } from 'lucide-react'
+import { useMutationState } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 
 export default function MobileHeader({ title }) {
@@ -8,10 +9,16 @@ export default function MobileHeader({ title }) {
   const location = useLocation()
   const { logout } = useAppContext()
 
+  const isMutating = useMutationState({
+    filters: { status: 'pending' },
+    select: (m) => m.state.status === 'pending'
+  }).length > 0
+
   const isHome = location.pathname === '/mobile/dashboard'
 
   return (
     <header className="mobile-header">
+      {isMutating && <div className="mobile-mutation-progress-bar" />}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {!isHome && (
           <button
