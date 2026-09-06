@@ -283,6 +283,19 @@ export default function MobileSettings() {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              BUSINESS ADDRESS / LOCATION
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              value={biz.address}
+              onChange={(e) => setBiz({ ...biz, address: e.target.value })}
+              placeholder="Shop #4, Commercial Complex, MG Road"
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
               MERCHANT UPI ID (QR PAYMENTS)
             </label>
             <input
@@ -404,6 +417,19 @@ export default function MobileSettings() {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              HEADER NOTES
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              value={branding.headerNotes}
+              onChange={(e) => setBranding({ ...branding, headerNotes: e.target.value })}
+              placeholder="Official Tax Invoice / Cash Memo"
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
               PDF FOOTER NOTES
             </label>
             <input
@@ -414,6 +440,35 @@ export default function MobileSettings() {
               placeholder="Thank you for printing with us!"
             />
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                PDF COLOR THEME
+              </label>
+              <select
+                className="mobile-input"
+                value={branding.pdfColorTheme}
+                onChange={(e) => setBranding({ ...branding, pdfColorTheme: e.target.value })}
+              >
+                <option value="dark">Dark Theme</option>
+                <option value="light">Light Minimal</option>
+                <option value="cyberpunk">Cyberpunk Neon</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                INVOICE ACCENT COLOR
+              </label>
+              <input
+                type="color"
+                className="mobile-input"
+                style={{ height: '40px', padding: '4px', cursor: 'pointer' }}
+                value={branding.primaryColor || '#0f172a'}
+                onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })}
+              />
+            </div>
+          </div>
         </div>
 
         <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveAccountingAndBranding}>
@@ -421,7 +476,39 @@ export default function MobileSettings() {
         </button>
       </div>
 
-      {/* SECTION 4: STAFF PERMISSIONS */}
+      {/* SECTION 4: TAX SETTINGS */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Percent size={20} style={{ color: 'var(--warning)' }} />
+          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+            TAX & GST SETTINGS
+          </h3>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              DEFAULT GST RATE (%)
+            </label>
+            <select
+              className="mobile-input currency-num"
+              value={gstRate}
+              onChange={(e) => setGstRate(Number(e.target.value))}
+            >
+              <option value="0">0% (GST Exempted / Nil Rated)</option>
+              <option value="5">5% (5% GST)</option>
+              <option value="12">12% (12% Standard GST)</option>
+              <option value="18">18% (18% Printing Services)</option>
+            </select>
+          </div>
+        </div>
+
+        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveAccountingAndBranding} style={{ color: 'var(--warning)' }}>
+          Save Tax Settings
+        </button>
+      </div>
+
+      {/* SECTION 5: STAFF PERMISSIONS */}
       <div className="mobile-card" style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
           <Shield size={20} style={{ color: 'var(--accent-secondary)' }} />
