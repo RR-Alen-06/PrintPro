@@ -14,7 +14,7 @@ const CustomerCard = React.memo(({ customer, onNavigate, onEdit, onDelete }) => 
 
   return (
     <div
-      className="mobile-card"
+      className={`mobile-card ${customer.isOptimistic ? 'mobile-card-optimistic' : ''}`}
       onClick={() => onNavigate(`/mobile/customer-ledger?customerId=${customer.id}`)}
       style={{ cursor: 'pointer', position: 'relative', marginBottom: '10px' }}
     >

@@ -59,8 +59,8 @@ export function useBillMutations() {
     },
     onMutate: async (newBillData) => {
       const userBillsKey = [...BILLS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userBillsKey })
-      const previousBills = queryClient.getQueryData(userBillsKey) || []
+      await queryClient.cancelQueries({ queryKey: userBillsKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userBillsKey, exact: false })
 
       const optimisticBill = {
         id: newBillData.id || `temp-bill-${Date.now()}`,
@@ -75,13 +75,18 @@ export function useBillMutations() {
         isOptimistic: true,
       }
 
-      queryClient.setQueryData(userBillsKey, (old = []) => [optimisticBill, ...old])
+      queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (old = []) => [
+        optimisticBill,
+        ...(Array.isArray(old) ? old : []),
+      ])
 
-      return { previousBills, userBillsKey }
+      return { previousQueries }
     },
     onError: (err, variables, context) => {
-      if (context?.previousBills && context?.userBillsKey) {
-        queryClient.setQueryData(context.userBillsKey, context.previousBills)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
@@ -97,18 +102,20 @@ export function useBillMutations() {
     },
     onMutate: async ({ id, data }) => {
       const userBillsKey = [...BILLS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userBillsKey })
-      const previousBills = queryClient.getQueryData(userBillsKey) || []
+      await queryClient.cancelQueries({ queryKey: userBillsKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userBillsKey, exact: false })
 
-      queryClient.setQueryData(userBillsKey, (old = []) =>
-        old.map((b) => (b.id === id ? { ...b, ...data } : b))
+      queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.map((b) => (b.id === id ? { ...b, ...data, isOptimistic: true } : b)) : old
       )
 
-      return { previousBills, userBillsKey }
+      return { previousQueries }
     },
     onError: (err, variables, context) => {
-      if (context?.previousBills && context?.userBillsKey) {
-        queryClient.setQueryData(context.userBillsKey, context.previousBills)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
@@ -124,16 +131,20 @@ export function useBillMutations() {
     },
     onMutate: async (id) => {
       const userBillsKey = [...BILLS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userBillsKey })
-      const previousBills = queryClient.getQueryData(userBillsKey) || []
+      await queryClient.cancelQueries({ queryKey: userBillsKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userBillsKey, exact: false })
 
-      queryClient.setQueryData(userBillsKey, (old = []) => old.filter((b) => b.id !== id))
+      queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.filter((b) => b.id !== id) : old
+      )
 
-      return { previousBills, userBillsKey }
+      return { previousQueries }
     },
     onError: (err, id, context) => {
-      if (context?.previousBills && context?.userBillsKey) {
-        queryClient.setQueryData(context.userBillsKey, context.previousBills)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
