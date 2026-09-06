@@ -732,6 +732,18 @@ export default function MobileCreateBill() {
             </div>
           </div>
 
+          {/* Loyalty Engine Panel */}
+          <LoyaltyEnginePanel
+            customer={selectedCustomerObj}
+            subtotal={subtotal}
+            settings={settings}
+            shouldRedeem={shouldRedeemLoyalty}
+            onToggleRedeem={setShouldRedeemLoyalty}
+            pointsToRedeem={loyaltyPointsRedeemed}
+            onPointsChange={setLoyaltyPointsRedeemed}
+            loyaltyDiscount={loyaltyDiscount}
+          />
+
           {/* Payment Method Selector */}
           <div className="mobile-card" style={{ marginBottom: '14px' }}>
             <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0' }}>
@@ -799,6 +811,31 @@ export default function MobileCreateBill() {
             )}
           </div>
 
+          {/* Advance Credit Usage */}
+          {Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance || 0) > 0 && (
+            <div className="mobile-card" style={{ marginBottom: '14px', background: 'rgba(0, 240, 255, 0.05)', borderColor: 'var(--accent-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>
+                    CUSTOMER ADVANCE CREDIT
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Available: ₹{Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance).toFixed(2)}
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={useAdvanceCredit}
+                    onChange={(e) => setUseAdvanceCredit(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--accent-secondary)' }}
+                  />
+                  <span>Use Advance</span>
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* Notes */}
           <div className="mobile-card" style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
@@ -819,18 +856,62 @@ export default function MobileCreateBill() {
               <span>Subtotal</span>
               <span className="currency-num">₹{subtotal.toFixed(2)}</span>
             </div>
-            {calculatedDiscount > 0 && (
+
+            {Number(discountValue || 0) > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-primary)', marginBottom: '6px' }}>
-                <span>Total Discount</span>
-                <span className="currency-num">-₹{calculatedDiscount.toFixed(2)}</span>
+                <span>Manual Discount</span>
+                <span className="currency-num">
+                  -₹{Number(discountType === 'flat' ? discountValue : (subtotal * Number(discountValue || 0)) / 100).toFixed(2)}
+                </span>
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-              <span>FINAL GRAND TOTAL</span>
+
+            {appliedPromo && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)', marginBottom: '6px' }}>
+                <span>Promo Discount ({appliedPromo.code})</span>
+                <span className="currency-num">
+                  -₹{Number(appliedPromo.type === 'percent' ? (subtotal * appliedPromo.value) / 100 : appliedPromo.value).toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {loyaltyDiscount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-tertiary)', marginBottom: '6px' }}>
+                <span>Loyalty Discount ({loyaltyPointsRedeemed || 0} pts)</span>
+                <span className="currency-num">-₹{loyaltyDiscount.toFixed(2)}</span>
+              </div>
+            )}
+
+            {advanceDeduction > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--success)', marginBottom: '6px' }}>
+                <span>Advance Deducted</span>
+                <span className="currency-num">-₹{advanceDeduction.toFixed(2)}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)', marginBottom: '8px' }}>
+              <span>GRAND TOTAL</span>
               <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 10px rgba(255, 47, 176, 0.4)' }}>
                 ₹{grandTotal.toFixed(2)}
               </span>
             </div>
+
+            {/* Live Balance to Pay Row */}
+            {(() => {
+              let paidNowCalc = 0
+              if (paymentMode === 'full_cash' || paymentMode === 'full_upi') paidNowCalc = grandTotal
+              else if (paymentMode === 'split') paidNowCalc = Number(cashAmount || 0) + Number(upiAmount || 0)
+              const balanceDueCalc = Math.max(0, grandTotal - paidNowCalc)
+
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', fontWeight: 800, paddingTop: '8px', borderTop: '1px dashed var(--border-light)' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Balance to Pay</span>
+                  <span className="currency-num" style={{ color: balanceDueCalc > 0 ? 'var(--error)' : 'var(--success)', textShadow: balanceDueCalc > 0 ? '0 0 8px rgba(255, 56, 96, 0.4)' : 'none' }}>
+                    ₹{balanceDueCalc.toFixed(2)} {balanceDueCalc === 0 && '✓ PAID'}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
