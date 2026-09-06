@@ -47,21 +47,19 @@ export function useMobileDetect() {
     }
   }
 
-  // Thresholds
-  const isPhone = windowWidth < 480 || (isUserAgentMobile && windowWidth < 768)
-  const isTablet = (windowWidth >= 480 && windowWidth < 768 && !isUserAgentMobile) || (isUserAgentMobile && windowWidth >= 768 && windowWidth < 1024)
-  const isMobileViewport = windowWidth < 768 || isUserAgentMobile
+  // Threshold: any device with a mobile/tablet user agent OR viewport < 1024px is considered mobile
+  const isMobileDevice = isUserAgentMobile || windowWidth < 1024
 
   // Effective mode decision:
   // 1. If user explicitly chose 'desktop', force desktop mode regardless of width/userAgent.
   // 2. If user explicitly chose 'mobile', force mobile mode regardless of width/userAgent.
-  // 3. Otherwise (first-ever visit / no pref): auto-switch to mobile if userAgent is mobile OR viewport is phone (<480px) or mobile viewport (<768px).
+  // 3. Otherwise (first-ever visit / no pref): if isMobileDevice (phones + tablets < 1024px) -> 'mobile'; else 'desktop'.
   let effectiveMode: 'desktop' | 'mobile' = 'desktop'
   if (userPref === 'desktop') {
     effectiveMode = 'desktop'
   } else if (userPref === 'mobile') {
     effectiveMode = 'mobile'
-  } else if (isPhone || (isUserAgentMobile && windowWidth < 1024) || windowWidth < 768) {
+  } else if (isMobileDevice) {
     effectiveMode = 'mobile'
   } else {
     effectiveMode = 'desktop'
@@ -69,10 +67,8 @@ export function useMobileDetect() {
 
   return {
     windowWidth,
-    isPhone,
-    isTablet,
-    isMobileViewport,
-    isMobile: isPhone || isMobileViewport || isUserAgentMobile,
+    isMobileDevice,
+    isMobile: isMobileDevice,
     userPref,
     effectiveMode,
     setUserPref,

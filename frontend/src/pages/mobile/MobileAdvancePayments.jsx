@@ -90,7 +90,7 @@ export default function MobileAdvancePayments() {
   }
 
   return (
-    <MobileLayout title="Advance Deposits" onSwitchToDesktop={() => navigate('/advance-payments')}>
+    <MobileLayout title="Advance Deposits">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>PRE-PAYMENT DEPOSITS</span>

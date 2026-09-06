@@ -137,7 +137,7 @@ export default function MobileRefunds() {
   const isLoading = isLoadingPayments || isLoadingCustomers
 
   return (
-    <MobileLayout title="Refunds & Returns" onSwitchToDesktop={() => navigate('/refunds')}>
+    <MobileLayout title="Refunds & Returns">
       {/* Overview Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
         <div className="mobile-stat-card">

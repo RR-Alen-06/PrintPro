@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
@@ -8,12 +8,152 @@ import { usePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
+import SkeletonBillCard from '../../components/mobile/SkeletonBillCard'
 import {
   TrendingUp, CreditCard, Clock, Wallet, CheckCircle, RefreshCw, FileText,
   PlusCircle, UserPlus, ArrowRight, MessageSquare, Download, AlertTriangle, ChevronRight,
   Filter, Calendar, Activity, Receipt, ArrowDownRight, ArrowUpRight, Loader2
 } from 'lucide-react'
 import '../../styles/mobile.css'
+
+const MetricsRow = React.memo(({ stats }) => {
+  return (
+    <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
+      {/* Metric Card 1: Total Revenue */}
+      <div className="mobile-card mobile-card-glow" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--accent-primary)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL REVENUE</span>
+          <TrendingUp size={18} style={{ color: 'var(--accent-primary)' }} />
+        </div>
+        <div className="currency-num" style={{ fontSize: '1.5rem', color: '#ffffff', textShadow: '0 0 10px rgba(255, 47, 176, 0.4)' }}>
+          ₹{stats.totalRevenue.toLocaleString('en-IN')}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--accent-secondary)', marginTop: '4px' }}>
+          Invoiced In Period
+        </div>
+      </div>
+
+      {/* Metric Card 2: Receivables */}
+      <div className="mobile-card" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--error-bg)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>RECEIVABLES</span>
+          <Clock size={18} style={{ color: 'var(--error)' }} />
+        </div>
+        <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--error)', textShadow: '0 0 10px rgba(255, 56, 96, 0.4)' }}>
+          ₹{stats.pendingAmount.toLocaleString('en-IN')}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          {stats.unpaidCount} Pending Invoice(s)
+        </div>
+      </div>
+
+      {/* Metric Card 3: Cash Inflow (With Cash vs UPI breakdown) */}
+      <div className="mobile-card" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--accent-secondary)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>CASH INFLOW</span>
+          <Wallet size={18} style={{ color: 'var(--accent-secondary)' }} />
+        </div>
+        <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--accent-secondary)', textShadow: '0 0 10px rgba(0, 240, 255, 0.4)' }}>
+          ₹{stats.cashInflow.toLocaleString('en-IN')}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          Cash: ₹{stats.cashTotal.toLocaleString('en-IN')} • UPI: ₹{stats.upiTotal.toLocaleString('en-IN')}
+        </div>
+      </div>
+
+      {/* Metric Card 4: Expenses Total */}
+      <div className="mobile-card" style={{ minWidth: '200px', flex: '0 0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL EXPENSES</span>
+          <ArrowDownRight size={18} style={{ color: 'var(--accent-tertiary)' }} />
+        </div>
+        <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--accent-tertiary)' }}>
+          ₹{stats.periodExpenses.toLocaleString('en-IN')}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          Operational Outflow
+        </div>
+      </div>
+
+      {/* Metric Card 5: Net Profit / Cash Flow */}
+      <div className="mobile-card" style={{ minWidth: '200px', flex: '0 0 auto', borderColor: 'var(--success-bg)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>NET CASH FLOW</span>
+          <CheckCircle size={18} style={{ color: 'var(--success)' }} />
+        </div>
+        <div className="currency-num" style={{ fontSize: '1.5rem', color: stats.netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
+          ₹{stats.netCashFlow.toLocaleString('en-IN')}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          Inflow - Expenses - Refunds
+        </div>
+      </div>
+    </div>
+  )
+})
+
+MetricsRow.displayName = 'MetricsRow'
+
+const OrderRow = React.memo(({ bill, onNavigate, onUpdateStatus, onSendWhatsApp }) => {
+  const isReady = (bill.jobStatus || bill.job_status || bill.status) === 'ready'
+
+  return (
+    <div
+      style={{
+        padding: '10px 0',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}
+    >
+      <div onClick={() => onNavigate(`/mobile/bill/${bill.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
+        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+          {bill.customerName || bill.customer_name || 'Walk-in Customer'}
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
+          #{bill.invoiceNumber || bill.invoice_number || bill.id} • ₹{Number(bill.total || 0).toFixed(2)}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Job Status Updater Dropdown */}
+        <select
+          value={bill.jobStatus || bill.job_status || bill.status || 'pending'}
+          onChange={(e) => onUpdateStatus(bill.id, e.target.value)}
+          style={{
+            background: 'var(--bg-input)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '0.72rem',
+            padding: '4px 6px',
+            fontWeight: 700
+          }}
+        >
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="ready">Ready</option>
+          <option value="delivered">Delivered</option>
+        </select>
+
+        {/* WhatsApp Ready Alert */}
+        {isReady && (
+          <button
+            className="mobile-icon-btn"
+            onClick={() => onSendWhatsApp(bill)}
+            title="Send WhatsApp Ready Alert"
+            style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', color: '#25D366' }}
+          >
+            <MessageSquare size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+})
+
+OrderRow.displayName = 'OrderRow'
 
 export default function MobileDashboard() {
   const navigate = useNavigate()
@@ -42,6 +182,7 @@ export default function MobileDashboard() {
     new Date().getMonth() >= 3 ? String(new Date().getFullYear()) : String(new Date().getFullYear() - 1)
   )
 
+  const [jobStatusFilter, setJobStatusFilter] = useState('all') // 'all' | 'pending' | 'in_progress' | 'ready' | 'delivered'
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
 
   // Customer Modal Form
@@ -50,8 +191,12 @@ export default function MobileDashboard() {
   const [newCustEmail, setNewCustEmail] = useState('')
   const [newCustType, setNewCustType] = useState('regular')
 
+  const handleNavigate = useCallback((path) => {
+    navigate(path)
+  }, [navigate])
+
   // Handle Cloud Sync
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     setIsSyncing(true)
     try {
       if (syncFromCloud) {
@@ -64,7 +209,7 @@ export default function MobileDashboard() {
     } finally {
       setIsSyncing(false)
     }
-  }
+  }, [syncFromCloud, queryClient, showToast])
 
   // Filter Data by Period
   const activeDateRange = useMemo(() => {
@@ -165,7 +310,7 @@ export default function MobileDashboard() {
   }, [filteredBills, jobStatusFilter])
 
   // Direct Job Status Updater
-  const handleUpdateJobStatus = async (billId, newStatus) => {
+  const handleUpdateJobStatus = useCallback(async (billId, newStatus) => {
     try {
       await updateBillMutation({
         id: billId,
@@ -182,10 +327,10 @@ export default function MobileDashboard() {
     } catch (e) {
       showToast(e.message || 'Failed to update status', 'error')
     }
-  }
+  }, [updateBillMutation, contextUpdateBill, showToast])
 
   // Handle Add Customer Form
-  const handleAddCustomerSubmit = async (e) => {
+  const handleAddCustomerSubmit = useCallback(async (e) => {
     e.preventDefault()
     if (!newCustName.trim()) {
       showToast('Please enter customer name', 'error')
@@ -216,10 +361,10 @@ export default function MobileDashboard() {
     } catch (err) {
       showToast(err.message || 'Failed to add customer', 'error')
     }
-  }
+  }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, contextAddCustomer, showToast])
 
   // WhatsApp Alert Trigger
-  const handleSendWhatsApp = (bill) => {
+  const handleSendWhatsApp = useCallback((bill) => {
     const cust = customers.find(c => String(c.id) === String(bill.customerId || bill.customer_id))
     const phone = bill.customerPhone || bill.customer_phone || cust?.phone || ''
     const cleanPhone = phone.replace(/[^0-9]/g, '')
@@ -232,10 +377,10 @@ export default function MobileDashboard() {
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
     window.open(url, '_blank')
-  }
+  }, [customers, business])
 
   // Financial CSV Export Trigger
-  const handleExportCSV = () => {
+  const handleExportCSV = useCallback(() => {
     const headers = ['Invoice #', 'Date', 'Customer', 'Total (INR)', 'Balance (INR)', 'Status']
     const rows = filteredBills.map(b => [
       `"${b.invoiceNumber || b.invoice_number || b.id}"`,
@@ -254,15 +399,11 @@ export default function MobileDashboard() {
     link.click()
     document.body.removeChild(link)
     showToast('Financial CSV Report Downloaded!', 'success')
-  }
+  }, [filteredBills, filterPeriod, showToast])
 
   return (
     <MobileLayout
       title="PrintPro Mobile Command"
-      onSwitchToDesktop={() => {
-        localStorage.setItem('printpro_viewport_pref', 'desktop')
-        navigate('/dashboard')
-      }}
     >
       {/* Top Banner Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -369,77 +510,7 @@ export default function MobileDashboard() {
       )}
 
       {/* Metrics Horizontal Scroll Tray */}
-      <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
-        {/* Metric Card 1: Total Revenue */}
-        <div className="mobile-card mobile-card-glow" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--accent-primary)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL REVENUE</span>
-            <TrendingUp size={18} style={{ color: 'var(--accent-primary)' }} />
-          </div>
-          <div className="currency-num" style={{ fontSize: '1.5rem', color: '#ffffff', textShadow: '0 0 10px rgba(255, 47, 176, 0.4)' }}>
-            ₹{stats.totalRevenue.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--accent-secondary)', marginTop: '4px' }}>
-            Invoiced In Period
-          </div>
-        </div>
-
-        {/* Metric Card 2: Receivables */}
-        <div className="mobile-card" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--error-bg)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>RECEIVABLES</span>
-            <Clock size={18} style={{ color: 'var(--error)' }} />
-          </div>
-          <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--error)', textShadow: '0 0 10px rgba(255, 56, 96, 0.4)' }}>
-            ₹{stats.pendingAmount.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {stats.unpaidCount} Pending Invoice(s)
-          </div>
-        </div>
-
-        {/* Metric Card 3: Cash Inflow (With Cash vs UPI breakdown) */}
-        <div className="mobile-card" style={{ minWidth: '220px', flex: '0 0 auto', borderColor: 'var(--accent-secondary)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>CASH INFLOW</span>
-            <Wallet size={18} style={{ color: 'var(--accent-secondary)' }} />
-          </div>
-          <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--accent-secondary)', textShadow: '0 0 10px rgba(0, 240, 255, 0.4)' }}>
-            ₹{stats.cashInflow.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Cash: ₹{stats.cashTotal.toLocaleString('en-IN')} • UPI: ₹{stats.upiTotal.toLocaleString('en-IN')}
-          </div>
-        </div>
-
-        {/* Metric Card 4: Expenses Total */}
-        <div className="mobile-card" style={{ minWidth: '200px', flex: '0 0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL EXPENSES</span>
-            <ArrowDownRight size={18} style={{ color: 'var(--accent-tertiary)' }} />
-          </div>
-          <div className="currency-num" style={{ fontSize: '1.5rem', color: 'var(--accent-tertiary)' }}>
-            ₹{stats.periodExpenses.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Operational Outflow
-          </div>
-        </div>
-
-        {/* Metric Card 5: Net Profit / Cash Flow */}
-        <div className="mobile-card" style={{ minWidth: '200px', flex: '0 0 auto', borderColor: 'var(--success-bg)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>NET CASH FLOW</span>
-            <CheckCircle size={18} style={{ color: 'var(--success)' }} />
-          </div>
-          <div className="currency-num" style={{ fontSize: '1.5rem', color: stats.netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
-            ₹{stats.netCashFlow.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Inflow - Expenses - Refunds
-          </div>
-        </div>
-      </div>
+      <MetricsRow stats={stats} />
 
       {/* Primary Action Buttons */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
@@ -504,73 +575,21 @@ export default function MobileDashboard() {
 
         {/* Orders Stack */}
         {isLoadingBills ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
-            <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Loading recent orders...</div>
-          </div>
+          <SkeletonBillCard count={3} />
         ) : recentOrders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
             No recent orders match filter.
           </div>
         ) : (
-          recentOrders.map((bill) => {
-            const isReady = (bill.jobStatus || bill.job_status || bill.status) === 'ready'
-            return (
-              <div
-                key={bill.id}
-                style={{
-                  padding: '10px 0',
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}
-              >
-                <div onClick={() => navigate(`/mobile/bill/${bill.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {bill.customerName || bill.customer_name || 'Walk-in Customer'}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
-                    #{bill.invoiceNumber || bill.invoice_number || bill.id} • ₹{Number(bill.total || 0).toFixed(2)}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {/* Job Status Updater Dropdown */}
-                  <select
-                    value={bill.jobStatus || bill.job_status || bill.status || 'pending'}
-                    onChange={(e) => handleUpdateJobStatus(bill.id, e.target.value)}
-                    style={{
-                      background: 'var(--bg-input)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.72rem',
-                      padding: '4px 6px',
-                      fontWeight: 700
-                    }}
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="ready">Ready</option>
-                    <option value="delivered">Delivered</option>
-                  </select>
-
-                  {/* WhatsApp Ready Alert */}
-                  {isReady && (
-                    <button
-                      className="mobile-icon-btn"
-                      onClick={() => handleSendWhatsApp(bill)}
-                      title="Send WhatsApp Ready Alert"
-                      style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', color: '#25D366' }}
-                    >
-                      <MessageSquare size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          })
+          recentOrders.map((bill) => (
+            <OrderRow
+              key={bill.id}
+              bill={bill}
+              onNavigate={handleNavigate}
+              onUpdateStatus={handleUpdateJobStatus}
+              onSendWhatsApp={handleSendWhatsApp}
+            />
+          ))
         )}
       </div>
 

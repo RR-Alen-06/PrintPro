@@ -72,7 +72,7 @@ export default function MobileBillDetail() {
 
   if (isLoadingBills) {
     return (
-      <MobileLayout title="Loading Invoice..." onSwitchToDesktop={() => navigate('/billing')}>
+      <MobileLayout title="Loading Invoice...">
         <div className="mobile-card" style={{ textAlign: 'center', padding: '40px 16px', marginTop: '20px' }}>
           <Loader2 size={36} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 12px auto' }} />
           <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Loading invoice details from cloud...</p>
@@ -83,7 +83,7 @@ export default function MobileBillDetail() {
 
   if (!bill) {
     return (
-      <MobileLayout title="Bill Not Found" onSwitchToDesktop={() => navigate('/billing')}>
+      <MobileLayout title="Bill Not Found">
         <div className="mobile-card" style={{ textAlign: 'center', padding: '40px 16px', marginTop: '20px' }}>
           <AlertTriangle size={48} style={{ color: 'var(--error)', marginBottom: '12px' }} />
           <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
@@ -280,7 +280,6 @@ export default function MobileBillDetail() {
   return (
     <MobileLayout
       title={`Bill #${bill.invoiceNumber || bill.invoice_number || bill.id}`}
-      onSwitchToDesktop={() => navigate('/billing')}
     >
       {/* Target printable element for PDF generation */}
       <div ref={invoiceRef} style={{ background: '#05040a', padding: '4px' }}>

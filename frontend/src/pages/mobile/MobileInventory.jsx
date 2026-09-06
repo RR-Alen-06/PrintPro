@@ -1,11 +1,64 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useInventory, useInventoryMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { Inbox, Plus, Pencil, Trash2, Search, Check, AlertTriangle, Package, Loader2, AlertCircle } from 'lucide-react'
+import VirtualList from '../../components/mobile/VirtualList'
+import SkeletonInventoryRow from '../../components/mobile/SkeletonInventoryRow'
+import { Inbox, Plus, Pencil, Trash2, Search, Package, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
+
+const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
+  const isProduct = item.type === 'product'
+
+  return (
+    <div className="mobile-card" style={{ marginBottom: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+        <div>
+          <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+            HSN: {item.hsnCode || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            onClick={() => onEdit(item)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', padding: '4px' }}
+            title="Edit Item"
+          >
+            <Pencil size={16} />
+          </button>
+          <button
+            onClick={(e) => onDelete(item, e)}
+            style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '4px' }}
+            title="Delete Item"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      {!isProduct ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorDouble}</strong>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwDouble}</strong>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
+          <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)' }}>Price: <strong className="currency-num">₹{item.sellingPrice}</strong></span>
+        </div>
+      )}
+    </div>
+  )
+})
+
+InventoryRow.displayName = 'InventoryRow'
 
 export default function MobileInventory() {
   const navigate = useNavigate()
@@ -13,7 +66,7 @@ export default function MobileInventory() {
 
   // TanStack Query & Mutations (reusing desktop hooks)
   const { data: serverInventory = [], isLoading: isLoadingInventory, isError, error } = useInventory()
-  const { createItem, updateItem, deleteItem, isCreatingItem, isUpdatingItem, isDeletingItem } = useInventoryMutations()
+  const { createItem, updateItem, deleteItem, isCreatingItem, isUpdatingItem } = useInventoryMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all') // 'all' | 'print' | 'product'
@@ -32,19 +85,7 @@ export default function MobileInventory() {
   const [lowStockAlert, setLowStockAlert] = useState('50')
   const [hsnCode, setHsnCode] = useState('')
 
-  const filteredItems = useMemo(() => {
-    return (serverInventory || []).filter(item => {
-      if (item.deleted) return false
-      if (filterType !== 'all' && (item.type || 'print') !== filterType) return false
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase().trim()
-        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || '').toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [serverInventory, filterType, searchTerm])
-
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     setEditingItem(null)
     setFormName('')
     setFormType('print')
@@ -57,9 +98,9 @@ export default function MobileInventory() {
     setLowStockAlert('50')
     setHsnCode('')
     setShowAddModal(true)
-  }
+  }, [])
 
-  const openEditModal = (item) => {
+  const openEditModal = useCallback((item) => {
     setEditingItem(item)
     setFormName(item.name || '')
     setFormType(item.type || 'print')
@@ -72,42 +113,21 @@ export default function MobileInventory() {
     setLowStockAlert(item.lowStockAlert !== undefined ? String(item.lowStockAlert) : '50')
     setHsnCode(item.hsnCode || '')
     setShowAddModal(true)
-  }
+  }, [])
 
-  const handleFormSubmit = async (e) => {
-    e.preventDefault()
-    if (!formName.trim()) {
-      showToast('Please enter item name', 'error')
-      return
-    }
-
-    try {
-      const payload = {
-        name: formName.trim(),
-        color_single: formType === 'product' ? 0 : Number(colorSingle || 0),
-        color_double: formType === 'product' ? 0 : Number(colorDouble || 0),
-        bw_single: formType === 'product' ? 0 : Number(bwSingle || 0),
-        bw_double: formType === 'product' ? 0 : Number(bwDouble || 0),
-        selling_price: formType === 'product' ? Number(sellingPrice || 0) : 0,
-        stock: Number(stockQty || 0),
-        low_stock_alert: Number(lowStockAlert || 50),
+  const filteredItems = useMemo(() => {
+    return (serverInventory || []).filter(item => {
+      if (item.deleted) return false
+      if (filterType !== 'all' && (item.type || 'print') !== filterType) return false
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase().trim()
+        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || '').toLowerCase().includes(q)
       }
+      return true
+    })
+  }, [serverInventory, filterType, searchTerm])
 
-      if (editingItem) {
-        await updateItem({ id: editingItem.id, data: payload })
-        showToast(`Item '${formName.trim()}' updated!`, 'success')
-      } else {
-        await createItem(payload)
-        showToast(`Item '${formName.trim()}' added to inventory!`, 'success')
-      }
-
-      setShowAddModal(false)
-    } catch (err) {
-      showToast(err.message || 'Failed to save item', 'error')
-    }
-  }
-
-  const handleDelete = async (item, e) => {
+  const handleDelete = useCallback(async (item, e) => {
     e.stopPropagation()
     if (window.confirm(`Remove '${item.name}' from inventory catalog?`)) {
       try {
@@ -117,10 +137,10 @@ export default function MobileInventory() {
         showToast(err.message || 'Failed to delete item', 'error')
       }
     }
-  }
+  }, [deleteItem, showToast])
 
   return (
-    <MobileLayout title="Inventory & Rates" onSwitchToDesktop={() => navigate('/inventory')}>
+    <MobileLayout title="Inventory & Rates">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CATALOG & PRICING</span>
@@ -177,10 +197,7 @@ export default function MobileInventory() {
 
       {/* Items List Stack */}
       {isLoadingInventory ? (
-        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
-          <div style={{ fontSize: '0.85rem' }}>Loading inventory from cloud...</div>
-        </div>
+        <SkeletonInventoryRow count={6} />
       ) : isError ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '24px 16px', borderColor: 'var(--error)' }}>
           <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
@@ -194,55 +211,17 @@ export default function MobileInventory() {
           <p style={{ margin: 0, fontSize: '0.85rem' }}>No catalog items match filter criteria.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredItems.map(item => {
-            const isProduct = item.type === 'product'
-            return (
-              <div key={item.id} className="mobile-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      HSN: {item.hsnCode || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button
-                      onClick={() => openEditModal(item)}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', padding: '4px' }}
-                      title="Edit Item"
-                    >
-                      <Pencil size={16} />
-                    </button>
-                    <button
-                      onClick={(e) => handleDelete(item, e)}
-                      style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '4px' }}
-                      title="Delete Item"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                {!isProduct ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorDouble}</strong>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwDouble}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)' }}>Price: <strong className="currency-num">₹{item.sellingPrice}</strong></span>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        <VirtualList
+          items={filteredItems}
+          estimateSize={95}
+          renderItem={(item) => (
+            <InventoryRow
+              item={item}
+              onEdit={openEditModal}
+              onDelete={handleDelete}
+            />
+          )}
+        />
       )}
 
       {/* Add / Edit Item Bottom Sheet */}

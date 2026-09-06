@@ -114,7 +114,7 @@ export default function MobileNotifications() {
   }
 
   return (
-    <MobileLayout title="System Notifications" onSwitchToDesktop={() => navigate('/notifications')}>
+    <MobileLayout title="System Notifications">
       {/* Top Banner Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
         <div>
