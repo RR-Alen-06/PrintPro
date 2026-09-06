@@ -464,3 +464,15 @@
   border-radius: 50%;
 }
 
+.mobile-card-optimistic {
+  opacity: 0.75;
+  border-style: dashed !important;
+  animation: optimistic-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes optimistic-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 0.95; }
+}
+
+
