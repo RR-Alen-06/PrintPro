@@ -28,7 +28,7 @@ const Customers = () => {
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills } = useBills()
   const { data: serverPayments } = usePayments()
-  const { createCustomer, updateCustomer, deleteCustomer } = useCustomerMutations()
+  const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
   const customers = serverCustomers
   const bills = serverBills || contextBills || []
@@ -52,6 +52,7 @@ const Customers = () => {
   }
 
   const [showModal, setShowModal] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [editMode, setEditMode] = useState(false) // false = add, true = edit
   const [editingId, setEditingId] = useState<any>(null)
   const [form, setForm] = useState<any>(EMPTY_FORM)
@@ -286,9 +287,11 @@ const Customers = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (isSubmitting || isCreating || isUpdating) return
     const errs = validate()
     if (Object.keys(errs).length > 0) { setErrors(errs); return }
 
+    setIsSubmitting(true)
     try {
       if (editMode && editingId) {
         // Edit mode — preserve ID, update editable fields
@@ -336,6 +339,8 @@ const Customers = () => {
       }, 1500)
     } catch (err) {
       setErrors({ form: err.message || 'Operation failed' })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -1363,9 +1368,16 @@ const Customers = () => {
               </div>
 
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={closeModal}>Cancel</button>
-                <button type="submit" className="btn btn-primary">
-                  {editMode ? <><Pencil size={16} /> Save Changes</> : <><UserPlus size={16} /> Add Customer</>}
+                <button type="button" className="btn btn-secondary" onClick={closeModal} disabled={isSubmitting || isCreating || isUpdating}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting || isCreating || isUpdating} style={{ minWidth: '130px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  {isSubmitting || isCreating || isUpdating ? (
+                    <>
+                      <span style={{ width: '14px', height: '14px', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.75s linear infinite' }}></span>
+                      <span>{editMode ? 'Saving...' : 'Adding...'}</span>
+                    </>
+                  ) : (
+                    editMode ? <><Pencil size={16} /> Save Changes</> : <><UserPlus size={16} /> Add Customer</>
+                  )}
                 </button>
               </div>
             </form>

@@ -1,4 +1,4 @@
-import api from './index'
+import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase } from '../lib/supabase'
 
 export interface PurchaseFilters {
@@ -8,19 +8,25 @@ export interface PurchaseFilters {
 }
 
 export const getPurchases = async (filters: PurchaseFilters = {}) => {
-  try {
-    const res = await api.get('/purchases', { params: filters });
-    return { data: { data: res.data.data } };
-  } catch (err: any) {
-    let query: any = supabase.from('purchases').select('*');
-    if (filters.startDate) query = query.gte('date', filters.startDate);
-    if (filters.endDate) query = query.lte('date', filters.endDate);
-    if (filters.category) query = query.eq('category', filters.category);
-    query = query.order('date', { ascending: false });
-    const { data, error } = await query;
-    if (error) throw error;
-    return { data: { data } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/purchases', { params: filters });
+      return { data: { data: res.data.data } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  let query: any = supabase.from('purchases').select('*');
+  if (filters.startDate) query = query.gte('date', filters.startDate);
+  if (filters.endDate) query = query.lte('date', filters.endDate);
+  if (filters.category) query = query.eq('category', filters.category);
+  query = query.order('date', { ascending: false });
+  const { data, error } = await query;
+  if (error) throw error;
+  return { data: { data } };
 }
 
 export const createPurchase = async (data) => {
@@ -35,50 +41,66 @@ export const createPurchase = async (data) => {
     notes: data.notes || ''
   };
 
-  try {
-    const res = await api.post('/purchases', payload);
-    return { data: { data: res.data.data } };
-  } catch (err) {
-    if (err.response && err.response.status >= 400 && err.response.status < 500) {
-      throw err;
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.post('/purchases', payload);
+      return { data: { data: res.data.data } };
+    } catch (err) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
     }
-    const { data: inserted, error } = await supabase
-      .from('purchases')
-      .upsert([{ ...payload, user_id: user?.id }])
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: inserted } };
   }
+  const { data: inserted, error } = await supabase
+    .from('purchases')
+    .upsert([{ ...payload, user_id: user?.id }])
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: inserted } };
 }
 
 export const updatePurchase = async (id, data) => {
-  try {
-    const res = await api.put(`/purchases/${id}`, data);
-    return { data: { data: res.data.data } };
-  } catch (err) {
-    const { data: updated, error } = await supabase
-      .from('purchases')
-      .update(data)
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: updated } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.put(`/purchases/${id}`, data);
+      return { data: { data: res.data.data } };
+    } catch (err) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data: updated, error } = await supabase
+    .from('purchases')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: updated } };
 }
 
 export const deletePurchase = async (id) => {
-  try {
-    await api.delete(`/purchases/${id}`);
-    return { data: { success: true } };
-  } catch (err) {
-    const { error } = await supabase.from('purchases').delete().eq('id', id);
-    if (error) throw error;
-    return { data: { success: true } };
+  if (isBackendAvailable()) {
+    try {
+      await api.delete(`/purchases/${id}`);
+      return { data: { success: true } };
+    } catch (err) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { error } = await supabase.from('purchases').delete().eq('id', id);
+  if (error) throw error;
+  return { data: { success: true } };
 }
 
 export const getPurchaseSummary = async () => {
   return getPurchases();
 }
+

@@ -1,4 +1,4 @@
-import api from './index'
+import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 
 export const mapItemFromApi = (i: any) => ({
@@ -17,19 +17,25 @@ export const mapItemFromApi = (i: any) => ({
 });
 
 export const getItems = async () => {
-  try {
-    const res = await api.get('/inventory');
-    const mapped = (res.data.data || []).map(mapItemFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('inventory_items')
-      .select('*')
-      .order('name', { ascending: true });
-    if (error) throw error;
-    const mapped = (data || []).map(mapItemFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/inventory');
+      const mapped = (res.data.data || []).map(mapItemFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) throw error;
+  const mapped = (data || []).map(mapItemFromApi);
+  return { data: { data: mapped } };
 }
 
 export const createItem = async (data: any) => {
@@ -47,21 +53,24 @@ export const createItem = async (data: any) => {
     low_stock_alert: Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert || 50))
   };
 
-  try {
-    const res = await api.post('/inventory', payload);
-    return { data: { data: mapItemFromApi(res.data.data) } };
-  } catch (err: any) {
-    if (err.response && err.response.status >= 400 && err.response.status < 500) {
-      throw err;
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.post('/inventory', payload);
+      return { data: { data: mapItemFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
     }
-    const { data: inserted, error } = await supabase
-      .from('inventory_items')
-      .upsert([{ ...payload, user_id: user?.id }])
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: mapItemFromApi(inserted) } };
   }
+  const { data: inserted, error } = await supabase
+    .from('inventory_items')
+    .upsert([{ ...payload, user_id: user?.id }])
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: mapItemFromApi(inserted) } };
 }
 
 export const updateItem = async (id, data) => {
@@ -91,42 +100,61 @@ export const updateItem = async (id, data) => {
     payload.low_stock_alert = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : data.lowStockAlert);
   }
 
-  try {
-    const res = await api.put(`/inventory/${id}`, payload);
-    return { data: { data: mapItemFromApi(res.data.data) } };
-  } catch (err) {
-    const { data: updated, error } = await supabase
-      .from('inventory_items')
-      .update(payload)
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: mapItemFromApi(updated) } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.put(`/inventory/${id}`, payload);
+      return { data: { data: mapItemFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data: updated, error } = await supabase
+    .from('inventory_items')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: mapItemFromApi(updated) } };
 }
 
 export const deleteItem = async (id) => {
-  try {
-    await api.delete(`/inventory/${id}`);
-    return { data: { success: true } };
-  } catch (err) {
-    const { error } = await supabase.from('inventory_items').delete().eq('id', id);
-    if (error) throw error;
-    return { data: { success: true } };
+  if (isBackendAvailable()) {
+    try {
+      await api.delete(`/inventory/${id}`);
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+  if (error) throw error;
+  return { data: { success: true } };
 }
 
 export const getLowStock = async () => {
-  try {
-    const res = await api.get('/inventory/low-stock');
-    return { data: { data: res.data.data } };
-  } catch (err) {
-    const { data, error } = await supabase.from('inventory_items').select('*');
-    if (error) throw error;
-    const filtered = (data || []).filter(i => (i.stock || 0) <= (i.low_stock_alert || 50));
-    return { data: { data: filtered } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/inventory/low-stock');
+      return { data: { data: res.data.data } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase.from('inventory_items').select('*');
+  if (error) throw error;
+  const filtered = (data || []).filter(i => (i.stock || 0) <= (i.low_stock_alert || 50));
+  return { data: { data: filtered } };
 }
+
 
 
