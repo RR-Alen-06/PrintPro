@@ -123,7 +123,10 @@ export default function MobileCreateBill() {
 
   // Current selected customer object
   const selectedCustomerObj = useMemo(() => {
-    return (serverCustomers || []).find(c => String(c.id) === String(selectedCustomerId))
+    return (serverCustomers || []).find(c =>
+      String(c.id) === String(selectedCustomerId) ||
+      (c.customerCode && String(c.customerCode) === String(selectedCustomerId))
+    )
   }, [serverCustomers, selectedCustomerId])
 
   // Calculation helpers for Step 2 unit price
@@ -324,6 +327,8 @@ export default function MobileCreateBill() {
         ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `BILL-${editBillId}`)
         : await SequenceService.getNextSequence('BILL')
 
+      const resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId
+
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
         invoice_number: generatedInvoiceNo,
@@ -331,8 +336,8 @@ export default function MobileCreateBill() {
         date: billDate,
         due_date: dueDate,
         dueDate: dueDate,
-        customer_id: selectedCustomerId,
-        customerId: selectedCustomerId,
+        customer_id: resolvedCustomerId,
+        customerId: resolvedCustomerId,
         customer_name: selectedCustomerObj?.name || 'Walk-in Customer',
         customerName: selectedCustomerObj?.name || 'Walk-in Customer',
         customer_phone: selectedCustomerObj?.phone || '',
@@ -380,7 +385,7 @@ export default function MobileCreateBill() {
           try {
             await createPayment({
               bill_id: savedResultId,
-              customer_id: selectedCustomerId,
+              customer_id: resolvedCustomerId,
               date: billDate,
               cash_amount: finalCash,
               upi_amount: finalUpi,

@@ -139,6 +139,43 @@ export default function MobileInventory() {
     }
   }, [deleteItem, showToast])
 
+  const handleFormSubmit = useCallback(async (e) => {
+    e.preventDefault()
+    if (!formName.trim()) {
+      showToast('Item name is required', 'error')
+      return
+    }
+
+    const payload = {
+      name: formName.trim(),
+      type: formType,
+      hsn_code: hsnCode.trim() || null,
+      color_single: formType === 'print' ? Number(colorSingle || 0) : 0,
+      color_double: formType === 'print' ? Number(colorDouble || 0) : 0,
+      bw_single: formType === 'print' ? Number(bwSingle || 0) : 0,
+      bw_double: formType === 'print' ? Number(bwDouble || 0) : 0,
+      selling_price: formType === 'product' ? Number(sellingPrice || 0) : 0,
+      stock: formType === 'product' ? Number(stockQty || 0) : 0,
+      low_stock_alert: Number(lowStockAlert || 50)
+    }
+
+    try {
+      if (editingItem) {
+        await updateItem({ id: editingItem.id, data: payload })
+        showToast(`Item '${formName.trim()}' updated successfully`, 'success')
+      } else {
+        await createItem(payload)
+        showToast(`Item '${formName.trim()}' added to inventory`, 'success')
+      }
+      setShowAddModal(false)
+    } catch (err) {
+      showToast(err.message || 'Failed to save inventory item', 'error')
+    }
+  }, [
+    formName, formType, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
+    sellingPrice, stockQty, lowStockAlert, editingItem, createItem, updateItem, showToast
+  ])
+
   return (
     <MobileLayout title="Inventory & Rates">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>

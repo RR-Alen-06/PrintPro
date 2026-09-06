@@ -1,6 +1,7 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 import { mapBillFromApi } from './bills'
+import { isValidUUID } from '../lib/uuid'
 
 export const mapCustomerFromApi = (c: any) => ({
   ...c,
@@ -41,7 +42,7 @@ export const getCustomers = async (type = 'all', search = '') => {
   return { data: { data: mapped } };
 }
 
-export const getCustomer = async (id) => {
+export const getCustomer = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get(`/customers/${id}`);
@@ -53,8 +54,17 @@ export const getCustomer = async (id) => {
       markBackendUnavailable();
     }
   }
-  const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
+
+  let custQuery = supabase.from('customers').select('*');
+  if (isValidUUID(id)) {
+    custQuery = custQuery.eq('id', id);
+  } else {
+    custQuery = custQuery.eq('customer_code', id);
+  }
+
+  const { data, error } = await custQuery.maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error(`Customer not found with identifier ${id}`);
   return { data: { data: mapCustomerFromApi(data) } };
 }
 
@@ -71,7 +81,7 @@ export const createCustomer = async (data: any) => {
   };
 
   // Include id only if it is a valid UUID
-  if (data.id && typeof data.id === 'string' && !data.id.startsWith('temp-')) {
+  if (data.id && isValidUUID(data.id)) {
     payload.id = data.id;
   }
 
@@ -116,7 +126,7 @@ export const createCustomer = async (data: any) => {
   return { data: { data: mapCustomerFromApi(inserted) } };
 }
 
-export const updateCustomer = async (id, data) => {
+export const updateCustomer = async (id: string, data: any) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.put(`/customers/${id}`, data);
@@ -128,17 +138,28 @@ export const updateCustomer = async (id, data) => {
       markBackendUnavailable();
     }
   }
+
+  let custId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', id)
+      .maybeSingle();
+    if (found?.id) custId = found.id;
+  }
+
   const { data: updated, error } = await supabase
     .from('customers')
     .update(data)
-    .eq('id', id)
+    .eq('id', custId)
     .select()
     .single();
   if (error) throw error;
   return { data: { data: updated } };
 }
 
-export const deleteCustomer = async (id) => {
+export const deleteCustomer = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       await api.delete(`/customers/${id}`);
@@ -150,12 +171,23 @@ export const deleteCustomer = async (id) => {
       markBackendUnavailable();
     }
   }
-  const { error } = await supabase.from('customers').delete().eq('id', id);
+
+  let custId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', id)
+      .maybeSingle();
+    if (found?.id) custId = found.id;
+  }
+
+  const { error } = await supabase.from('customers').delete().eq('id', custId);
   if (error) throw error;
   return { data: { success: true } };
 }
 
-export const getCustomerBills = async (id) => {
+export const getCustomerBills = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get(`/customers/${id}/bills`);
@@ -168,10 +200,25 @@ export const getCustomerBills = async (id) => {
       markBackendUnavailable();
     }
   }
+
+  let custId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', id)
+      .maybeSingle();
+    if (found?.id) {
+      custId = found.id;
+    } else {
+      return { data: { data: [] } };
+    }
+  }
+
   const { data, error } = await supabase
     .from('bills')
     .select('*')
-    .eq('customer_id', id)
+    .eq('customer_id', custId)
     .is('deleted_at', null)
     .order('date', { ascending: false });
   if (error) throw error;
@@ -179,7 +226,7 @@ export const getCustomerBills = async (id) => {
   return { data: { data: mapped } };
 }
 
-export const getCustomerPayments = async (id) => {
+export const getCustomerPayments = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get(`/customers/${id}/payments`);
@@ -191,16 +238,31 @@ export const getCustomerPayments = async (id) => {
       markBackendUnavailable();
     }
   }
+
+  let custId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', id)
+      .maybeSingle();
+    if (found?.id) {
+      custId = found.id;
+    } else {
+      return { data: { data: [] } };
+    }
+  }
+
   const { data, error } = await supabase
     .from('payments')
     .select('*')
-    .eq('customer_id', id)
+    .eq('customer_id', custId)
     .order('date', { ascending: false });
   if (error) throw error;
   return { data: { data } };
 }
 
-export const getCustomerStatement = async (id) => {
+export const getCustomerStatement = async (id: string) => {
   const [billsRes, paymentsRes] = await Promise.all([
     getCustomerBills(id),
     getCustomerPayments(id)
@@ -210,4 +272,5 @@ export const getCustomerStatement = async (id) => {
   const combined = [...bills, ...payments].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return { data: { data: combined } };
 }
+
 

@@ -1,5 +1,6 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase } from '../lib/supabase'
+import { isValidUUID } from '../lib/uuid'
 
 export interface BillFilters {
   status?: string;
@@ -75,13 +76,20 @@ export const getBill = async (id: string) => {
       markBackendUnavailable();
     }
   }
-  const { data: bill, error: billError } = await supabase
-    .from('bills')
-    .select('*, items:bill_items(*)')
-    .eq('id', id)
-    .single();
+
+  // Supabase fallback:
+  let billQuery = supabase.from('bills').select('*, items:bill_items(*)');
+  if (isValidUUID(id)) {
+    billQuery = billQuery.eq('id', id);
+  } else {
+    billQuery = billQuery.eq('invoice_number', id);
+  }
+
+  const { data: bill, error: billError } = await billQuery.maybeSingle();
   if (billError) throw billError;
-  const { data: payments } = await supabase.from('payments').select('*').eq('bill_id', id);
+  if (!bill) throw new Error(`Bill not found for identifier ${id}`);
+
+  const { data: payments } = await supabase.from('payments').select('*').eq('bill_id', bill.id);
   return { data: { data: { ...mapBillFromApi(bill), payments } } };
 }
 
@@ -89,6 +97,7 @@ export const createBill = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
   const billPayload: any = {
     customer_id: data.customer_id || data.customerId,
+    invoice_number: data.invoice_number || data.invoiceNumber || undefined,
     date: data.date || new Date().toISOString().slice(0, 10),
     due_date: data.due_date || data.dueDate || null,
     subtotal: Number(data.subtotal || 0),
@@ -117,7 +126,7 @@ export const createBill = async (data: any) => {
   };
 
   // Only attach ID if it is a valid UUID
-  if (data.id && typeof data.id === 'string' && !data.id.startsWith('temp-') && !data.id.startsWith('BILL-') && !data.id.startsWith('INV/')) {
+  if (data.id && isValidUUID(data.id)) {
     billPayload.id = data.id;
   }
 
@@ -135,20 +144,56 @@ export const createBill = async (data: any) => {
 
   // Fallback to direct Supabase upsert only for network/5xx offline errors
   const { items, ...billScalarData } = billPayload;
+
+  // Resolve customer_id if not a UUID
+  if (billScalarData.customer_id && !isValidUUID(billScalarData.customer_id)) {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', billScalarData.customer_id)
+      .maybeSingle();
+    if (cust?.id) {
+      billScalarData.customer_id = cust.id;
+    } else {
+      delete billScalarData.customer_id;
+    }
+  }
+
+  // If billScalarData.id is not a valid UUID, remove it so Supabase generates UUID
+  if (billScalarData.id && !isValidUUID(billScalarData.id)) {
+    delete billScalarData.id;
+  }
+
   const { data: bill, error: billError } = await supabase
     .from('bills')
     .upsert([{ ...billScalarData, user_id: user?.id }])
     .select()
     .single();
   if (billError) throw billError;
+
   if (items && items.length > 0) {
-    const itemsData = items.map(item => ({ ...item, user_id: user?.id, bill_id: data.id }));
+    const itemsData = items.map((item: any) => {
+      const sanitizedItem: any = {
+        item_name: item.item_name,
+        print_type: item.print_type,
+        sides: item.sides,
+        qty: item.qty,
+        unit_price: item.unit_price,
+        amount: item.amount,
+        user_id: user?.id,
+        bill_id: bill.id // CRITICAL: Use Supabase returned bill.id UUID
+      };
+      if (item.item_id && isValidUUID(item.item_id)) {
+        sanitizedItem.item_id = item.item_id;
+      }
+      return sanitizedItem;
+    });
     await supabase.from('bill_items').insert(itemsData);
   }
   return { data: { data: mapBillFromApi(bill) } };
 }
 
-export const updateBill = async (id, data) => {
+export const updateBill = async (id: string, data: any) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.put(`/bills/${id}`, data);
@@ -160,17 +205,28 @@ export const updateBill = async (id, data) => {
       markBackendUnavailable();
     }
   }
+
+  let billId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('bills')
+      .select('id')
+      .eq('invoice_number', id)
+      .maybeSingle();
+    if (found?.id) billId = found.id;
+  }
+
   const { data: bill, error: billError } = await supabase
     .from('bills')
     .update(data)
-    .eq('id', id)
+    .eq('id', billId)
     .select()
     .single();
   if (billError) throw billError;
   return { data: { data: mapBillFromApi(bill) } };
 }
 
-export const deleteBill = async (id) => {
+export const deleteBill = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       await api.delete(`/bills/${id}`);
@@ -182,15 +238,26 @@ export const deleteBill = async (id) => {
       markBackendUnavailable();
     }
   }
+
+  let billId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('bills')
+      .select('id')
+      .eq('invoice_number', id)
+      .maybeSingle();
+    if (found?.id) billId = found.id;
+  }
+
   const { error } = await supabase
     .from('bills')
     .update({ deleted_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', billId);
   if (error) throw error;
   return { data: { success: true } };
 }
 
-export const restoreBill = async (id) => {
+export const restoreBill = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       await api.post(`/bills/${id}/restore`);
