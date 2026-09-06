@@ -7,6 +7,7 @@ import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import ShareReceiptSheet from '../../components/mobile/ShareReceiptSheet'
+import LedgerBillCard from '../../components/common/LedgerBillCard'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
@@ -343,212 +344,33 @@ export default function MobileBillDetail() {
           </div>
         </div>
 
-        {/* Customer Information Card */}
-        <div className="mobile-card" style={{ marginBottom: '16px' }}>
-          <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--accent-secondary)', margin: '0 0 10px 0', letterSpacing: '0.05em' }}>
-            CLIENT INFORMATION
-          </h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ padding: '10px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', color: 'var(--accent-primary)' }}>
-              <User size={22} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {bill.customerName || bill.customer_name || customer?.name || 'Walk-in Customer'}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Phone: {bill.customerPhone || customer?.phone || 'N/A'}
-              </div>
-              {customer?.email && (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {customer.email}
-                </div>
-              )}
-              {(Number(customer?.creditBalance || customer?.credit_balance || 0) > 0 || Number(customer?.advanceBalance || customer?.advance_balance || 0) > 0) && (
-                <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-                  {Number(customer?.creditBalance || customer?.credit_balance || 0) > 0 && (
-                    <span className="mobile-badge mobile-badge-error" style={{ fontSize: '0.68rem' }}>
-                      Credit Due: ₹{Number(customer.creditBalance || customer.credit_balance).toFixed(2)}
-                    </span>
-                  )}
-                  {Number(customer?.advanceBalance || customer?.advance_balance || 0) > 0 && (
-                    <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem' }}>
-                      Advance: ₹{Number(customer.advanceBalance || customer.advance_balance).toFixed(2)}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Quick Invoice Actions Bar */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowReturnModal(true)}
+            className="mobile-btn mobile-btn-secondary"
+            style={{ flex: 1, minHeight: '36px', fontSize: '0.75rem', gap: '6px' }}
+          >
+            <RotateCcw size={14} /> Item Return
+          </button>
+          <button
+            onClick={() => setShowPostDiscountModal(true)}
+            className="mobile-btn mobile-btn-secondary"
+            style={{ flex: 1, minHeight: '36px', fontSize: '0.75rem', gap: '6px' }}
+          >
+            <Tag size={14} /> Post Discount
+          </button>
         </div>
 
-        {/* Print Line Items Table */}
-        <div className="mobile-card" style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '0.05em' }}>
-              PRINT SPECIFICATIONS & LINE ITEMS
-            </h3>
-            <button
-              onClick={() => setShowReturnModal(true)}
-              style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <RotateCcw size={14} /> Item Return
-            </button>
-          </div>
-
-          {(bill.items || []).map((item, idx) => (
-            <div
-              key={idx}
-              style={{
-                padding: '10px 0',
-                borderBottom: idx < (bill.items || []).length - 1 ? '1px solid var(--border)' : 'none',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {item.itemName || item.name || item.item_name || item.description || 'Print Item'}
-                </div>
-                <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                  <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                    {(item.printType || item.print_type || 'Color').toUpperCase()}
-                  </span>
-                  <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
-                    {(item.sides || 'Single').toUpperCase()}
-                  </span>
-                  {Number(item.gstRate || item.gst_percent || 0) > 0 && (
-                    <span className="mobile-badge" style={{ fontSize: '0.65rem', background: 'rgba(168, 85, 247, 0.2)', color: 'var(--accent-tertiary)' }}>
-                      GST {item.gstRate || item.gst_percent}%
-                    </span>
-                  )}
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
-                    Qty: {item.qty || 1} × ₹{Number(item.unitPrice || item.unit_price || 0).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="currency-num" style={{ fontSize: '1rem', color: '#ffffff' }}>
-                ₹{Number(item.amount || 0).toLocaleString('en-IN')}
-              </div>
-            </div>
-          ))}
-
-          {/* Pricing Breakdown Summary */}
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              <span>Subtotal</span>
-              <span className="currency-num">₹{Number(bill.subtotal || bill.total || 0).toFixed(2)}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem', color: 'var(--accent-primary)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span>Discount Applied</span>
-                <button
-                  onClick={() => setShowPostDiscountModal(true)}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}
-                >
-                  (+ Edit Discount)
-                </button>
-              </div>
-              <span className="currency-num">-₹{Number(bill.discountValue || bill.discount_value || bill.discount || 0).toFixed(2)}</span>
-            </div>
-
-            {Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || 0) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--success)' }}>
-                <span>Advance Deducted</span>
-                <span className="currency-num">-₹{Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed).toFixed(2)}</span>
-              </div>
-            )}
-
-            {Number(bill.loyaltyDiscount || 0) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-tertiary)' }}>
-                <span>Loyalty Discount ({bill.loyaltyPointsRedeemed || 0} pts)</span>
-                <span className="currency-num">-₹{Number(bill.loyaltyDiscount).toFixed(2)}</span>
-              </div>
-            )}
-
-            {(bill.promoCode || bill.promo_code) && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)' }}>
-                <span>Promo Code ({bill.promoCode || bill.promo_code})</span>
-                <span className="currency-num">Applied</span>
-              </div>
-            )}
-
-            {Number(bill.gstAmount || bill.gst_amount || 0) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)' }}>
-                <span>GST Tax</span>
-                <span className="currency-num">+₹{Number(bill.gstAmount || bill.gst_amount).toFixed(2)}</span>
-              </div>
-            )}
-
-            {Number(bill.writtenOffAmount || bill.written_off_amount || 0) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                <span>Written Off</span>
-                <span className="currency-num">₹{Number(bill.writtenOffAmount || bill.written_off_amount).toFixed(2)}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
-              <span>Grand Total</span>
-              <span className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{totalAmount.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment History & Timeline */}
-        <div className="mobile-card" style={{ marginBottom: '16px' }}>
-          <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--success)', margin: '0 0 12px 0', letterSpacing: '0.05em' }}>
-            PAYMENT SETTLEMENT TIMELINE
-          </h3>
-
-          {billPayments.length === 0 ? (
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
-              No payments recorded yet for this invoice.
-            </p>
-          ) : (
-            billPayments.map((p, pIdx) => (
-              <div
-                key={p.id || pIdx}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 0',
-                  borderBottom: pIdx < billPayments.length - 1 ? '1px solid var(--border)' : 'none'
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {p.notes || 'Payment Received'}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    Date: {p.date} • Cash: ₹{Number(p.cashAmount || p.cash_amount || 0).toFixed(2)} | UPI: ₹{Number(p.upiAmount || p.upi_amount || 0).toFixed(2)}
-                  </div>
-                </div>
-                <div className="currency-num" style={{ fontSize: '0.95rem', color: 'var(--success)' }}>
-                  +₹{Number(p.totalPaid || p.total_paid || 0).toFixed(2)}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Notes Card if notes exist */}
-        {bill.notes && (
-          <div className="mobile-card" style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <FileText size={16} style={{ color: 'var(--accent-secondary)' }} />
-              <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                ORDER INSTRUCTIONS & NOTES
-              </h4>
-            </div>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', background: 'var(--bg-input)', padding: '10px', borderRadius: 'var(--radius-md)', whiteSpace: 'pre-wrap' }}>
-              {bill.notes}
-            </div>
-          </div>
-        )}
+        {/* Ledger-Style Bill Card */}
+        <LedgerBillCard
+          bill={bill}
+          business={business}
+          settings={settings}
+          customers={serverCustomers}
+          bills={serverBills}
+          payments={serverPayments}
+        />
       </div>
 
       {/* Sticky Bottom Action Bar */}

@@ -6,6 +6,7 @@ import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePayments } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import ShareReceiptSheet from '../../components/mobile/ShareReceiptSheet'
+import LedgerBillCard from '../../components/common/LedgerBillCard'
 import { Printer, Share2, ArrowLeft, Loader2 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -79,139 +80,16 @@ export default function MobileReceipt() {
         </button>
       </div>
 
-      {/* Monospaced Thermal Slip Card */}
-      <div
-        className="mobile-card"
-        style={{
-          background: '#ffffff',
-          color: '#000000',
-          fontFamily: 'Courier Prime, Courier New, monospace',
-          fontSize: '0.85rem',
-          lineHeight: '1.4',
-          borderRadius: 'var(--radius-md)',
-          padding: '20px 14px',
-          boxShadow: '0 0 20px rgba(0,240,255,0.15)',
-          border: '1px solid rgba(255,255,255,0.2)'
-        }}
-      >
-        <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '4px', letterSpacing: '0.05em' }}>
-          {business?.shopName || 'PRINTPRO STATION'}
-        </div>
-        <div style={{ textAlign: 'center', fontSize: '0.75rem', marginBottom: '4px' }}>
-          {business?.address || 'Main Road Center'}
-        </div>
-        {business?.phone && (
-          <div style={{ textAlign: 'center', fontSize: '0.75rem', marginBottom: '4px' }}>
-            Tel: {business.phone}
-          </div>
-        )}
-        {business?.gstin && (
-          <div style={{ textAlign: 'center', fontSize: '0.75rem', marginBottom: '4px' }}>
-            GSTIN: {business.gstin}
-          </div>
-        )}
-        {business?.upiId && (
-          <div style={{ textAlign: 'center', fontSize: '0.75rem', marginBottom: '6px' }}>
-            UPI ID: {business.upiId}
-          </div>
-        )}
-
-        <div style={{ borderTop: '1px dashed #000000', margin: '8px 0' }} />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-          <span><strong>Inv:</strong> #{bill.invoiceNumber || bill.invoice_number || bill.id}</span>
-          <span><strong>Date:</strong> {bill.date}</span>
-        </div>
-        <div style={{ fontSize: '0.8rem', marginTop: '2px' }}>
-          <strong>Client:</strong> {bill.customerName || bill.customer_name || 'Walk-in Client'}
-        </div>
-
-        <div style={{ borderTop: '1px dashed #000000', margin: '8px 0' }} />
-
-        {/* Itemized Specifications */}
-        <div style={{ fontWeight: 'bold', fontSize: '0.78rem', marginBottom: '6px' }}>
-          ITEM SPECIFICATIONS
-        </div>
-
-        {(bill.items || []).map((item, idx) => {
-          const pType = (item.printType || item.print_type || 'Color').toUpperCase()
-          const pSides = (item.sides || 'Single').toUpperCase()
-          const uPrice = Number(item.unitPrice || item.unit_price || 0).toFixed(2)
-          const amt = Number(item.amount || 0).toFixed(2)
-
-          return (
-            <div key={idx} style={{ marginBottom: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                <span>{idx + 1}. {item.itemName || item.name || item.item_name || 'Print Item'}</span>
-                <span>₹{amt}</span>
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#444444', paddingLeft: '14px' }}>
-                [{pType}] [{pSides}] • Qty: {item.qty || 1} × ₹{uPrice}
-              </div>
-            </div>
-          )
-        })}
-
-        <div style={{ borderTop: '1px dashed #000000', margin: '8px 0' }} />
-
-        {/* Financial Breakdown */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '3px' }}>
-          <span>Subtotal:</span>
-          <span>₹{Number(bill.subtotal || bill.total || 0).toFixed(2)}</span>
-        </div>
-
-        {discountAmount > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '3px' }}>
-            <span>Discount:</span>
-            <span>-₹{discountAmount.toFixed(2)}</span>
-          </div>
-        )}
-
-        {advanceUsed > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '3px' }}>
-            <span>Advance Deducted:</span>
-            <span>-₹{advanceUsed.toFixed(2)}</span>
-          </div>
-        )}
-
-        {gstAmount > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '3px' }}>
-            <span>GST Tax:</span>
-            <span>+₹{gstAmount.toFixed(2)}</span>
-          </div>
-        )}
-
-        <div style={{ borderTop: '1px solid #000000', margin: '6px 0 4px 0' }} />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '1rem' }}>
-          <span>TOTAL:</span>
-          <span>₹{Number(bill.total || 0).toFixed(2)}</span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px' }}>
-          <span>Amount Paid:</span>
-          <span>₹{amountPaid.toFixed(2)}</span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: balanceDue > 0 ? 'bold' : 'normal', color: balanceDue > 0 ? '#b91c1c' : '#000000', marginTop: '2px' }}>
-          <span>Balance Due:</span>
-          <span>₹{balanceDue.toFixed(2)}</span>
-        </div>
-
-        <div style={{ borderTop: '1px dashed #000000', margin: '10px 0' }} />
-
-        {settings?.footerNotes && (
-          <div style={{ textAlign: 'center', fontSize: '0.72rem', color: '#555555', marginBottom: '6px' }}>
-            {settings.footerNotes}
-          </div>
-        )}
-
-        <div style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>
-          *** THANK YOU FOR YOUR BUSINESS ***
-        </div>
-        <div style={{ textAlign: 'center', fontSize: '0.68rem', color: '#666666', marginTop: '2px' }}>
-          Powered by PrintPro ERP
-        </div>
+      {/* Ledger-Style Bill Card */}
+      <div style={{ marginBottom: '24px' }}>
+        <LedgerBillCard
+          bill={bill}
+          business={business}
+          settings={settings}
+          customers={customers}
+          bills={bills}
+          payments={payments}
+        />
       </div>
 
       {/* Share Drawer */}
