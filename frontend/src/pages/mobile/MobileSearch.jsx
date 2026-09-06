@@ -50,9 +50,7 @@ export default function MobileSearch() {
   // Filtered inventory
   const inventoryResults = useMemo(() => {
     const filters = {}
-    if (inventoryTypeFilter === 'lowStock') {
-      filters.lowStock = true
-    } else if (inventoryTypeFilter !== 'all') {
+    if (inventoryTypeFilter !== 'all') {
       filters.type = inventoryTypeFilter
     }
     return searchInventory(inventory || [], query, filters)
@@ -235,8 +233,6 @@ export default function MobileSearch() {
           {[
             { id: 'all', label: 'All Catalog' },
             { id: 'print', label: 'Print Papers' },
-            { id: 'product', label: 'Products' },
-            { id: 'lowStock', label: 'Low Stock ⚠️' },
           ].map(f => (
             <button
               key={f.id}
@@ -377,7 +373,6 @@ export default function MobileSearch() {
               </div>
             ) : (
               inventoryResults.map((item) => {
-                const isProduct = item.type === 'product'
                 return (
                   <div
                     key={item.id}
@@ -389,25 +384,18 @@ export default function MobileSearch() {
                       <div>
                         <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)' }}>{item.name}</div>
                         <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          HSN: {item.hsnCode || item.hsn_code || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
+                          HSN: {item.hsnCode || item.hsn_code || 'N/A'} • Type: PRINT PAPER
                         </div>
                       </div>
                       <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                        {(item.type || 'PRINT').toUpperCase()}
+                        PRINT PAPER
                       </span>
                     </div>
 
-                    {!isProduct ? (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.74rem' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle ?? item.color_single ?? 10}</strong></span>
-                        <span style={{ color: 'var(--text-secondary)' }}>B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle ?? item.bw_single ?? 3}</strong></span>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.76rem' }}>
-                        <span>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
-                        <span>Price: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.sellingPrice ?? item.selling_price ?? 0}</strong></span>
-                      </div>
-                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', fontSize: '0.74rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle ?? item.color_single ?? 10}</strong></span>
+                      <span style={{ color: 'var(--text-secondary)' }}>B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle ?? item.bw_single ?? 3}</strong></span>
+                    </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
                       Manage In Inventory <ChevronRight size={14} />

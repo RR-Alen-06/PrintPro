@@ -307,16 +307,6 @@ export default function MobileBillDetail() {
               <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
                 {(bill.status || 'unpaid').toUpperCase()}
               </span>
-              {(bill.jobStatus || bill.job_status) && (
-                <span className={`mobile-badge ${
-                  (bill.jobStatus || bill.job_status) === 'ready' ? 'mobile-badge-success' :
-                  (bill.jobStatus || bill.job_status) === 'in_progress' ? 'mobile-badge-info' :
-                  (bill.jobStatus || bill.job_status) === 'pending' ? 'mobile-badge-warning' :
-                  'mobile-badge-muted'
-                }`} style={{ fontSize: '0.65rem' }}>
-                  JOB: {(bill.jobStatus || bill.job_status).toUpperCase().replace('_', ' ')}
-                </span>
-              )}
               <button
                 className="mobile-btn mobile-btn-secondary"
                 onClick={() => navigate(`/mobile/create-bill?edit=${bill.id}`)}
