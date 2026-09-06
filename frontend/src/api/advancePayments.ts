@@ -26,8 +26,8 @@ export const getAdvancePayments = async () => {
       .from('business_profile')
       .select('advance_payments')
       .eq('user_id', user.id)
-      .single();
-    if (error) throw error;
+      .maybeSingle();
+    if (error && (error as any).code !== 'PGRST116') throw error;
     const advances = (data && data.advance_payments) || [];
     return { data: { data: advances.map(mapAdvancePaymentFromApi) } };
   }

@@ -956,7 +956,7 @@ export const AppProvider = ({ children }: any) => {
       if (isSyncingRef.current) return // Skip if already syncing to prevent loop
       isSyncingRef.current = true
       try {
-        const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
+        const results = await Promise.allSettled([
           getBills(),
           getCustomers(),
           getPayments(),
@@ -965,12 +965,45 @@ export const AppProvider = ({ children }: any) => {
           getProfile()
         ])
 
-        const fetchedBills = billsRes.data?.data || []
-        const fetchedCustomers = customersRes.data?.data || []
-        const fetchedPayments = paymentsRes.data?.data || []
-        const fetchedInventory = inventoryRes.data?.data || []
-        const fetchedPurchases = purchasesRes.data?.data || []
-        const fetchedProfile = profileRes.data?.data || {}
+        const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = results
+
+        // Only show fatal sync failure if all 6 calls failed simultaneously (true network failure)
+        const allFailed = results.every(r => r.status === 'rejected')
+        if (allFailed) {
+          const firstErr = (results[0] as PromiseRejectedResult).reason
+          throw firstErr || new Error('Network failure: All cloud queries failed')
+        }
+
+        const fetchedBills = billsRes.status === 'fulfilled' ? (billsRes.value.data?.data || []) : []
+        const fetchedCustomers = customersRes.status === 'fulfilled' ? (customersRes.value.data?.data || []) : []
+        const fetchedPayments = paymentsRes.status === 'fulfilled' ? (paymentsRes.value.data?.data || []) : []
+        const fetchedInventory = inventoryRes.status === 'fulfilled' ? (inventoryRes.value.data?.data || []) : []
+        const fetchedPurchases = purchasesRes.status === 'fulfilled' ? (purchasesRes.value.data?.data || []) : []
+        const fetchedProfile = profileRes.status === 'fulfilled' ? (profileRes.value.data?.data || {}) : {}
+
+        if (billsRes.status === 'rejected') {
+          console.warn('Bills failed to load from cloud:', billsRes.reason)
+          showToast('Bills failed to load — showing cached data', 'warning')
+        }
+        if (customersRes.status === 'rejected') {
+          console.warn('Customers failed to load from cloud:', customersRes.reason)
+          showToast('Customers failed to load — showing cached data', 'warning')
+        }
+        if (paymentsRes.status === 'rejected') {
+          console.warn('Payments failed to load from cloud:', paymentsRes.reason)
+          showToast('Payments failed to load — showing cached data', 'warning')
+        }
+        if (inventoryRes.status === 'rejected') {
+          console.warn('Inventory failed to load from cloud:', inventoryRes.reason)
+          showToast('Inventory failed to load — showing cached data', 'warning')
+        }
+        if (purchasesRes.status === 'rejected') {
+          console.warn('Expenses failed to load from cloud:', purchasesRes.reason)
+          showToast('Expenses failed to load — showing cached data', 'warning')
+        }
+        if (profileRes.status === 'rejected') {
+          console.warn('Profile failed to load from cloud:', profileRes.reason)
+        }
 
         // Guard: If the cloud database already has existing customers, bills, or payments, migration has already occurred.
         // We immediately mark migration as done on this device/session so old local storage never re-uploads or duplicates.
@@ -1040,19 +1073,20 @@ export const AppProvider = ({ children }: any) => {
             localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
             console.log('=== MIGRATION COMPLETE ===', migrationErrors.length > 0 ? `Errors: ${migrationErrors.length}` : 'Success')
 
-            const [billsRes2, customersRes2, paymentsRes2, inventoryRes2, purchasesRes2] = await Promise.all([
+            const results2 = await Promise.allSettled([
               getBills(), getCustomers(), getPayments(), getItems(), getPurchases()
             ])
+            const [billsRes2, customersRes2, paymentsRes2, inventoryRes2, purchasesRes2] = results2
             fetchedBills.length = 0
-            fetchedBills.push(...(billsRes2.data?.data || []))
+            if (billsRes2.status === 'fulfilled') fetchedBills.push(...(billsRes2.value.data?.data || []))
             fetchedCustomers.length = 0
-            fetchedCustomers.push(...(customersRes2.data?.data || []))
+            if (customersRes2.status === 'fulfilled') fetchedCustomers.push(...(customersRes2.value.data?.data || []))
             fetchedPayments.length = 0
-            fetchedPayments.push(...(paymentsRes2.data?.data || []))
+            if (paymentsRes2.status === 'fulfilled') fetchedPayments.push(...(paymentsRes2.value.data?.data || []))
             fetchedInventory.length = 0
-            fetchedInventory.push(...(inventoryRes2.data?.data || []))
+            if (inventoryRes2.status === 'fulfilled') fetchedInventory.push(...(inventoryRes2.value.data?.data || []))
             fetchedPurchases.length = 0
-            fetchedPurchases.push(...(purchasesRes2.data?.data || []))
+            if (purchasesRes2.status === 'fulfilled') fetchedPurchases.push(...(purchasesRes2.value.data?.data || []))
           } else {
             localStorage.setItem('printpro-migration-v2-done', new Date().toISOString())
           }
