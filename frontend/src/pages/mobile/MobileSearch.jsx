@@ -76,7 +76,7 @@ export default function MobileSearch() {
                     (activeTab === 'inventory' && isLoadingInventory)
 
   return (
-    <MobileLayout title="Global Search" onSwitchToDesktop={() => navigate('/search')}>
+    <MobileLayout title="Global Search">
       {/* Search Header */}
       <div style={{ marginBottom: '14px' }}>
         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)', letterSpacing: '0.08em' }}>

@@ -38,7 +38,7 @@ export default function MobileItemSalesReport() {
   }, [itemReportData, searchTerm])
 
   return (
-    <MobileLayout title="Item Sales Analytics" onSwitchToDesktop={() => navigate('/item-sales-report')}>
+    <MobileLayout title="Item Sales Analytics">
       <div style={{ marginBottom: '16px' }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CATALOG PERFORMANCE</span>
         <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>ITEM SALES REPORT</h2>

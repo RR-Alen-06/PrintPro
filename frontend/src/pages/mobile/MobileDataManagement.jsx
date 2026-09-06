@@ -288,7 +288,7 @@ export default function MobileDataManagement() {
   }
 
   return (
-    <MobileLayout title="Data Management" onSwitchToDesktop={() => navigate('/data-management')}>
+    <MobileLayout title="Data Management">
       {/* Hidden File Input */}
       <input
         type="file"

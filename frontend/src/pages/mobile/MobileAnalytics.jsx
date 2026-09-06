@@ -223,7 +223,7 @@ export default function MobileAnalytics() {
   const isLoading = isLoadingBills || isLoadingPayments || isLoadingExpenses
 
   return (
-    <MobileLayout title="Store Analytics" onSwitchToDesktop={() => navigate('/analytics')}>
+    <MobileLayout title="Store Analytics">
       {/* Header section */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
