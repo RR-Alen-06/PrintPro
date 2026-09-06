@@ -34,6 +34,7 @@ export function useExpenses(filters = {}) {
       return raw.map(mapPurchaseFromApi)
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
 
@@ -78,13 +79,27 @@ export function useExpenseMutations() {
 
       return { previousExpenses, userKey }
     },
+    onSuccess: (serverData, variables) => {
+      const userKey = [...EXPENSES_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((e) =>
+                e.isOptimistic && (e.id === variables.id || e.description === variables.description)
+                  ? { ...serverData, isOptimistic: false }
+                  : e
+              )
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousExpenses && context?.userKey) {
         queryClient.setQueryData(context.userKey, context.previousExpenses)
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: EXPENSES_QUERY_KEY })
+      // Optimistic + onSuccess cache update handles this
     },
   })
 
@@ -108,7 +123,7 @@ export function useExpenseMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: EXPENSES_QUERY_KEY })
+      // Optimistic deletion
     },
   })
 

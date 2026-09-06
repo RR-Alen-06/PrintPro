@@ -15,6 +15,7 @@ export function useBills(filters = {}) {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
 
@@ -30,6 +31,7 @@ export function useBill(id) {
       return res.data?.data || null
     },
     enabled: !!userId && !!id,
+    staleTime: 1000 * 60 * 2,
   })
 }
 
@@ -44,6 +46,7 @@ export function useDeletedBills() {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 5,
   })
 }
 
@@ -64,12 +67,17 @@ export function useBillMutations() {
 
       const optimisticBill = {
         id: newBillData.id || `temp-bill-${Date.now()}`,
-        invoice_number: newBillData.invoice_number || 'BILL-SAVING...',
-        customer_id: newBillData.customer_id,
+        invoice_number: newBillData.invoice_number || newBillData.invoiceNumber || 'BILL-SAVING...',
+        invoiceNumber: newBillData.invoice_number || newBillData.invoiceNumber || 'BILL-SAVING...',
+        customer_id: newBillData.customer_id || newBillData.customerId,
+        customerId: newBillData.customer_id || newBillData.customerId,
+        customer_name: newBillData.customer_name || newBillData.customerName || 'Customer',
+        customerName: newBillData.customer_name || newBillData.customerName || 'Customer',
         date: newBillData.date,
         total: newBillData.total || 0,
-        amount_paid: newBillData.amount_paid || 0,
-        balance: newBillData.balance || 0,
+        amount_paid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
+        amountPaid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
+        balance: newBillData.balance !== undefined ? newBillData.balance : 0,
         status: newBillData.status || 'unpaid',
         items: newBillData.items || [],
         isOptimistic: true,
@@ -82,6 +90,20 @@ export function useBillMutations() {
 
       return { previousQueries }
     },
+    onSuccess: (serverData, variables) => {
+      const userBillsKey = [...BILLS_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueriesData(
+          { queryKey: userBillsKey, exact: false },
+          (old = []) => Array.isArray(old)
+            ? old.map((b) => (b.isOptimistic && (b.id === variables.id || b.invoice_number === variables.invoice_number || b.invoiceNumber === variables.invoiceNumber))
+                ? { ...serverData, isOptimistic: false }
+                : b
+              )
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousQueries) {
         context.previousQueries.forEach(([queryKey, data]) => {
@@ -90,8 +112,10 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      // Do not trigger immediate full bills refetch. Secondary customer balance lazily refreshed
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+      }, 2000)
     },
   })
 
@@ -111,6 +135,17 @@ export function useBillMutations() {
 
       return { previousQueries }
     },
+    onSuccess: (serverData, variables) => {
+      const userBillsKey = [...BILLS_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueriesData(
+          { queryKey: userBillsKey, exact: false },
+          (old = []) => Array.isArray(old)
+            ? old.map((b) => (b.id === variables.id ? { ...serverData, isOptimistic: false } : b))
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousQueries) {
         context.previousQueries.forEach(([queryKey, data]) => {
@@ -119,8 +154,9 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+      }, 2000)
     },
   })
 
@@ -148,8 +184,9 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['customers'] })
+      }, 2000)
     },
   })
 

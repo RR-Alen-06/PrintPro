@@ -122,36 +122,35 @@ export default function MobileCustomers() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!name.trim()) {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
       showToast('Please enter customer name', 'error')
       return
     }
 
+    const payload = {
+      name: trimmedName,
+      phone: phone.trim(),
+      email: email.trim(),
+      type,
+      credit_limit: creditLimit ? Number(creditLimit) : 0,
+    }
+
+    setShowModal(false)
+
     try {
       if (editMode && editingId) {
-        await updateCustomer({
-          id: editingId,
-          data: {
-            name: name.trim(),
-            phone: phone.trim(),
-            email: email.trim(),
-            type,
-            credit_limit: creditLimit ? Number(creditLimit) : 0,
-          }
-        })
-        showToast(`Customer '${name.trim()}' updated successfully!`, 'success')
+        await updateCustomer({ id: editingId, data: payload })
+        showToast(`Customer '${trimmedName}' updated successfully!`, 'success')
       } else {
-        await createCustomer({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          type,
-          credit_limit: creditLimit ? Number(creditLimit) : 0,
-        })
-        showToast(`Customer '${name.trim()}' added successfully!`, 'success')
+        createCustomer(payload)
+          .then(() => {
+            showToast(`Customer '${trimmedName}' added successfully!`, 'success')
+          })
+          .catch((err) => {
+            showToast(err?.message || 'Failed to add customer', 'error')
+          })
       }
-
-      setShowModal(false)
     } catch (err) {
       showToast(err.message || 'Failed to save customer', 'error')
     }
