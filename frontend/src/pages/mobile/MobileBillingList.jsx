@@ -21,7 +21,7 @@ const BillCard = React.memo(({ bill, onNavigate, onQuickPay, onDelete, onWhatsAp
 
   return (
     <div
-      className="mobile-card"
+      className={`mobile-card ${bill.isOptimistic ? 'mobile-card-optimistic' : ''}`}
       onClick={() => onNavigate(`/mobile/bill/${bill.id}`)}
       style={{ cursor: 'pointer', position: 'relative', marginBottom: '12px' }}
     >
