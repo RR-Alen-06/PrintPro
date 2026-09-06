@@ -7,6 +7,7 @@ import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { SequenceService } from '../../services/sequenceService'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { CreditService } from '../../services/creditService'
+import LoyaltyEnginePanel from '../../components/common/LoyaltyEnginePanel'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
