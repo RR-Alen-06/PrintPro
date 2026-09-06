@@ -12,7 +12,10 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       gcTime: 1000 * 60 * 60 * 24, // 24 hours
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 1000 * 60 * 2, // 2 minutes
+      refetchOnWindowFocus: false, // Prevents sudden UI flickers on tab/window switch
+      refetchOnReconnect: true,
+      retry: 1, // Fail fast to Supabase fallback
     },
   },
 })
