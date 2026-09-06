@@ -48,14 +48,36 @@ import MobileNotifications from './pages/mobile/MobileNotifications'
 import MobileDeletedBills from './pages/mobile/MobileDeletedBills'
 import MobileSearch from './pages/mobile/MobileSearch'
 
-import ViewportBanner from './components/mobile/ViewportBanner'
 import { useMobileDetect } from './hooks/useMobileDetect'
+
+const desktopToMobilePathMap: Record<string, string> = {
+  '/': '/mobile/dashboard',
+  '/dashboard': '/mobile/dashboard',
+  '/billing': '/mobile/billing',
+  '/customers': '/mobile/customers',
+  '/accounting': '/mobile/accounting',
+  '/inventory': '/mobile/inventory',
+  '/notifications': '/mobile/notifications',
+  '/deleted-bills': '/mobile/deleted-bills',
+  '/settings': '/mobile/settings',
+  '/data-management': '/mobile/data-management',
+  '/search': '/mobile/search',
+  '/receipt': '/mobile/receipt',
+  '/auth': '/mobile/auth',
+  '/analytics': '/mobile/analytics',
+  '/item-sales-report': '/mobile/item-sales-report',
+  '/customer-ledger': '/mobile/customer-ledger',
+  '/customer-bills': '/mobile/customer-bills',
+  '/advance-payments': '/mobile/advance-payments',
+  '/group-billing': '/mobile/group-billing',
+  '/refunds': '/mobile/refunds',
+}
 
 function App() {
   const { currentUser, isInitialLoading } = useAppContext()
   const location = useLocation()
   const navigate = useNavigate()
-  const { isMobile, isTablet, userPref, setUserPref, effectiveMode } = useMobileDetect()
+  const { isMobile, userPref, setUserPref, effectiveMode } = useMobileDetect()
 
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
   const isMobileRoute = location.pathname.startsWith('/mobile')
@@ -109,11 +131,10 @@ function App() {
     return <Navigate to="/auth" replace />
   }
 
-  // 3. Auto-redirect on root "/" or direct "/dashboard" landing if on mobile device (respecting explicit userPref)
+  // 3. Auto-redirect any desktop route to mobile equivalent if on mobile device (respecting explicit userPref === 'desktop')
   if (!isMobileRoute && effectiveMode === 'mobile' && userPref !== 'desktop') {
-    if (location.pathname === '/' || location.pathname === '/dashboard') {
-      return <Navigate to="/mobile/dashboard" replace />
-    }
+    const targetMobilePath = desktopToMobilePathMap[location.pathname] || '/mobile/dashboard'
+    return <Navigate to={`${targetMobilePath}${location.search}`} replace />
   }
 
   // Render Mobile App Routes in standalone mobile layout wrapped in ErrorBoundary
@@ -150,15 +171,6 @@ function App() {
 
   return (
     <div className="app-layout aurora-canvas">
-      {isTablet && !userPref && !isMobileRoute && (
-        <ViewportBanner
-          onSwitchToMobile={() => {
-            setUserPref('mobile')
-            navigate('/mobile/dashboard')
-          }}
-          onDismiss={() => setUserPref('desktop')}
-        />
-      )}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-wrapper">
         <Header onMenuClick={() => setSidebarOpen(true)} />

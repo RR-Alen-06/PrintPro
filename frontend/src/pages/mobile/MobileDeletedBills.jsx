@@ -60,7 +60,7 @@ export default function MobileDeletedBills() {
   }
 
   return (
-    <MobileLayout title="Deleted Invoices" onSwitchToDesktop={() => navigate('/deleted-bills')}>
+    <MobileLayout title="Deleted Invoices">
       {/* Top Banner Toolbar */}
       <div style={{ marginBottom: '14px' }}>
         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--error)', letterSpacing: '0.08em' }}>

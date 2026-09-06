@@ -217,10 +217,6 @@ export default function MobileSettings() {
   return (
     <MobileLayout
       title="System Settings Terminal"
-      onSwitchToDesktop={() => {
-        localStorage.setItem('printpro_viewport_pref', 'desktop')
-        navigate('/settings')
-      }}
     >
       {/* SECTION 1: BUSINESS PROFILE */}
       <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)', marginBottom: '16px' }}>
@@ -762,6 +758,26 @@ export default function MobileSettings() {
           </div>
         </div>
       )}
+      {/* SECTION: DESKTOP MODE SWITCH */}
+      <div className="mobile-card" style={{ marginTop: '20px', border: '1px solid var(--border)', textAlign: 'center' }}>
+        <h4 style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Desktop Workstation
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.4 }}>
+          Switch to the full desktop multi-panel workstation layout.
+        </p>
+        <button
+          type="button"
+          className="mobile-btn mobile-btn-secondary"
+          onClick={() => {
+            localStorage.setItem('printpro_viewport_pref', 'desktop')
+            navigate('/dashboard')
+          }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+        >
+          <Monitor size={16} /> Request Desktop Site
+        </button>
+      </div>
     </MobileLayout>
   )
 }

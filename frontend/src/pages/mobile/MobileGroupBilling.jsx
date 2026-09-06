@@ -107,7 +107,7 @@ export default function MobileGroupBilling() {
   const isLoading = isLoadingBills || isLoadingCustomers
 
   return (
-    <MobileLayout title="Group Master Billing" onSwitchToDesktop={() => navigate('/group-billing')}>
+    <MobileLayout title="Group Master Billing">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CONSOLIDATED INVOICES</span>

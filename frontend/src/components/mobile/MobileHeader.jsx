@@ -1,9 +1,9 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Monitor, LogOut } from 'lucide-react'
+import { ArrowLeft, LogOut } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
-export default function MobileHeader({ title, onSwitchToDesktop }) {
+export default function MobileHeader({ title }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { logout } = useAppContext()
@@ -22,20 +22,12 @@ export default function MobileHeader({ title, onSwitchToDesktop }) {
             <ArrowLeft size={20} />
           </button>
         )}
-        <h1 className="mobile-header-title">
+        <h1 className="mobile-header-title mobile-gradient-text">
           {title || 'PrintPro'}
         </h1>
       </div>
 
       <div className="mobile-header-actions">
-        <button
-          className="mobile-icon-btn"
-          onClick={onSwitchToDesktop}
-          title="Switch to Desktop View"
-          aria-label="Switch to Desktop View"
-        >
-          <Monitor size={18} />
-        </button>
         <button
           className="mobile-icon-btn"
           onClick={() => {
@@ -50,3 +42,4 @@ export default function MobileHeader({ title, onSwitchToDesktop }) {
     </header>
   )
 }
+

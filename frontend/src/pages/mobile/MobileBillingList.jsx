@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
@@ -6,11 +6,109 @@ import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
+import VirtualList from '../../components/mobile/VirtualList'
+import SkeletonBillCard from '../../components/mobile/SkeletonBillCard'
 import {
   Search, SlidersHorizontal, CheckCircle2, MessageSquare, Trash2,
-  ChevronRight, FileText, PlusCircle, Loader2
+  ChevronRight, FileText, PlusCircle
 } from 'lucide-react'
 import '../../styles/mobile.css'
+
+const BillCard = React.memo(({ bill, onNavigate, onQuickPay, onDelete, onWhatsApp, isCreatingPayment, isDeletingBill }) => {
+  const isPaid = bill.status === 'paid'
+  const isPartial = bill.status === 'partial'
+  const balance = Number(bill.balance || 0)
+
+  return (
+    <div
+      className="mobile-card"
+      onClick={() => onNavigate(`/mobile/bill/${bill.id}`)}
+      style={{ cursor: 'pointer', position: 'relative', marginBottom: '12px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+        <div>
+          <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+            {bill.customerName || bill.customer_name || 'Walk-in Customer'}
+          </div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
+            #{bill.invoiceNumber || bill.invoice_number || bill.id} • {bill.date}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="currency-num" style={{ fontSize: '1.15rem', color: '#ffffff' }}>
+            ₹{Number(bill.total || 0).toLocaleString('en-IN')}
+          </div>
+          {balance > 0 && (
+            <div className="currency-num" style={{ fontSize: '0.75rem', color: 'var(--error)' }}>
+              Due: ₹{balance.toLocaleString('en-IN')}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Action Toolbar Row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
+            {(bill.status || 'unpaid').toUpperCase()}
+          </span>
+          {bill.isGroupParent && (
+            <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
+              GROUP MASTER
+            </span>
+          )}
+          {bill.hasReturn && (
+            <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
+              RETURNED
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Mark Paid Quick Action */}
+          {!isPaid && !bill.deleted && (
+            <button
+              className="mobile-icon-btn"
+              onClick={(e) => { e.stopPropagation(); onQuickPay(bill) }}
+              title="Quick Mark Paid"
+              style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: 'var(--success)', borderColor: 'var(--success-bg)' }}
+              disabled={isCreatingPayment}
+            >
+              <CheckCircle2 size={16} />
+            </button>
+          )}
+
+          {/* WhatsApp Action */}
+          <button
+            className="mobile-icon-btn"
+            onClick={(e) => onWhatsApp(bill, e)}
+            title="Share Invoice WhatsApp"
+            style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: '#25D366' }}
+          >
+            <MessageSquare size={16} />
+          </button>
+
+          {/* Delete Action */}
+          {!bill.deleted && (
+            <button
+              className="mobile-icon-btn"
+              onClick={(e) => { e.stopPropagation(); onDelete(bill) }}
+              title="Archive Invoice"
+              style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
+              disabled={isDeletingBill}
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+
+          <ChevronRight size={18} style={{ color: 'var(--text-muted)' }} />
+        </div>
+      </div>
+    </div>
+  )
+})
+
+BillCard.displayName = 'BillCard'
 
 export default function MobileBillingList() {
   const navigate = useNavigate()
@@ -86,8 +184,20 @@ export default function MobileBillingList() {
     return result
   }, [serverBills, selectedStatus, selectedCustomer, startDate, endDate, searchTerm, sortBy])
 
+  const handleNavigate = useCallback((path) => {
+    navigate(path)
+  }, [navigate])
+
+  const handleQuickPay = useCallback((bill) => {
+    setQuickPayBill(bill)
+  }, [])
+
+  const handleDeletePrompt = useCallback((bill) => {
+    setDeleteConfirmBill(bill)
+  }, [])
+
   // Quick Pay Execution via TanStack Mutation
-  const handleConfirmQuickPay = async () => {
+  const handleConfirmQuickPay = useCallback(async () => {
     if (!quickPayBill) return
     const balance = Number(quickPayBill.balance || 0)
     if (balance <= 0) {
@@ -113,10 +223,10 @@ export default function MobileBillingList() {
     } finally {
       setQuickPayBill(null)
     }
-  }
+  }, [quickPayBill, createPayment, showToast])
 
   // Delete Bill Execution via TanStack Mutation
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = useCallback(async () => {
     if (!deleteConfirmBill) return
     try {
       await deleteBillMutation(deleteConfirmBill.id)
@@ -126,10 +236,10 @@ export default function MobileBillingList() {
     } finally {
       setDeleteConfirmBill(null)
     }
-  }
+  }, [deleteConfirmBill, deleteBillMutation, showToast])
 
   // WhatsApp Share Trigger
-  const handleShareWhatsApp = (bill, e) => {
+  const handleShareWhatsApp = useCallback((bill, e) => {
     e.stopPropagation()
     const cust = serverCustomers.find(c => String(c.id) === String(bill.customerId || bill.customer_id))
     const phone = bill.customerPhone || cust?.phone || ''
@@ -144,17 +254,13 @@ export default function MobileBillingList() {
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
     window.open(url, '_blank')
-  }
+  }, [serverCustomers, business])
 
   const isLoading = isLoadingBills || isLoadingCustomers
 
   return (
     <MobileLayout
       title="Print Bills Terminal"
-      onSwitchToDesktop={() => {
-        localStorage.setItem('printpro_viewport_pref', 'desktop')
-        navigate('/billing')
-      }}
     >
       {/* Header Search & Filter Bar */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
@@ -228,10 +334,7 @@ export default function MobileBillingList() {
 
       {/* Loading state */}
       {isLoading && (
-        <div className="mobile-card" style={{ textAlign: 'center', padding: '30px 16px' }}>
-          <Loader2 size={28} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
-          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading live invoice records from cloud...</p>
-        </div>
+        <SkeletonBillCard count={5} />
       )}
 
       {/* Invoice Card Stack */}
@@ -243,101 +346,22 @@ export default function MobileBillingList() {
           </h4>
           <p style={{ fontSize: '0.85rem', margin: 0 }}>Try clearing your search terms or date filter.</p>
         </div>
-      ) : (
-        !isLoading && processedBills.map((bill) => {
-          const isPaid = bill.status === 'paid'
-          const isPartial = bill.status === 'partial'
-          const balance = Number(bill.balance || 0)
-
-          return (
-            <div
-              key={bill.id}
-              className="mobile-card"
-              onClick={() => navigate(`/mobile/bill/${bill.id}`)}
-              style={{ cursor: 'pointer', position: 'relative' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                <div>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {bill.customerName || bill.customer_name || 'Walk-in Customer'}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
-                    #{bill.invoiceNumber || bill.invoice_number || bill.id} • {bill.date}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="currency-num" style={{ fontSize: '1.15rem', color: '#ffffff' }}>
-                    ₹{Number(bill.total || 0).toLocaleString('en-IN')}
-                  </div>
-                  {balance > 0 && (
-                    <div className="currency-num" style={{ fontSize: '0.75rem', color: 'var(--error)' }}>
-                      Due: ₹{balance.toLocaleString('en-IN')}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Toolbar Row */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
-                    {(bill.status || 'unpaid').toUpperCase()}
-                  </span>
-                  {bill.isGroupParent && (
-                    <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                      GROUP MASTER
-                    </span>
-                  )}
-                  {bill.hasReturn && (
-                    <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
-                      RETURNED
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {/* Mark Paid Quick Action */}
-                  {!isPaid && !bill.deleted && (
-                    <button
-                      className="mobile-icon-btn"
-                      onClick={(e) => { e.stopPropagation(); setQuickPayBill(bill) }}
-                      title="Quick Mark Paid"
-                      style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: 'var(--success)', borderColor: 'var(--success-bg)' }}
-                      disabled={isCreatingPayment}
-                    >
-                      <CheckCircle2 size={16} />
-                    </button>
-                  )}
-
-                  {/* WhatsApp Action */}
-                  <button
-                    className="mobile-icon-btn"
-                    onClick={(e) => handleShareWhatsApp(bill, e)}
-                    title="Share Invoice WhatsApp"
-                    style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: '#25D366' }}
-                  >
-                    <MessageSquare size={16} />
-                  </button>
-
-                  {/* Delete Action */}
-                  {!bill.deleted && (
-                    <button
-                      className="mobile-icon-btn"
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmBill(bill) }}
-                      title="Archive Invoice"
-                      style={{ width: '36px', height: '36px', minWidth: '36px', minHeight: '36px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
-                      disabled={isDeletingBill}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-
-                  <ChevronRight size={18} style={{ color: 'var(--text-muted)' }} />
-                </div>
-              </div>
-            </div>
-          )
-        })
+      ) : !isLoading && (
+        <VirtualList
+          items={processedBills}
+          estimateSize={115}
+          renderItem={(bill) => (
+            <BillCard
+              bill={bill}
+              onNavigate={handleNavigate}
+              onQuickPay={handleQuickPay}
+              onDelete={handleDeletePrompt}
+              onWhatsApp={handleShareWhatsApp}
+              isCreatingPayment={isCreatingPayment}
+              isDeletingBill={isDeletingBill}
+            />
+          )}
+        />
       )}
 
       {/* Filter Bottom Sheet Drawer */}

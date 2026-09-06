@@ -96,7 +96,7 @@ export default function MobileAccounting() {
   }
 
   return (
-    <MobileLayout title="Accounting & Expenses" onSwitchToDesktop={() => navigate('/accounting')}>
+    <MobileLayout title="Accounting & Expenses">
       {/* Metrics Horizontally Scrollable Tray */}
       <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
         <div className="mobile-card mobile-card-glow" style={{ minWidth: '200px', flex: '0 0 auto', borderColor: 'var(--accent-primary)' }}>

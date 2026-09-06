@@ -20,7 +20,7 @@ export default function MobileReceipt() {
 
   if (isLoadingBills) {
     return (
-      <MobileLayout title="Thermal Receipt" onSwitchToDesktop={() => navigate('/receipt')}>
+      <MobileLayout title="Thermal Receipt">
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px' }}>
           <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
           <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading receipt data...</p>
@@ -31,7 +31,7 @@ export default function MobileReceipt() {
 
   if (!bill) {
     return (
-      <MobileLayout title="Thermal Receipt" onSwitchToDesktop={() => navigate('/receipt')}>
+      <MobileLayout title="Thermal Receipt">
         <div className="mobile-card" style={{ textAlign: 'center', padding: '36px' }}>
           No bill found for receipt preview.
         </div>
@@ -40,7 +40,7 @@ export default function MobileReceipt() {
   }
 
   return (
-    <MobileLayout title={`Receipt #${bill.invoiceNumber || bill.invoice_number || bill.id}`} onSwitchToDesktop={() => navigate(`/receipt?id=${bill.id}`)}>
+    <MobileLayout title={`Receipt #${bill.invoiceNumber || bill.invoice_number || bill.id}`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
         <button className="mobile-btn mobile-btn-secondary" onClick={() => navigate(-1)} style={{ width: 'auto', padding: '0 12px', minHeight: '34px', fontSize: '0.78rem' }}>
           <ArrowLeft size={16} /> Back
