@@ -12,6 +12,9 @@ import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
 import { SkeletonBox } from '../components/common/Skeleton'
+import LoyaltyEnginePanel from '../components/common/LoyaltyEnginePanel'
+import LedgerBillCard from '../components/common/LedgerBillCard'
+import { LoyaltyService } from '../services/loyaltyService'
 
 
 const makeInitialRow = (inventory) => ({
@@ -929,14 +932,11 @@ const Billing = () => {
       pointsRedeemed = Math.ceil(loyaltyDiscount * ratio)
     } else {
       const ptsRedeem = Number(loyaltyPointsRedeemedInput || 0)
-      const redeemOptions = settings.loyaltyRedeemOptions || [
-        { points: 100, rupees: 2.5 },
-        { points: 120, rupees: 3 },
-        { points: 150, rupees: 5 },
-      ]
-      const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === ptsRedeem)
-      loyaltyDiscount = selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
-      pointsRedeemed = ptsRedeem
+      const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0)
+      const maxPts = (selectedCustomer?.loyaltyPoints || selectedCustomer?.loyalty_points || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
+      const redemptionResult = LoyaltyService.calculateRedemptionDiscount(ptsRedeem, maxPts, currentBillTotalWithoutLoyalty, settings)
+      loyaltyDiscount = redemptionResult.discountAmount
+      pointsRedeemed = redemptionResult.pointsRedeemed
     }
   }
 
@@ -2238,144 +2238,16 @@ const Billing = () => {
             </div>
             </div>
 
-            {settings.loyaltyEnabled !== false && settings.loyaltyRedeemEnabled !== false && selectedCustomer && (
-              <div style={{ marginTop: '16px' }}>
-                <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '8px' }}>
-                  <input
-                    type="checkbox"
-                    checked={shouldRedeemPoints}
-                    onChange={(e) => {
-                      setShouldRedeemPoints(e.target.checked)
-                      if (!e.target.checked) {
-                        setLoyaltyPointsRedeemedInput('')
-                      }
-                    }}
-                  />
-                  <span style={{ fontWeight: 600, fontSize: '13px' }}>Redeem Loyalty Points for this purchase</span>
-                </label>
-
-                {shouldRedeemPoints && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                    <div style={{ display: 'flex', gap: '12px', marginBottom: '4px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="loyaltyRedemptionMode"
-                          value="discount"
-                          checked={loyaltyRedemptionMode === 'discount'}
-                          onChange={() => {
-                            setLoyaltyRedemptionMode('discount')
-                            setLoyaltyFreeItemRowId('')
-                          }}
-                        />
-                        Cash Discount
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="loyaltyRedemptionMode"
-                          value="free_item"
-                          checked={loyaltyRedemptionMode === 'free_item'}
-                          onChange={() => {
-                            setLoyaltyRedemptionMode('free_item')
-                            setLoyaltyPointsRedeemedInput('')
-                          }}
-                        />
-                        Free Item
-                      </label>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {loyaltyRedemptionMode === 'free_item' ? (
-                        <select
-                          className="form-select"
-                          value={loyaltyFreeItemRowId}
-                          onChange={(e) => {
-                            const val = e.target.value
-                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
-                            const row = itemRows.find(r => String(r.id) === String(val))
-                            if (row) {
-                              const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
-                              if (pointsCost > maxPts) {
-                                showAlert(`Insufficient loyalty points (${maxPts} available, ${pointsCost} required).`, 'error')
-                                return
-                              }
-                            }
-                            setLoyaltyFreeItemRowId(val)
-                          }}
-                        >
-                          <option value="">-- Choose Item from Bill to Claim Free --</option>
-                          {itemRows.map((row) => {
-                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)
-                            const pointsCost = Math.ceil(Number(row.amount || 0) * (settings.loyaltyRedeemRatioPoints || 150) / (settings.loyaltyRedeemRatioRupees || 5))
-                            const isDisabled = pointsCost > maxPts
-                            return (
-                              <option key={row.id} value={row.id} disabled={isDisabled}>
-                                {row.itemName || 'Unnamed Item'} (₹{Number(row.amount).toFixed(2)}) — {pointsCost} pts {isDisabled ? '(Insufficient Points)' : ''}
-                              </option>
-                            )
-                          })}
-                        </select>
-                      ) : (
-                        <select
-                          className="form-select"
-                          value={loyaltyPointsRedeemedInput}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                            const points = Number(val || 0);
-                            if (points > maxPts) {
-                              showAlert(`Cannot redeem more than available balance of ${maxPts} points.`, 'error');
-                              return;
-                            }
-                            // Check if discount exceeds total
-                            const selectedOpt = (settings.loyaltyRedeemOptions || [
-                              { points: 100, rupees: 2.5 },
-                              { points: 120, rupees: 3 },
-                              { points: 150, rupees: 5 },
-                            ]).find(o => Number(o.points) === points);
-                            const discount = selectedOpt ? Number(selectedOpt.rupees) : 0;
-                            const currentBillTotalWithoutLoyalty = Math.max(subtotal + totalGst - discountAmount, 0);
-                            if (discount > currentBillTotalWithoutLoyalty) {
-                              showAlert(`Loyalty discount (₹${discount.toFixed(2)}) cannot exceed the bill total (₹${currentBillTotalWithoutLoyalty.toFixed(2)}).`, 'error');
-                              return;
-                            }
-                            setLoyaltyPointsRedeemedInput(val);
-                          }}
-                        >
-                          <option value="">-- Select Redemption Option --</option>
-                          {(settings.loyaltyRedeemOptions || [
-                            { points: 100, rupees: 2.5 },
-                            { points: 120, rupees: 3 },
-                            { points: 150, rupees: 5 },
-                          ]).map((opt) => {
-                            const maxPts = (selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0);
-                            const isDisabled = opt.points > maxPts;
-                            return (
-                              <option key={opt.points} value={opt.points} disabled={isDisabled}>
-                                {opt.points} Points = ₹{opt.rupees} Discount {isDisabled ? '(Insufficient Points)' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      )}
-                      {loyaltyPointsRedeemedInput && (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--success)', whiteSpace: 'nowrap' }}>
-                          -₹{( ( (settings.loyaltyRedeemOptions || [
-                            { points: 100, rupees: 2.5 },
-                            { points: 120, rupees: 3 },
-                            { points: 150, rupees: 5 },
-                          ]).find(o => Number(o.points) === Number(loyaltyPointsRedeemedInput))?.rupees || 0 )).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Available: {(selectedCustomer.loyaltyPoints || 0) + (isEditing ? (bills.find(b => b.id === editingBillId)?.loyaltyPointsRedeemed || 0) : 0)} points
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <LoyaltyEnginePanel
+              customer={selectedCustomer}
+              subtotal={subtotal}
+              settings={settings}
+              shouldRedeem={shouldRedeemPoints}
+              onToggleRedeem={setShouldRedeemPoints}
+              pointsToRedeem={loyaltyPointsRedeemedInput}
+              onPointsChange={setLoyaltyPointsRedeemedInput}
+              loyaltyDiscount={loyaltyDiscount}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Notes</label>
@@ -2596,8 +2468,15 @@ const Billing = () => {
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Balance Remaining</label>
-              <div className="stat-card-value" style={{ color: netBalance > 0 ? 'var(--error)' : 'var(--success)' }}>₹{netBalance.toFixed(2)}</div>
+              <label className="form-label">Balance to Pay</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="stat-card-value" style={{ color: netBalance > 0 ? 'var(--error)' : excessPaid > 0 ? 'var(--info)' : 'var(--success)', fontWeight: 800 }}>
+                  ₹{netBalance > 0 ? netBalance.toFixed(2) : (excessPaid > 0 ? `0.00 (+₹${excessPaid.toFixed(2)} Change)` : '0.00')}
+                </div>
+                <span className={`badge badge-${netBalance > 0 ? 'unpaid' : excessPaid > 0 ? 'info' : 'paid'}`} style={{ fontSize: '0.72rem' }}>
+                  {netBalance > 0 ? 'Owing' : excessPaid > 0 ? 'Overpaid' : 'Paid in Full'}
+                </span>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Status</label>
@@ -2744,129 +2623,14 @@ const Billing = () => {
             </div>
 
             <div className="modal-body" ref={billRef}>
-              {settings.loyaltyEnabled !== false && (liveBill.customerType === 'regular' || (settings.loyaltyForRandomCustomers === true && liveBill.customerType === 'random')) && (
-                <div style={{
-                  padding: '10px 14px',
-                  marginBottom: '16px',
-                  background: 'rgba(59, 130, 246, 0.08)',
-                  borderLeft: `4px solid ${settings.primaryColor || 'var(--accent)'}`,
-                  borderRadius: 'var(--radius-md)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontWeight: 600,
-                  fontSize: '0.85rem'
-                }}>
-                  <span>Loyalty Points Added: +{liveBill.loyaltyPointsEarned || 0}</span>
-                  {liveBill.customerType === 'regular' && (
-                    <span>New Points Balance: {liveBill.customerTotalLoyaltyPoints || 0} pts</span>
-                  )}
-                </div>
-              )}
-              {/* Bill header */}
-              <div className="bill-view-header" style={{ marginBottom: '16px' }}>
-                <div>
-                  <div className="bill-view-id" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {liveBill.customerType === 'regular' ? liveBill.customerId : 'Random Customer'}
-                  </div>
-                  <h4>{liveBill.customerName}</h4>
-                </div>
-                <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
-                  <p>Date: {liveBill.date}</p>
-                  <p>Due: {liveBill.dueDate}</p>
-                  <p>Status: <span className={`badge badge-${liveBill.status === 'written_off' ? 'written_off' : (liveBill.status === 'paid' ? 'paid' : liveBill.status === 'partial' ? 'partial' : 'unpaid')}`}>{liveBill.status === 'written_off' ? 'written off' : liveBill.status}</span></p>
-                </div>
-              </div>
-
-              {/* Items */}
-              <div className="table-container">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Type</th>
-                      <th>Sides</th>
-                      <th>Qty</th>
-                      <th>Unit</th>
-                      <th>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {liveBill.items.map((item, idx) => (
-                      <tr key={`${liveBill.id}-${idx}`}>
-                        <td>{item.itemName || item.name}</td>
-                        <td>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
-                        <td>{item.sides === 'single' ? 'Single' : 'Double'}</td>
-                        <td>{item.qty}</td>
-                        <td>₹{Number(item.unitPrice).toFixed(2)}</td>
-                        <td>₹{Number(item.amount).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Summary + Payments */}
-              <div className="grid-2" style={{ gap: '20px', marginTop: '20px' }}>
-                <div className="card" style={{ padding: '20px' }}>
-                  <h4>Summary</h4>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Subtotal</label>
-                      <div className="stat-card-value">₹{liveBill.subtotal.toFixed(2)}</div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Discount ({liveBill.discountType === 'percent' ? `${liveBill.discountValue}%` : 'flat'})</label>
-                      <div className="stat-card-value">₹{Number(liveBill.discountAmount ?? (liveBill.discountType === 'percent' ? (liveBill.subtotal * liveBill.discountValue / 100) : liveBill.discountValue)).toFixed(2)}</div>
-                    </div>
-                  </div>
-                  {liveBill.gstAmount > 0 && (
-                    <div className="form-row" style={{ marginTop: '8px' }}>
-                      <div className="form-group">
-                        <label className="form-label">CGST ({(liveBill.gstAmount / 2).toFixed(2)})</label>
-                        <div className="stat-card-value" style={{ fontSize: '1.1rem' }}>₹{(liveBill.gstAmount / 2).toFixed(2)}</div>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">SGST ({(liveBill.gstAmount / 2).toFixed(2)})</label>
-                        <div className="stat-card-value" style={{ fontSize: '1.1rem' }}>₹{(liveBill.gstAmount / 2).toFixed(2)}</div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Total</label>
-                      <div className="stat-card-value">₹{liveBill.total.toFixed(2)}</div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Amount Paid</label>
-                      <div className="stat-card-value">₹{liveBill.amountPaid.toFixed(2)}</div>
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Balance</label>
-                    <div className="stat-card-value" style={{ color: liveBill.balance > 0 ? 'var(--error)' : 'var(--success)' }}>
-                      ₹{liveBill.balance.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="card" style={{ padding: '20px' }}>
-                  <h4>Payment Methods</h4>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Cash</label>
-                      <div className="stat-card-value">₹{(liveBill.paymentMethod?.cash || 0).toFixed(2)}</div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">UPI</label>
-                      <div className="stat-card-value">₹{(liveBill.paymentMethod?.upi || 0).toFixed(2)}</div>
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Credit Used</label>
-                    <div className="stat-card-value">₹{(liveBill.creditUsed || 0).toFixed(2)}</div>
-                  </div>
-                </div>
-              </div>
+              <LedgerBillCard
+                bill={liveBill}
+                business={business}
+                settings={settings}
+                customers={customers}
+                bills={bills}
+                payments={payments}
+              />
 
               {/* Payment History */}
               <div className="card" style={{ marginTop: '20px', padding: '20px' }}>

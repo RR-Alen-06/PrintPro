@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { Check, Download, Share2, Printer, PlusCircle, ArrowRight, Wallet, AlertTriangle, Sparkles } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
+import { useBills } from '../../hooks/useBillsQuery'
+import { useCustomers } from '../../hooks/useCustomersQuery'
+import { usePayments } from '../../hooks/useEntitiesQuery'
+import LedgerBillCard from './LedgerBillCard'
 
 /**
  * Premium POS Bill Success Screen shown after successful creation
@@ -13,6 +17,9 @@ import { useAppContext } from '../../context/AppContext'
  */
 export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCreateNew }) => {
   const { recordSpecificBillPayment, business, settings } = useAppContext()
+  const { data: serverBills = [] } = useBills()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
   
   // Local state initialized with the bill prop
   const [localBill, setLocalBill] = useState(bill)
@@ -269,7 +276,17 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
         </div>
       </div>
 
-
+      {/* Visual Ledger Bill Breakdown */}
+      <div style={{ marginBottom: '24px', position: 'relative', zIndex: 1 }}>
+        <LedgerBillCard
+          bill={localBill}
+          business={business}
+          settings={settings}
+          customers={serverCustomers}
+          bills={serverBills}
+          payments={serverPayments}
+        />
+      </div>
 
       {/* POS Quick Actions */}
       <div style={{
