@@ -1,4 +1,4 @@
-import api from './index'
+import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase } from '../lib/supabase'
 
 export interface BillFilters {
@@ -39,38 +39,50 @@ export const mapBillFromApi = (b: any) => ({
 });
 
 export const getBills = async (filters: BillFilters = {}) => {
-  try {
-    const res = await api.get('/bills', { params: filters });
-    const mapped = (res.data.data || []).map(mapBillFromApi);
-    return { data: { data: mapped } };
-  } catch (err: any) {
-    let query: any = supabase.from('bills').select('*, items:bill_items(*)');
-    if (filters.status) query = query.eq('status', filters.status);
-    if (filters.startDate) query = query.gte('date', filters.startDate);
-    if (filters.endDate) query = query.lte('date', filters.endDate);
-    if (filters.customer) query = query.eq('customer_id', filters.customer);
-    query = query.order('created_at', { ascending: false });
-    const { data, error } = await query;
-    if (error) throw error;
-    const mapped = (data || []).map(mapBillFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/bills', { params: filters });
+      const mapped = (res.data.data || []).map(mapBillFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  let query: any = supabase.from('bills').select('*, items:bill_items(*)');
+  if (filters.status) query = query.eq('status', filters.status);
+  if (filters.startDate) query = query.gte('date', filters.startDate);
+  if (filters.endDate) query = query.lte('date', filters.endDate);
+  if (filters.customer) query = query.eq('customer_id', filters.customer);
+  query = query.order('created_at', { ascending: false });
+  const { data, error } = await query;
+  if (error) throw error;
+  const mapped = (data || []).map(mapBillFromApi);
+  return { data: { data: mapped } };
 }
 
 export const getBill = async (id: string) => {
-  try {
-    const res = await api.get(`/bills/${id}`);
-    return { data: { data: mapBillFromApi(res.data.data) } };
-  } catch (err) {
-    const { data: bill, error: billError } = await supabase
-      .from('bills')
-      .select('*, items:bill_items(*)')
-      .eq('id', id)
-      .single();
-    if (billError) throw billError;
-    const { data: payments } = await supabase.from('payments').select('*').eq('bill_id', id);
-    return { data: { data: { ...mapBillFromApi(bill), payments } } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get(`/bills/${id}`);
+      return { data: { data: mapBillFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data: bill, error: billError } = await supabase
+    .from('bills')
+    .select('*, items:bill_items(*)')
+    .eq('id', id)
+    .single();
+  if (billError) throw billError;
+  const { data: payments } = await supabase.from('payments').select('*').eq('bill_id', id);
+  return { data: { data: { ...mapBillFromApi(bill), payments } } };
 }
 
 export const createBill = async (data: any) => {
@@ -109,108 +121,143 @@ export const createBill = async (data: any) => {
     billPayload.id = data.id;
   }
 
-  try {
-    const res = await api.post('/bills', billPayload);
-    return { data: { data: mapBillFromApi(res.data.data) } };
-  } catch (err: any) {
-    if (err.response && err.response.status >= 400 && err.response.status < 500) {
-      throw err; // Re-throw 4xx client/validation errors directly to UI
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.post('/bills', billPayload);
+      return { data: { data: mapBillFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err; // Re-throw 4xx client/validation errors directly to UI
+      }
+      markBackendUnavailable();
     }
-    // Fallback to direct Supabase upsert only for network/5xx offline errors
-    const { items, ...billScalarData } = billPayload;
-    const { data: bill, error: billError } = await supabase
-      .from('bills')
-      .upsert([{ ...billScalarData, user_id: user?.id }])
-      .select()
-      .single();
-    if (billError) throw billError;
-    if (items && items.length > 0) {
-      const itemsData = items.map(item => ({ ...item, user_id: user?.id, bill_id: data.id }));
-      await supabase.from('bill_items').insert(itemsData);
-    }
-    return { data: { data: mapBillFromApi(bill) } };
   }
+
+  // Fallback to direct Supabase upsert only for network/5xx offline errors
+  const { items, ...billScalarData } = billPayload;
+  const { data: bill, error: billError } = await supabase
+    .from('bills')
+    .upsert([{ ...billScalarData, user_id: user?.id }])
+    .select()
+    .single();
+  if (billError) throw billError;
+  if (items && items.length > 0) {
+    const itemsData = items.map(item => ({ ...item, user_id: user?.id, bill_id: data.id }));
+    await supabase.from('bill_items').insert(itemsData);
+  }
+  return { data: { data: mapBillFromApi(bill) } };
 }
 
 export const updateBill = async (id, data) => {
-  try {
-    const res = await api.put(`/bills/${id}`, data);
-    return { data: { data: mapBillFromApi(res.data.data) } };
-  } catch (err) {
-    const { data: bill, error: billError } = await supabase
-      .from('bills')
-      .update(data)
-      .eq('id', id)
-      .select()
-      .single();
-    if (billError) throw billError;
-    return { data: { data: mapBillFromApi(bill) } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.put(`/bills/${id}`, data);
+      return { data: { data: mapBillFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data: bill, error: billError } = await supabase
+    .from('bills')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+  if (billError) throw billError;
+  return { data: { data: mapBillFromApi(bill) } };
 }
 
 export const deleteBill = async (id) => {
-  try {
-    await api.delete(`/bills/${id}`);
-    return { data: { success: true } };
-  } catch (err) {
-    const { error } = await supabase
-      .from('bills')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) throw error;
-    return { data: { success: true } };
+  if (isBackendAvailable()) {
+    try {
+      await api.delete(`/bills/${id}`);
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { error } = await supabase
+    .from('bills')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+  return { data: { success: true } };
 }
 
 export const restoreBill = async (id) => {
-  try {
-    await api.post(`/bills/${id}/restore`);
-    return { data: { success: true } };
-  } catch (err) {
-    const { error } = await supabase
-      .from('bills')
-      .update({ deleted_at: null })
-      .eq('id', id);
-    if (error) throw error;
-    return { data: { success: true } };
+  if (isBackendAvailable()) {
+    try {
+      await api.post(`/bills/${id}/restore`);
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { error } = await supabase
+    .from('bills')
+    .update({ deleted_at: null })
+    .eq('id', id);
+  if (error) throw error;
+  return { data: { success: true } };
 }
 
 export const getDeletedBills = async () => {
-  try {
-    const res = await api.get('/bills/deleted/all');
-    const mapped = (res.data.data || []).map(mapBillFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('bills')
-      .select('*, items:bill_items(*)')
-      .not('deleted_at', 'is', null)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    const mapped = (data || []).map(mapBillFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/bills/deleted/all');
+      const mapped = (res.data.data || []).map(mapBillFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('bills')
+    .select('*, items:bill_items(*)')
+    .not('deleted_at', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const mapped = (data || []).map(mapBillFromApi);
+  return { data: { data: mapped } };
 }
 
 export const applyDiscount = async (id, discountData) => {
-  try {
-    const res = await api.post(`/bills/${id}/discount`, discountData);
-    return { data: { data: mapBillFromApi(res.data.data) } };
-  } catch (err) {
-    const { data: updated, error } = await supabase
-      .from('bills')
-      .update({
-        discount_type: discountData.discount_type,
-        discount_value: discountData.discount_value,
-        total: discountData.total,
-        balance: discountData.balance,
-        status: discountData.status
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: mapBillFromApi(updated) } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.post(`/bills/${id}/discount`, discountData);
+      return { data: { data: mapBillFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data: updated, error } = await supabase
+    .from('bills')
+    .update({
+      discount_type: discountData.discount_type,
+      discount_value: discountData.discount_value,
+      total: discountData.total,
+      balance: discountData.balance,
+      status: discountData.status
+    })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: mapBillFromApi(updated) } };
 }
+

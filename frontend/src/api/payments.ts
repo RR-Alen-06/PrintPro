@@ -1,4 +1,4 @@
-import api from './index'
+import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 
 export const mapPaymentFromApi = (p: any) => ({
@@ -18,20 +18,26 @@ export const mapPaymentFromApi = (p: any) => ({
 })
 
 export const getBillPayments = async (billId) => {
-  try {
-    const res = await api.get(`/bills/${billId}/payments`);
-    const mapped = (res.data.data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('bill_id', billId)
-      .order('date', { ascending: true });
-    if (error) throw error;
-    const mapped = (data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get(`/bills/${billId}/payments`);
+      const mapped = (res.data.data || []).map(mapPaymentFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('bill_id', billId)
+    .order('date', { ascending: true });
+  if (error) throw error;
+  const mapped = (data || []).map(mapPaymentFromApi);
+  return { data: { data: mapped } };
 }
 
 export const createPayment = async (data) => {
@@ -46,81 +52,109 @@ export const createPayment = async (data) => {
     notes: data.notes || ''
   };
 
-  try {
-    const res = await api.post('/payments', payload);
-    return { data: { data: mapPaymentFromApi(res.data.data) } };
-  } catch (err) {
-    if (err.response && err.response.status >= 400 && err.response.status < 500) {
-      throw err;
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.post('/payments', payload);
+      return { data: { data: mapPaymentFromApi(res.data.data) } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
     }
-    const { data: inserted, error } = await supabase
-      .from('payments')
-      .upsert([{ ...payload, user_id: user?.id }])
-      .select()
-      .single();
-    if (error) throw error;
-    return { data: { data: mapPaymentFromApi(inserted) } };
   }
+  const { data: inserted, error } = await supabase
+    .from('payments')
+    .upsert([{ ...payload, user_id: user?.id }])
+    .select()
+    .single();
+  if (error) throw error;
+  return { data: { data: mapPaymentFromApi(inserted) } };
 }
 
 export const getCustomerPayments = async (customerId) => {
-  try {
-    const res = await api.get(`/customers/${customerId}/payments`);
-    const mapped = (res.data.data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('date', { ascending: false });
-    if (error) throw error;
-    const mapped = (data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get(`/customers/${customerId}/payments`);
+      const mapped = (res.data.data || []).map(mapPaymentFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('customer_id', customerId)
+    .order('date', { ascending: false });
+  if (error) throw error;
+  const mapped = (data || []).map(mapPaymentFromApi);
+  return { data: { data: mapped } };
 }
 
 export const getPayments = async () => {
-  try {
-    const res = await api.get('/payments');
-    const mapped = (res.data.data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .order('date', { ascending: false });
-    if (error) throw error;
-    const mapped = (data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/payments');
+      const mapped = (res.data.data || []).map(mapPaymentFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .order('date', { ascending: false });
+  if (error) throw error;
+  const mapped = (data || []).map(mapPaymentFromApi);
+  return { data: { data: mapped } };
 }
 
 export const getDeletedPayments = async () => {
-  try {
-    const res = await api.get('/payments/deleted');
-    const mapped = (res.data.data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
-  } catch (err) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .or('is_refund.eq.true,total_paid.lt.0')
-      .order('date', { ascending: false });
-    if (error) throw error;
-    const mapped = (data || []).map(mapPaymentFromApi);
-    return { data: { data: mapped } };
+  if (isBackendAvailable()) {
+    try {
+      const res = await api.get('/payments/deleted');
+      const mapped = (res.data.data || []).map(mapPaymentFromApi);
+      return { data: { data: mapped } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .or('is_refund.eq.true,total_paid.lt.0')
+    .order('date', { ascending: false });
+  if (error) throw error;
+  const mapped = (data || []).map(mapPaymentFromApi);
+  return { data: { data: mapped } };
 }
 
 export const deletePayment = async (id) => {
-  try {
-    await api.delete(`/payments/${id}`);
-    return { data: { success: true } };
-  } catch (err) {
-    const { error } = await supabase.from('payments').delete().eq('id', id);
-    if (error) throw error;
-    return { data: { success: true } };
+  if (isBackendAvailable()) {
+    try {
+      await api.delete(`/payments/${id}`);
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
   }
+  const { error } = await supabase.from('payments').delete().eq('id', id);
+  if (error) throw error;
+  return { data: { success: true } };
 }
+
 
