@@ -30,8 +30,8 @@ export function useCustomerMutations() {
     },
     onMutate: async (newCustomerData) => {
       const userCustomersKey = [...CUSTOMERS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userCustomersKey })
-      const previousCustomers = queryClient.getQueryData(userCustomersKey) || []
+      await queryClient.cancelQueries({ queryKey: userCustomersKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userCustomersKey, exact: false })
 
       const optimisticCustomer = {
         id: newCustomerData.id || `temp-${Date.now()}`,
@@ -45,13 +45,18 @@ export function useCustomerMutations() {
         isOptimistic: true,
       }
 
-      queryClient.setQueryData(userCustomersKey, (old = []) => [optimisticCustomer, ...old])
+      queryClient.setQueriesData({ queryKey: userCustomersKey, exact: false }, (old = []) => [
+        optimisticCustomer,
+        ...(Array.isArray(old) ? old : []),
+      ])
 
-      return { previousCustomers, userCustomersKey }
+      return { previousQueries }
     },
     onError: (err, newCustomerData, context) => {
-      if (context?.previousCustomers && context?.userCustomersKey) {
-        queryClient.setQueryData(context.userCustomersKey, context.previousCustomers)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
@@ -67,18 +72,20 @@ export function useCustomerMutations() {
     },
     onMutate: async ({ id, data }) => {
       const userCustomersKey = [...CUSTOMERS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userCustomersKey })
-      const previousCustomers = queryClient.getQueryData(userCustomersKey) || []
+      await queryClient.cancelQueries({ queryKey: userCustomersKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userCustomersKey, exact: false })
 
-      queryClient.setQueryData(userCustomersKey, (old = []) =>
-        old.map((c) => (c.id === id ? { ...c, ...data } : c))
+      queryClient.setQueriesData({ queryKey: userCustomersKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.map((c) => (c.id === id ? { ...c, ...data, isOptimistic: true } : c)) : old
       )
 
-      return { previousCustomers, userCustomersKey }
+      return { previousQueries }
     },
     onError: (err, variables, context) => {
-      if (context?.previousCustomers && context?.userCustomersKey) {
-        queryClient.setQueryData(context.userCustomersKey, context.previousCustomers)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
@@ -94,18 +101,20 @@ export function useCustomerMutations() {
     },
     onMutate: async (id) => {
       const userCustomersKey = [...CUSTOMERS_QUERY_KEY, userId]
-      await queryClient.cancelQueries({ queryKey: userCustomersKey })
-      const previousCustomers = queryClient.getQueryData(userCustomersKey) || []
+      await queryClient.cancelQueries({ queryKey: userCustomersKey, exact: false })
+      const previousQueries = queryClient.getQueriesData({ queryKey: userCustomersKey, exact: false })
 
-      queryClient.setQueryData(userCustomersKey, (old = []) =>
-        old.filter((c) => c.id !== id)
+      queryClient.setQueriesData({ queryKey: userCustomersKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.filter((c) => c.id !== id) : old
       )
 
-      return { previousCustomers, userCustomersKey }
+      return { previousQueries }
     },
     onError: (err, id, context) => {
-      if (context?.previousCustomers && context?.userCustomersKey) {
-        queryClient.setQueryData(context.userCustomersKey, context.previousCustomers)
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
       }
     },
     onSettled: () => {
