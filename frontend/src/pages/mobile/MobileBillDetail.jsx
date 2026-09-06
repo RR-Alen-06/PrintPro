@@ -6,6 +6,7 @@ import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
+import ShareReceiptSheet from '../../components/mobile/ShareReceiptSheet'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
@@ -47,6 +48,9 @@ export default function MobileBillDetail() {
     if (!bill) return []
     return (serverPayments || []).filter(p => String(p.billId || p.bill_id) === String(bill.id))
   }, [serverPayments, bill])
+
+  // Share Bottom Sheet state
+  const [showShareModal, setShowShareModal] = useState(false)
 
   // Payment Bottom Sheet state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -302,6 +306,16 @@ export default function MobileBillDetail() {
               <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
                 {(bill.status || 'unpaid').toUpperCase()}
               </span>
+              {(bill.jobStatus || bill.job_status) && (
+                <span className={`mobile-badge ${
+                  (bill.jobStatus || bill.job_status) === 'ready' ? 'mobile-badge-success' :
+                  (bill.jobStatus || bill.job_status) === 'in_progress' ? 'mobile-badge-info' :
+                  (bill.jobStatus || bill.job_status) === 'pending' ? 'mobile-badge-warning' :
+                  'mobile-badge-muted'
+                }`} style={{ fontSize: '0.65rem' }}>
+                  JOB: {(bill.jobStatus || bill.job_status).toUpperCase().replace('_', ' ')}
+                </span>
+              )}
               <button
                 className="mobile-btn mobile-btn-secondary"
                 onClick={() => navigate(`/mobile/create-bill?edit=${bill.id}`)}
@@ -338,7 +352,7 @@ export default function MobileBillDetail() {
             <div style={{ padding: '10px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', color: 'var(--accent-primary)' }}>
               <User size={22} />
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {bill.customerName || bill.customer_name || customer?.name || 'Walk-in Customer'}
               </div>
@@ -348,6 +362,20 @@ export default function MobileBillDetail() {
               {customer?.email && (
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {customer.email}
+                </div>
+              )}
+              {(Number(customer?.creditBalance || customer?.credit_balance || 0) > 0 || Number(customer?.advanceBalance || customer?.advance_balance || 0) > 0) && (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                  {Number(customer?.creditBalance || customer?.credit_balance || 0) > 0 && (
+                    <span className="mobile-badge mobile-badge-error" style={{ fontSize: '0.68rem' }}>
+                      Credit Due: ₹{Number(customer.creditBalance || customer.credit_balance).toFixed(2)}
+                    </span>
+                  )}
+                  {Number(customer?.advanceBalance || customer?.advance_balance || 0) > 0 && (
+                    <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem' }}>
+                      Advance: ₹{Number(customer.advanceBalance || customer.advance_balance).toFixed(2)}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -427,10 +455,38 @@ export default function MobileBillDetail() {
               <span className="currency-num">-₹{Number(bill.discountValue || bill.discount_value || bill.discount || 0).toFixed(2)}</span>
             </div>
 
+            {Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || 0) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--success)' }}>
+                <span>Advance Deducted</span>
+                <span className="currency-num">-₹{Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed).toFixed(2)}</span>
+              </div>
+            )}
+
+            {Number(bill.loyaltyDiscount || 0) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-tertiary)' }}>
+                <span>Loyalty Discount ({bill.loyaltyPointsRedeemed || 0} pts)</span>
+                <span className="currency-num">-₹{Number(bill.loyaltyDiscount).toFixed(2)}</span>
+              </div>
+            )}
+
+            {(bill.promoCode || bill.promo_code) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)' }}>
+                <span>Promo Code ({bill.promoCode || bill.promo_code})</span>
+                <span className="currency-num">Applied</span>
+              </div>
+            )}
+
             {Number(bill.gstAmount || bill.gst_amount || 0) > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)' }}>
                 <span>GST Tax</span>
                 <span className="currency-num">+₹{Number(bill.gstAmount || bill.gst_amount).toFixed(2)}</span>
+              </div>
+            )}
+
+            {Number(bill.writtenOffAmount || bill.written_off_amount || 0) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                <span>Written Off</span>
+                <span className="currency-num">₹{Number(bill.writtenOffAmount || bill.written_off_amount).toFixed(2)}</span>
               </div>
             )}
 
@@ -442,7 +498,7 @@ export default function MobileBillDetail() {
         </div>
 
         {/* Payment History & Timeline */}
-        <div className="mobile-card" style={{ marginBottom: '24px' }}>
+        <div className="mobile-card" style={{ marginBottom: '16px' }}>
           <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--success)', margin: '0 0 12px 0', letterSpacing: '0.05em' }}>
             PAYMENT SETTLEMENT TIMELINE
           </h3>
@@ -478,6 +534,21 @@ export default function MobileBillDetail() {
             ))
           )}
         </div>
+
+        {/* Notes Card if notes exist */}
+        {bill.notes && (
+          <div className="mobile-card" style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <FileText size={16} style={{ color: 'var(--accent-secondary)' }} />
+              <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                ORDER INSTRUCTIONS & NOTES
+              </h4>
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', background: 'var(--bg-input)', padding: '10px', borderRadius: 'var(--radius-md)', whiteSpace: 'pre-wrap' }}>
+              {bill.notes}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sticky Bottom Action Bar */}
@@ -486,7 +557,7 @@ export default function MobileBillDetail() {
           position: 'sticky',
           bottom: 'calc(var(--bottom-nav-height) + 10px)',
           display: 'grid',
-          gridTemplateColumns: balanceDue > 0 ? '1fr 1fr 1fr' : '1fr 1fr',
+          gridTemplateColumns: balanceDue > 0 ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr',
           gap: '8px',
           background: 'rgba(12, 6, 24, 0.95)',
           backdropFilter: 'blur(16px)',
@@ -525,7 +596,28 @@ export default function MobileBillDetail() {
         >
           <QrCode size={16} /> UPI QR
         </button>
+
+        {/* Share Invoice Button */}
+        <button
+          className="mobile-btn mobile-btn-secondary"
+          onClick={() => setShowShareModal(true)}
+          style={{ minHeight: '44px', fontSize: '0.8rem', padding: '0 8px', borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)' }}
+        >
+          <Share2 size={16} /> SHARE
+        </button>
       </div>
+
+      {/* Share Receipt Drawer */}
+      <ShareReceiptSheet
+        bill={bill}
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        business={business}
+        settings={settings}
+        customers={serverCustomers}
+        payments={serverPayments}
+        bills={serverBills}
+      />
 
       {/* Record Payment Bottom Sheet Drawer */}
       <BottomSheet
