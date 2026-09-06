@@ -3,14 +3,17 @@ import MobileHeader from './MobileHeader'
 import MobileBottomNav from './MobileBottomNav'
 import '../../styles/mobile.css'
 
-export default function MobileLayout({ title, onSwitchToDesktop, children }) {
+export default function MobileLayout({ title, children }) {
   return (
     <div className="mobile-shell">
-      <MobileHeader title={title} onSwitchToDesktop={onSwitchToDesktop} />
-      <main className="mobile-content" style={{ padding: '16px' }}>
-        {children}
+      <MobileHeader title={title} />
+      <main className="mobile-content">
+        <div className="mobile-content-inner">
+          {children}
+        </div>
       </main>
       <MobileBottomNav />
     </div>
   )
 }
+

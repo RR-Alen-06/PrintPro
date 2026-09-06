@@ -37,7 +37,7 @@ export default function MobileCustomerBills() {
   const isLoading = isLoadingBills || isLoadingCustomers
 
   return (
-    <MobileLayout title="Customer Invoices" onSwitchToDesktop={() => navigate('/customer-bills')}>
+    <MobileLayout title="Customer Invoices">
       <div style={{ marginBottom: '16px' }}>
         <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-secondary)', marginBottom: '6px' }}>
           SELECT CLIENT / CUSTOMER

@@ -123,7 +123,7 @@ export default function MobileCustomerLedger() {
   const isLoading = isLoadingCustomers || isLoadingPayments || isLoadingBills
 
   return (
-    <MobileLayout title="Customer Ledger" onSwitchToDesktop={() => navigate('/customer-ledger')}>
+    <MobileLayout title="Customer Ledger">
       {/* Client Dropdown Selector */}
       <div style={{ marginBottom: '14px' }}>
         <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent-secondary)', marginBottom: '6px' }}>

@@ -1,11 +1,64 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { Users, Search, Plus, Phone, Mail, ChevronRight, Edit3, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import VirtualList from '../../components/mobile/VirtualList'
+import SkeletonCustomerRow from '../../components/mobile/SkeletonCustomerRow'
+import { Users, Search, Plus, ChevronRight, Edit3, Trash2, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
+
+const CustomerCard = React.memo(({ customer, onNavigate, onEdit, onDelete }) => {
+  const creditBal = Number(customer.creditBalance || customer.credit_balance || 0)
+
+  return (
+    <div
+      className="mobile-card"
+      onClick={() => onNavigate(`/mobile/customer-ledger?customerId=${customer.id}`)}
+      style={{ cursor: 'pointer', position: 'relative', marginBottom: '10px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+        <div>
+          <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{customer.name}</div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+            Phone: {customer.phone || 'N/A'} {customer.email ? `• ${customer.email}` : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className={`mobile-badge ${customer.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`}>
+            {(customer.type || 'REGULAR').toUpperCase()}
+          </span>
+          <button
+            onClick={(e) => onEdit(customer, e)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
+            title="Edit Customer"
+          >
+            <Edit3 size={14} />
+          </button>
+          <button
+            onClick={(e) => onDelete(customer, e)}
+            style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }}
+            title="Delete Customer"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          Credit Balance: <strong className="currency-num" style={{ color: creditBal > 0 ? 'var(--success)' : 'var(--text-muted)' }}>₹{creditBal.toFixed(2)}</strong>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
+          Ledger <ChevronRight size={14} />
+        </div>
+      </div>
+    </div>
+  )
+})
+
+CustomerCard.displayName = 'CustomerCard'
 
 export default function MobileCustomers() {
   const navigate = useNavigate()
@@ -13,7 +66,7 @@ export default function MobileCustomers() {
 
   // TanStack Query & Mutations (reusing the desktop hooks)
   const { data: serverCustomers = [], isLoading: isLoadingCustomers, isError, error } = useCustomers()
-  const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating, isDeleting } = useCustomerMutations()
+  const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [customerTypeFilter, setCustomerTypeFilter] = useState('all') // 'all' | 'regular' | 'random'
@@ -28,7 +81,7 @@ export default function MobileCustomers() {
   const [type, setType] = useState('regular')
   const [creditLimit, setCreditLimit] = useState('')
 
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     setEditMode(false)
     setEditingId(null)
     setName('')
@@ -37,9 +90,9 @@ export default function MobileCustomers() {
     setType('regular')
     setCreditLimit('')
     setShowModal(true)
-  }
+  }, [])
 
-  const openEditModal = (c, e) => {
+  const openEditModal = useCallback((c, e) => {
     e.stopPropagation()
     setEditMode(true)
     setEditingId(c.id)
@@ -49,7 +102,11 @@ export default function MobileCustomers() {
     setType(c.type || 'regular')
     setCreditLimit(c.creditLimit || c.credit_limit || '')
     setShowModal(true)
-  }
+  }, [])
+
+  const handleNavigate = useCallback((path) => {
+    navigate(path)
+  }, [navigate])
 
   const filteredCustomers = useMemo(() => {
     return (serverCustomers || []).filter(c => {
@@ -100,7 +157,7 @@ export default function MobileCustomers() {
     }
   }
 
-  const handleDelete = async (c, e) => {
+  const handleDelete = useCallback(async (c, e) => {
     e.stopPropagation()
     if (window.confirm(`Are you sure you want to delete customer '${c.name}'?`)) {
       try {
@@ -110,10 +167,10 @@ export default function MobileCustomers() {
         showToast(err.message || 'Failed to delete customer', 'error')
       }
     }
-  }
+  }, [deleteCustomer, showToast])
 
   return (
-    <MobileLayout title="Customer Directory" onSwitchToDesktop={() => navigate('/customers')}>
+    <MobileLayout title="Customer Directory">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CLIENT DIRECTORY</span>
@@ -170,10 +227,7 @@ export default function MobileCustomers() {
 
       {/* Customer Cards List */}
       {isLoadingCustomers ? (
-        <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
-          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-primary)', marginBottom: '12px' }} />
-          <div style={{ fontSize: '0.85rem' }}>Loading customers from cloud...</div>
-        </div>
+        <SkeletonCustomerRow count={6} />
       ) : isError ? (
         <div className="mobile-card" style={{ textAlign: 'center', padding: '24px 16px', borderColor: 'var(--error)' }}>
           <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
@@ -187,56 +241,18 @@ export default function MobileCustomers() {
           <p style={{ margin: 0, fontSize: '0.85rem' }}>Try clearing your search term or type filter.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredCustomers.map(c => {
-            const creditBal = Number(c.creditBalance || c.credit_balance || 0)
-            return (
-              <div
-                key={c.id}
-                className="mobile-card"
-                onClick={() => navigate(`/mobile/customer-ledger?customerId=${c.id}`)}
-                style={{ cursor: 'pointer', position: 'relative' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{c.name}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Phone: {c.phone || 'N/A'} {c.email ? `• ${c.email}` : ''}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`}>
-                      {(c.type || 'REGULAR').toUpperCase()}
-                    </span>
-                    <button
-                      onClick={(e) => openEditModal(c, e)}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
-                      title="Edit Customer"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => handleDelete(c, e)}
-                      style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }}
-                      title="Delete Customer"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    Credit Balance: <strong className="currency-num" style={{ color: creditBal > 0 ? 'var(--success)' : 'var(--text-muted)' }}>₹{creditBal.toFixed(2)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
-                    Ledger <ChevronRight size={14} />
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <VirtualList
+          items={filteredCustomers}
+          estimateSize={85}
+          renderItem={(customer) => (
+            <CustomerCard
+              customer={customer}
+              onNavigate={handleNavigate}
+              onEdit={openEditModal}
+              onDelete={handleDelete}
+            />
+          )}
+        />
       )}
 
       {/* Add / Edit Customer Bottom Sheet */}

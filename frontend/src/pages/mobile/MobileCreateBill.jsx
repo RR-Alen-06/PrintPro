@@ -405,7 +405,6 @@ export default function MobileCreateBill() {
   return (
     <MobileLayout
       title={editBillId ? 'Edit Print Bill' : 'Create Print Bill'}
-      onSwitchToDesktop={() => navigate('/billing')}
     >
       {/* 3-Step Glowing Progress Indicator */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
