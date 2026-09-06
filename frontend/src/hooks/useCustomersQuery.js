@@ -15,6 +15,7 @@ export function useCustomers(type = 'all', search = '') {
       return res.data?.data || []
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
 
@@ -41,7 +42,11 @@ export function useCustomerMutations() {
         email: newCustomerData.email || '',
         address: newCustomerData.address || '',
         credit_balance: newCustomerData.credit_balance || 0,
+        creditBalance: newCustomerData.credit_balance || 0,
+        balance_due: newCustomerData.balance_due || 0,
+        balanceDue: newCustomerData.balance_due || 0,
         credit_limit: newCustomerData.credit_limit || 0,
+        creditLimit: newCustomerData.credit_limit || 0,
         isOptimistic: true,
       }
 
@@ -52,6 +57,20 @@ export function useCustomerMutations() {
 
       return { previousQueries }
     },
+    onSuccess: (serverData, variables) => {
+      const userCustomersKey = [...CUSTOMERS_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueriesData(
+          { queryKey: userCustomersKey, exact: false },
+          (old = []) => Array.isArray(old)
+            ? old.map((c) => (c.isOptimistic && (c.id === variables.id || c.name === variables.name))
+                ? { ...serverData, isOptimistic: false }
+                : c
+              )
+            : old
+        )
+      }
+    },
     onError: (err, newCustomerData, context) => {
       if (context?.previousQueries) {
         context.previousQueries.forEach(([queryKey, data]) => {
@@ -60,8 +79,7 @@ export function useCustomerMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: [...CUSTOMERS_QUERY_KEY, userId] })
-      queryClient.invalidateQueries({ queryKey: CUSTOMERS_QUERY_KEY })
+      // Optimistic cache + onSuccess covers primary entity completely. No full refetch needed.
     },
   })
 
@@ -81,6 +99,17 @@ export function useCustomerMutations() {
 
       return { previousQueries }
     },
+    onSuccess: (serverData, variables) => {
+      const userCustomersKey = [...CUSTOMERS_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueriesData(
+          { queryKey: userCustomersKey, exact: false },
+          (old = []) => Array.isArray(old)
+            ? old.map((c) => (c.id === variables.id ? { ...serverData, isOptimistic: false } : c))
+            : old
+        )
+      }
+    },
     onError: (err, variables, context) => {
       if (context?.previousQueries) {
         context.previousQueries.forEach(([queryKey, data]) => {
@@ -89,8 +118,7 @@ export function useCustomerMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: [...CUSTOMERS_QUERY_KEY, userId] })
-      queryClient.invalidateQueries({ queryKey: CUSTOMERS_QUERY_KEY })
+      // Handled via optimistic and onSuccess replacement
     },
   })
 
@@ -118,8 +146,7 @@ export function useCustomerMutations() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: [...CUSTOMERS_QUERY_KEY, userId] })
-      queryClient.invalidateQueries({ queryKey: CUSTOMERS_QUERY_KEY })
+      // Optimistic delete already removed from cache
     },
   })
 

@@ -98,6 +98,24 @@
 }
 
 /* Header */
+.mobile-mutation-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: var(--gradient-accent);
+  z-index: 999;
+  animation: progress-bar-flow 1.2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.8), 0 0 14px rgba(255, 47, 176, 0.6);
+}
+
+@keyframes progress-bar-flow {
+  0% { transform: scaleX(0.05); transform-origin: left; opacity: 0.8; }
+  50% { transform: scaleX(0.85); transform-origin: left; opacity: 1; }
+  100% { transform: scaleX(1); transform-origin: right; opacity: 0.8; }
+}
+
 .mobile-header {
   position: sticky;
   top: 0;

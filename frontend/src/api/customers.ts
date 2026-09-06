@@ -97,24 +97,11 @@ export const createCustomer = async (data: any) => {
     }
   }
 
-  // Generate customer_code on direct Supabase fallback path
+  // Generate customer_code on direct Supabase fallback path without extra round-trip
   let customerCode = data.customer_code || data.customerCode;
   if (!customerCode) {
-    const prefix = (payload.type === 'regular' ? 'RC' : 'WC');
-    const { data: maxRows } = await supabase
-      .from('customers')
-      .select('customer_code')
-      .eq('user_id', user?.id)
-      .like('customer_code', `${prefix}%`)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    let nextNum = 1;
-    if (maxRows && maxRows.length > 0 && maxRows[0].customer_code) {
-      const numPart = maxRows[0].customer_code.replace(/[^0-9]/g, '');
-      nextNum = parseInt(numPart || '0', 10) + 1;
-    }
-    customerCode = `${prefix}${String(nextNum).padStart(4, '0')}`;
+    const prefix = payload.type === 'regular' ? 'RC' : 'WC';
+    customerCode = `${prefix}${Date.now().toString(36).toUpperCase().slice(-6)}`;
   }
 
   const { data: inserted, error } = await supabase
@@ -122,7 +109,21 @@ export const createCustomer = async (data: any) => {
     .upsert([{ ...payload, customer_code: customerCode, user_id: user?.id }])
     .select()
     .single();
-  if (error) throw error;
+
+  if (error) {
+    // If conflict on customer_code (rare collision), retry once with random suffix
+    if (error.code === '23505') {
+      const retryCode = `${payload.type === 'regular' ? 'RC' : 'WC'}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const { data: retryInserted, error: retryError } = await supabase
+        .from('customers')
+        .upsert([{ ...payload, customer_code: retryCode, user_id: user?.id }])
+        .select()
+        .single();
+      if (retryError) throw retryError;
+      return { data: { data: mapCustomerFromApi(retryInserted) } };
+    }
+    throw error;
+  }
   return { data: { data: mapCustomerFromApi(inserted) } };
 }
 

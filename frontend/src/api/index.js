@@ -9,11 +9,11 @@ const baseURL = isLocal ? (import.meta.env.VITE_API_BASE_URL || '/api') : '/api'
 // Circuit breaker state for backend availability
 let backendStatus = 'unknown'; // 'unknown' | 'available' | 'unavailable'
 let lastCheckTime = 0;
-const CHECK_COOLDOWN_MS = 60000; // Check again after 60s if unavailable
+const CHECK_COOLDOWN_MS = 30000; // Check again after 30s if unavailable
 
 export const checkBackendHealth = async () => {
   try {
-    const res = await axios.get(`${baseURL}/health`, { timeout: 600 });
+    const res = await axios.get(`${baseURL}/health`, { timeout: 400 });
     backendStatus = res.status === 200 ? 'available' : 'unavailable';
   } catch (err) {
     backendStatus = 'unavailable';
@@ -48,12 +48,12 @@ export const markBackendAvailable = () => {
 if (typeof window !== 'undefined') {
   setTimeout(() => {
     checkBackendHealth();
-  }, 50);
+  }, 0);
 }
 
 const api = axios.create({
   baseURL,
-  timeout: 1200, // Never hang for more than 1.2s on network timeouts
+  timeout: 800, // Never hang for more than 800ms on network timeouts
   headers: {
     'Content-Type': 'application/json',
   },

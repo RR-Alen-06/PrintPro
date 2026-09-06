@@ -189,38 +189,49 @@ export default function MobileCreateBill() {
   // Quick Customer Creation
   const handleAddNewCustomerSubmit = async (e) => {
     e.preventDefault()
-    if (!newCustName.trim()) {
+    const trimmedName = newCustName.trim()
+    if (!trimmedName) {
       showToast('Customer name is required', 'error')
       return
     }
 
+    const tempId = `temp-${Date.now()}`
+    const newCustPayload = {
+      id: tempId,
+      name: trimmedName,
+      phone: newCustPhone.trim() || '',
+      type: 'regular',
+      total_spent: 0,
+      balance_due: 0
+    }
+
+    // Immediate UI feedback
+    setSelectedCustomerId(tempId)
+    setShowAddCustomerModal(false)
+    setNewCustName('')
+    setNewCustPhone('')
+    showToast(`Client '${trimmedName}' added!`, 'success')
+
     try {
-      const created = await createCustomerMutation({
-        name: newCustName.trim(),
-        phone: newCustPhone.trim() || '',
-        type: 'regular',
-        total_spent: 0,
-        balance_due: 0
-      })
-
-      if (addCustomer) {
-        addCustomer({
-          id: created?.id || `cust-${Date.now()}`,
-          name: newCustName.trim(),
-          phone: newCustPhone.trim() || '',
-          type: 'regular',
-          totalSpent: 0,
-          balanceDue: 0
+      createCustomerMutation(newCustPayload)
+        .then((created) => {
+          if (addCustomer) {
+            addCustomer({
+              id: created?.id || tempId,
+              name: trimmedName,
+              phone: newCustPayload.phone,
+              type: 'regular',
+              totalSpent: 0,
+              balanceDue: 0
+            })
+          }
+          if (created?.id) {
+            setSelectedCustomerId((curr) => (curr === tempId ? created.id : curr))
+          }
         })
-      }
-
-      if (created?.id) {
-        setSelectedCustomerId(created.id)
-      }
-      setShowAddCustomerModal(false)
-      setNewCustName('')
-      setNewCustPhone('')
-      showToast('New client registered successfully!', 'success')
+        .catch((err) => {
+          showToast(err?.message || 'Failed to save customer', 'error')
+        })
     } catch (err) {
       showToast(err.message || 'Failed to create customer', 'error')
     }
@@ -369,38 +380,42 @@ export default function MobileCreateBill() {
         created_at: new Date().toISOString()
       }
 
-      let savedResultId = billPayload.id
-
       if (editBillId) {
         await updateBillMutation({ id: editBillId, data: billPayload })
         if (editBill) editBill(billPayload)
         showToast(`Bill #${billPayload.invoiceNumber} updated successfully!`, 'success')
+        navigate(`/mobile/bill/${editBillId}`)
       } else {
-        const created = await createBillMutation(billPayload)
-        if (created?.id) savedResultId = created.id
-        if (addBill) addBill(billPayload)
-        showToast(`Bill #${billPayload.invoiceNumber} created successfully!`, 'success')
+        // Fire mutation and navigate immediately using optimistic id
+        const mutationPromise = createBillMutation(billPayload)
+        navigate(`/mobile/bill/${billPayload.id}`)
+        showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
 
-        // If upfront payment was made, record payment
-        if (finalCash + finalUpi > 0) {
-          try {
-            await createPayment({
-              bill_id: savedResultId,
-              customer_id: resolvedCustomerId,
-              date: billDate,
-              cash_amount: finalCash,
-              upi_amount: finalUpi,
-              total_paid: finalCash + finalUpi,
-              payment_type: finalStatus === 'paid' ? 'full' : 'partial',
-              notes: 'Initial bill payment at POS checkout'
-            })
-          } catch (payErr) {
-            console.error('Upfront payment recording notice:', payErr)
-          }
-        }
+        mutationPromise
+          .then(async (created) => {
+            if (addBill) addBill(created || billPayload)
+            const savedResultId = created?.id || billPayload.id
+            if (finalCash + finalUpi > 0) {
+              try {
+                await createPayment({
+                  bill_id: savedResultId,
+                  customer_id: resolvedCustomerId,
+                  date: billDate,
+                  cash_amount: finalCash,
+                  upi_amount: finalUpi,
+                  total_paid: finalCash + finalUpi,
+                  payment_type: finalStatus === 'paid' ? 'full' : 'partial',
+                  notes: 'Initial bill payment at POS checkout'
+                })
+              } catch (payErr) {
+                console.error('Upfront payment recording notice:', payErr)
+              }
+            }
+          })
+          .catch((err) => {
+            showToast(err?.message || 'Failed to save bill to cloud', 'error')
+          })
       }
-
-      navigate(`/mobile/bill/${savedResultId}`)
     } catch (e) {
       showToast(e.message || 'Failed to save bill', 'error')
     } finally {
