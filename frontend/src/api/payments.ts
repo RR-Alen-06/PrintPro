@@ -1,5 +1,6 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
+import { isValidUUID } from '../lib/uuid'
 
 export const mapPaymentFromApi = (p: any) => ({
   ...p,
@@ -17,7 +18,7 @@ export const mapPaymentFromApi = (p: any) => ({
   notes: p.notes || ''
 })
 
-export const getBillPayments = async (billId) => {
+export const getBillPayments = async (billId: string) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get(`/bills/${billId}/payments`);
@@ -30,21 +31,39 @@ export const getBillPayments = async (billId) => {
       markBackendUnavailable();
     }
   }
+
+  // Direct Supabase fallback:
+  let resolvedBillId = billId;
+  if (!isValidUUID(billId)) {
+    // If not a UUID, check if billId is an invoice number
+    const { data: bill } = await supabase
+      .from('bills')
+      .select('id')
+      .eq('invoice_number', billId)
+      .maybeSingle();
+    if (bill?.id) {
+      resolvedBillId = bill.id;
+    } else {
+      return { data: { data: [] } };
+    }
+  }
+
   const { data, error } = await supabase
     .from('payments')
     .select('*')
-    .eq('bill_id', billId)
+    .eq('bill_id', resolvedBillId)
     .order('date', { ascending: true });
   if (error) throw error;
   const mapped = (data || []).map(mapPaymentFromApi);
   return { data: { data: mapped } };
 }
 
-export const createPayment = async (data) => {
+export const createPayment = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const payload = {
-    bill_id: data.bill_id || data.billId,
-    customer_id: data.customer_id || data.customerId,
+  const rawBillId = data.bill_id || data.billId;
+  const rawCustomerId = data.customer_id || data.customerId;
+
+  const payload: any = {
     cash_amount: Number(data.cash_amount !== undefined ? data.cash_amount : (data.cashAmount || 0)),
     upi_amount: Number(data.upi_amount !== undefined ? data.upi_amount : (data.upiAmount || 0)),
     total_paid: Number(data.total_paid !== undefined ? data.total_paid : (data.totalPaid || 0)),
@@ -54,7 +73,11 @@ export const createPayment = async (data) => {
 
   if (isBackendAvailable()) {
     try {
-      const res = await api.post('/payments', payload);
+      const res = await api.post('/payments', {
+        ...payload,
+        bill_id: rawBillId,
+        customer_id: rawCustomerId
+      });
       return { data: { data: mapPaymentFromApi(res.data.data) } };
     } catch (err: any) {
       if (err.response && err.response.status >= 400 && err.response.status < 500) {
@@ -63,6 +86,39 @@ export const createPayment = async (data) => {
       markBackendUnavailable();
     }
   }
+
+  // Supabase fallback resolution for bill_id
+  if (rawBillId) {
+    if (isValidUUID(rawBillId)) {
+      payload.bill_id = rawBillId;
+    } else {
+      const { data: bill } = await supabase
+        .from('bills')
+        .select('id')
+        .eq('invoice_number', rawBillId)
+        .maybeSingle();
+      if (bill?.id) {
+        payload.bill_id = bill.id;
+      }
+    }
+  }
+
+  // Supabase fallback resolution for customer_id
+  if (rawCustomerId) {
+    if (isValidUUID(rawCustomerId)) {
+      payload.customer_id = rawCustomerId;
+    } else {
+      const { data: cust } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('customer_code', rawCustomerId)
+        .maybeSingle();
+      if (cust?.id) {
+        payload.customer_id = cust.id;
+      }
+    }
+  }
+
   const { data: inserted, error } = await supabase
     .from('payments')
     .upsert([{ ...payload, user_id: user?.id }])
@@ -72,7 +128,7 @@ export const createPayment = async (data) => {
   return { data: { data: mapPaymentFromApi(inserted) } };
 }
 
-export const getCustomerPayments = async (customerId) => {
+export const getCustomerPayments = async (customerId: string) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get(`/customers/${customerId}/payments`);
@@ -85,10 +141,25 @@ export const getCustomerPayments = async (customerId) => {
       markBackendUnavailable();
     }
   }
+
+  let resolvedCustomerId = customerId;
+  if (!isValidUUID(customerId)) {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', customerId)
+      .maybeSingle();
+    if (cust?.id) {
+      resolvedCustomerId = cust.id;
+    } else {
+      return { data: { data: [] } };
+    }
+  }
+
   const { data, error } = await supabase
     .from('payments')
     .select('*')
-    .eq('customer_id', customerId)
+    .eq('customer_id', resolvedCustomerId)
     .order('date', { ascending: false });
   if (error) throw error;
   const mapped = (data || []).map(mapPaymentFromApi);
@@ -140,7 +211,7 @@ export const getDeletedPayments = async () => {
   return { data: { data: mapped } };
 }
 
-export const deletePayment = async (id) => {
+export const deletePayment = async (id: string) => {
   if (isBackendAvailable()) {
     try {
       await api.delete(`/payments/${id}`);
@@ -152,9 +223,13 @@ export const deletePayment = async (id) => {
       markBackendUnavailable();
     }
   }
+  if (!isValidUUID(id)) {
+    return { data: { success: true } };
+  }
   const { error } = await supabase.from('payments').delete().eq('id', id);
   if (error) throw error;
   return { data: { success: true } };
 }
+
 
 
