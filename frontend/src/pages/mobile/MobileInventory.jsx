@@ -6,19 +6,17 @@ import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import VirtualList from '../../components/mobile/VirtualList'
 import SkeletonInventoryRow from '../../components/mobile/SkeletonInventoryRow'
-import { Inbox, Plus, Pencil, Trash2, Search, Package, Loader2, AlertCircle } from 'lucide-react'
+import { Inbox, Plus, Pencil, Trash2, Search, Loader2, AlertCircle } from 'lucide-react'
 import '../../styles/mobile.css'
 
 const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
-  const isProduct = item.type === 'product'
-
   return (
     <div className="mobile-card" style={{ marginBottom: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
         <div>
           <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-            HSN: {item.hsnCode || 'N/A'} • Type: {(item.type || 'print').toUpperCase()}
+            HSN: {item.hsnCode || item.hsn_code || 'N/A'} • Type: PRINT PAPER
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -39,21 +37,14 @@ const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
         </div>
       </div>
 
-      {!isProduct ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorDouble}</strong>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwDouble}</strong>
-          </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle ?? item.color_single ?? 0}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorDouble ?? item.color_double ?? 0}</strong>
         </div>
-      ) : (
-        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Stock: <strong className="currency-num">{item.stock} Qty</strong></span>
-          <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)' }}>Price: <strong className="currency-num">₹{item.sellingPrice}</strong></span>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle ?? item.bw_single ?? 0}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwDouble ?? item.bw_double ?? 0}</strong>
         </div>
-      )}
+      </div>
     </div>
   )
 })
@@ -69,33 +60,25 @@ export default function MobileInventory() {
   const { createItem, updateItem, deleteItem, isCreatingItem, isUpdatingItem } = useInventoryMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterType, setFilterType] = useState('all') // 'all' | 'print' | 'product'
+  const [filterType, setFilterType] = useState('all') // 'all' | 'print'
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
 
-  // Form State
+  // Form State - purely print paper rates
   const [formName, setFormName] = useState('')
-  const [formType, setFormType] = useState('print')
   const [colorSingle, setColorSingle] = useState('')
   const [colorDouble, setColorDouble] = useState('')
   const [bwSingle, setBwSingle] = useState('')
   const [bwDouble, setBwDouble] = useState('')
-  const [sellingPrice, setSellingPrice] = useState('')
-  const [stockQty, setStockQty] = useState('')
-  const [lowStockAlert, setLowStockAlert] = useState('50')
   const [hsnCode, setHsnCode] = useState('')
 
   const openAddModal = useCallback(() => {
     setEditingItem(null)
     setFormName('')
-    setFormType('print')
     setColorSingle('10')
     setColorDouble('18')
     setBwSingle('3')
     setBwDouble('5')
-    setSellingPrice('')
-    setStockQty('')
-    setLowStockAlert('50')
     setHsnCode('')
     setShowAddModal(true)
   }, [])
@@ -103,29 +86,24 @@ export default function MobileInventory() {
   const openEditModal = useCallback((item) => {
     setEditingItem(item)
     setFormName(item.name || '')
-    setFormType(item.type || 'print')
-    setColorSingle(item.colorSingle !== undefined ? String(item.colorSingle) : '')
-    setColorDouble(item.colorDouble !== undefined ? String(item.colorDouble) : '')
-    setBwSingle(item.bwSingle !== undefined ? String(item.bwSingle) : '')
-    setBwDouble(item.bwDouble !== undefined ? String(item.bwDouble) : '')
-    setSellingPrice(item.sellingPrice !== undefined ? String(item.sellingPrice) : '')
-    setStockQty(item.stock !== undefined ? String(item.stock) : '')
-    setLowStockAlert(item.lowStockAlert !== undefined ? String(item.lowStockAlert) : '50')
-    setHsnCode(item.hsnCode || '')
+    setColorSingle(item.colorSingle !== undefined ? String(item.colorSingle) : (item.color_single !== undefined ? String(item.color_single) : ''))
+    setColorDouble(item.colorDouble !== undefined ? String(item.colorDouble) : (item.color_double !== undefined ? String(item.color_double) : ''))
+    setBwSingle(item.bwSingle !== undefined ? String(item.bwSingle) : (item.bw_single !== undefined ? String(item.bw_single) : ''))
+    setBwDouble(item.bwDouble !== undefined ? String(item.bwDouble) : (item.bw_double !== undefined ? String(item.bw_double) : ''))
+    setHsnCode(item.hsnCode || item.hsn_code || '')
     setShowAddModal(true)
   }, [])
 
   const filteredItems = useMemo(() => {
     return (serverInventory || []).filter(item => {
       if (item.deleted) return false
-      if (filterType !== 'all' && (item.type || 'print') !== filterType) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
-        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || '').toLowerCase().includes(q)
+        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || item.hsn_code || '').toLowerCase().includes(q)
       }
       return true
     })
-  }, [serverInventory, filterType, searchTerm])
+  }, [serverInventory, searchTerm])
 
   const handleDelete = useCallback(async (item, e) => {
     e.stopPropagation()
@@ -148,15 +126,13 @@ export default function MobileInventory() {
 
     const payload = {
       name: formName.trim(),
-      type: formType,
+      type: 'print',
       hsn_code: hsnCode.trim() || null,
-      color_single: formType === 'print' ? Number(colorSingle || 0) : 0,
-      color_double: formType === 'print' ? Number(colorDouble || 0) : 0,
-      bw_single: formType === 'print' ? Number(bwSingle || 0) : 0,
-      bw_double: formType === 'print' ? Number(bwDouble || 0) : 0,
-      selling_price: formType === 'product' ? Number(sellingPrice || 0) : 0,
-      stock: formType === 'product' ? Number(stockQty || 0) : 0,
-      low_stock_alert: Number(lowStockAlert || 50)
+      color_single: Number(colorSingle || 0),
+      color_double: Number(colorDouble || 0),
+      bw_single: Number(bwSingle || 0),
+      bw_double: Number(bwDouble || 0),
+      low_stock_alert: 50
     }
 
     try {
@@ -172,8 +148,8 @@ export default function MobileInventory() {
       showToast(err.message || 'Failed to save inventory item', 'error')
     }
   }, [
-    formName, formType, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
-    sellingPrice, stockQty, lowStockAlert, editingItem, createItem, updateItem, showToast
+    formName, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
+    editingItem, createItem, updateItem, showToast
   ])
 
   return (
@@ -181,7 +157,7 @@ export default function MobileInventory() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CATALOG & PRICING</span>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>INVENTORY RATES</h2>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>PRINT PAPER RATES</h2>
         </div>
         <button
           className="mobile-btn mobile-btn-primary"
@@ -211,7 +187,6 @@ export default function MobileInventory() {
         {[
           { id: 'all', label: 'All Catalog' },
           { id: 'print', label: 'Print Papers' },
-          { id: 'product', label: 'Retail Products' },
         ].map(t => (
           <button
             key={t.id}
@@ -262,56 +237,35 @@ export default function MobileInventory() {
       )}
 
       {/* Add / Edit Item Bottom Sheet */}
-      <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={editingItem ? 'Edit Inventory Item' : 'New Inventory Item'}>
+      <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={editingItem ? 'Edit Paper Rate' : 'New Paper Specification'}>
         <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM TYPE</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <button type="button" className={`mobile-btn ${formType === 'print' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`} onClick={() => setFormType('print')} style={{ minHeight: '38px', fontSize: '0.82rem' }}>Print Paper Service</button>
-              <button type="button" className={`mobile-btn ${formType === 'product' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`} onClick={() => setFormType('product')} style={{ minHeight: '38px', fontSize: '0.82rem' }}>Retail Product</button>
-            </div>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM NAME</label>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM / PAPER NAME</label>
             <input type="text" className="mobile-input" placeholder="e.g. Glossy Photo Paper 250GSM" value={formName} onChange={(e) => setFormName(e.target.value)} required />
           </div>
 
-          {formType === 'print' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR SINGLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={colorSingle} onChange={(e) => setColorSingle(e.target.value)} required />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR DOUBLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={colorDouble} onChange={(e) => setColorDouble(e.target.value)} required />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W SINGLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={bwSingle} onChange={(e) => setBwSingle(e.target.value)} required />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W DOUBLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={bwDouble} onChange={(e) => setBwDouble(e.target.value)} required />
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>SELLING PRICE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} required />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>STOCK QUANTITY</label>
-                <input type="number" className="mobile-input currency-num" value={stockQty} onChange={(e) => setStockQty(e.target.value)} required />
-              </div>
-            </div>
-          )}
-
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>LOW STOCK ALERT THRESHOLD</label>
-            <input type="number" className="mobile-input currency-num" value={lowStockAlert} onChange={(e) => setLowStockAlert(e.target.value)} />
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>HSN CODE (OPTIONAL)</label>
+            <input type="text" className="mobile-input" placeholder="e.g. 4911" value={hsnCode} onChange={(e) => setHsnCode(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR SINGLE (₹)</label>
+              <input type="number" step="0.1" className="mobile-input currency-num" value={colorSingle} onChange={(e) => setColorSingle(e.target.value)} required />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR DOUBLE (₹)</label>
+              <input type="number" step="0.1" className="mobile-input currency-num" value={colorDouble} onChange={(e) => setColorDouble(e.target.value)} required />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W SINGLE (₹)</label>
+              <input type="number" step="0.1" className="mobile-input currency-num" value={bwSingle} onChange={(e) => setBwSingle(e.target.value)} required />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W DOUBLE (₹)</label>
+              <input type="number" step="0.1" className="mobile-input currency-num" value={bwDouble} onChange={(e) => setBwDouble(e.target.value)} required />
+            </div>
           </div>
 
           <button
@@ -327,7 +281,7 @@ export default function MobileInventory() {
             ) : editingItem ? (
               'Save Changes'
             ) : (
-              'Save Item to Inventory'
+              'Save Paper Rate to Catalog'
             )}
           </button>
         </form>

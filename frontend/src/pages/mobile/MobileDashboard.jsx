@@ -2,17 +2,16 @@ import React, { useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
-import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
+import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { usePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import SkeletonBillCard from '../../components/mobile/SkeletonBillCard'
 import {
-  TrendingUp, CreditCard, Clock, Wallet, CheckCircle, RefreshCw, FileText,
-  PlusCircle, UserPlus, ArrowRight, MessageSquare, Download, AlertTriangle, ChevronRight,
-  Filter, Calendar, Activity, Receipt, ArrowDownRight, ArrowUpRight, Loader2
+  TrendingUp, Clock, Wallet, CheckCircle, RefreshCw,
+  PlusCircle, UserPlus, Download,
+  Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -94,72 +93,11 @@ const MetricsRow = React.memo(({ stats }) => {
 
 MetricsRow.displayName = 'MetricsRow'
 
-const OrderRow = React.memo(({ bill, onNavigate, onUpdateStatus, onSendWhatsApp }) => {
-  const isReady = (bill.jobStatus || bill.job_status || bill.status) === 'ready'
-
-  return (
-    <div
-      style={{
-        padding: '10px 0',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}
-    >
-      <div onClick={() => onNavigate(`/mobile/bill/${bill.id}`)} style={{ cursor: 'pointer', flex: 1 }}>
-        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-          {bill.customerName || bill.customer_name || 'Walk-in Customer'}
-        </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono', marginTop: '2px' }}>
-          #{bill.invoiceNumber || bill.invoice_number || bill.id} • ₹{Number(bill.total || 0).toFixed(2)}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {/* Job Status Updater Dropdown */}
-        <select
-          value={bill.jobStatus || bill.job_status || bill.status || 'pending'}
-          onChange={(e) => onUpdateStatus(bill.id, e.target.value)}
-          style={{
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '0.72rem',
-            padding: '4px 6px',
-            fontWeight: 700
-          }}
-        >
-          <option value="pending">Pending</option>
-          <option value="in_progress">In Progress</option>
-          <option value="ready">Ready</option>
-          <option value="delivered">Delivered</option>
-        </select>
-
-        {/* WhatsApp Ready Alert */}
-        {isReady && (
-          <button
-            className="mobile-icon-btn"
-            onClick={() => onSendWhatsApp(bill)}
-            title="Send WhatsApp Ready Alert"
-            style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', color: '#25D366' }}
-          >
-            <MessageSquare size={14} />
-          </button>
-        )}
-      </div>
-    </div>
-  )
-})
-
-OrderRow.displayName = 'OrderRow'
-
 export default function MobileDashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, syncFromCloud, showToast, addCustomer: contextAddCustomer, updateBill: contextUpdateBill
+    business, syncFromCloud, showToast, addCustomer: contextAddCustomer
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -168,7 +106,6 @@ export default function MobileDashboard() {
   const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
-  const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('today') // 'today' | 'week' | 'month' | 'fy' | 'custom' | 'all'
@@ -182,7 +119,6 @@ export default function MobileDashboard() {
     new Date().getMonth() >= 3 ? String(new Date().getFullYear()) : String(new Date().getFullYear() - 1)
   )
 
-  const [jobStatusFilter, setJobStatusFilter] = useState('all') // 'all' | 'pending' | 'in_progress' | 'ready' | 'delivered'
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
 
   // Customer Modal Form
@@ -299,36 +235,6 @@ export default function MobileDashboard() {
     }
   }, [filteredBills, payments, expenses, activeDateRange])
 
-  // Filtered recent orders by job status
-  const recentOrders = useMemo(() => {
-    let list = [...filteredBills]
-    if (jobStatusFilter !== 'all') {
-      list = list.filter(b => (b.jobStatus || b.job_status || b.status) === jobStatusFilter)
-    }
-    list.sort((a, b) => new Date(b.date || b.createdAt || b.created_at) - new Date(a.date || a.createdAt || a.created_at))
-    return list.slice(0, 8)
-  }, [filteredBills, jobStatusFilter])
-
-  // Direct Job Status Updater
-  const handleUpdateJobStatus = useCallback(async (billId, newStatus) => {
-    try {
-      await updateBillMutation({
-        id: billId,
-        data: {
-          job_status: newStatus,
-          jobStatus: newStatus,
-          status: newStatus === 'delivered' ? 'paid' : undefined
-        }
-      })
-      if (contextUpdateBill) {
-        contextUpdateBill(billId, { jobStatus: newStatus, status: newStatus === 'delivered' ? 'paid' : undefined })
-      }
-      showToast(`Job status updated to ${newStatus.toUpperCase()}`, 'success')
-    } catch (e) {
-      showToast(e.message || 'Failed to update status', 'error')
-    }
-  }, [updateBillMutation, contextUpdateBill, showToast])
-
   // Handle Add Customer Form
   const handleAddCustomerSubmit = useCallback(async (e) => {
     e.preventDefault()
@@ -362,22 +268,6 @@ export default function MobileDashboard() {
       showToast(err.message || 'Failed to add customer', 'error')
     }
   }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, contextAddCustomer, showToast])
-
-  // WhatsApp Alert Trigger
-  const handleSendWhatsApp = useCallback((bill) => {
-    const cust = customers.find(c => String(c.id) === String(bill.customerId || bill.customer_id))
-    const phone = bill.customerPhone || bill.customer_phone || cust?.phone || ''
-    const cleanPhone = phone.replace(/[^0-9]/g, '')
-    const shopName = business?.shopName || 'PrintPro'
-    const invId = bill.invoiceNumber || bill.invoice_number || bill.id
-    const due = Number(bill.balance || bill.total || 0).toFixed(2)
-
-    const text = `Hello ${bill.customerName || bill.customer_name || 'Customer'},\nYour print order *${invId}* is READY for pickup at ${shopName}!\nBalance Due: ₹${due}.\nThank you for choosing ${shopName}!`
-    const url = cleanPhone
-      ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
-      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
-  }, [customers, business])
 
   // Financial CSV Export Trigger
   const handleExportCSV = useCallback(() => {
@@ -530,67 +420,46 @@ export default function MobileDashboard() {
         </button>
       </div>
 
-      {/* Recent Orders Section */}
+      {/* Quick Navigation Grid (2x3) */}
       <div className="mobile-card" style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            RECENT ORDERS & JOB STATUS
-          </h3>
-          <button
-            onClick={() => navigate('/mobile/billing')}
-            style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}
-          >
-            View All <ChevronRight size={14} />
-          </button>
-        </div>
-
-        {/* Job Status Filter Pills */}
-        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '12px' }}>
+        <h3 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 12px 0', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
+          QUICK NAVIGATION
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
           {[
-            { id: 'all', label: 'All Jobs' },
-            { id: 'pending', label: 'Pending' },
-            { id: 'in_progress', label: 'Printing' },
-            { id: 'ready', label: 'Ready' },
-            { id: 'delivered', label: 'Delivered' },
-          ].map(s => (
-            <button
-              key={s.id}
-              onClick={() => setJobStatusFilter(s.id)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-full)',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                border: jobStatusFilter === s.id ? '1px solid var(--accent-secondary)' : '1px solid var(--border)',
-                background: jobStatusFilter === s.id ? 'rgba(0, 240, 255, 0.15)' : 'transparent',
-                color: jobStatusFilter === s.id ? 'var(--accent-secondary)' : 'var(--text-muted)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
+            { label: 'View Bills', path: '/mobile/billing', icon: Receipt, color: 'var(--accent-primary)' },
+            { label: 'Customers', path: '/mobile/customers', icon: Users, color: 'var(--accent-secondary)' },
+            { label: 'Accounting', path: '/mobile/accounting', icon: Wallet, color: 'var(--success)' },
+            { label: 'Analytics', path: '/mobile/analytics', icon: BarChart3, color: 'var(--accent-tertiary)' },
+            { label: 'Inventory', path: '/mobile/inventory', icon: Inbox, color: '#ffb800' },
+            { label: 'Search', path: '/mobile/search', icon: Search, color: 'var(--info)' },
+          ].map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.label}
+                onClick={() => navigate(item.path)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '12px 6px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  gap: '6px',
+                  transition: 'var(--transition)'
+                }}
+              >
+                <Icon size={20} style={{ color: item.color }} />
+                <span style={{ fontSize: '0.74rem', fontWeight: 700 }}>{item.label}</span>
+              </button>
+            )
+          })}
         </div>
-
-        {/* Orders Stack */}
-        {isLoadingBills ? (
-          <SkeletonBillCard count={3} />
-        ) : recentOrders.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            No recent orders match filter.
-          </div>
-        ) : (
-          recentOrders.map((bill) => (
-            <OrderRow
-              key={bill.id}
-              bill={bill}
-              onNavigate={handleNavigate}
-              onUpdateStatus={handleUpdateJobStatus}
-              onSendWhatsApp={handleSendWhatsApp}
-            />
-          ))
-        )}
       </div>
 
       {/* Add Customer Modal Drawer */}
