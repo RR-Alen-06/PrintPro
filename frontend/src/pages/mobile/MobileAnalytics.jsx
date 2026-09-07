@@ -351,13 +351,17 @@ export default function MobileAnalytics() {
   // Top Debtors
   const topDebtors = useMemo(() => {
     return (customers || [])
-      .filter(c => !c.deleted && !c.deleted_at && Number(c.balance || 0) > 0)
-      .map(c => ({
-        id: c.id,
-        name: c.name,
-        phone: c.phone,
-        balance: Number(c.balance || 0)
-      }))
+      .map(c => {
+        const bal = Number(c.creditBalance || c.balanceDue || c.credit_balance || c.balance || 0)
+        return {
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          balance: bal,
+          deleted: c.deleted || c.deleted_at
+        }
+      })
+      .filter(c => !c.deleted && c.balance > 0)
       .sort((a, b) => b.balance - a.balance)
       .slice(0, 5)
   }, [customers])

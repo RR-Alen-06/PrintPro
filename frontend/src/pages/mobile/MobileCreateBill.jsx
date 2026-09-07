@@ -29,7 +29,7 @@ export default function MobileCreateBill() {
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
   const { createBill: createBillMutation, updateBill: updateBillMutation, isCreatingBill, isUpdatingBill } = useBillMutations()
-  const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
 
   // Wizard Step State (1: Customer -> 2: Items -> 3: Payment)
@@ -59,14 +59,14 @@ export default function MobileCreateBill() {
   const [selectedInventoryId, setSelectedInventoryId] = useState('')
   const [customItemName, setCustomItemName] = useState('')
   const [isCustomItem, setIsCustomItem] = useState(false)
-  const [itemPrintType, setItemPrintType] = useState('color') // 'color' | 'bw'
-  const [itemSides, setItemSides] = useState('single') // 'single' | 'double'
+  const [itemPrintType, setItemPrintType] = useState('color')
+  const [itemSides, setItemSides] = useState('single')
   const [itemQty, setItemQty] = useState(1)
   const [itemPages, setItemPages] = useState(1)
   const [itemUnitPrice, setItemUnitPrice] = useState('')
   const [itemGstRate, setItemGstRate] = useState(0)
 
-  // Step 3: Payment & Summary
+  // Step 3: Payment & Discounts
   const [discountType, setDiscountType] = useState('flat') // 'flat' | 'percent'
   const [discountValue, setDiscountValue] = useState(0)
   const [promoCodeInput, setPromoCodeInput] = useState('')
@@ -106,7 +106,7 @@ export default function MobileCreateBill() {
         showToast(`Editing Bill #${existing.invoiceNumber || existing.invoice_number || existing.id}`, 'info')
       }
     }
-  }, [editBillId, serverBills])
+  }, [editBillId, serverBills, showToast])
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
@@ -395,6 +395,9 @@ export default function MobileCreateBill() {
           .then(async (created) => {
             if (addBill) addBill(created || billPayload)
             const savedResultId = created?.id || billPayload.id
+            if (created?.id && created.id !== billPayload.id) {
+              navigate(`/mobile/bill/${created.id}`, { replace: true })
+            }
             if (finalCash + finalUpi > 0) {
               try {
                 await createPayment({

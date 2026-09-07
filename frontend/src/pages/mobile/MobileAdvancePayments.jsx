@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useCustomers } from '../../hooks/useCustomersQuery'
@@ -25,13 +25,16 @@ export default function MobileAdvancePayments() {
   const [upiAmount, setUpiAmount] = useState('')
   const [notes, setNotes] = useState('')
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selectedCustomerId && activeCustomers.length > 0) {
       setSelectedCustomerId(activeCustomers[0].id)
     }
   }, [activeCustomers, selectedCustomerId])
 
-  const getCustomerName = (id) => (serverCustomers || []).find(c => String(c.id) === String(id))?.name || 'Unknown'
+  const getCustomerName = useCallback(
+    (id) => (serverCustomers || []).find(c => String(c.id) === String(id))?.name || 'Unknown',
+    [serverCustomers]
+  )
 
   const filteredAdvances = useMemo(() => {
     return (advancePayments || []).filter(ap => {
@@ -42,7 +45,7 @@ export default function MobileAdvancePayments() {
       }
       return true
     }).sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [advancePayments, serverCustomers, searchTerm])
+  }, [advancePayments, getCustomerName, searchTerm])
 
   const handleAddSubmit = async (e) => {
     e.preventDefault()

@@ -4,7 +4,7 @@ import { useAppContext } from '../../context/AppContext'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import {
   Bell, Check, CheckCheck, Trash2, AlertTriangle, Info,
-  Clock, CheckCircle2, Package, CreditCard, Sparkles, Inbox
+  Clock, CreditCard, Inbox
 } from 'lucide-react'
 import '../../styles/mobile.css'
 

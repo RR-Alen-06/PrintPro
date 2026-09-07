@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useInventory, useInventoryMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -52,7 +51,6 @@ const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
 InventoryRow.displayName = 'InventoryRow'
 
 export default function MobileInventory() {
-  const navigate = useNavigate()
   const { showToast } = useAppContext()
 
   // TanStack Query & Mutations (reusing desktop hooks)
@@ -96,14 +94,15 @@ export default function MobileInventory() {
 
   const filteredItems = useMemo(() => {
     return (serverInventory || []).filter(item => {
-      if (item.deleted) return false
+      if (item.deleted || item.deleted_at) return false
+      if (filterType === 'print' && (item.type || 'print') !== 'print') return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
         return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || item.hsn_code || '').toLowerCase().includes(q)
       }
       return true
     })
-  }, [serverInventory, searchTerm])
+  }, [serverInventory, searchTerm, filterType])
 
   const handleDelete = useCallback(async (item, e) => {
     e.stopPropagation()

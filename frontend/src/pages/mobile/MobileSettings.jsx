@@ -168,7 +168,7 @@ export default function MobileSettings() {
 
   const handleTogglePromoEnabled = (code) => {
     const updated = (promoCodes || []).map(p =>
-      p.code === code ? { ...p, enabled: p.enabled === false } : p
+      p.code === code ? { ...p, enabled: p.enabled === false ? true : false } : p
     )
     if (setPromoCodes) setPromoCodes(updated)
   }
