@@ -136,21 +136,15 @@ export default function MobileCustomers() {
       credit_limit: creditLimit ? Number(creditLimit) : 0,
     }
 
-    setShowModal(false)
-
     try {
       if (editMode && editingId) {
         await updateCustomer({ id: editingId, data: payload })
         showToast(`Customer '${trimmedName}' updated successfully!`, 'success')
       } else {
-        createCustomer(payload)
-          .then(() => {
-            showToast(`Customer '${trimmedName}' added successfully!`, 'success')
-          })
-          .catch((err) => {
-            showToast(err?.message || 'Failed to add customer', 'error')
-          })
+        await createCustomer(payload)
+        showToast(`Customer '${trimmedName}' added successfully!`, 'success')
       }
+      setShowModal(false)
     } catch (err) {
       showToast(err.message || 'Failed to save customer', 'error')
     }

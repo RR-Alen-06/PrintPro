@@ -7,7 +7,7 @@ import MobileLayout from '../../components/mobile/MobileLayout'
 import {
   BarChart3, Search, Printer, Tag, Loader2, Download,
   FileText, Share2, TrendingUp, TrendingDown, ChevronDown,
-  ChevronUp, Check, Copy, Filter, Layers
+  ChevronUp, Layers
 } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import '../../styles/mobile.css'

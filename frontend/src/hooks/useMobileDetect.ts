@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react'
 
 const STORAGE_KEY = 'printpro_viewport_pref'
 
+// User-Agent & touch detection for mobile / tablet devices (iOS, Android, Mobile Safari, Chrome Mobile, Touch) computed once at module level
+const isUserAgentMobile = typeof navigator !== 'undefined' && (
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '') ||
+  (typeof window !== 'undefined' && ('ontouchstart' in window || (Boolean(navigator.maxTouchPoints) && navigator.maxTouchPoints > 0)) && window.innerWidth < 1024)
+)
+
 export function useMobileDetect() {
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== 'undefined' ? window.innerWidth : 1024
-  )
-
-  // User-Agent & touch detection for mobile / tablet devices (iOS, Android, Mobile Safari, Chrome Mobile, Touch)
-  const isUserAgentMobile = typeof navigator !== 'undefined' && (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '') ||
-    (typeof window !== 'undefined' && ('ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)) && window.innerWidth < 1024)
   )
 
   const [userPref, setUserPrefState] = useState<string | null>(() => {
@@ -53,7 +53,7 @@ export function useMobileDetect() {
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleResize)
     }
-  }, [isUserAgentMobile])
+  }, [])
 
   const setUserPref = (pref: string | null) => {
     try {

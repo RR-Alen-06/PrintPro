@@ -159,7 +159,7 @@ export default function MobileCustomerLedger() {
                   {selectedCustomer.name}
                 </h3>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  Phone: {selectedCustomer.phone || 'N/A'} • Code: {selectedCustomer.code || 'N/A'}
+                  Phone: {selectedCustomer.phone || 'N/A'} • Code: {selectedCustomer.customerCode || selectedCustomer.code || 'N/A'}
                 </div>
               </div>
               <span className={`mobile-badge ${selectedCustomer.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`}>
@@ -232,6 +232,7 @@ export default function MobileCustomerLedger() {
             ) : (
               ledgerEntries.map(entry => {
                 const isDebit = entry.debit > 0
+                const targetBillId = entry.billId || (entry.type === 'bill' || entry.type === 'invoice' ? entry.id : null)
                 return (
                   <div key={entry.id || `${entry.type}-${entry.date}`} className="mobile-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -242,6 +243,25 @@ export default function MobileCustomerLedger() {
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                           {entry.date} • {entry.subtext}
                         </div>
+                        {targetBillId && isDebit && (
+                          <button
+                            type="button"
+                            onClick={() => handleWriteOffBill(targetBillId, entry.debit)}
+                            style={{
+                              marginTop: '6px',
+                              padding: '2px 8px',
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              background: 'rgba(255, 56, 96, 0.1)',
+                              border: '1px solid rgba(255, 56, 96, 0.3)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--error)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Write Off Balance
+                          </button>
+                        )}
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div className="currency-num" style={{ fontSize: '1rem', fontWeight: 800, color: isDebit ? 'var(--text-primary)' : 'var(--success)' }}>
