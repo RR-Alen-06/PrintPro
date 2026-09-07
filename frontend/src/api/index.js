@@ -13,7 +13,7 @@ const CHECK_COOLDOWN_MS = 30000; // Check again after 30s if unavailable
 
 export const checkBackendHealth = async () => {
   try {
-    const res = await axios.get(`${baseURL}/health`, { timeout: 400 });
+    const res = await axios.get(`${baseURL}/health`, { timeout: 1500 });
     backendStatus = res.status === 200 ? 'available' : 'unavailable';
   } catch (err) {
     backendStatus = 'unavailable';
@@ -53,7 +53,7 @@ if (typeof window !== 'undefined') {
 
 const api = axios.create({
   baseURL,
-  timeout: 800, // Never hang for more than 800ms on network timeouts
+  timeout: 5000, // 5s timeout to support mobile & variable network latency
   headers: {
     'Content-Type': 'application/json',
   },

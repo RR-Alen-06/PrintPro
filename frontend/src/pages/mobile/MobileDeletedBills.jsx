@@ -15,7 +15,7 @@ export default function MobileDeletedBills() {
 
   // TanStack Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
-  const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
+  const { restoreBill: restoreBillMutation, isRestoringBill } = useBillMutations()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [restoringId, setRestoringId] = useState(null)
@@ -39,13 +39,7 @@ export default function MobileDeletedBills() {
   const handleRestore = async (id, invoiceNumber) => {
     setRestoringId(id)
     try {
-      await updateBillMutation({
-        id,
-        data: {
-          deleted: false,
-          deleted_at: null
-        }
-      })
+      await restoreBillMutation(id)
 
       if (contextRestoreBill) {
         await contextRestoreBill(id)

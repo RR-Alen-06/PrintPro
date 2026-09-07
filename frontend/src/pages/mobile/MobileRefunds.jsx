@@ -241,7 +241,7 @@ export default function MobileRefunds() {
                   <div className="currency-num" style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--error)' }}>
                     -₹{item.total.toLocaleString('en-IN')}
                   </div>
-                  <span className="mobile-badge mobile-badge-danger" style={{ fontSize: '0.65rem', marginTop: '2px' }}>
+                  <span className="mobile-badge mobile-badge-error" style={{ fontSize: '0.65rem', marginTop: '2px' }}>
                     {item.type.toUpperCase()}
                   </span>
                 </div>

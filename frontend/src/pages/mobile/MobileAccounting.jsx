@@ -18,7 +18,7 @@ import '../../styles/mobile.css'
 export default function MobileAccounting() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { showToast, syncFromCloud } = useAppContext()
+  const { showToast, syncFromCloud, settings } = useAppContext()
 
   // TanStack Query & Mutation hooks
   const { data: serverExpenses = [], isLoading: isLoadingExpenses, isError, error } = useExpenses()
@@ -138,11 +138,11 @@ export default function MobileAccounting() {
 
       if (b.items && b.items.length > 0) {
         b.items.forEach(item => {
-          const rate = Number(item.gstRate || item.gst_rate || 18)
+          const rate = Number(item.gstRate || item.gst_rate || b.gstRate || b.gst_rate || settings?.gstRate || 0)
           const totalAmt = Number(item.amount || 0)
           const qty = Number(item.qty || 1)
 
-          const taxable = totalAmt / (1 + rate / 100)
+          const taxable = rate > 0 ? (totalAmt / (1 + rate / 100)) : totalAmt
           const gst = totalAmt - taxable
           const halfGst = gst / 2
 
@@ -167,10 +167,10 @@ export default function MobileAccounting() {
           hsnMap[hsn].qty += qty
         })
       } else {
-        const rate = 18
         const totalAmt = Number(b.total || 0)
         const billGstAmount = Number(b.gstAmount || b.gst_amount || 0)
-        const taxable = totalAmt - billGstAmount
+        const taxable = Math.max(0, totalAmt - billGstAmount)
+        const rate = Number(b.gstRate || b.gst_rate || (billGstAmount > 0 && taxable > 0 ? Math.round((billGstAmount / taxable) * 100) : (settings?.gstRate ?? 0)))
         const halfGst = billGstAmount / 2
 
         billTaxable += taxable

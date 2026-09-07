@@ -245,10 +245,16 @@ export default function MobileBillDetail() {
   const handleCreateCreditNoteSubmit = async (e) => {
     e.preventDefault()
     const returnedItems = []
-    Object.entries(returnQtys).forEach(([itemId, qty]) => {
+    Object.entries(returnQtys).forEach(([key, qty]) => {
       const q = Number(qty)
       if (q > 0) {
-        const itemObj = (bill.items || []).find(i => String(i.id) === String(itemId) || String(i.itemId) === String(itemId))
+        const itemObj = (bill.items || []).find((i, idx) =>
+          (i.id && String(i.id) === String(key)) ||
+          (i.itemId && String(i.itemId) === String(key)) ||
+          (i.name && String(i.name) === String(key)) ||
+          (i.itemName && String(i.itemName) === String(key)) ||
+          `item-${idx}` === String(key)
+        )
         if (itemObj) {
           returnedItems.push({ ...itemObj, returnQty: q })
         }
@@ -263,9 +269,11 @@ export default function MobileBillDetail() {
     try {
       if (createCreditNote) {
         await createCreditNote(bill.id, returnedItems, returnSettlement)
+        showToast('Credit Note created and inventory restocked!', 'success')
+        setShowReturnModal(false)
+      } else {
+        showToast('Credit note feature unavailable', 'error')
       }
-      showToast('Credit Note created and inventory restocked!', 'success')
-      setShowReturnModal(false)
     } catch (err) {
       showToast(err.message || 'Failed to create credit note', 'error')
     }
@@ -564,23 +572,26 @@ export default function MobileBillDetail() {
             Select return quantity for line items:
           </p>
 
-          {(bill.items || []).map(item => (
-            <div key={item.id || item.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
-              <div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>{item.itemName || item.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ordered Qty: {item.qty}</div>
+          {(bill.items || []).map((item, idx) => {
+            const itemKey = item.id || item.itemId || item.name || item.itemName || `item-${idx}`
+            return (
+              <div key={itemKey} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>{item.itemName || item.name}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ordered Qty: {item.qty}</div>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max={item.qty}
+                  className="mobile-input currency-num"
+                  style={{ width: '70px', padding: '4px 8px' }}
+                  value={returnQtys[itemKey] || 0}
+                  onChange={(e) => setReturnQtys({ ...returnQtys, [itemKey]: e.target.value })}
+                />
               </div>
-              <input
-                type="number"
-                min="0"
-                max={item.qty}
-                className="mobile-input currency-num"
-                style={{ width: '70px', padding: '4px 8px' }}
-                value={returnQtys[item.id || item.itemId] || 0}
-                onChange={(e) => setReturnQtys({ ...returnQtys, [item.id || item.itemId]: e.target.value })}
-              />
-            </div>
-          ))}
+            )
+          })}
 
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
