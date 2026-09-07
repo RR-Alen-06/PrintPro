@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
-import { usePaymentMutations, useInventory } from '../../hooks/useEntitiesQuery'
+import { usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
@@ -22,7 +22,6 @@ export default function MobileCustomerBills() {
   // TanStack Queries & Mutations
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: inventory = [] } = useInventory()
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation, isUpdatingBill, isDeletingBill } = useBillMutations()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
 

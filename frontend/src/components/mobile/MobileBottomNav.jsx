@@ -98,7 +98,3 @@ export default function MobileBottomNav() {
     </>
   )
 }
-
-function TagIcon(props) {
-  return <BarChart3 {...props} />
-}
