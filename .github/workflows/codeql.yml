@@ -21,13 +21,13 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL · JavaScript
+    name: CodeQL · JavaScript/TypeScript
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript]  # JS covers JSX and Node.js
+        language: ['javascript-typescript']
 
     steps:
       - name: Checkout repository
