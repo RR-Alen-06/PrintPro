@@ -134,7 +134,7 @@ jobs:
         working-directory: backend
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: backend/eslint-backend.sarif
           category: eslint-backend
@@ -172,7 +172,7 @@ jobs:
         working-directory: frontend
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: frontend/eslint-frontend.sarif
           category: eslint-frontend
