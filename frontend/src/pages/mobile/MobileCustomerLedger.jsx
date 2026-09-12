@@ -5,11 +5,12 @@ import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { LedgerService } from '../../services/ledgerService'
+import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   Wallet, Plus, CheckCircle, AlertCircle, ArrowLeftRight,
-  User, RefreshCw, Phone, Loader2, DollarSign, QrCode, FileText
+  User, RefreshCw, Phone, Loader2, DollarSign, QrCode, FileText, MessageCircle
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -184,13 +185,41 @@ export default function MobileCustomerLedger() {
               </div>
             </div>
 
-            <button
-              className="mobile-btn mobile-btn-primary"
-              onClick={() => setShowPayModal(true)}
-              style={{ width: '100%', minHeight: '40px', fontSize: '0.85rem' }}
-            >
-              <Plus size={16} /> + Record Payment
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: selectedCustomer?.phone ? '1fr 1fr' : '1fr', gap: '8px' }}>
+              <button
+                className="mobile-btn mobile-btn-primary"
+                onClick={() => setShowPayModal(true)}
+                style={{ width: '100%', minHeight: '40px', fontSize: '0.85rem' }}
+              >
+                <Plus size={16} /> Record Payment
+              </button>
+              {selectedCustomer?.phone && (
+                <button
+                  type="button"
+                  className="mobile-btn"
+                  onClick={() => {
+                    const text = ReminderService.buildLedgerReminderMessage(selectedCustomer, closingBalance, business, settings)
+                    const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                    window.open(url, '_blank')
+                  }}
+                  style={{
+                    width: '100%',
+                    minHeight: '40px',
+                    fontSize: '0.82rem',
+                    background: 'rgba(37, 211, 102, 0.15)',
+                    color: '#25D366',
+                    border: '1px solid rgba(37, 211, 102, 0.4)',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <MessageCircle size={16} /> WhatsApp
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Timeline Period Filter */}

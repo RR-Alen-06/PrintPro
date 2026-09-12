@@ -9,6 +9,7 @@ import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
 import { TableSkeleton, SkeletonBox } from '../components/common/Skeleton'
 import { LedgerService } from '../services/ledgerService'
+import { ReminderService } from '../services/reminderService'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -427,10 +428,8 @@ const CustomerLedger = () => {
 
   const handleSendQuickReminder = () => {
     if (!selectedCustomer || !selectedCustomer.phone || finalBalance <= 0) return
-    const upiLink = business?.upiId ? `%0APay via UPI: upi://pay?pa=${business.upiId}&pn=${encodeURIComponent(business.shopName || 'PrintPro')}&am=${finalBalance.toFixed(2)}&cu=INR` : ''
-    const text = `Hi ${selectedCustomer.name},%0A%0AThis is a quick reminder from ${business?.shopName || 'PrintPro'} that you have an outstanding balance of *₹${finalBalance.toFixed(2)}*.%0A${upiLink}%0A%0AThank you!`
-    const cleanPhone = selectedCustomer.phone.replace(/[^0-9]/g, '')
-    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
+    const text = ReminderService.buildLedgerReminderMessage(selectedCustomer, finalBalance, business, settings)
+    const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
     window.open(url, '_blank')
   }
 
