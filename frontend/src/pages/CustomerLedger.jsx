@@ -134,13 +134,41 @@ const CustomerLedger = () => {
   const handleApplyPayment = async () => {
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
-    if (cash + upi <= 0 || !selectedCustomer) return
+    const total = cash + upi
+    if (total <= 0 || !selectedCustomer) return
+
+    const method = cash > 0 && upi > 0 ? 'split' : cash > 0 ? 'cash' : 'upi'
+
+    // Smart FIFO Bill Knockoff for oldest unpaid customer bills
+    const unpaidBills = customerBills
+      .filter((b) => (Number(b.balance || 0) > 0))
+      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+    let remaining = total
+    for (const b of unpaidBills) {
+      if (remaining <= 0) break
+      const toPay = Math.min(remaining, Number(b.balance || 0))
+      const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+      const newPaid = Number((Number(b.paidTotal || b.totalPaid || 0) + toPay).toFixed(2))
+      const newStatus = newBal === 0 ? 'paid' : 'partial'
+
+      await updateBillMutation({
+        id: b.id,
+        data: {
+          balance: newBal,
+          status: newStatus,
+          paidTotal: newPaid,
+          totalPaid: newPaid,
+        }
+      })
+      remaining -= toPay
+    }
 
     await createPayment({
       customer_id: selectedCustomer.id,
       cash_amount: cash,
       upi_amount: upi,
-      total_paid: cash + upi,
+      total_paid: total,
       payment_type: 'partial',
       notes: `Payment from ledger page (${method})`,
     })
@@ -149,6 +177,7 @@ const CustomerLedger = () => {
     setPayUpi('')
     setReturnChange(false)
     setPaySuccess(true)
+    showToast(`Payment of ₹${total.toFixed(2)} recorded and applied via FIFO!`, 'success')
     setTimeout(() => setPaySuccess(false), 3500)
   }
 
@@ -384,9 +413,8 @@ const CustomerLedger = () => {
   const shareStatementWhatsApp = async () => {
     if (!selectedCustomer) return
     const phone = selectedCustomer.phone || ''
-    const dateStr = new Date().toLocaleDateString()
 
-    showToast('Generating and uploading ledger PDF statement...', 'info')
+    showToast('Preparing ledger statement for WhatsApp...', 'info')
     let pdfUrl = ''
     try {
       const doc = generateLedgerPDFDoc()
@@ -401,28 +429,27 @@ const CustomerLedger = () => {
         }
       }
     } catch (err) {
-      console.error('Failed to upload ledger PDF for WhatsApp share:', err)
-      showToast('Sharing statement details without PDF link due to upload issue.', 'warning')
+      console.warn('Optional PDF upload failed:', err)
     }
-    
-    const pdfUrlLine = pdfUrl ? `*Download Ledger PDF:* ${pdfUrl}%0A` : ''
 
-    const text = `*Ledger Statement for ${selectedCustomer.name} (${selectedCustomer.customerCode || selectedCustomer.id})*%0A` +
-      `*Generated on:* ${dateStr}%0A` +
-      `------------------------%0A` +
-      `*Total Billed (Debits):* ₹${totalDebits.toFixed(2)}%0A` +
-      `*Total Paid (Credits):* ₹${totalCredits.toFixed(2)}%0A` +
-      `*Final Balance:* *₹${finalBalance.toFixed(2)}*%0A` +
-      `*Advance Deposited:* ₹${totalAdvanceIn.toFixed(2)}%0A` +
-      `*Advance Returned:* ₹${totalAdvanceReturned.toFixed(2)}%0A` +
-      `*Advance Used:* ₹${totalAdvanceUsed.toFixed(2)}%0A` +
-      `*Outstanding Balance:* *₹${outstanding.toFixed(2)}*%0A` +
-      `------------------------%0A` +
-      pdfUrlLine +
-      `Thank you! - ${business?.shopName || 'PrintPro'}`
+    const text = ReminderService.buildCustomerStatementMessage(
+      selectedCustomer,
+      {
+        totalDebits,
+        totalCredits,
+        finalBalance,
+        totalAdvanceIn,
+        totalAdvanceReturned,
+        totalAdvanceUsed,
+        outstanding,
+        period: ledgerPeriod,
+        pdfUrl
+      },
+      business,
+      settings
+    )
 
-    const cleanPhone = phone.replace(/[^0-9]/g, '')
-    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`
+    const url = ReminderService.getWhatsAppUrl(phone, text)
     window.open(url, '_blank')
   }
 

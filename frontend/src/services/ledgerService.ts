@@ -350,6 +350,8 @@ export class LedgerService {
         subtext: `Ref: ${adv.id}${adv.notes ? ` · ${adv.notes}` : ''}`,
         debit: isReturn ? Math.abs(amt) : 0,
         credit: isReturn ? 0 : amt,
+        advanceIn: isReturn ? 0 : amt,
+        advanceReturn: isReturn ? Math.abs(amt) : 0,
         balance: 0,
       });
     });
@@ -365,7 +367,7 @@ export class LedgerService {
     const allCalculatedEntries = entries.map((entry) => {
       totalBilled += entry.debit;
       totalPaid += entry.credit;
-      rolling = Number((rolling + entry.credit - entry.debit).toFixed(2));
+      rolling = Number((rolling + entry.debit - entry.credit).toFixed(2));
       return { ...entry, balance: rolling };
     });
 

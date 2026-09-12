@@ -206,4 +206,71 @@ export class ReminderService {
     lines.push(`\nThank you for your patience and business with *${shop}*!`);
     return lines.join('\n');
   }
+
+  /**
+   * Builds a customer account statement summary message for WhatsApp.
+   */
+  static buildCustomerStatementMessage(
+    customer: any,
+    summary: {
+      totalDebits: number;
+      totalCredits: number;
+      finalBalance: number;
+      totalAdvanceIn?: number;
+      totalAdvanceReturned?: number;
+      totalAdvanceUsed?: number;
+      outstanding?: number;
+      period?: string;
+      pdfUrl?: string;
+    },
+    business?: ReminderBusinessInfo,
+    settings?: ReminderSettings
+  ): string {
+    const shop = business?.shopName || 'PrintPro Studio';
+    const custName = customer?.name || 'Valued Customer';
+    const custCode = customer?.customerCode || customer?.id || '';
+    const dateStr = new Date().toLocaleDateString('en-IN');
+    const isDue = summary.finalBalance > 0;
+    const isCredit = summary.finalBalance < 0;
+
+    let lines: string[] = [];
+    lines.push(`📊 *${shop.toUpperCase()} — ACCOUNT STATEMENT*`);
+    lines.push(`Dear *${custName}* ${custCode ? `(${custCode})` : ''},`);
+    lines.push(`Here is your latest account statement summary as of *${dateStr}*${summary.period && summary.period !== 'all' ? ` (${summary.period.toUpperCase()})` : ''}:\n`);
+    lines.push(`• *Total Invoiced (Debits):* ₹${summary.totalDebits.toFixed(2)}`);
+    lines.push(`• *Total Paid (Credits):* ₹${summary.totalCredits.toFixed(2)}`);
+    if (summary.totalAdvanceIn && summary.totalAdvanceIn > 0) {
+      lines.push(`• *Advance Deposited:* ₹${summary.totalAdvanceIn.toFixed(2)}`);
+    }
+    if (summary.totalAdvanceUsed && summary.totalAdvanceUsed > 0) {
+      lines.push(`• *Advance Used:* ₹${summary.totalAdvanceUsed.toFixed(2)}`);
+    }
+    lines.push(`------------------------`);
+    if (isDue) {
+      lines.push(`⚠️ *Net Balance Due:* *₹${summary.finalBalance.toFixed(2)}*`);
+    } else if (isCredit) {
+      lines.push(`🎉 *Advance Credit Balance:* *₹${Math.abs(summary.finalBalance).toFixed(2)}* (Available for future bills)`);
+    } else {
+      lines.push(`✅ *Net Balance:* *₹0.00* (All Settled)`);
+    }
+
+    if (isDue && business?.upiId && settings?.includeUpiInWhatsApp !== false) {
+      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${summary.finalBalance.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Statement Pay - ${custName}`)}`;
+      lines.push(`\n💳 *Instant 1-Click UPI Payment:*`);
+      lines.push(upiLink);
+      lines.push(`_UPI ID: ${business.upiId}_`);
+    }
+
+    if (summary.pdfUrl) {
+      lines.push(`\n📄 *Download Full Statement PDF:* ${summary.pdfUrl}`);
+    }
+
+    const footer = settings?.whatsappFooter
+      ? settings.whatsappFooter.replace('{shop_name}', shop)
+      : `Thank you for your business with *${shop}*! For queries, contact ${business?.phone || ''}.`;
+
+    lines.push(`\n${footer}`);
+    return lines.join('\n');
+  }
 }
+
