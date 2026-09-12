@@ -269,40 +269,81 @@ export default function MobileNotifications() {
                 </div>
 
                 {/* Bottom Actions Row */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', marginTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
-                  {isUnread ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
+                  <div>
+                    {(notif.link || notif.path || notif.entityType) && (
+                      <button
+                        onClick={() => {
+                          if (isUnread) handleMarkRead(notif.id)
+                          if (notif.link || notif.path) {
+                            navigate(notif.link || notif.path)
+                            return
+                          }
+                          if (notif.entityType === 'bill' && notif.entityId) {
+                            navigate(`/mobile/bill/${notif.entityId}`)
+                            return
+                          }
+                          if (notif.entityType === 'customer' && notif.entityId) {
+                            navigate(`/mobile/customer-ledger?customerId=${notif.entityId}`)
+                            return
+                          }
+                          if (notif.entityType === 'expense') {
+                            navigate('/mobile/accounting')
+                            return
+                          }
+                          if (notif.entityType === 'advance') {
+                            navigate('/mobile/advance-payments')
+                          }
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent-secondary)',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        Open Record →
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isUnread ? (
+                      <button
+                        className="mobile-btn mobile-btn-secondary"
+                        onClick={() => handleMarkRead(notif.id)}
+                        style={{
+                          width: 'auto',
+                          padding: '0 10px',
+                          minHeight: '28px',
+                          fontSize: '0.72rem',
+                          color: 'var(--accent-secondary)',
+                          borderColor: 'var(--accent-secondary)'
+                        }}
+                      >
+                        <Check size={13} /> Mark Read
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                        READ
+                      </span>
+                    )}
                     <button
-                      className="mobile-btn mobile-btn-secondary"
-                      onClick={() => handleMarkRead(notif.id)}
+                      onClick={(e) => handleDelete(notif.id, e)}
                       style={{
-                        width: 'auto',
-                        padding: '0 10px',
-                        minHeight: '30px',
-                        fontSize: '0.72rem',
-                        color: 'var(--accent-secondary)',
-                        borderColor: 'var(--accent-secondary)'
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '4px'
                       }}
+                      title="Delete Notification"
                     >
-                      <Check size={13} /> Mark Read
+                      <Trash2 size={14} />
                     </button>
-                  ) : (
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
-                      READ
-                    </span>
-                  )}
-                  <button
-                    onClick={(e) => handleDelete(notif.id, e)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      padding: '4px'
-                    }}
-                    title="Delete Notification"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  </div>
                 </div>
               </div>
             )

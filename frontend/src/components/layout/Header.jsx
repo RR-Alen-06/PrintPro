@@ -443,65 +443,100 @@ const Header = ({ onMenuClick }) => {
                     No notifications yet.
                   </div>
                 ) : (
-                  notifications.map((note) => (
-                    <div
-                      key={note.id}
-                      style={{
-                        padding: '14px 20px',
-                        borderBottom: '1px solid var(--border)',
-                        backgroundColor: note.read ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                        <span style={{ fontWeight: note.read ? 500 : 600, fontSize: '13px', color: note.read ? 'var(--text-secondary)' : 'var(--text-primary)', wordBreak: 'break-word', paddingRight: '12px' }}>
-                          {note.title}
-                        </span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
-                          {!note.read && (
+                  notifications.map((note) => {
+                    const handleNotificationClick = () => {
+                      if (!note.read) {
+                        markNotificationRead(note.id)
+                      }
+                      setShowNotifications(false)
+
+                      if (note.link || note.path) {
+                        navigate(note.link || note.path)
+                        return
+                      }
+                      if (note.entityType === 'bill' && note.entityId) {
+                        navigate(`/receipt?id=${note.entityId}`)
+                        return
+                      }
+                      if (note.entityType === 'customer' && note.entityId) {
+                        navigate(`/customer-ledger?customerId=${note.entityId}`)
+                        return
+                      }
+                      if (note.entityType === 'expense') {
+                        navigate('/accounting')
+                        return
+                      }
+                      if (note.entityType === 'advance') {
+                        navigate('/advance-payments')
+                        return
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={note.id}
+                        onClick={handleNotificationClick}
+                        style={{
+                          padding: '14px 20px',
+                          borderBottom: '1px solid var(--border)',
+                          backgroundColor: note.read ? 'transparent' : 'rgba(99, 102, 241, 0.08)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          cursor: 'pointer',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = note.read ? 'transparent' : 'rgba(99, 102, 241, 0.08)')}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <span style={{ fontWeight: note.read ? 500 : 700, fontSize: '13px', color: note.read ? 'var(--text-secondary)' : '#ffffff', wordBreak: 'break-word', paddingRight: '12px' }}>
+                            {note.title}
+                          </span>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                            {!note.read && (
+                              <button
+                                onClick={() => markNotificationRead(note.id)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: 'var(--accent)',
+                                  fontSize: '10px',
+                                  cursor: 'pointer',
+                                  padding: '2px 6px',
+                                  borderRadius: '2px',
+                                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                }}
+                              >
+                                Mark read
+                              </button>
+                            )}
                             <button
-                              onClick={() => markNotificationRead(note.id)}
+                              onClick={() => deleteNotification(note.id)}
                               style={{
                                 background: 'none',
                                 border: 'none',
-                                color: 'var(--accent)',
+                                color: '#ef4444',
                                 fontSize: '10px',
                                 cursor: 'pointer',
-                                padding: '2px 6px',
+                                padding: '2px 4px',
                                 borderRadius: '2px',
-                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
                               }}
+                              title="Dismiss"
                             >
-                              Mark read
+                              ✕
                             </button>
-                          )}
-                          <button
-                            onClick={() => deleteNotification(note.id)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#ef4444',
-                              fontSize: '10px',
-                              cursor: 'pointer',
-                              padding: '2px 4px',
-                              borderRadius: '2px',
-                            }}
-                            title="Dismiss"
-                          >
-                            ✕
-                          </button>
+                          </div>
                         </div>
+                        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4', wordBreak: 'break-word' }}>
+                          {note.message}
+                        </p>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.8 }}>
+                          {note.date} {note.time ? `• ${note.time}` : ''}
+                        </span>
                       </div>
-                      <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4', wordBreak: 'break-word' }}>
-                        {note.message}
-                      </p>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.8 }}>
-                        {note.date}
-                      </span>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
               <div style={{ borderTop: '1px solid var(--border)', textAlign: 'center', background: '#0e0e1c' }}>
