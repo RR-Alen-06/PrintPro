@@ -115,6 +115,7 @@ export function useBillMutations() {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
 
@@ -156,6 +157,7 @@ export function useBillMutations() {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
 
@@ -186,6 +188,7 @@ export function useBillMutations() {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
 

@@ -146,7 +146,9 @@ export async function createBill(req: any, res: any, next: any) {
 
     const {
       customer_id, date, due_date, items,
-      discount_type, discount_value, gst_percent, notes
+      discount_type, discount_value, gst_percent, notes,
+      cash_amount, cashAmount, upi_amount, upiAmount,
+      advance_used, advanceUsed, return_change_upi, returnChangeUpi
     } = req.body;
 
     if (!customer_id || !date || !items || items.length === 0) {
@@ -210,27 +212,32 @@ export async function createBill(req: any, res: any, next: any) {
     let amountPaid = 0;
     let billStatus = 'unpaid';
 
-    // Auto-apply customer credit balance
     const customer = custRows[0];
+    const customerCredit = parseFloat(customer.credit_balance || '0');
+    
+    // Explicit or auto-applied advance balance
+    const explicitAdvance = advance_used !== undefined ? parseFloat(advance_used) : (advanceUsed !== undefined ? parseFloat(advanceUsed) : null);
     let creditUsed = 0;
-    if (customer.credit_balance > 0) {
-      creditUsed = Math.min(parseFloat(customer.credit_balance), balance);
-      amountPaid = parseFloat(creditUsed.toFixed(2));
-      balance = parseFloat((balance - creditUsed).toFixed(2));
+    if (explicitAdvance !== null) {
+      creditUsed = Math.min(Math.max(0, explicitAdvance), customerCredit, total);
+    } else if (customerCredit > 0) {
+      creditUsed = Math.min(customerCredit, total);
+    }
 
-      if (balance <= 0) {
-        billStatus = 'paid';
-        balance = 0;
-      } else {
-        billStatus = 'partial';
-      }
-
-      // Reduce customer credit balance
+    if (creditUsed > 0) {
       await conn.query(
         'UPDATE customers SET credit_balance = credit_balance - $1 WHERE id = $2 AND user_id = $3',
         [creditUsed, customer_id, req.user.id]
       );
     }
+
+    const rawCash = parseFloat(cash_amount !== undefined ? cash_amount : (cashAmount || 0)) || 0;
+    const rawUpi = parseFloat(upi_amount !== undefined ? upi_amount : (upiAmount || 0)) || 0;
+    const directPaid = rawCash + rawUpi;
+
+    amountPaid = parseFloat((creditUsed + directPaid).toFixed(2));
+    balance = parseFloat(Math.max(0, total - amountPaid).toFixed(2));
+    billStatus = balance <= 0 ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid');
 
     // Insert bill (omitting id so gen_random_uuid() is assigned automatically)
     const [insertedBills] = await conn.query(
@@ -255,14 +262,23 @@ export async function createBill(req: any, res: any, next: any) {
       await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [req.user.id, createdBill.id, customer_id, creditUsed, 0, creditUsed, balance <= 0 ? 'full' : 'partial', 'Auto-applied from credit balance']
+        [req.user.id, createdBill.id, customer_id, 0, 0, creditUsed, balance <= 0 ? 'full' : 'partial', 'Advance Balance applied']
+      );
+    }
+
+    // If direct Cash or UPI was paid, create a payment record for it
+    if (directPaid > 0) {
+      await conn.query(
+        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [req.user.id, createdBill.id, customer_id, rawCash, rawUpi, directPaid, balance <= 0 ? 'full' : 'partial', 'Upfront bill payment']
       );
     }
 
     // Audit log
     await conn.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, 'CREATE', 'bill', createdBill.id, JSON.stringify({ customer_id, total, items: billItems.length, credit_applied: creditUsed })]
+      [req.user.id, 'CREATE', 'bill', createdBill.id, JSON.stringify({ customer_id, total, items: billItems.length, credit_applied: creditUsed, direct_paid: directPaid })]
     );
 
     await conn.commit();
