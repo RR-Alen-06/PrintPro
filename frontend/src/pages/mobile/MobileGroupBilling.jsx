@@ -196,7 +196,11 @@ export default function MobileGroupBilling() {
   const rawSplitSubtotal = sharedSubtotal / memberCount
   const rawSplitGst = sharedGstTotal / memberCount
   const rawSplitAmount = (sharedSubtotal + sharedGstTotal) / memberCount
-  const splitAmount = roundingMode === 'up' ? Math.ceil(rawSplitAmount) : Math.floor(rawSplitAmount)
+  const splitAmount = roundingMode === 'exact' 
+    ? Number(rawSplitAmount.toFixed(2)) 
+    : roundingMode === 'up' 
+    ? Math.ceil(rawSplitAmount) 
+    : Math.floor(rawSplitAmount)
   const ownerDiff = sharedSubtotal + sharedGstTotal - splitAmount * memberCount
 
   // Member-by-Member Financial Breakdown
@@ -735,6 +739,21 @@ export default function MobileGroupBilling() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    type="button"
+                    className="mobile-btn"
+                    onClick={() => setRoundingMode('exact')}
+                    style={{
+                      minHeight: '32px',
+                      padding: '0 8px',
+                      fontSize: '0.72rem',
+                      background: roundingMode === 'exact' ? 'var(--accent-primary)' : 'transparent',
+                      color: roundingMode === 'exact' ? '#000' : 'var(--text-muted)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    Exact (2 Dec)
+                  </button>
                   <button
                     type="button"
                     className="mobile-btn"

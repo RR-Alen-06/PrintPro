@@ -236,6 +236,7 @@ export class LedgerService {
     bills = [],
     payments = [],
     advancePayments = [],
+    period = 'all',
   }: {
     customerId: string;
     bills?: any[];
@@ -245,30 +246,37 @@ export class LedgerService {
     settings?: any;
   }) {
     const entries: any[] = [];
-    const selectedBills = bills.filter((b) => b.customerId === customerId && !b.deleted);
-    const selectedPayments = payments.filter(
-      (p) => p.customerId === customerId && !p.notes?.includes('advance deposit')
+    const custIdStr = String(customerId);
+
+    const selectedBills = bills.filter(
+      (b) => String(b.customerId || b.customer_id) === custIdStr && !b.deleted && !b.deleted_at
     );
-    const selectedAdvances = (advancePayments || []).filter((a) => a.customerId === customerId);
+    const selectedPayments = payments.filter(
+      (p) => String(p.customerId || p.customer_id) === custIdStr && !p.notes?.includes('advance deposit')
+    );
+    const selectedAdvances = (advancePayments || []).filter(
+      (a) => String(a.customerId || a.customer_id) === custIdStr
+    );
 
     // Initial pass of bills
     selectedBills.forEach((bill) => {
-      const advUsed = Number(bill.advanceUsed || 0);
+      const advUsed = Number(bill.advanceUsed || bill.advance_used || 0);
       const bal = Number(bill.balance || 0);
+      const grandTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total || 0));
       const statusText = bill.settledByGroupPayment
         ? 'Settled By Group Payment'
         : String(bill.status || '').toUpperCase();
-      const breakdown = `₹${Number(bill.total || 0).toFixed(2)}${
+      const breakdown = `₹${grandTotal.toFixed(2)}${
         advUsed > 0 ? `; ₹${advUsed.toFixed(2)} advance used` : ''
       }${bal > 0 ? `, ₹${bal.toFixed(2)} pending` : ''}`;
 
       entries.push({
         type: 'bill',
-        date: bill.date,
+        date: bill.date || bill.created_at || new Date().toISOString(),
         id: bill.id,
-        description: `Invoice #${bill.invoiceNumber || bill.id}`,
+        description: `Invoice #${bill.invoiceNumber || bill.bill_number || bill.id}`,
         subtext: `${bill.items ? `${bill.items.length} item(s) · ` : ''}${statusText} (${breakdown})`,
-        debit: Number(bill.total || 0),
+        debit: grandTotal,
         credit: 0,
         balance: 0,
       });
@@ -276,12 +284,12 @@ export class LedgerService {
       if (bill.settledByGroupPayment) {
         entries.push({
           type: 'group_settlement',
-          date: bill.date,
+          date: bill.date || bill.created_at || new Date().toISOString(),
           id: `SETTLE-${bill.id}`,
-          description: `Settled By Group Payment (${bill.groupBillId})`,
-          subtext: `Paid on behalf by Customer ID ${bill.groupPayerId}`,
+          description: `Settled By Group Payment (${bill.groupBillId || bill.group_bill_id})`,
+          subtext: `Paid on behalf by Customer ID ${bill.groupPayerId || bill.group_payer_id}`,
           debit: 0,
-          credit: Number(bill.total || 0),
+          credit: grandTotal,
           balance: 0,
         });
       }
@@ -289,12 +297,14 @@ export class LedgerService {
 
     // Initial pass of payments
     selectedPayments.forEach((payment) => {
-      const excess = Number(payment.excessCredit || 0);
+      const excess = Number(payment.excessCredit || payment.excess_credit || 0);
+      const paidAmt = Number(payment.totalPaid !== undefined ? payment.totalPaid : (payment.amount || 0));
       const isRefund =
-        Number(payment.totalPaid || 0) < 0 ||
+        paidAmt < 0 ||
         payment.paymentType === 'refund' ||
+        payment.payment_type === 'refund' ||
         payment.isRefund;
-      let creditAmt = Number(payment.totalPaid || 0) + excess;
+      let creditAmt = paidAmt + excess;
 
       if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
         const settledForOthers = payment.groupSettlements.reduce(
@@ -305,22 +315,22 @@ export class LedgerService {
         creditAmt = Math.max(0, creditAmt);
       }
 
-      const targetBill = bills.find((b: any) => String(b.id) === String(payment.billId));
-      const billCode = payment.invoiceNumber || targetBill?.invoiceNumber || payment.billId;
+      const targetBill = bills.find((b: any) => String(b.id) === String(payment.billId || payment.bill_id));
+      const billCode = payment.invoiceNumber || payment.bill_number || targetBill?.invoiceNumber || targetBill?.bill_number || payment.billId || payment.bill_id;
 
       entries.push({
         type: isRefund ? 'refund' : payment.isGroupPayment ? 'group_payment' : 'payment',
-        date: payment.date,
+        date: payment.date || payment.created_at || new Date().toISOString(),
         id: payment.id,
         description: isRefund
-          ? `Refund — Bill #${billCode}`
+          ? `Refund — Bill #${billCode || 'General'}`
           : payment.isGroupPayment
-          ? `Full Group Payment — ${payment.groupBillId}`
+          ? `Full Group Payment — ${payment.groupBillId || payment.group_bill_id}`
           : `Payment — ${billCode || 'General'}`,
         subtext: payment.isGroupPayment
-          ? `Paid ₹${Number(payment.totalPaid || 0).toFixed(2)} for Split Group ${payment.groupBillId}`
-          : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(
-              payment.upiAmount || 0
+          ? `Paid ₹${paidAmt.toFixed(2)} for Split Group ${payment.groupBillId || payment.group_bill_id}`
+          : `Cash ₹${Number(payment.cashAmount || payment.cash_amount || 0).toFixed(2)} · UPI ₹${Number(
+              payment.upiAmount || payment.upi_amount || 0
             ).toFixed(2)}`,
         debit: isRefund ? Math.abs(creditAmt) : 0,
         credit: isRefund ? 0 : creditAmt,
@@ -330,11 +340,11 @@ export class LedgerService {
 
     // Initial pass of advance deposits
     selectedAdvances.forEach((adv) => {
-      const isReturn = adv.isReturn || adv.amount < 0;
+      const isReturn = adv.isReturn || Number(adv.amount || 0) < 0;
       const amt = Number(adv.amount || 0);
       entries.push({
         type: isReturn ? 'advance_return' : 'advance',
-        date: adv.date,
+        date: adv.date || adv.created_at || new Date().toISOString(),
         id: adv.id,
         description: isReturn ? `Advance Return` : `Advance Deposit`,
         subtext: `Ref: ${adv.id}${adv.notes ? ` · ${adv.notes}` : ''}`,
@@ -347,16 +357,63 @@ export class LedgerService {
     // Chronological Sort
     entries.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Calculate rolling balances
+    // Calculate rolling balances across all history
     let rolling = 0;
-    const finalEntries = entries.map((entry) => {
+    let totalBilled = 0;
+    let totalPaid = 0;
+
+    const allCalculatedEntries = entries.map((entry) => {
+      totalBilled += entry.debit;
+      totalPaid += entry.credit;
       rolling = Number((rolling + entry.credit - entry.debit).toFixed(2));
       return { ...entry, balance: rolling };
     });
 
+    // Apply period filtering if requested
+    let filteredEntries = allCalculatedEntries;
+    if (period && period !== 'all') {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      let start: Date | null = null;
+      let end: Date | null = null;
+
+      if (period === 'daily') {
+        start = today;
+        end = new Date(today.getTime() + 86400000 - 1);
+      } else if (period === 'weekly') {
+        const day = today.getDay();
+        start = new Date(today);
+        start.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+      } else if (period === 'monthly') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (period === 'quarterly') {
+        const q = Math.floor(now.getMonth() / 3);
+        start = new Date(now.getFullYear(), q * 3, 1);
+        end = new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999);
+      } else if (period === 'yearly') {
+        start = new Date(now.getFullYear(), 0, 1);
+        end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+
+      if (start && end) {
+        const startTime = start.getTime();
+        const endTime = end.getTime();
+        filteredEntries = allCalculatedEntries.filter((e) => {
+          const t = new Date(e.date).getTime();
+          return t >= startTime && t <= endTime;
+        });
+      }
+    }
+
     return {
-      entries: finalEntries,
+      entries: filteredEntries,
       closingBalance: rolling,
+      totalBilled: Number(totalBilled.toFixed(2)),
+      totalPaid: Number(totalPaid.toFixed(2)),
     };
   }
 }

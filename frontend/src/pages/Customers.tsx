@@ -276,8 +276,15 @@ const Customers = () => {
 
   const validate = () => {
     const errs: Record<string, string> = {}
-    if (!form.name || !form.name.trim()) errs.name = 'Name is required.'
-    if (form.phone && !/^\d{7,15}$/.test(form.phone.trim())) errs.phone = 'Enter a valid phone number.'
+    if (form.phone && !/^\d{7,15}$/.test(form.phone.trim())) {
+      errs.phone = 'Enter a valid phone number.'
+    } else if (form.phone && form.phone.trim()) {
+      const cleanPhone = form.phone.trim()
+      const duplicate = customers.find((c: any) => !c.deleted && (c.phone || '').trim() === cleanPhone && (!editMode || String(c.id) !== String(editingId)))
+      if (duplicate) {
+        errs.phone = `Phone already registered to customer '${duplicate.name}'`
+      }
+    }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Enter a valid email.'
     
     if (form.type === 'regular' && !editMode) {
