@@ -88,6 +88,30 @@ export default function MobileCustomerLedger() {
     }
 
     try {
+      const unpaidBills = (serverBills || [])
+        .filter((b) => String(b.customerId) === String(selectedCustomer.id) && !b.deleted && (Number(b.balance || 0) > 0))
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+      let remaining = total
+      for (const b of unpaidBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const newPaid = Number((Number(b.paidTotal || b.totalPaid || 0) + toPay).toFixed(2))
+        const newStatus = newBal === 0 ? 'paid' : 'partial'
+
+        await updateBillMutation({
+          id: b.id,
+          data: {
+            balance: newBal,
+            status: newStatus,
+            paidTotal: newPaid,
+            totalPaid: newPaid,
+          }
+        })
+        remaining -= toPay
+      }
+
       await createPayment({
         customer_id: selectedCustomer.id,
         cash_amount: cash,
@@ -97,7 +121,7 @@ export default function MobileCustomerLedger() {
         notes: payNotes.trim() || 'Payment from mobile ledger'
       })
 
-      showToast(`Recorded payment of ₹${total.toLocaleString('en-IN')}!`, 'success')
+      showToast(`Recorded payment of ₹${total.toLocaleString('en-IN')} via FIFO!`, 'success')
       setPayCash('')
       setPayUpi('')
       setPayNotes('')
@@ -178,22 +202,59 @@ export default function MobileCustomerLedger() {
                 <div className="currency-num" style={{ fontSize: '0.95rem', color: 'var(--success)' }}>₹{totalPaid.toLocaleString('en-IN')}</div>
               </div>
               <div>
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>DUE / BAL</div>
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                  {closingBalance < 0 ? 'CREDIT' : 'DUE'}
+                </div>
                 <div className="currency-num" style={{ fontSize: '0.95rem', color: closingBalance > 0 ? 'var(--error)' : 'var(--success)' }}>
                   ₹{Math.abs(closingBalance).toLocaleString('en-IN')}
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: selectedCustomer?.phone ? '1fr 1fr' : '1fr', gap: '8px' }}>
-              <button
-                className="mobile-btn mobile-btn-primary"
-                onClick={() => setShowPayModal(true)}
-                style={{ width: '100%', minHeight: '40px', fontSize: '0.85rem' }}
-              >
-                <Plus size={16} /> Record Payment
-              </button>
-              {selectedCustomer?.phone && (
+            <button
+              className="mobile-btn mobile-btn-primary"
+              onClick={() => setShowPayModal(true)}
+              style={{ width: '100%', minHeight: '40px', fontSize: '0.85rem', marginBottom: '8px' }}
+            >
+              <Plus size={16} /> Record Payment (FIFO)
+            </button>
+
+            {selectedCustomer?.phone && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="mobile-btn"
+                  onClick={() => {
+                    const text = ReminderService.buildCustomerStatementMessage(
+                      selectedCustomer,
+                      {
+                        totalDebits: totalInvoiced,
+                        totalCredits: totalPaid,
+                        finalBalance: closingBalance,
+                        period: ledgerPeriod
+                      },
+                      business,
+                      settings
+                    )
+                    const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                    window.open(url, '_blank')
+                  }}
+                  style={{
+                    width: '100%',
+                    minHeight: '38px',
+                    fontSize: '0.78rem',
+                    background: 'rgba(37, 211, 102, 0.12)',
+                    color: '#25D366',
+                    border: '1px solid rgba(37, 211, 102, 0.35)',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <MessageCircle size={15} /> Statement
+                </button>
                 <button
                   type="button"
                   className="mobile-btn"
@@ -204,22 +265,22 @@ export default function MobileCustomerLedger() {
                   }}
                   style={{
                     width: '100%',
-                    minHeight: '40px',
-                    fontSize: '0.82rem',
-                    background: 'rgba(37, 211, 102, 0.15)',
-                    color: '#25D366',
-                    border: '1px solid rgba(37, 211, 102, 0.4)',
+                    minHeight: '38px',
+                    fontSize: '0.78rem',
+                    background: 'rgba(245, 158, 11, 0.12)',
+                    color: '#f59e0b',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
                     fontWeight: 700,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px'
+                    gap: '4px'
                   }}
                 >
-                  <MessageCircle size={16} /> WhatsApp
+                  <DollarSign size={15} /> Reminder
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Timeline Period Filter */}
