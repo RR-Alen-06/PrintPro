@@ -99,7 +99,9 @@ export function useExpenseMutations() {
       }
     },
     onSettled: () => {
-      // Optimistic + onSuccess cache update handles this
+      queryClient.invalidateQueries({ queryKey: EXPENSES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
@@ -123,7 +125,9 @@ export function useExpenseMutations() {
       }
     },
     onSettled: () => {
-      // Optimistic deletion
+      queryClient.invalidateQueries({ queryKey: EXPENSES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
