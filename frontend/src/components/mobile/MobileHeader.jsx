@@ -4,6 +4,8 @@ import { ArrowLeft, LogOut } from 'lucide-react'
 import { useMutationState } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 
+import SyncStatusPill from '../common/SyncStatusPill'
+
 export default function MobileHeader({ title }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -34,7 +36,8 @@ export default function MobileHeader({ title }) {
         </h1>
       </div>
 
-      <div className="mobile-header-actions">
+      <div className="mobile-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <SyncStatusPill style={{ padding: '3px 8px', fontSize: '0.68rem' }} />
         <button
           className="mobile-icon-btn"
           onClick={() => {

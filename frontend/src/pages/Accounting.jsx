@@ -594,6 +594,32 @@ const Accounting = () => {
                 </div>
               </div>
             </div>
+
+            {/* Daily Physical Cash on Hand Register Banner */}
+            <div style={{
+              marginTop: '16px',
+              padding: '14px 18px',
+              background: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--success)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  💵 Net Physical Cash on Hand (Drawer Register)
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Cash Collected (₹{stats.cashCollected.toFixed(2)}) − Cash Expenses (₹{stats.cashSpent.toFixed(2)}) − Cash Refunds (₹{stats.cashRefunded.toFixed(2)})
+                </div>
+              </div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--success)', fontFamily: 'monospace' }}>
+                ₹{Math.max(0, stats.cashCollected - stats.cashSpent - stats.cashRefunded).toFixed(2)}
+              </div>
+            </div>
           </div>
 
           {/* Refunds & Reversals Summary */}

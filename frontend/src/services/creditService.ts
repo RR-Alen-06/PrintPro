@@ -136,4 +136,91 @@ export class CreditService {
       isFullyPaid,
     };
   }
+
+  /**
+   * Smart Hybrid FIFO payment allocation across a customer's unpaid invoices.
+   * Allocates to oldest unpaid bills first; any remaining payment is routed to Advance Balance.
+   */
+  static allocatePaymentFIFO(
+    paymentAmount: number | string,
+    unpaidBills: Array<{
+      id: string;
+      invoiceNumber?: string;
+      bill_number?: string;
+      date?: string;
+      created_at?: string;
+      total?: number;
+      grand_total?: number;
+      balance?: number;
+      status?: string;
+      deleted?: boolean;
+    }>,
+    selectedBillIds?: string[]
+  ): {
+    totalPayment: number;
+    totalAllocated: number;
+    excessToAdvance: number;
+    allocations: Array<{
+      billId: string;
+      invoiceNumber: string;
+      date: string;
+      total: number;
+      currentBalance: number;
+      allocatedAmount: number;
+      remainingBalance: number;
+      newStatus: 'paid' | 'partial' | 'unpaid';
+    }>;
+  } {
+    const totalPayment = Math.max(0, Number(paymentAmount) || 0);
+    let remainingPayment = totalPayment;
+
+    // Filter valid unpaid bills
+    let targetBills = unpaidBills.filter(
+      (b) => !b.deleted && b.status !== 'paid' && Number(b.balance || 0) > 0
+    );
+
+    if (selectedBillIds && selectedBillIds.length > 0) {
+      const selectedSet = new Set(selectedBillIds.map(String));
+      targetBills = targetBills.filter((b) => selectedSet.has(String(b.id)));
+    }
+
+    // Chronological Sort: Oldest unpaid first (FIFO)
+    targetBills.sort(
+      (a, b) =>
+        new Date(a.date || a.created_at || 0).getTime() -
+        new Date(b.date || b.created_at || 0).getTime()
+    );
+
+    let totalAllocated = 0;
+    const allocations = targetBills.map((bill) => {
+      const currentBal = Number(bill.balance || 0);
+      const billTot = Number(bill.total !== undefined ? bill.total : (bill.grand_total || 0));
+      const alloc = Number(Math.min(remainingPayment, currentBal).toFixed(2));
+
+      remainingPayment = Number(Math.max(0, remainingPayment - alloc).toFixed(2));
+      totalAllocated = Number((totalAllocated + alloc).toFixed(2));
+      const remBal = Number(Math.max(0, currentBal - alloc).toFixed(2));
+      const newStatus = remBal <= 0.001 ? ('paid' as const) : alloc > 0 ? ('partial' as const) : ('unpaid' as const);
+
+      return {
+        billId: bill.id,
+        invoiceNumber: bill.invoiceNumber || bill.bill_number || `INV-${bill.id.slice(0, 6)}`,
+        date: bill.date || bill.created_at || new Date().toISOString(),
+        total: billTot,
+        currentBalance: currentBal,
+        allocatedAmount: alloc,
+        remainingBalance: remBal,
+        newStatus,
+      };
+    });
+
+    const excessToAdvance = Number(remainingPayment.toFixed(2));
+
+    return {
+      totalPayment,
+      totalAllocated,
+      excessToAdvance,
+      allocations,
+    };
+  }
 }
