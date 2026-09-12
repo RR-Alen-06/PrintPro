@@ -13,6 +13,7 @@ import {
   FileText, Search, Loader2, AlertCircle, RefreshCw, Download,
   Receipt, Wallet, Layers, ShieldCheck, ChevronRight
 } from 'lucide-react'
+import { SequenceService } from '../../services/sequenceService'
 import '../../styles/mobile.css'
 
 export default function MobileAccounting() {
@@ -27,6 +28,15 @@ export default function MobileAccounting() {
   const { data: serverPayments = [] } = usePayments()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverInventory = [] } = useInventory()
+
+  const previewExpenseCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'EXPENSE',
+      serverExpenses,
+      settings?.expPrefix || 'EXP',
+      settings?.seqPadding || 6
+    )
+  }, [serverExpenses, settings?.expPrefix, settings?.seqPadding])
 
   const [activeTab, setActiveTab] = useState('expenses') // 'expenses' | 'gst'
   const [filterCategory, setFilterCategory] = useState('all')
@@ -476,6 +486,9 @@ export default function MobileAccounting() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--accent-secondary)', marginRight: '6px' }}>
+                          {e.expenseCode || e.expense_code || `EXP-${String(e.id).padStart(6, '0')}`}
+                        </span>
                         {e.description || e.item_name || 'Expense'}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
@@ -619,6 +632,11 @@ export default function MobileAccounting() {
         title="Record Operational Expense"
       >
         <form onSubmit={handleAddExpenseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', padding: '8px 12px', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-Assigned Code:</span>
+            <strong style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#3b82f6' }}>{previewExpenseCode}</strong>
+          </div>
+
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               CATEGORY

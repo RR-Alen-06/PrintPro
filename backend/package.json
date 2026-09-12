@@ -2,11 +2,11 @@
   "name": "printpro-backend",
   "version": "1.0.0",
   "description": "PrintPro Printing Business Management API",
-  "main": "server.js",
+  "main": "server.ts",
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "start": "tsx server.js",
-    "dev": "tsx watch server.js",
+    "start": "tsx server.ts",
+    "dev": "tsx watch server.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "audit-check": "npm audit --audit-level=high"

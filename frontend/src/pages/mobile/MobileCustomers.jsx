@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
+import { SequenceService } from '../../services/sequenceService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import VirtualList from '../../components/mobile/VirtualList'
@@ -62,11 +63,20 @@ CustomerCard.displayName = 'CustomerCard'
 
 export default function MobileCustomers() {
   const navigate = useNavigate()
-  const { showToast } = useAppContext()
+  const { showToast, settings } = useAppContext()
 
   // TanStack Query & Mutations (reusing the desktop hooks)
   const { data: serverCustomers = [], isLoading: isLoadingCustomers, isError, error } = useCustomers()
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
+
+  const previewCustomerCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'CUSTOMER',
+      serverCustomers,
+      settings?.cusPrefix || 'CUS',
+      settings?.seqPadding || 6
+    )
+  }, [serverCustomers, settings?.cusPrefix, settings?.seqPadding])
 
   const [searchTerm, setSearchTerm] = useState('')
   const [customerTypeFilter, setCustomerTypeFilter] = useState('all') // 'all' | 'regular' | 'random'
@@ -251,6 +261,13 @@ export default function MobileCustomers() {
       {/* Add / Edit Customer Bottom Sheet */}
       <BottomSheet isOpen={showModal} onClose={() => setShowModal(false)} title={editMode ? 'Edit Customer Record' : 'Add New Customer'}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {!editMode && (
+            <div style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', padding: '8px 12px', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-Assigned ID:</span>
+              <strong style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#3b82f6' }}>{previewCustomerCode}</strong>
+            </div>
+          )}
+
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CLIENT TYPE</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>

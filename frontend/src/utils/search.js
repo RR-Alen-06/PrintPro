@@ -12,10 +12,14 @@ export const searchBills = (bills, query, filters = {}) => {
     const lowerQuery = query.toLowerCase()
     results = results.filter(
       (bill) =>
-        bill.id.toLowerCase().includes(lowerQuery) ||
-        bill.customerName.toLowerCase().includes(lowerQuery) ||
-        bill.customerId.toLowerCase().includes(lowerQuery) ||
-        (bill.notes && bill.notes.toLowerCase().includes(lowerQuery))
+        (bill.id && String(bill.id).toLowerCase().includes(lowerQuery)) ||
+        (bill.invoiceNumber && String(bill.invoiceNumber).toLowerCase().includes(lowerQuery)) ||
+        (bill.invoice_number && String(bill.invoice_number).toLowerCase().includes(lowerQuery)) ||
+        (bill.customerName && String(bill.customerName).toLowerCase().includes(lowerQuery)) ||
+        (bill.customer_name && String(bill.customer_name).toLowerCase().includes(lowerQuery)) ||
+        (bill.customerId && String(bill.customerId).toLowerCase().includes(lowerQuery)) ||
+        (bill.customer_id && String(bill.customer_id).toLowerCase().includes(lowerQuery)) ||
+        (bill.notes && String(bill.notes).toLowerCase().includes(lowerQuery))
     )
   }
 
@@ -61,10 +65,12 @@ export const searchCustomers = (customers, query, filters = {}) => {
     const lowerQuery = query.toLowerCase()
     results = results.filter(
       (customer) =>
-        customer.id.toLowerCase().includes(lowerQuery) ||
-        customer.name.toLowerCase().includes(lowerQuery) ||
-        customer.phone.includes(query) ||
-        customer.email.toLowerCase().includes(lowerQuery)
+        (customer.id && String(customer.id).toLowerCase().includes(lowerQuery)) ||
+        (customer.customerCode && String(customer.customerCode).toLowerCase().includes(lowerQuery)) ||
+        (customer.customer_code && String(customer.customer_code).toLowerCase().includes(lowerQuery)) ||
+        (customer.name && String(customer.name).toLowerCase().includes(lowerQuery)) ||
+        (customer.phone && String(customer.phone).includes(query)) ||
+        (customer.email && String(customer.email).toLowerCase().includes(lowerQuery))
     )
   }
 
@@ -96,7 +102,15 @@ export const searchInventory = (inventory, query, filters = {}) => {
   // Text search
   if (query) {
     const lowerQuery = query.toLowerCase()
-    results = results.filter((item) => item.name.toLowerCase().includes(lowerQuery) || item.id.toLowerCase().includes(lowerQuery))
+    results = results.filter(
+      (item) =>
+        (item.name && String(item.name).toLowerCase().includes(lowerQuery)) ||
+        (item.id && String(item.id).toLowerCase().includes(lowerQuery)) ||
+        (item.itemCode && String(item.itemCode).toLowerCase().includes(lowerQuery)) ||
+        (item.item_code && String(item.item_code).toLowerCase().includes(lowerQuery)) ||
+        (item.hsnCode && String(item.hsnCode).toLowerCase().includes(lowerQuery)) ||
+        (item.hsn_code && String(item.hsn_code).toLowerCase().includes(lowerQuery))
+    )
   }
 
   // Filters

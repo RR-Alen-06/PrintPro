@@ -8,6 +8,7 @@ import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { createFullBackup, exportBillsToCSV, exportCustomersToCSV, exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV } from '../utils/dataExport'
 import { importFromJSON, importCustomersFromCSV, importInventoryFromCSV, importFromCSV, validateBackupFile, restoreFromBackup } from '../utils/dataImport'
+import { SequenceService } from '../services/sequenceService'
 
 const DataManagement = () => {
   const { business, customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], payments: contextPayments = [], expenses: contextExpenses = [], settings, addCustomer, addInventoryItem } = useAppContext()
@@ -241,9 +242,9 @@ const DataManagement = () => {
         const targetBill = bills.find(b => String(b.id) === String(p.billId))
         const targetCust = customers.find(c => String(c.id) === String(p.customerId || targetBill?.customerId))
         return [
-          p.id || '',
-          targetBill?.invoiceNumber || p.billId || '',
-          targetCust?.customerCode || targetCust?.name || p.customerId || '',
+          p.paymentCode || SequenceService.formatDisplayCode('payment', p.id, 'PAY'),
+          targetBill?.invoiceNumber || (p.billId ? SequenceService.formatDisplayCode('bill', p.billId, 'INV') : '—'),
+          targetCust?.customerCode || targetCust?.name || (p.customerId ? SequenceService.formatDisplayCode('customer', p.customerId, 'CUS') : '—'),
           p.date ? p.date.slice(0, 10) : '',
           fNum(p.cashAmount),
           fNum(p.upiAmount),
@@ -262,7 +263,7 @@ const DataManagement = () => {
         { label: 'Total Amount', w: 35 }
       ]
       rows = data.map(e => [
-        e.id || '',
+        e.expenseCode || SequenceService.formatDisplayCode('expense', e.id, 'EXP'),
         e.date || '',
         e.description || '',
         fNum(e.cashAmount),
@@ -280,12 +281,12 @@ const DataManagement = () => {
         { label: 'B/W Double', w: 30 }
       ]
       rows = data.map(i => [
-        i.id || '',
+        i.itemCode || SequenceService.formatDisplayCode('inventory', i.id, 'ITM'),
         i.name || '',
-        fNum(i.colorSingle),
-        fNum(i.colorDouble),
-        fNum(i.bwSingle),
-        fNum(i.bwDouble)
+        fNum(i.colorSingle !== undefined ? i.colorSingle : i.color_single),
+        fNum(i.colorDouble !== undefined ? i.colorDouble : i.color_double),
+        fNum(i.bwSingle !== undefined ? i.bwSingle : i.bw_single),
+        fNum(i.bwDouble !== undefined ? i.bwDouble : i.bw_double)
       ])
     }
 
@@ -635,7 +636,7 @@ const DataManagement = () => {
                   <tr key={idx}>
                     {selectedReport === 'bills' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.invoiceNumber || row.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.invoiceNumber || SequenceService.formatDisplayCode('bill', row.id, 'INV')}</td>
                         <td>{row.customerName}</td>
                         <td>{row.date}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.subtotal).toFixed(2)}</td>
@@ -648,7 +649,7 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'customers' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.customerCode || row.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.customerCode || SequenceService.formatDisplayCode('customer', row.id, 'CUS')}</td>
                         <td><span className={`badge ${row.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{row.type.toUpperCase()}</span></td>
                         <td>{row.name}</td>
                         <td>{row.phone || '—'}</td>
@@ -659,9 +660,9 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'payments' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
-                        <td>{row.invoiceNumber || row.billId}</td>
-                        <td>{row.customerCode || row.customerId}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.paymentCode || SequenceService.formatDisplayCode('payment', row.id, 'PAY')}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{row.invoiceNumber || (row.billId ? SequenceService.formatDisplayCode('bill', row.billId, 'INV') : '—')}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{row.customerCode || (row.customerId ? SequenceService.formatDisplayCode('customer', row.customerId, 'CUS') : '—')}</td>
                         <td>{row.date ? row.date.slice(0, 10) : ''}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.upiAmount || 0).toFixed(2)}</td>
@@ -671,7 +672,7 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'expenses' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.expenseCode || SequenceService.formatDisplayCode('expense', row.id, 'EXP')}</td>
                         <td>{row.date}</td>
                         <td>{row.description}</td>
                         <td style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
@@ -681,12 +682,12 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'inventory' && (
                       <>
-                        <td style={{ fontFamily: 'monospace' }}>{row.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.itemCode || SequenceService.formatDisplayCode('inventory', row.id, 'ITM')}</td>
                         <td>{row.name}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.colorSingle || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.colorDouble || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.bwSingle || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.bwDouble || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(row.colorSingle !== undefined ? row.colorSingle : (row.color_single || 0)).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(row.colorDouble !== undefined ? row.colorDouble : (row.color_double || 0)).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(row.bwSingle !== undefined ? row.bwSingle : (row.bw_single || 0)).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(row.bwDouble !== undefined ? row.bwDouble : (row.bw_double || 0)).toFixed(2)}</td>
                       </>
                     )}
                   </tr>

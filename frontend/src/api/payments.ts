@@ -1,22 +1,31 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 import { isValidUUID } from '../lib/uuid'
+import { SequenceService } from '../services/sequenceService'
 
-export const mapPaymentFromApi = (p: any) => ({
-  ...p,
-  id: p.id,
-  billId: p.bill_id || p.billId,
-  invoiceNumber: p.invoice_number || p.invoiceNumber || p.bill_invoice_number || p.billInvoiceNumber,
-  customerId: p.customer_id || p.customerId,
-  customerCode: p.customer_code || p.customerCode,
-  customerName: p.customer_name || p.customerName,
-  date: p.date || new Date().toISOString(),
-  cashAmount: Number(p.cash_amount !== undefined ? p.cash_amount : (p.cashAmount || 0)),
-  upiAmount: Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0)),
-  totalPaid: Number(p.total_paid !== undefined ? p.total_paid : (p.totalPaid || 0)),
-  paymentType: p.payment_type || p.paymentType || 'partial',
-  notes: p.notes || ''
-})
+export const mapPaymentFromApi = (p: any) => {
+  if (!p) return p;
+  const paymentCode = p.payment_code || p.paymentCode || p.code || SequenceService.formatDisplayCode('payment', p.id, 'PAY');
+  const invoiceNumber = p.invoice_number || p.invoiceNumber || p.bill_invoice_number || p.billInvoiceNumber || (p.bill_id || p.billId ? SequenceService.formatDisplayCode('bill', p.bill_id || p.billId, 'INV') : '');
+  const customerCode = p.customer_code || p.customerCode || (p.customer_id || p.customerId ? SequenceService.formatDisplayCode('customer', p.customer_id || p.customerId, 'CUS') : '');
+
+  return {
+    ...p,
+    id: p.id,
+    paymentCode,
+    billId: p.bill_id || p.billId,
+    invoiceNumber,
+    customerId: p.customer_id || p.customerId,
+    customerCode,
+    customerName: p.customer_name || p.customerName || 'Customer',
+    date: p.date || new Date().toISOString(),
+    cashAmount: Number(p.cash_amount !== undefined ? p.cash_amount : (p.cashAmount || 0)),
+    upiAmount: Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0)),
+    totalPaid: Number(p.total_paid !== undefined ? p.total_paid : (p.totalPaid || 0)),
+    paymentType: p.payment_type || p.paymentType || 'partial',
+    notes: p.notes || ''
+  };
+};
 
 export const getBillPayments = async (billId: string) => {
   if (isBackendAvailable()) {

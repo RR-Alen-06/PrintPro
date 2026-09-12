@@ -6,6 +6,7 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import VirtualList from '../../components/mobile/VirtualList'
 import SkeletonInventoryRow from '../../components/mobile/SkeletonInventoryRow'
 import { Inbox, Plus, Pencil, Trash2, Search, Loader2, AlertCircle } from 'lucide-react'
+import { SequenceService } from '../../services/sequenceService'
 import '../../styles/mobile.css'
 
 const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
@@ -15,7 +16,7 @@ const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
         <div>
           <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-            HSN: {item.hsnCode || item.hsn_code || 'N/A'} • Type: PRINT PAPER
+            Code: {item.itemCode || item.item_code || `ITM-${String(item.id).padStart(6, '0')}`} • HSN: {item.hsnCode || item.hsn_code || 'N/A'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -38,10 +39,10 @@ const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorSingle ?? item.color_single ?? 0}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{item.colorDouble ?? item.color_double ?? 0}</strong>
+          Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)).toFixed(2)}</strong>
         </div>
         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwSingle ?? item.bw_single ?? 0}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{item.bwDouble ?? item.bw_double ?? 0}</strong>
+          B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)).toFixed(2)}</strong>
         </div>
       </div>
     </div>
@@ -51,11 +52,20 @@ const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
 InventoryRow.displayName = 'InventoryRow'
 
 export default function MobileInventory() {
-  const { showToast } = useAppContext()
+  const { showToast, settings } = useAppContext()
 
   // TanStack Query & Mutations (reusing desktop hooks)
   const { data: serverInventory = [], isLoading: isLoadingInventory, isError, error } = useInventory()
   const { createItem, updateItem, deleteItem, isCreatingItem, isUpdatingItem } = useInventoryMutations()
+
+  const previewItemCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'INVENTORY',
+      serverInventory,
+      settings?.itmPrefix || 'ITM',
+      settings?.seqPadding || 6
+    )
+  }, [serverInventory, settings?.itmPrefix, settings?.seqPadding])
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all') // 'all' | 'print'
@@ -123,15 +133,27 @@ export default function MobileInventory() {
       return
     }
 
+    const cs = Number(colorSingle || 0)
+    const cd = Number(colorDouble || 0)
+    const bs = Number(bwSingle || 0)
+    const bd = Number(bwDouble || 0)
+    const hsn = hsnCode.trim() || null
+
     const payload = {
       name: formName.trim(),
       type: 'print',
-      hsn_code: hsnCode.trim() || null,
-      color_single: Number(colorSingle || 0),
-      color_double: Number(colorDouble || 0),
-      bw_single: Number(bwSingle || 0),
-      bw_double: Number(bwDouble || 0),
-      low_stock_alert: 50
+      hsn_code: hsn,
+      hsnCode: hsn || '',
+      color_single: cs,
+      colorSingle: cs,
+      color_double: cd,
+      colorDouble: cd,
+      bw_single: bs,
+      bwSingle: bs,
+      bw_double: bd,
+      bwDouble: bd,
+      low_stock_alert: 50,
+      lowStockAlert: 50
     }
 
     try {
@@ -238,6 +260,13 @@ export default function MobileInventory() {
       {/* Add / Edit Item Bottom Sheet */}
       <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={editingItem ? 'Edit Paper Rate' : 'New Paper Specification'}>
         <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {!editingItem && (
+            <div style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', padding: '8px 12px', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-Assigned Code:</span>
+              <strong style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#3b82f6' }}>{previewItemCode}</strong>
+            </div>
+          )}
+
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM / PAPER NAME</label>
             <input type="text" className="mobile-input" placeholder="e.g. Glossy Photo Paper 250GSM" value={formName} onChange={(e) => setFormName(e.target.value)} required />

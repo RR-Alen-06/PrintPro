@@ -5,6 +5,7 @@ import { useInventory, usePayments } from '../hooks/useEntitiesQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useGroupBills, useGroupBillMutations } from '../hooks/useGroupBillsQuery'
+import { SequenceService } from '../services/sequenceService'
 
 const makeItemRow = (inventory) => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -14,8 +15,8 @@ const makeItemRow = (inventory) => ({
   printType: 'color',
   sides: 'single',
   qty: 1,
-  unitPrice: inventory[0]?.colorSingle ?? 10,
-  amount: inventory[0]?.colorSingle ?? 10,
+  unitPrice: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
+  amount: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
   gstRate: 0,
 })
 
@@ -35,11 +36,11 @@ const makeCustomRow = () => ({
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
   const item = inventory.find((e) => e.id === itemId)
   if (!item) return 0
-  if (item.type === 'product') return item.sellingPrice || 0
-  if (printType === 'color' && sides === 'single') return item.colorSingle
-  if (printType === 'color' && sides === 'double') return item.colorDouble
-  if (printType === 'bw' && sides === 'single') return item.bwSingle
-  if (printType === 'bw' && sides === 'double') return item.bwDouble
+  if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
+  if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
+  if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
+  if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
+  if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
   return 0
 }
 
@@ -597,6 +598,15 @@ const GroupBilling = () => {
   const [notes, setNotes] = useState('')
   const [lastGroupId, setLastGroupId] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const previewGroupInvoiceNumber = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'GROUP',
+      bills,
+      settings?.grpPrefix || 'GRP',
+      settings?.seqPadding || 6
+    )
+  }, [bills, settings?.grpPrefix, settings?.seqPadding])
 
   // ── Shared/Addon mode state ─────────────────────────────────────────────────
   const [sharedRows, setSharedRows] = useState(() => [makeItemRow(inventory)])
@@ -1157,7 +1167,12 @@ const GroupBilling = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={24} /> Group Billing</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <Users size={24} /> Group Billing
+            <span className="badge badge-primary" style={{ fontSize: '0.78rem', fontFamily: 'monospace', letterSpacing: '0.04em', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', padding: '3px 8px' }}>
+              Upcoming: #{previewGroupInvoiceNumber}
+            </span>
+          </h1>
           <p>Create bills for multiple customers sharing products, or split a joint purchase equally.</p>
         </div>
         {lastGroupId && (

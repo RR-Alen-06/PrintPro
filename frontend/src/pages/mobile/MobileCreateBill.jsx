@@ -138,10 +138,10 @@ export default function MobileCreateBill() {
   const calculatedUnitPrice = useMemo(() => {
     if (isCustomItem) return Number(itemUnitPrice || 0)
     if (!activeInventoryObj) return 10.0
-    if (itemPrintType === 'color' && itemSides === 'single') return activeInventoryObj.colorSingle ?? 10.0
-    if (itemPrintType === 'color' && itemSides === 'double') return activeInventoryObj.colorDouble ?? 18.0
-    if (itemPrintType === 'bw' && itemSides === 'single') return activeInventoryObj.bwSingle ?? 3.0
-    if (itemPrintType === 'bw' && itemSides === 'double') return activeInventoryObj.bwDouble ?? 5.0
+    if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle !== undefined ? activeInventoryObj.colorSingle : (activeInventoryObj.color_single ?? 10.0)) || 10.0
+    if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble !== undefined ? activeInventoryObj.colorDouble : (activeInventoryObj.color_double ?? 18.0)) || 18.0
+    if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle !== undefined ? activeInventoryObj.bwSingle : (activeInventoryObj.bw_single ?? 3.0)) || 3.0
+    if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble !== undefined ? activeInventoryObj.bwDouble : (activeInventoryObj.bw_double ?? 5.0)) || 5.0
     return 10.0
   }, [activeInventoryObj, itemPrintType, itemSides, isCustomItem, itemUnitPrice])
 
@@ -426,10 +426,31 @@ export default function MobileCreateBill() {
     }
   }
 
+  const previewInvoiceNumber = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'BILL',
+      serverBills,
+      settings?.invPrefix || 'INV',
+      settings?.seqPadding || 6
+    )
+  }, [serverBills, settings?.invPrefix, settings?.seqPadding])
+
   return (
     <MobileLayout
       title={editBillId ? 'Edit Print Bill' : 'Create Print Bill'}
     >
+      {/* Header Info with Auto-Assigned Code Badge */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)' }}>
+          {editBillId ? `EDITING BILL #${editBillId}` : 'NEW ORDER'}
+        </span>
+        {!editBillId && (
+          <span className="mobile-badge mobile-badge-info" style={{ fontFamily: 'monospace', fontSize: '0.75rem', letterSpacing: '0.04em' }}>
+            Auto-ID: #{previewInvoiceNumber}
+          </span>
+        )}
+      </div>
+
       {/* 3-Step Glowing Progress Indicator */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
         {[

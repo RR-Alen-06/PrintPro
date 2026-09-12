@@ -53,10 +53,12 @@ const convertToCSV = (data) => {
   return csv.join('\n')
 }
 
+import { SequenceService } from '../services/sequenceService'
+
 export const exportBillsToCSV = (bills, filename = 'bills-export.csv') => {
   const flatBills = bills.map((bill) => ({
-    'Bill ID': bill.id,
-    'Customer ID': bill.customerId || '',
+    'Invoice / Bill Number': bill.invoiceNumber || SequenceService.formatDisplayCode('bill', bill.id, 'INV'),
+    'Customer Code': bill.customerCode || (bill.customerId ? SequenceService.formatDisplayCode('customer', bill.customerId, 'CUS') : ''),
     'Customer Name': bill.customerName || '',
     'Customer Type': bill.customerType || '',
     'Date': bill.date,
@@ -78,12 +80,12 @@ export const exportBillsToCSV = (bills, filename = 'bills-export.csv') => {
 
 export const exportCustomersToCSV = (customers, filename = 'customers-export.csv') => {
   const flatCustomers = customers.map((customer) => ({
-    'Customer ID': customer.id,
+    'Customer Code': customer.customerCode || SequenceService.formatDisplayCode('customer', customer.id, 'CUS'),
     'Type': customer.type,
     'Name': customer.name,
     'Phone': customer.phone,
     'Email': customer.email,
-    'Credit Balance': customer.creditBalance,
+    'Credit Balance': Number(customer.creditBalance || 0).toFixed(2),
     'Status': customer.status,
   }))
   exportToCSV(flatCustomers, filename)
@@ -91,22 +93,22 @@ export const exportCustomersToCSV = (customers, filename = 'customers-export.csv
 
 export const exportInventoryToCSV = (inventory, filename = 'inventory-export.csv') => {
   const flatInventory = inventory.map((item) => ({
-    'Item ID': item.id,
+    'Item Code': item.itemCode || SequenceService.formatDisplayCode('inventory', item.id, 'ITM'),
     'Name': item.name,
-    'Color Single': item.colorSingle,
-    'Color Double': item.colorDouble,
-    'B/W Single': item.bwSingle,
-    'B/W Double': item.bwDouble,
-    'Stock': item.stock,
+    'Color Single': item.colorSingle !== undefined ? item.colorSingle : (item.color_single ?? 0),
+    'Color Double': item.colorDouble !== undefined ? item.colorDouble : (item.color_double ?? 0),
+    'B/W Single': item.bwSingle !== undefined ? item.bwSingle : (item.bw_single ?? 0),
+    'B/W Double': item.bwDouble !== undefined ? item.bwDouble : (item.bw_double ?? 0),
+    'Stock': item.stock !== undefined ? item.stock : 0,
   }))
   exportToCSV(flatInventory, filename)
 }
 
 export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') => {
   const flatPayments = payments.map((payment) => ({
-    'Payment ID': payment.id,
-    'Bill / Invoice': payment.invoiceNumber || payment.billId || '',
-    'Customer Code / ID': payment.customerCode || payment.customerId || '',
+    'Payment Code': payment.paymentCode || SequenceService.formatDisplayCode('payment', payment.id, 'PAY'),
+    'Bill / Invoice Number': payment.invoiceNumber || (payment.billId ? SequenceService.formatDisplayCode('bill', payment.billId, 'INV') : ''),
+    'Customer Code': payment.customerCode || (payment.customerId ? SequenceService.formatDisplayCode('customer', payment.customerId, 'CUS') : ''),
     'Date': payment.date ? payment.date.slice(0, 10) : '',
     'Cash (₹)': Number(payment.cashAmount || 0).toFixed(2),
     'UPI (₹)': Number(payment.upiAmount || 0).toFixed(2),
@@ -119,7 +121,7 @@ export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') 
 
 export const exportExpensesToCSV = (expenses, filename = 'expenses-export.csv') => {
   const flat = expenses.map((e) => ({
-    'Expense ID': e.id,
+    'Expense Code': e.expenseCode || SequenceService.formatDisplayCode('expense', e.id, 'EXP'),
     'Date': e.date,
     'Description': e.description,
     'Total Amount (₹)': Number(e.amount).toFixed(2),

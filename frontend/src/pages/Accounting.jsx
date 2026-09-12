@@ -8,9 +8,10 @@ import { ApiService } from '../services/apiService'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink, Loader2 } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
+import { SequenceService } from '../services/sequenceService'
 
 const Accounting = () => {
-  const { bills: contextBills = [], payments: contextPayments = [], advancePayments, customers: contextCustomers = [], inventory: contextInventory = [], deletedPayments, syncFromCloud, showToast } = useAppContext()
+  const { settings, bills: contextBills = [], payments: contextPayments = [], advancePayments, customers: contextCustomers = [], inventory: contextInventory = [], deletedPayments, syncFromCloud, showToast } = useAppContext()
   const { data: serverBills = [] } = useBills()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverPayments = [] } = usePayments()
@@ -23,6 +24,15 @@ const Accounting = () => {
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const expenses = serverExpenses
   const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
+
+  const previewExpenseCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'EXPENSE',
+      expenses,
+      settings?.expPrefix || 'EXP',
+      settings?.seqPadding || 6
+    )
+  }, [expenses, settings?.expPrefix, settings?.seqPadding])
 
   const today = new Date().toISOString().slice(0, 10)
   const [expForm, setExpForm] = useState({
@@ -623,7 +633,12 @@ const Accounting = () => {
 
           {/* Add Expense */}
           <div className="card" style={{ marginBottom: '24px' }}>
-            <h2 style={{ marginBottom: '16px' }}>Add Expense</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+              <h2 style={{ margin: 0 }}>Add Expense</h2>
+              <span className="badge badge-info" style={{ fontFamily: 'monospace', fontSize: '0.78rem', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
+                Auto-Assigned Code: {previewExpenseCode}
+              </span>
+            </div>
             <form onSubmit={handleAddExpense} autoComplete="off">
               <div className="grid-2" style={{ gap: '16px' }}>
                 <div className="form-group">
@@ -761,7 +776,9 @@ const Accounting = () => {
                     {sortedExpenses.map((exp) => (
                       <tr key={exp.id}>
                         <td>{exp.date}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{exp.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {exp.expenseCode || SequenceService.formatDisplayCode('expense', exp.id, 'EXP')}
+                        </td>
                         <td>{exp.description}</td>
                         <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount).toFixed(2)}</td>
                         <td>₹{Number(exp.cashAmount || 0).toFixed(2)}</td>
@@ -834,7 +851,9 @@ const Accounting = () => {
                     {refundLogs.map((p) => (
                       <tr key={p.id}>
                         <td>{p.date}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{p.id}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {p.paymentCode || SequenceService.formatDisplayCode('payment', p.id, 'PAY')}
+                        </td>
                         <td>{p.customerName}</td>
                         <td>
                           <span style={{

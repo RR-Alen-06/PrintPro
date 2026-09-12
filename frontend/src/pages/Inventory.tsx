@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useInventory, useInventoryMutations } from '../hooks/useEntitiesQuery'
+import { SequenceService } from '../services/sequenceService'
 import EmptyState from '../components/common/EmptyState'
 import { TableSkeleton } from '../components/common/Skeleton'
 import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
@@ -15,9 +16,19 @@ const priceFields = [
 ]
 
 const Inventory = () => {
+  const { settings } = useAppContext()
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
   const { createItem, updateItem, deleteItem } = useInventoryMutations()
   const inventory: any[] = serverInventory
+
+  const previewItemCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'INVENTORY',
+      inventory,
+      settings?.itmPrefix || 'ITM',
+      settings?.seqPadding || 6
+    )
+  }, [inventory, settings?.itmPrefix, settings?.seqPadding])
 
   // Add form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -95,16 +106,16 @@ const Inventory = () => {
   const startEdit = (item: any) => {
     setEditingId(item.id)
     setEditForm({
-      name: item.name,
+      name: item.name || '',
       type: item.type || 'print',
-      colorSingle: item.color_single || item.colorSingle || 0,
-      colorDouble: item.color_double || item.colorDouble || 0,
-      bwSingle: item.bw_single || item.bwSingle || 0,
-      bwDouble: item.bw_double || item.bwDouble || 0,
-      sellingPrice: item.sellingPrice || 0,
-      stock: item.stock || 0,
-      lowStockAlert: item.low_stock_alert || item.lowStockAlert || 50,
-      hsnCode: item.hsnCode || ''
+      colorSingle: item.colorSingle !== undefined ? item.colorSingle : (item.color_single !== undefined ? item.color_single : 0),
+      colorDouble: item.colorDouble !== undefined ? item.colorDouble : (item.color_double !== undefined ? item.color_double : 0),
+      bwSingle: item.bwSingle !== undefined ? item.bwSingle : (item.bw_single !== undefined ? item.bw_single : 0),
+      bwDouble: item.bwDouble !== undefined ? item.bwDouble : (item.bw_double !== undefined ? item.bw_double : 0),
+      sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price !== undefined ? item.selling_price : 0),
+      stock: item.stock !== undefined ? item.stock : 0,
+      lowStockAlert: item.lowStockAlert !== undefined ? item.lowStockAlert : (item.low_stock_alert !== undefined ? item.low_stock_alert : 50),
+      hsnCode: item.hsnCode || item.hsn_code || ''
     })
     setEditErrors({})
   }
@@ -124,19 +135,35 @@ const Inventory = () => {
     if (Object.keys(errs).length > 0) { setEditErrors(errs); return }
 
     try {
+      const sp = editForm.type === 'product' ? Number(editForm.sellingPrice || 0) : 0
+      const cs = editForm.type === 'product' ? 0 : Number(editForm.colorSingle || 0)
+      const cd = editForm.type === 'product' ? 0 : Number(editForm.colorDouble || 0)
+      const bs = editForm.type === 'product' ? 0 : Number(editForm.bwSingle || 0)
+      const bd = editForm.type === 'product' ? 0 : Number(editForm.bwDouble || 0)
+      const st = Number(editForm.stock || 0)
+      const lowStock = Number(editForm.lowStockAlert || 50)
+      const hsn = editForm.hsnCode?.trim() || null
+
       await (updateItem as any)({
         id,
         data: {
           name: editForm.name.trim(),
           type: editForm.type || 'print',
-          hsn_code: editForm.hsnCode?.trim() || null,
-          selling_price: editForm.type === 'product' ? Number(editForm.sellingPrice || 0) : 0,
-          color_single: editForm.type === 'product' ? 0 : Number(editForm.colorSingle || 0),
-          color_double: editForm.type === 'product' ? 0 : Number(editForm.colorDouble || 0),
-          bw_single: editForm.type === 'product' ? 0 : Number(editForm.bwSingle || 0),
-          bw_double: editForm.type === 'product' ? 0 : Number(editForm.bwDouble || 0),
-          stock: Number(editForm.stock || 0),
-          low_stock_alert: Number(editForm.lowStockAlert || 50),
+          hsn_code: hsn,
+          hsnCode: hsn || '',
+          selling_price: sp,
+          sellingPrice: sp,
+          color_single: cs,
+          colorSingle: cs,
+          color_double: cd,
+          colorDouble: cd,
+          bw_single: bs,
+          bwSingle: bs,
+          bw_double: bd,
+          bwDouble: bd,
+          stock: st,
+          low_stock_alert: lowStock,
+          lowStockAlert: lowStock,
         }
       })
       setEditingId(null)
@@ -177,7 +204,12 @@ const Inventory = () => {
       {/* Add Item Form */}
       {showAddForm && (
         <div className="card" style={{ marginBottom: '24px' }}>
-          <h3 style={{ marginBottom: '16px' }}>New Pricing / Inventory Item</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 style={{ margin: 0 }}>New Pricing / Inventory Item</h3>
+            <span className="badge badge-info" style={{ fontFamily: 'monospace', fontSize: '0.78rem', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
+              Auto-Assigned Code: {previewItemCode}
+            </span>
+          </div>
           {addSuccess && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', marginBottom: '14px',
@@ -441,29 +473,46 @@ const Inventory = () => {
                   )
                 }
  
+                const formatPrice = (val: any) => {
+                  if (val === null || val === undefined || val === '') return '0.00'
+                  const num = Number(val)
+                  return isNaN(num) ? '0.00' : num.toFixed(2)
+                }
+
+                const colorSinglePrice = formatPrice(item.colorSingle !== undefined ? item.colorSingle : item.color_single)
+                const colorDoublePrice = formatPrice(item.colorDouble !== undefined ? item.colorDouble : item.color_double)
+                const bwSinglePrice = formatPrice(item.bwSingle !== undefined ? item.bwSingle : item.bw_single)
+                const bwDoublePrice = formatPrice(item.bwDouble !== undefined ? item.bwDouble : item.bw_double)
+                const sellingPriceFormatted = formatPrice(item.sellingPrice !== undefined ? item.sellingPrice : item.selling_price)
+                const stockQty = Number(item.stock || 0)
+                const lowStockAlertQty = Number(item.lowStockAlert !== undefined ? item.lowStockAlert : (item.low_stock_alert !== undefined ? item.low_stock_alert : 5))
+
                 return (
                   <tr key={item.id}>
                     <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                      <div>
-                        {item.name}
-                        {item.type === 'product' && <span className="badge badge-secondary" style={{ marginLeft: '8px', fontSize: '0.7rem' }}>Product</span>}
-                        {item.type === 'product' && Number(item.stock || 0) <= Number(item.lowStockAlert || 5) && (
-                          <span className="badge badge-danger" style={{ marginLeft: '6px', fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span>{item.name}</span>
+                        <span className="badge badge-outline" style={{ fontSize: '0.68rem', fontFamily: 'monospace' }}>
+                          {item.itemCode || item.item_code || (typeof item.id === 'string' && item.id.length > 8 ? `ITM-${item.id.slice(-6).toUpperCase()}` : `ITM-${String(item.id).padStart(6, '0')}`)}
+                        </span>
+                        {item.type === 'product' && <span className="badge badge-secondary" style={{ fontSize: '0.7rem' }}>Product</span>}
+                        {item.type === 'product' && stockQty <= lowStockAlertQty && (
+                          <span className="badge badge-danger" style={{ fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
                         )}
                       </div>
-                      {item.hsnCode && (
+                      {(item.hsnCode || item.hsn_code) && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>
-                          HSN: {item.hsnCode}
+                          HSN: {item.hsnCode || item.hsn_code}
                         </div>
                       )}
                     </td>
-                    <td>{item.type === 'product' ? '—' : `₹${Number(item.colorSingle).toFixed(2)}`}</td>
-                    <td>{item.type === 'product' ? '—' : `₹${Number(item.colorDouble).toFixed(2)}`}</td>
+                    <td>{item.type === 'product' ? '—' : `₹${colorSinglePrice}`}</td>
+                    <td>{item.type === 'product' ? '—' : `₹${colorDoublePrice}`}</td>
                     <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? 'var(--success)' : 'inherit' }}>
-                      {item.type === 'product' ? `₹${Number(item.sellingPrice || 0).toFixed(2)}` : `₹${Number(item.bwSingle).toFixed(2)}`}
+                      {item.type === 'product' ? `₹${sellingPriceFormatted}` : `₹${bwSinglePrice}`}
                     </td>
-                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? (Number(item.stock || 0) <= Number(item.lowStockAlert || 5) ? 'var(--error)' : 'var(--text-muted)') : 'inherit' }}>
-                      {item.type === 'product' ? `${item.stock || 0} left` : `₹${Number(item.bwDouble).toFixed(2)}`}
+                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? (stockQty <= lowStockAlertQty ? 'var(--error)' : 'var(--text-muted)') : 'inherit' }}>
+                      {item.type === 'product' ? `${stockQty} left` : `₹${bwDoublePrice}`}
                     </td>
                     <td>
                       {isDeleteConfirm ? (

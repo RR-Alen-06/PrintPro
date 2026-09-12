@@ -380,8 +380,8 @@ const Search = () => {
                         {searchType === 'inventory' && (
                           <>
                             <td>{item.name}</td>
-                            <td>₹{item.colorSingle.toFixed(2)}</td>
-                            <td>₹{item.bwSingle.toFixed(2)}</td>
+                            <td>₹{Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)).toFixed(2)}</td>
+                            <td>₹{Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)).toFixed(2)}</td>
                           </>
                         )}
                       </tr>

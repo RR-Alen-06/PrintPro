@@ -19,11 +19,11 @@ import '../../styles/mobile.css'
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
   const item = (inventory || []).find((e) => String(e.id) === String(itemId))
   if (!item) return 0
-  if (item.type === 'product' || item.itemType === 'product') return item.sellingPrice || item.colorSingle || 0
-  if (printType === 'color' && sides === 'single') return item.colorSingle || 0
-  if (printType === 'color' && sides === 'double') return item.colorDouble || 0
-  if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
-  if (printType === 'bw' && sides === 'double') return item.bwDouble || 0
+  if (item.type === 'product' || item.itemType === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || item.colorSingle || item.color_single || 0)) || 0
+  if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
+  if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
+  if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
+  if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
   return 0
 }
 
@@ -55,6 +55,15 @@ export default function MobileGroupBilling() {
   })
   const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const previewGroupInvoiceNumber = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'GROUP',
+      serverBills,
+      settings?.grpPrefix || 'GRP',
+      settings?.seqPadding || 6
+    )
+  }, [serverBills, settings?.grpPrefix, settings?.seqPadding])
 
   // ── Shared Items List State ──────────────────────────────────────────────────
   const [sharedItems, setSharedItems] = useState([])
@@ -659,6 +668,12 @@ export default function MobileGroupBilling() {
       {/* ────────────────────────────────────────────────────────────────────────── */}
       {activeTab === 'create' && (
         <form onSubmit={handleCreateGroupBill} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Header ID Banner */}
+          <div style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', padding: '8px 12px', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Upcoming Group Invoice:</span>
+            <strong style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#3b82f6' }}>#{previewGroupInvoiceNumber}</strong>
+          </div>
+
           {/* Group Mode Selector Card */}
           <div className="mobile-card">
             <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent-secondary)', letterSpacing: '0.05em' }}>
