@@ -988,9 +988,16 @@ const GroupBilling = () => {
     try {
       const createdBillIds = []
       for (const m of groupMembers) {
-        const memberPaid = Number(m.cashPaid || 0) + Number(m.upiPaid || 0)
+        const cust = customers.find(c => String(c.id) === String(m.customerId))
+        const custCredit = Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
+        const advUsed = m.usePayerAdvance ? Math.min(Number(m.total || 0), custCredit) : 0
+        const directPaid = Number(m.cashPaid || 0) + Number(m.upiPaid || 0)
+        const totalMemberPaid = directPaid + advUsed
+        const childBal = Math.max(0, Number(m.total || 0) - totalMemberPaid)
+
         const childBillPayload = {
           customerId: m.customerId,
+          customer_id: m.customerId,
           date,
           due_date: dueDate,
           items: m.items,
@@ -1006,9 +1013,16 @@ const GroupBilling = () => {
           loyaltyDiscount: m.loyaltyDiscount,
           loyaltyPointsRedeemed: m.loyaltyPointsRedeemed,
           total: m.total,
-          amountPaid: memberPaid,
-          cashPaid: Number(m.cashPaid || 0),
-          upiPaid: Number(m.upiPaid || 0),
+          amountPaid: totalMemberPaid,
+          amount_paid: totalMemberPaid,
+          balance: childBal,
+          cashAmount: Number(m.cashPaid || 0),
+          cash_amount: Number(m.cashPaid || 0),
+          upiAmount: Number(m.upiPaid || 0),
+          upi_amount: Number(m.upiPaid || 0),
+          advanceUsed: advUsed,
+          advance_used: advUsed,
+          status: childBal <= 0 ? 'paid' : (totalMemberPaid > 0 ? 'partial' : 'unpaid'),
           notes: notes ? `${notes} (Shared Group)` : 'Shared Group Bill',
         }
         try {
@@ -1116,9 +1130,16 @@ const GroupBilling = () => {
     try {
       const createdBillIds = []
       for (const sm of splitGroupMembers) {
-        const memberPaid = Number(sm.cashPaid || 0) + Number(sm.upiPaid || 0)
+        const cust = customers.find(c => String(c.id) === String(sm.customerId))
+        const custCredit = Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
+        const advUsed = sm.useAdvance ? Math.min(Number(sm.total || 0), custCredit) : 0
+        const directPaid = Number(sm.cashPaid || 0) + Number(sm.upiPaid || 0)
+        const totalMemberPaid = directPaid + advUsed
+        const childBal = Math.max(0, Number(sm.total || 0) - totalMemberPaid)
+
         const childBillPayload = {
           customerId: sm.customerId,
+          customer_id: sm.customerId,
           date,
           due_date: dueDate,
           items: sm.items,
@@ -1134,9 +1155,16 @@ const GroupBilling = () => {
           loyaltyDiscount: sm.loyaltyDiscount,
           loyaltyPointsRedeemed: sm.loyaltyPointsRedeemed,
           total: sm.total,
-          amountPaid: memberPaid,
-          cashPaid: Number(sm.cashPaid || 0),
-          upiPaid: Number(sm.upiPaid || 0),
+          amountPaid: totalMemberPaid,
+          amount_paid: totalMemberPaid,
+          balance: childBal,
+          cashAmount: Number(sm.cashPaid || 0),
+          cash_amount: Number(sm.cashPaid || 0),
+          upiAmount: Number(sm.upiPaid || 0),
+          upi_amount: Number(sm.upiPaid || 0),
+          advanceUsed: advUsed,
+          advance_used: advUsed,
+          status: childBal <= 0 ? 'paid' : (totalMemberPaid > 0 ? 'partial' : 'unpaid'),
           notes: notes ? `${notes} (Split Group)` : 'Split Group Bill',
         }
         try {
