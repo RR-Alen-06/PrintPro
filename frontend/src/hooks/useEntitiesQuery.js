@@ -130,11 +130,14 @@ export function usePaymentMutations() {
       }
     },
     onSettled: () => {
-      // Immediate cross-module synchronization for Dashboard, Analytics, Ledger, and Bills
+      // Immediate cross-module synchronization for Dashboard, Analytics, Ledger, Cashbook, Refunds, and Bills
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-payments'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
       queryClient.invalidateQueries({ queryKey: ['bills'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
       queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
@@ -160,8 +163,12 @@ export function usePaymentMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-payments'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
       queryClient.invalidateQueries({ queryKey: ['bills'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
@@ -518,7 +525,7 @@ export function useDeletedPayments() {
       return res.data?.data || []
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 10, // 10 minutes
+    staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
 
@@ -536,7 +543,7 @@ export function useAdvancePayments() {
       return res.data?.data || []
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 10, // 10 minutes
+    staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
 

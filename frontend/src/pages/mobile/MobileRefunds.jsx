@@ -3,14 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { usePayments } from '../../hooks/useEntitiesQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
+import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
-import { ArrowLeftRight, Banknote, Smartphone, RefreshCw, Trash2, User, Search, SlidersHorizontal, AlertCircle, Loader2 } from 'lucide-react'
+import { ArrowLeftRight, Banknote, Smartphone, RefreshCw, Trash2, User, Search, SlidersHorizontal, AlertCircle, Loader2, MessageSquare } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileRefunds() {
   const navigate = useNavigate()
-  const { deletedPayments, advancePayments } = useAppContext()
+  const { deletedPayments, advancePayments, business } = useAppContext()
   const { data: serverPayments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
 
@@ -65,18 +66,20 @@ export default function MobileRefunds() {
   // 2. Build Unified Refund Logs matching desktop Refunds.jsx
   const refundLogs = useMemo(() => {
     const logs = []
-    const getCustomerName = (cId) => {
-      const c = (serverCustomers || []).find(cust => cust.id === cId)
-      return c ? c.name : 'Unknown Customer'
+    const getCustomer = (cId) => {
+      return (serverCustomers || []).find(cust => cust.id === cId)
     }
 
     refundStats.billRefundsList.forEach(r => {
+      const cust = getCustomer(r.customerId)
       logs.push({
         id: r.id,
         date: r.date,
         type: 'Bill Refund',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
+        customerName: cust?.name || 'Unknown Customer',
+        customerPhone: cust?.phone || '',
+        invoiceNumber: r.billId,
         description: `Refund for Bill #${r.billId}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
@@ -87,12 +90,15 @@ export default function MobileRefunds() {
     })
 
     refundStats.delPaymentsList.forEach(r => {
+      const cust = getCustomer(r.customerId)
       logs.push({
         id: r.id,
         date: r.deletedAt || r.date,
         type: 'Payment Deletion',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
+        customerName: cust?.name || 'Unknown Customer',
+        customerPhone: cust?.phone || '',
+        invoiceNumber: r.billId,
         description: `Deleted Payment for Bill #${r.billId}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
@@ -103,12 +109,14 @@ export default function MobileRefunds() {
     })
 
     refundStats.advReturnsList.forEach(r => {
+      const cust = getCustomer(r.customerId)
       logs.push({
         id: r.id,
         date: r.date,
         type: 'Advance Return',
         customerId: r.customerId,
-        customerName: getCustomerName(r.customerId),
+        customerName: cust?.name || 'Unknown Customer',
+        customerPhone: cust?.phone || '',
         description: `Advance Refund Deposit #${r.id}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
@@ -247,9 +255,37 @@ export default function MobileRefunds() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                 <span>Method: <strong>{item.method.toUpperCase()}</strong></span>
-                <span>{item.notes ? `Note: ${item.notes}` : 'System Logged'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{item.notes ? item.notes : 'System Logged'}</span>
+                  {item.customerPhone && (
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      style={{ padding: '2px', color: '#25D366' }}
+                      title="Send WhatsApp Voucher"
+                      onClick={() => {
+                        const voucher = ReminderService.buildRefundVoucherMessage(
+                          {
+                            id: item.id,
+                            date: item.date,
+                            amount: item.total,
+                            mode: item.method,
+                            invoiceNumber: item.invoiceNumber,
+                            notes: item.notes || item.description
+                          },
+                          { name: item.customerName, phone: item.customerPhone },
+                          business
+                        )
+                        const url = ReminderService.getWhatsAppUrl(item.customerPhone, voucher)
+                        window.open(url, '_blank')
+                      }}
+                    >
+                      <MessageSquare size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

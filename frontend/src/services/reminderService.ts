@@ -162,4 +162,48 @@ export class ReminderService {
     lines.push(`\nThank you for choosing *${shop}*!`);
     return lines.join('\n');
   }
+
+  /**
+   * Builds an itemized refund voucher / return receipt.
+   */
+  static buildRefundVoucherMessage(
+    refund: {
+      id?: string;
+      date?: string;
+      amount: number;
+      mode?: string; // 'cash' | 'upi' | 'advance' | 'store_credit'
+      invoiceNumber?: string;
+      notes?: string;
+    },
+    customer: any,
+    business?: ReminderBusinessInfo
+  ): string {
+    const shop = business?.shopName || 'PrintPro Studio';
+    const custName = customer?.name || 'Valued Customer';
+    const amt = Math.abs(Number(refund.amount || 0));
+    const ref = refund.id ? `REF-${String(refund.id).slice(0, 6).toUpperCase()}` : 'REFUND';
+    const dateStr = refund.date ? new Date(refund.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const modeLabel = refund.mode === 'advance' || refund.mode === 'store_credit'
+      ? 'STORE CREDIT / ADVANCE WALLET'
+      : (refund.mode === 'upi' ? 'UPI TRANSFER' : 'CASH REFUND');
+
+    let lines: string[] = [];
+    lines.push(`💳 *${shop.toUpperCase()} — REFUND VOUCHER*`);
+    lines.push(`Dear *${custName}*,`);
+    lines.push(`This confirms that a refund of *₹${amt.toFixed(2)}* has been processed on *${dateStr}*.\n`);
+    lines.push(`• *Voucher Reference:* ${ref}`);
+    if (refund.invoiceNumber) {
+      lines.push(`• *Original Invoice:* #${refund.invoiceNumber}`);
+    }
+    lines.push(`• *Refund Mode:* ${modeLabel}`);
+    lines.push(`• *Refunded Amount:* ₹${amt.toFixed(2)}`);
+    if (refund.notes) {
+      lines.push(`• *Reason / Notes:* ${refund.notes}`);
+    }
+    if (refund.mode === 'advance' || refund.mode === 'store_credit') {
+      lines.push(`\n💰 _The amount has been added to your Advance Credit Balance and is ready for use on your next invoice._`);
+    }
+    lines.push(`\nThank you for your patience and business with *${shop}*!`);
+    return lines.join('\n');
+  }
 }
