@@ -46,14 +46,9 @@ const getPeriodRange = (period) => {
 }
 
 const ItemSalesReport = () => {
-  const { bills: contextBills = [], customers: contextCustomers = [], inventory: contextInventory = [] } = useAppContext()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverInventory = [] } = useInventory()
-
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
+  const { data: bills = [] } = useBills()
+  const { data: customers = [] } = useCustomers()
+  const { data: inventory = [] } = useInventory()
 
   // Filter States
   const [period, setPeriod] = useState('monthly')
