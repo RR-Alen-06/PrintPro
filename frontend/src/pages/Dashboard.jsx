@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
-import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText } from 'lucide-react'
+import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
@@ -95,7 +95,7 @@ const Dashboard = () => {
     showToast('Financial CSV Report downloaded successfully!', 'success')
   }
 
-  const [filterType, setFilterType] = useState('all') // 'all', 'today', 'week', 'month', 'fy', 'custom'
+  const [filterType, setFilterType] = useState('today') // default to today's live focus
   const [customStartDate, setCustomStartDate] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() - 30)
@@ -475,8 +475,33 @@ const Dashboard = () => {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h1>Dashboard</h1>
-          <p>Overview of billing activity, pending dues, and customer status.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 style={{ margin: 0 }}>Dashboard</h1>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '16px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              background: 'rgba(16, 185, 129, 0.12)',
+              color: '#10b981',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              textTransform: 'uppercase'
+            }}>
+              <span style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#10b981',
+                boxShadow: '0 0 8px #10b981'
+              }} />
+              LIVE SYNC
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 0 0' }}>Overview of billing activity, pending dues, and customer status.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--border-light)', padding: '4px 8px', borderRadius: 'var(--radius-md)' }}>
@@ -518,6 +543,118 @@ const Dashboard = () => {
             <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
           </button>
         </div>
+      </div>
+
+      {/* 1-Click Quick Actions Command Bar */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '12px',
+        marginBottom: '24px'
+      }}>
+        <button
+          className="btn"
+          onClick={() => navigate('/billing')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '12px',
+            padding: '12px 16px',
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            borderRadius: 'var(--radius-lg)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
+            <PlusCircle size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>+ New Bill (POS)</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Create sales invoice</div>
+          </div>
+        </button>
+
+        <button
+          className="btn"
+          onClick={() => navigate('/customers')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '12px',
+            padding: '12px 16px',
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: 'var(--radius-lg)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0 }}>
+            <UserPlus size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>+ Add Client</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Register customer</div>
+          </div>
+        </button>
+
+        <button
+          className="btn"
+          onClick={() => navigate('/customers/ledger')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '12px',
+            padding: '12px 16px',
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            borderRadius: 'var(--radius-lg)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', flexShrink: 0 }}>
+            <Receipt size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>+ Record Payment</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Credit & cash receipt</div>
+          </div>
+        </button>
+
+        <button
+          className="btn"
+          onClick={() => navigate('/accounting')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '12px',
+            padding: '12px 16px',
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: 'var(--radius-lg)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }}>
+            <DollarSign size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>+ Record Expense</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Log store outflow</div>
+          </div>
+        </button>
       </div>
 
       {/* Financial Health Section */}
