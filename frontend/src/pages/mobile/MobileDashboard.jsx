@@ -11,7 +11,7 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   TrendingUp, Clock, Wallet, CheckCircle, RefreshCw,
   PlusCircle, UserPlus, Download,
-  Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight
+  Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight, DollarSign
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -298,8 +298,31 @@ export default function MobileDashboard() {
       {/* Top Banner Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div>
-          <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent-secondary)', letterSpacing: '0.08em' }}>
-            STORE COMMAND CENTER
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent-secondary)', letterSpacing: '0.08em' }}>
+              STORE COMMAND CENTER
+            </div>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 6px',
+              borderRadius: '10px',
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              background: 'rgba(16, 185, 129, 0.15)',
+              color: '#10b981',
+              border: '1px solid rgba(16, 185, 129, 0.3)'
+            }}>
+              <span style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: '#10b981',
+                boxShadow: '0 0 6px #10b981'
+              }} />
+              LIVE
+            </span>
           </div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 900, margin: '2px 0 0 0', color: 'var(--text-primary)' }}>
             {business?.shopName || 'PrintPro ERP'}
@@ -402,21 +425,35 @@ export default function MobileDashboard() {
       {/* Metrics Horizontal Scroll Tray */}
       <MetricsRow stats={stats} />
 
-      {/* Primary Action Buttons */}
+      {/* 1-Click Quick Actions Command Grid (2x2) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
         <button
           className="mobile-btn mobile-btn-primary"
           onClick={() => navigate('/mobile/create-bill')}
-          style={{ minHeight: '48px' }}
+          style={{ minHeight: '48px', fontSize: '0.82rem' }}
         >
-          <PlusCircle size={20} /> + QUICK BILL
+          <PlusCircle size={18} /> + QUICK BILL
         </button>
         <button
           className="mobile-btn mobile-btn-secondary"
           onClick={() => setShowAddCustomerModal(true)}
-          style={{ minHeight: '48px' }}
+          style={{ minHeight: '48px', fontSize: '0.82rem' }}
         >
-          <UserPlus size={20} /> + CUSTOMER
+          <UserPlus size={18} /> + CUSTOMER
+        </button>
+        <button
+          className="mobile-btn mobile-btn-secondary"
+          onClick={() => navigate('/mobile/accounting')}
+          style={{ minHeight: '48px', fontSize: '0.82rem', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#3b82f6' }}
+        >
+          <Receipt size={18} /> + PAYMENT
+        </button>
+        <button
+          className="mobile-btn mobile-btn-secondary"
+          onClick={() => navigate('/mobile/accounting')}
+          style={{ minHeight: '48px', fontSize: '0.82rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
+        >
+          <DollarSign size={18} /> + EXPENSE
         </button>
       </div>
 
