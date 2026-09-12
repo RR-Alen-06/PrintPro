@@ -510,6 +510,25 @@ const baseReducer = (state, action) => {
         inventory: state.inventory.filter((item) => item.id !== action.payload),
       }
     }
+    case 'ADD_NOTIFICATION': {
+      const newNote = {
+        id: action.payload?.id || `notif_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        title: action.payload?.title || 'System Notification',
+        message: action.payload?.message || '',
+        type: action.payload?.type || 'info', // 'info' | 'warning' | 'success' | 'payment' | 'alert'
+        date: action.payload?.date || new Date().toISOString().split('T')[0],
+        time: action.payload?.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        read: false,
+        link: action.payload?.link || action.payload?.path || '',
+        entityType: action.payload?.entityType || '',
+        entityId: action.payload?.entityId || '',
+        ...action.payload,
+      }
+      return {
+        ...state,
+        notifications: [newNote, ...state.notifications],
+      }
+    }
     case 'MARK_NOTIFICATION_READ': {
       return {
         ...state,
@@ -2800,6 +2819,7 @@ export const AppProvider = ({ children }: any) => {
       removeInventoryItem,
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
+      addNotification: (notification) => dispatch({ type: 'ADD_NOTIFICATION', payload: notification }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),
       markAllNotificationsRead: () => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ' }),
       deleteNotification: (id) => dispatch({ type: 'DELETE_NOTIFICATION', payload: id }),
