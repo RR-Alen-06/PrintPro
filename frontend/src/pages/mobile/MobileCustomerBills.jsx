@@ -4,12 +4,13 @@ import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   FileText, Search, User, ChevronRight, CheckCircle, AlertCircle,
   Loader2, Pencil, Trash2, RotateCcw, Plus, DollarSign, CreditCard,
-  X, Check, Wallet
+  X, Check, Wallet, MessageCircle, QrCode, Smartphone, Copy
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -17,7 +18,7 @@ export default function MobileCustomerBills() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const paramCustId = searchParams.get('customerId')
-  const { showToast } = useAppContext()
+  const { showToast, business, settings } = useAppContext()
 
   // TanStack Queries & Mutations
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
@@ -63,6 +64,23 @@ export default function MobileCustomerBills() {
   const [discountType, setDiscountType] = useState('flat')
   const [discountValue, setDiscountValue] = useState('')
   const [notes, setNotes] = useState('')
+
+  // ── UPI QR Modal State ──
+  const [showUpiSheet, setShowUpiSheet] = useState(false)
+  const [upiModalAmount, setUpiModalAmount] = useState(0)
+  const [upiModalNotes, setUpiModalNotes] = useState('')
+
+  const getUpiLink = (amount, notesText = 'Bill Payment') => {
+    if (!business?.upiId || amount <= 0) return ''
+    const params = new URLSearchParams({
+      pa: business.upiId,
+      pn: business.shopName || 'PrintPro',
+      am: Number(amount).toFixed(2),
+      cu: 'INR',
+      tn: notesText,
+    })
+    return `upi://pay?${params.toString()}`
+  }
 
   const openEditSheet = useCallback((bill) => {
     setEditingBill(bill)
@@ -365,34 +383,63 @@ export default function MobileCustomerBills() {
                     </div>
 
                     {/* Action Row */}
-                    <div style={{ display: 'grid', gridTemplateColumns: paidAmt > 0 ? '1fr 1fr 1fr 1.2fr' : '1fr 1fr 1.2fr', gap: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(64px, 1fr))', gap: '6px' }}>
                       <button
                         className="mobile-btn mobile-btn-secondary"
                         onClick={() => openEditSheet(bill)}
-                        style={{ minHeight: '36px', padding: '0 6px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
+                        style={{ minHeight: '34px', padding: '0 4px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
                       >
                         <Pencil size={12} /> Edit
                       </button>
-                      <button
-                        className="mobile-btn mobile-btn-secondary"
-                        onClick={() => handleDeleteBill(bill)}
-                        style={{ minHeight: '36px', padding: '0 6px', fontSize: '0.72rem', color: 'var(--error)' }}
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
+                      {selectedCustomer?.phone && (
+                        <button
+                          type="button"
+                          className="mobile-btn mobile-btn-secondary"
+                          onClick={() => {
+                            const text = ReminderService.buildInvoiceMessage(bill, business, settings)
+                            const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                            window.open(url, '_blank')
+                          }}
+                          style={{ minHeight: '34px', padding: '0 4px', fontSize: '0.72rem', color: '#25D366' }}
+                          title="WhatsApp Receipt"
+                        >
+                          <MessageCircle size={12} /> WhatsApp
+                        </button>
+                      )}
+                      {balAmt > 0 && business?.upiId && (
+                        <button
+                          type="button"
+                          className="mobile-btn mobile-btn-secondary"
+                          onClick={() => {
+                            setUpiModalAmount(balAmt)
+                            setUpiModalNotes(`Invoice #${invNo} payment`)
+                            setShowUpiSheet(true)
+                          }}
+                          style={{ minHeight: '34px', padding: '0 4px', fontSize: '0.72rem', color: 'var(--accent)' }}
+                        >
+                          <Smartphone size={12} /> Pay QR
+                        </button>
+                      )}
                       {paidAmt > 0 && (
                         <button
                           className="mobile-btn mobile-btn-secondary"
                           onClick={() => openRefundSheet(bill)}
-                          style={{ minHeight: '36px', padding: '0 6px', fontSize: '0.72rem', color: 'var(--warning)' }}
+                          style={{ minHeight: '34px', padding: '0 4px', fontSize: '0.72rem', color: 'var(--warning)' }}
                         >
                           <RotateCcw size={12} /> Refund
                         </button>
                       )}
                       <button
+                        className="mobile-btn mobile-btn-secondary"
+                        onClick={() => handleDeleteBill(bill)}
+                        style={{ minHeight: '34px', padding: '0 4px', fontSize: '0.72rem', color: 'var(--error)' }}
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
+                      <button
                         className="mobile-btn mobile-btn-primary"
                         onClick={() => navigate(`/mobile/bill/${bill.id}`)}
-                        style={{ minHeight: '36px', padding: '0 8px', fontSize: '0.72rem' }}
+                        style={{ minHeight: '34px', padding: '0 6px', fontSize: '0.72rem' }}
                       >
                         View <ChevronRight size={12} />
                       </button>
@@ -605,6 +652,58 @@ export default function MobileCustomerBills() {
           </button>
         </form>
       </BottomSheet>
+
+      {/* ── UPI QR Payment BottomSheet ── */}
+      <BottomSheet
+        isOpen={showUpiSheet}
+        onClose={() => setShowUpiSheet(false)}
+        title="UPI Payment QR"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px' }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Scan using any UPI App (GPay, PhonePe, Paytm)
+          </div>
+          {business?.upiId && upiModalAmount > 0 ? (
+            <div style={{ background: '#ffffff', padding: '12px', borderRadius: '12px', display: 'inline-block', border: '3px solid var(--accent)' }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getUpiLink(upiModalAmount, upiModalNotes))}`}
+                alt="UPI QR Code"
+                width={160}
+                height={160}
+                style={{ display: 'block' }}
+              />
+            </div>
+          ) : (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Set UPI ID in business profile to generate QR.</div>
+          )}
+
+          <div style={{ background: 'var(--bg-input)', width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Amount:</span>
+              <strong className="currency-num" style={{ color: 'var(--accent)' }}>₹{Number(upiModalAmount).toFixed(2)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-muted)' }}>UPI ID:</span>
+              <strong style={{ fontFamily: 'monospace' }}>{business?.upiId || 'N/A'}</strong>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="mobile-btn mobile-btn-primary"
+            onClick={() => {
+              if (business?.upiId) {
+                navigator.clipboard.writeText(getUpiLink(upiModalAmount, upiModalNotes))
+                showToast('UPI payment link copied!', 'success')
+              }
+            }}
+            style={{ width: '100%', minHeight: '38px', fontSize: '0.8rem' }}
+          >
+            <Copy size={14} /> Copy UPI Payment Link
+          </button>
+        </div>
+      </BottomSheet>
     </MobileLayout>
   )
 }
+

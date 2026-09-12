@@ -599,7 +599,7 @@ const CustomerBills = () => {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
@@ -608,6 +608,21 @@ const CustomerBills = () => {
                           >
                             <Pencil size={13} /> Edit
                           </button>
+                          {selectedCustomer?.phone && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: '#25D366', borderColor: 'rgba(37,211,102,0.4)' }}
+                              onClick={() => {
+                                const text = ReminderService.buildInvoiceMessage(bill, business, settings)
+                                const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                                window.open(url, '_blank')
+                              }}
+                              title="Share WhatsApp Receipt"
+                            >
+                              <MessageSquare size={13} /> WhatsApp
+                            </button>
+                          )}
                           {Number(bill.amountPaid || 0) > 0 && settings?.refundsEnabled !== false && (
                             <button
                               type="button"
@@ -640,7 +655,7 @@ const CustomerBills = () => {
                               showConfirm(
                                 'Delete Bill',
                                 `Are you sure you want to delete bill ${bill.invoiceNumber || bill.id}? This will restore customer credits.`,
-                                () => deleteBill(bill.id)
+                                () => deleteBillMutation(bill.id)
                               )
                             }}
                           >
