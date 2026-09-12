@@ -112,10 +112,9 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      // Do not trigger immediate full bills refetch. Secondary customer balance lazily refreshed
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-      }, 2000)
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
     },
   })
 
@@ -154,9 +153,9 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-      }, 2000)
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
     },
   })
 
@@ -184,9 +183,9 @@ export function useBillMutations() {
       }
     },
     onSettled: () => {
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-      }, 2000)
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
     },
   })
 
