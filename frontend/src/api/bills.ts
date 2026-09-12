@@ -115,6 +115,10 @@ export const createBill = async (data: any) => {
     balance: Number(data.balance !== undefined ? data.balance : (data.balance || 0)),
     status: data.status || 'unpaid',
     notes: data.notes || '',
+    cash_amount: Number(data.cash_amount !== undefined ? data.cash_amount : (data.cashAmount || 0)),
+    upi_amount: Number(data.upi_amount !== undefined ? data.upi_amount : (data.upiAmount || 0)),
+    advance_used: Number(data.advance_used !== undefined ? data.advance_used : (data.advanceUsed || 0)),
+    return_change_upi: Number(data.return_change_upi !== undefined ? data.return_change_upi : (data.returnChangeUpi || 0)),
     items: (data.items || []).map((item: any) => {
       const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
       const q = Number(item.qty || 1);
@@ -148,13 +152,13 @@ export const createBill = async (data: any) => {
   }
 
   // Fallback to direct Supabase upsert only for network/5xx offline errors
-  const { items, ...billScalarData } = billPayload;
+  const { items, cash_amount, upi_amount, advance_used, return_change_upi, ...billScalarData } = billPayload;
 
   // Resolve customer_id if not a UUID
   if (billScalarData.customer_id && !isValidUUID(billScalarData.customer_id)) {
     const { data: cust } = await supabase
       .from('customers')
-      .select('id')
+      .select('id, credit_balance')
       .eq('customer_code', billScalarData.customer_id)
       .maybeSingle();
     if (cust?.id) {
@@ -195,6 +199,51 @@ export const createBill = async (data: any) => {
     });
     await supabase.from('bill_items').insert(itemsData);
   }
+
+  // Record atomic upfront payment in Supabase if cash/upi provided
+  const directPaid = Number(cash_amount || 0) + Number(upi_amount || 0);
+  if (directPaid > 0) {
+    await supabase.from('payments').insert([{
+      bill_id: bill.id,
+      customer_id: bill.customer_id,
+      cash_amount: Number(cash_amount || 0),
+      upi_amount: Number(upi_amount || 0),
+      total_paid: directPaid,
+      payment_type: bill.balance <= 0 ? 'full' : 'partial',
+      notes: 'Upfront bill payment',
+      user_id: user?.id
+    }]);
+  }
+
+  // Record advance payment deduction in Supabase if advance used
+  const advUsed = Number(advance_used || 0);
+  if (advUsed > 0 && bill.customer_id) {
+    await supabase.from('payments').insert([{
+      bill_id: bill.id,
+      customer_id: bill.customer_id,
+      cash_amount: 0,
+      upi_amount: 0,
+      total_paid: advUsed,
+      payment_type: bill.balance <= 0 ? 'full' : 'partial',
+      notes: 'Advance Balance applied',
+      user_id: user?.id
+    }]);
+
+    // Deduct from customer credit balance
+    const { data: custData } = await supabase
+      .from('customers')
+      .select('credit_balance')
+      .eq('id', bill.customer_id)
+      .maybeSingle();
+    if (custData) {
+      const currentCredit = Number(custData.credit_balance || 0);
+      await supabase
+        .from('customers')
+        .update({ credit_balance: Math.max(0, currentCredit - advUsed) })
+        .eq('id', bill.customer_id);
+    }
+  }
+
   return { data: { data: mapBillFromApi(bill) } };
 }
 
