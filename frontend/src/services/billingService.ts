@@ -280,4 +280,27 @@ Status : ${isFullyPaid ? 'Fully Paid ✅' : 'Payment Pending ⚠️'}`;
     text += `\n\nThank you for your business!`;
     return text;
   }
+
+  /**
+   * Constructs payload for cancelling / voiding a bill with audit note and zero balance.
+   */
+  static createVoidBillPayload(bill: any, reason: string): {
+    status: 'cancelled';
+    balance: number;
+    notes: string;
+    is_cancelled: boolean;
+    cancelled_at: string;
+    cancellation_reason: string;
+  } {
+    const existingNotes = bill.notes ? `${bill.notes} | ` : '';
+    const cleanReason = reason.trim() || 'Voided by operator';
+    return {
+      status: 'cancelled',
+      balance: 0,
+      notes: `${existingNotes}[VOIDED: ${cleanReason}]`,
+      is_cancelled: true,
+      cancelled_at: new Date().toISOString(),
+      cancellation_reason: cleanReason,
+    };
+  }
 }
