@@ -37,6 +37,13 @@ export function useGroupBillMutations() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: GROUP_BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+    },
   })
 
   const updateGroupBill = useMutation({
@@ -44,12 +51,26 @@ export function useGroupBillMutations() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: GROUP_BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+    },
   })
 
   const deleteGroupBill = useMutation({
     mutationFn: groupBillsApi.deleteGroupBill,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: GROUP_BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
 
