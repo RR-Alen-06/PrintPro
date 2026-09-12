@@ -64,7 +64,49 @@ export function usePaymentMutations() {
         isOptimistic: true,
       }
 
-      queryClient.setQueryData(userPaymentsKey, (old = []) => [optimisticPayment, ...old])
+      queryClient.setQueryData(userPaymentsKey, (old = []) => [optimisticPayment, ...(Array.isArray(old) ? old : [])])
+
+      // Optimistically update matching bill balance and status
+      if (billId) {
+        const userBillsKey = ['bills', userId]
+        queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (oldBills = []) => {
+          if (!Array.isArray(oldBills)) return oldBills
+          return oldBills.map((b) => {
+            if (String(b.id) === String(billId)) {
+              const prevBal = Number(b.balance || 0)
+              const newBal = Number(Math.max(0, prevBal - total).toFixed(2))
+              const prevPaid = Number(b.amount_paid !== undefined ? b.amount_paid : (b.amountPaid || 0))
+              return {
+                ...b,
+                balance: newBal,
+                status: newBal <= 0.001 ? 'paid' : 'partial',
+                amount_paid: prevPaid + total,
+                amountPaid: prevPaid + total,
+              }
+            }
+            return b
+          })
+        })
+      }
+
+      // Optimistically update matching customer balance
+      if (customerId) {
+        const userCustKey = ['customers', userId]
+        queryClient.setQueriesData({ queryKey: userCustKey, exact: false }, (oldCusts = []) => {
+          if (!Array.isArray(oldCusts)) return oldCusts
+          return oldCusts.map((c) => {
+            if (String(c.id) === String(customerId)) {
+              const prevBal = Number(c.balance_due !== undefined ? c.balance_due : (c.balanceDue || 0))
+              return {
+                ...c,
+                balance_due: Number(Math.max(0, prevBal - total).toFixed(2)),
+                balanceDue: Number(Math.max(0, prevBal - total).toFixed(2)),
+              }
+            }
+            return c
+          })
+        })
+      }
 
       return { previousPayments, userPaymentsKey }
     },
@@ -88,11 +130,12 @@ export function usePaymentMutations() {
       }
     },
     onSettled: () => {
-      // Payment list updated optimistically; invalidate dependent balances with 1500ms delay
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['bills'] })
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-      }, 1500)
+      // Immediate cross-module synchronization for Dashboard, Analytics, Ledger, and Bills
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
@@ -106,7 +149,7 @@ export function usePaymentMutations() {
       await queryClient.cancelQueries({ queryKey: userPaymentsKey })
       const previousPayments = queryClient.getQueryData(userPaymentsKey) || []
 
-      queryClient.setQueryData(userPaymentsKey, (old = []) => old.filter((p) => p.id !== id))
+      queryClient.setQueryData(userPaymentsKey, (old = []) => (Array.isArray(old) ? old.filter((p) => p.id !== id) : old))
 
       return { previousPayments, userPaymentsKey }
     },
@@ -116,10 +159,9 @@ export function usePaymentMutations() {
       }
     },
     onSettled: () => {
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['bills'] })
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-      }, 1500)
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
     },
   })
 
