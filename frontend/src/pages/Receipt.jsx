@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
@@ -9,6 +10,9 @@ import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 
 const Receipt = () => {
+  const [searchParams] = useSearchParams()
+  const paramBillId = searchParams.get('id') || searchParams.get('billId')
+
   const { bills: contextBills = [], payments: contextPayments = [], customers: contextCustomers = [], business, settings, showAlert, showToast } = useAppContext()
   const { data: serverBills = [] } = useBills()
   const { data: serverCustomers = [] } = useCustomers()
@@ -19,6 +23,15 @@ const Receipt = () => {
   const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    if (paramBillId && bills.length > 0) {
+      const found = bills.find(b => String(b.id) === String(paramBillId) || String(b.invoiceNumber || b.invoice_number) === String(paramBillId))
+      if (found) setSelectedBill(found)
+    } else if (!selectedBill && bills.length > 0) {
+      setSelectedBill(bills[0])
+    }
+  }, [paramBillId, bills])
 
   const getUpiLink = (amount) => {
     if (!business?.upiId || amount <= 0) return ''
@@ -265,42 +278,46 @@ const Receipt = () => {
     checkNewPage(30)
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
-    txt('Subtotal:', labelX, y); txt(`Rs.${bill.subtotal.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Subtotal:', labelX, y); txt(`Rs.${Number(bill.subtotal || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
-    if (settings.showGstBreakdown !== false && bill.gstAmount > 0) {
-      txt('CGST:', labelX, y); txt(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
-      txt('SGST:', labelX, y); txt(`Rs.${(bill.gstAmount / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    const gstAmt = Number(bill.gstAmount || 0)
+    if (settings.showGstBreakdown !== false && gstAmt > 0) {
+      txt('CGST:', labelX, y); txt(`Rs.${(gstAmt / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('SGST:', labelX, y); txt(`Rs.${(gstAmt / 2).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
     if (bill.promoCode) {
-      const promoD = bill.promoDiscount || bill.discountAmount || 0
+      const promoD = Number(bill.promoDiscount || bill.discountAmount || 0)
       if (promoD > 0) {
         txt(`Promo Code (${bill.promoCode}):`, labelX, y); txt(`-Rs.${promoD.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       }
-    } else if (Number(bill.discountAmount || bill.discountValue) > 0) {
-      txt('Discount:', labelX, y); txt(`-Rs.${Number(bill.discountAmount || bill.discountValue).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    } else if (Number(bill.discountAmount || bill.discountValue || 0) > 0) {
+      txt('Discount:', labelX, y); txt(`-Rs.${Number(bill.discountAmount || bill.discountValue || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
-    if (Number(bill.loyaltyPointsRedeemed) > 0) {
-      const loyaltyDisc = bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))
+    if (Number(bill.loyaltyPointsRedeemed || 0) > 0) {
+      const loyaltyDisc = Number(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150)) || 0)
       txt(`Loyalty Discount (${bill.loyaltyPointsRedeemed} pts):`, labelX, y); txt(`-Rs.${loyaltyDisc.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(rgb.r, rgb.g, rgb.b)
-    txt('Total:', labelX, y); txt(`Rs.${bill.total.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Total:', labelX, y); txt(`Rs.${Number(bill.total || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+
+    const paidAmt = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || 0)))
+    const balAmt = Number(bill.balance !== undefined ? bill.balance : 0)
 
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(50, 50, 50)
-    txt('Amount Paid:', labelX, y); txt(`Rs.${bill.amountPaid.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Amount Paid:', labelX, y); txt(`Rs.${paidAmt.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
-    if (bill.balance > 0) {
+    if (balAmt > 0) {
       doc.setTextColor(239, 68, 68)
-      txt('Balance Due:', labelX, y); txt(`Rs.${bill.balance.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('Balance Due:', labelX, y); txt(`Rs.${balAmt.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
     } else if (Number(bill.writtenOffAmount || 0) > 0) {
       doc.setTextColor(148, 163, 184)
-      txt('Written Off:', labelX, y); txt(`Rs.${bill.writtenOffAmount.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('Written Off:', labelX, y); txt(`Rs.${Number(bill.writtenOffAmount || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
     }
 
@@ -578,165 +595,196 @@ const Receipt = () => {
               </div>
             )}
             
-            {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: '18px', paddingBottom: '12px', borderBottom: `2px solid ${settings.primaryColor || '#333'}` }}>
-              <h3 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 'bold', color: settings.primaryColor || '#111' }}>
-                {business?.shopName || 'PrintPro'}
-              </h3>
-              {business?.address && <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>{business.address}</p>}
-              {business?.gstin && <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>GSTIN: {business.gstin}</p>}
-              {business?.phone && <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>Phone: {business.phone}</p>}
-              {settings.headerNotes && <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#666', fontStyle: 'italic' }}>{settings.headerNotes}</p>}
-            </div>
+          {/* Visual preview matching the thermal / invoice layout */}
+          {(() => {
+            const is58mm = settings.thermalWidth === '58mm' || settings.printerType === '58mm'
+            const previewWidth = is58mm ? '360px' : '540px'
+            const previewPadding = is58mm ? '18px 16px' : '28px 32px'
+            const baseFontSize = is58mm ? '11px' : '13px'
 
-            {/* Invoice title */}
-            <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-              <span style={{ fontWeight: 'bold', fontSize: '13px', letterSpacing: '0.06em', color: settings.primaryColor || '#111' }}>TAX INVOICE</span>
-            </div>
+            const paidAmountFormatted = Number(selectedBill.amountPaid !== undefined ? selectedBill.amountPaid : (selectedBill.amount_paid !== undefined ? selectedBill.amount_paid : (selectedBill.paidTotal || 0))).toFixed(2)
+            const subtotalFormatted = Number(selectedBill.subtotal || 0).toFixed(2)
+            const totalFormatted = Number(selectedBill.total || 0).toFixed(2)
+            const balanceFormatted = Number(selectedBill.balance !== undefined ? selectedBill.balance : 0).toFixed(2)
+            const gstAmountVal = Number(selectedBill.gstAmount || 0)
 
-            {/* Bill meta */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
-              <span><strong>Bill ID:</strong> {selectedBill.id}</span>
-              <span><strong>Date:</strong> {selectedBill.date}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
-              <span><strong>Customer:</strong> {selectedBill.customerName}</span>
-              <span><strong>Due:</strong> {selectedBill.dueDate}</span>
-            </div>
-            <div style={{ marginBottom: '12px', fontSize: '12px' }}>
-              <strong>Status:</strong> {selectedBill.status.toUpperCase()}
-            </div>
+            return (
+              <div style={{
+                maxWidth: previewWidth, margin: '0 auto',
+                padding: previewPadding,
+                background: '#fff', color: '#111',
+                fontFamily: is58mm ? 'Courier, monospace' : 'Arial, sans-serif', fontSize: baseFontSize, lineHeight: '1.6',
+                border: '1px solid #ddd', borderRadius: '4px',
+              }}>
+                {/* Logo */}
+                {settings.logoUrl && (
+                  <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                    <img src={settings.logoUrl} alt="Logo" style={{ maxHeight: '60px', maxWidth: '150px', objectFit: 'contain' }} />
+                  </div>
+                )}
+                
+                {/* Header */}
+                <div style={{ textAlign: 'center', marginBottom: '18px', paddingBottom: '12px', borderBottom: `2px solid ${settings.primaryColor || '#333'}` }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: is58mm ? '16px' : '20px', fontWeight: 'bold', color: settings.primaryColor || '#111' }}>
+                    {business?.shopName || 'PrintPro'}
+                  </h3>
+                  {business?.address && <p style={{ margin: '2px 0', fontSize: is58mm ? '10px' : '11px', color: '#555' }}>{business.address}</p>}
+                  {business?.gstin && <p style={{ margin: '2px 0', fontSize: is58mm ? '10px' : '11px', color: '#555' }}>GSTIN: {business.gstin}</p>}
+                  {business?.phone && <p style={{ margin: '2px 0', fontSize: is58mm ? '10px' : '11px', color: '#555' }}>Phone: {business.phone}</p>}
+                  {settings.headerNotes && <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#666', fontStyle: 'italic' }}>{settings.headerNotes}</p>}
+                </div>
 
-            <hr style={{ borderColor: settings.primaryColor || '#ccc', margin: '8px 0 12px' }} />
+                {/* Invoice title */}
+                <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: is58mm ? '11px' : '13px', letterSpacing: '0.06em', color: settings.primaryColor || '#111' }}>TAX INVOICE</span>
+                </div>
 
-            {/* Items */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '12px' }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${settings.primaryColor || '#333'}` }}>
-                  <th style={{ textAlign: 'left', padding: '4px 0' }}>Item</th>
-                  <th style={{ textAlign: 'center', padding: '4px 4px' }}>Type</th>
-                  <th style={{ textAlign: 'center', padding: '4px 4px' }}>Sides</th>
-                  <th style={{ textAlign: 'center', padding: '4px 4px' }}>Qty</th>
-                  <th style={{ textAlign: 'right', padding: '4px 4px' }}>Unit</th>
-                  <th style={{ textAlign: 'right', padding: '4px 0' }}>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedBill.items.map((item, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0' }}>{item.itemName || item.name}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
-                    <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice).toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                {/* Bill meta */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: is58mm ? '10px' : '12px' }}>
+                  <span><strong>Bill:</strong> #{selectedBill.invoiceNumber || selectedBill.id}</span>
+                  <span><strong>Date:</strong> {selectedBill.date}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: is58mm ? '10px' : '12px' }}>
+                  <span><strong>Customer:</strong> {selectedBill.customerName}</span>
+                  <span><strong>Due:</strong> {selectedBill.dueDate || 'On Receipt'}</span>
+                </div>
+                <div style={{ marginBottom: '12px', fontSize: is58mm ? '10px' : '12px' }}>
+                  <strong>Status:</strong> {String(selectedBill.status || 'unpaid').toUpperCase()}
+                </div>
 
-            <hr style={{ borderColor: settings.primaryColor || '#333', margin: '8px 0 10px' }} />
+                <hr style={{ borderColor: settings.primaryColor || '#ccc', margin: '8px 0 12px' }} />
 
-            {/* Totals */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: '12px', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', gap: '24px' }}>
-                <span>Subtotal:</span><span>₹{selectedBill.subtotal.toFixed(2)}</span>
-              </div>
-              
-              {settings.showGstBreakdown !== false && selectedBill.gstAmount > 0 && (
-                <>
+                {/* Items */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: is58mm ? '10px' : '11px', marginBottom: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${settings.primaryColor || '#333'}` }}>
+                      <th style={{ textAlign: 'left', padding: '4px 0' }}>Item</th>
+                      {!is58mm && <th style={{ textAlign: 'center', padding: '4px 4px' }}>Type</th>}
+                      {!is58mm && <th style={{ textAlign: 'center', padding: '4px 4px' }}>Sides</th>}
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Qty</th>
+                      <th style={{ textAlign: 'right', padding: '4px 4px' }}>Unit</th>
+                      <th style={{ textAlign: 'right', padding: '4px 0' }}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedBill.items || []).map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '4px 0' }}>{item.itemName || item.name}</td>
+                        {!is58mm && <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>}
+                        {!is58mm && <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>}
+                        <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <hr style={{ borderColor: settings.primaryColor || '#333', margin: '8px 0 10px' }} />
+
+                {/* Totals */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: is58mm ? '11px' : '12px', marginBottom: '12px' }}>
                   <div style={{ display: 'flex', gap: '24px' }}>
-                    <span>CGST:</span><span>₹{(selectedBill.gstAmount / 2).toFixed(2)}</span>
+                    <span>Subtotal:</span><span>₹{subtotalFormatted}</span>
+                  </div>
+                  
+                  {settings.showGstBreakdown !== false && gstAmountVal > 0 && (
+                    <>
+                      <div style={{ display: 'flex', gap: '24px' }}>
+                        <span>CGST:</span><span>₹{(gstAmountVal / 2).toFixed(2)}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '24px' }}>
+                        <span>SGST:</span><span>₹{(gstAmountVal / 2).toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedBill.promoCode ? (
+                    <div style={{ display: 'flex', gap: '24px' }}>
+                      <span>Promo ({selectedBill.promoCode}):</span>
+                      <span>-₹{Number(selectedBill.promoDiscount || selectedBill.discountAmount || 0).toFixed(2)}</span>
+                    </div>
+                  ) : Number(selectedBill.discountAmount || selectedBill.discountValue || 0) > 0 ? (
+                    <div style={{ display: 'flex', gap: '24px' }}>
+                      <span>Discount:</span><span>-₹{Number(selectedBill.discountAmount || selectedBill.discountValue || 0).toFixed(2)}</span>
+                    </div>
+                  ) : null}
+
+                  {Number(selectedBill.loyaltyPointsRedeemed || 0) > 0 && (
+                    <div style={{ display: 'flex', gap: '24px' }}>
+                      <span>Loyalty Discount ({selectedBill.loyaltyPointsRedeemed} pts):</span>
+                      <span>-₹{Number(selectedBill.loyaltyDiscount || (selectedBill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5)) / (settings.loyaltyRedeemRatioPoints || 150) || 0).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '24px', fontWeight: 'bold', fontSize: is58mm ? '12px' : '13px', borderTop: '1px solid #ccc', paddingTop: '4px', marginTop: '2px', color: settings.primaryColor || '#111' }}>
+                    <span>Total:</span><span>₹{totalFormatted}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '24px' }}>
-                    <span>SGST:</span><span>₹{(selectedBill.gstAmount / 2).toFixed(2)}</span>
+                    <span>Amount Paid:</span><span>₹{paidAmountFormatted}</span>
                   </div>
-                </>
-              )}
-
-              {selectedBill.promoCode ? (
-                <div style={{ display: 'flex', gap: '24px' }}>
-                  <span>Promo Code ({selectedBill.promoCode}):</span>
-                  <span>-₹{(selectedBill.promoDiscount || selectedBill.discountAmount || 0).toFixed(2)}</span>
+                  {Number(balanceFormatted) > 0 && (
+                    <div style={{ display: 'flex', gap: '24px', color: '#d32f2f', fontWeight: 'bold' }}>
+                      <span>Balance Due:</span><span>₹{balanceFormatted}</span>
+                    </div>
+                  )}
+                  {Number(selectedBill.writtenOffAmount || 0) > 0 && (
+                    <div style={{ display: 'flex', gap: '24px', color: '#64748b', fontWeight: 'bold' }}>
+                      <span>Written Off:</span><span>₹{Number(selectedBill.writtenOffAmount || 0).toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
-              ) : Number(selectedBill.discountAmount || selectedBill.discountValue) > 0 ? (
-                <div style={{ display: 'flex', gap: '24px' }}>
-                  <span>Discount:</span><span>-₹{Number(selectedBill.discountAmount || selectedBill.discountValue).toFixed(2)}</span>
-                </div>
-              ) : null}
 
-              {Number(selectedBill.loyaltyPointsRedeemed) > 0 && (
-                <div style={{ display: 'flex', gap: '24px' }}>
-                  <span>Loyalty Discount ({selectedBill.loyaltyPointsRedeemed} pts):</span>
-                  <span>-₹{(selectedBill.loyaltyDiscount || (selectedBill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5)) / (settings.loyaltyRedeemRatioPoints || 150)).toFixed(2)}</span>
-                </div>
-              )}
+                <hr style={{ borderColor: '#ccc', margin: '8px 0 10px' }} />
 
-              <div style={{ display: 'flex', gap: '24px', fontWeight: 'bold', fontSize: '13px', borderTop: '1px solid #ccc', paddingTop: '4px', marginTop: '2px', color: settings.primaryColor || '#111' }}>
-                <span>Total:</span><span>₹{selectedBill.total.toFixed(2)}</span>
+                {/* Loyalty Summary */}
+                {settings.loyaltyEnabled !== false && selectedBill.customerType === 'regular' && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '11px', color: settings.primaryColor || '#111', fontWeight: 'bold' }}>
+                      <span>Loyalty Points: +{selectedBill.loyaltyPointsEarned || 0}</span>
+                      <span>Balance: {selectedBill.customerTotalLoyaltyPoints || 0} pts</span>
+                    </div>
+                    <hr style={{ borderColor: '#ccc', margin: '6px 0 10px' }} />
+                  </>
+                )}
+
+                {/* Payment breakdown */}
+                <div style={{ fontSize: is58mm ? '10px' : '11px', marginBottom: '14px', color: '#555' }}>
+                  <strong style={{ color: '#333' }}>Payment: </strong>
+                  Cash ₹{Number(selectedBill.paymentMethod?.cash || selectedBill.cashAmount || selectedBill.cash_amount || 0).toFixed(2)} &nbsp;|&nbsp;
+                  UPI ₹{Number(selectedBill.paymentMethod?.upi || selectedBill.upiAmount || selectedBill.upi_amount || 0).toFixed(2)}
+                  {Number(selectedBill.advanceUsed || selectedBill.advance_used || 0) > 0 && ` | Adv ₹${Number(selectedBill.advanceUsed || selectedBill.advance_used || 0).toFixed(2)}`}
+                </div>
+
+                {/* UPI QR Code */}
+                {settings.showUpiQrCode !== false && Number(balanceFormatted) > 0 && (
+                  <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '16px', borderTop: '1px dashed #eee', paddingTop: '12px' }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: '11px', fontWeight: 'bold' }}>Scan QR to Pay Balance</p>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(getUpiLink(Number(balanceFormatted)))}`}
+                      alt="UPI QR Code"
+                      style={{ borderRadius: '6px', border: '2px solid #ddd', padding: '4px', background: '#fff' }}
+                      width={120} height={120}
+                    />
+                  </div>
+                )}
+
+                {/* Custom Footer Notes */}
+                {settings.footerNotes && (
+                  <div style={{ marginTop: '12px', marginBottom: '12px', fontSize: '10px', color: '#666', fontStyle: 'italic', borderTop: '1px dashed #eee', paddingTop: '8px', textAlign: 'center' }}>
+                    {settings.footerNotes}
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div style={{ textAlign: 'center', paddingTop: '10px', borderTop: '1px solid #ccc', fontSize: '11px', color: '#555' }}>
+                  <p style={{ margin: 0, fontStyle: 'italic' }}>Thank you for your business!</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '10px' }}>Page 1 of 1</p>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '24px' }}>
-                <span>Amount Paid:</span><span>₹{selectedBill.amountPaid.toFixed(2)}</span>
-              </div>
-              {selectedBill.balance > 0 && (
-                <div style={{ display: 'flex', gap: '24px', color: '#d32f2f', fontWeight: 'bold' }}>
-                  <span>Balance Due:</span><span>₹{selectedBill.balance.toFixed(2)}</span>
-                </div>
-              )}
-              {Number(selectedBill.writtenOffAmount || 0) > 0 && (
-                <div style={{ display: 'flex', gap: '24px', color: '#64748b', fontWeight: 'bold' }}>
-                  <span>Written Off:</span><span>₹{selectedBill.writtenOffAmount.toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-
-            <hr style={{ borderColor: '#ccc', margin: '8px 0 10px' }} />
-
-            {/* Loyalty Summary */}
-            {settings.loyaltyEnabled !== false && selectedBill.customerType === 'regular' && (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '11px', color: settings.primaryColor || '#111', fontWeight: 'bold' }}>
-                  <span>Loyalty Points Earned: +{selectedBill.loyaltyPointsEarned || 0}</span>
-                  <span>Total Points Balance: {selectedBill.customerTotalLoyaltyPoints || 0} pts</span>
-                </div>
-                <hr style={{ borderColor: '#ccc', margin: '6px 0 10px' }} />
-              </>
-            )}
-
-            {/* Payment breakdown */}
-            <div style={{ fontSize: '11px', marginBottom: '14px', color: '#555' }}>
-              <strong style={{ color: '#333' }}>Payment Method: </strong>
-              Cash ₹{(selectedBill.paymentMethod?.cash || 0).toFixed(2)} &nbsp;|&nbsp;
-              UPI ₹{(selectedBill.paymentMethod?.upi || 0).toFixed(2)}
-              {selectedBill.advanceUsed > 0 && ` | Advance Used ₹${selectedBill.advanceUsed.toFixed(2)}`}
-            </div>
-
-            {/* UPI QR Code */}
-            {settings.showUpiQrCode !== false && selectedBill.balance > 0 && (
-              <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '16px', borderTop: '1px dashed #eee', paddingTop: '12px' }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: '11px', fontWeight: 'bold' }}>Scan QR to Pay Balance</p>
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(getUpiLink(selectedBill.balance))}`}
-                  alt="UPI QR Code"
-                  style={{ borderRadius: '6px', border: '2px solid #ddd', padding: '4px', background: '#fff' }}
-                  width={120} height={120}
-                />
-              </div>
-            )}
-
-            {/* Custom Footer Notes */}
-            {settings.footerNotes && (
-              <div style={{ marginTop: '12px', marginBottom: '12px', fontSize: '10px', color: '#666', fontStyle: 'italic', borderTop: '1px dashed #eee', paddingTop: '8px', textAlign: 'center' }}>
-                {settings.footerNotes}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div style={{ textAlign: 'center', paddingTop: '10px', borderTop: '1px solid #ccc', fontSize: '11px', color: '#555' }}>
-              <p style={{ margin: 0, fontStyle: 'italic' }}>Thank you for your business!</p>
-              <p style={{ margin: '4px 0 0', fontSize: '10px' }}>Page 1 of 1</p>
-            </div>
-          </div>
+            )
+          })()}
+        </div>
         </div>
       )}
 

@@ -125,3 +125,68 @@ export const formatWhatsAppReceipt = (bill: any, settings: any = {}, business: a
 
   return result
 }
+
+/**
+ * Generates an intent URL for UPI Payment
+ */
+export const getUpiPaymentLink = (upiId: string, shopName: string, amount: number, billNumber: string) => {
+  if (!upiId) return ''
+  const cleanUpi = encodeURIComponent(upiId.trim())
+  const cleanName = encodeURIComponent((shopName || 'PrintPro').trim())
+  const cleanAmount = Number(amount || 0).toFixed(2)
+  const cleanNote = encodeURIComponent(`Bill ${billNumber || ''}`.trim())
+  return `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${cleanAmount}&cu=INR&tn=${cleanNote}`
+}
+
+/**
+ * Formats standard bill receipt summary for WhatsApp sharing
+ */
+export const formatReceiptForWhatsApp = (bill: any, settings: any = {}) => {
+  if (!bill) return ''
+
+  const shopName = settings.shopName || 'PrintPro Studio'
+  const billNum = bill.billSequence || bill.bill_sequence || bill.billNumber || bill.bill_number || bill.invoiceNumber || bill.id || 'N/A'
+  const customerName = bill.customerName || bill.customer_name || 'Valued Customer'
+  
+  const total = Number(bill.total !== undefined ? bill.total : (bill.total_amount !== undefined ? bill.total_amount : 0))
+  const amountPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || 0)))
+  const balance = Number(bill.balance !== undefined ? bill.balance : (bill.balance_amount !== undefined ? bill.balance_amount : Math.max(0, total - amountPaid)))
+  
+  const items = bill.items || []
+  
+  let msg = `🧾 *${shopName.toUpperCase()}*\n`
+  msg += `Invoice: *#${billNum}*\n`
+  msg += `Customer: *${customerName}*\n`
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`
+  msg += `*ITEMS:*\n`
+  
+  items.forEach((item: any, idx: number) => {
+    const name = item.name || item.itemName || 'Item'
+    const qty = item.quantity || item.qty || 1
+    const rate = Number(item.rate || item.unitPrice || item.unit_price || 0)
+    const lineTotal = Number(item.amount || item.total || (qty * rate))
+    msg += `${idx + 1}. ${name} (${qty} x ₹${rate.toFixed(2)}) = ₹${lineTotal.toFixed(2)}\n`
+  })
+  
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`
+  msg += `*Total Amount:* ₹${total.toFixed(2)}\n`
+  msg += `*Amount Paid:* ₹${amountPaid.toFixed(2)}\n`
+  
+  if (balance <= 0) {
+    msg += `*Status:* ✅ *Paid in Full*\n`
+  } else {
+    msg += `*Balance Due:* ⚠️ *₹${balance.toFixed(2)}*\n`
+    if (settings.upiId) {
+      msg += `\n*Pay via UPI ID:* ${settings.upiId}\n`
+      msg += `UPI Link: ${getUpiPaymentLink(settings.upiId, shopName, balance, billNum)}\n`
+    }
+  }
+  
+  if (settings.footerNotes) {
+    msg += `\n_${settings.footerNotes}_\n`
+  }
+  
+  msg += `\nThank you for choosing ${shopName}!`
+  return msg
+}
+
