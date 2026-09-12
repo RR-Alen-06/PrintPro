@@ -826,26 +826,67 @@ export default function MobileCreateBill() {
 
             {/* Split Mode Inputs */}
             {paymentMode === 'split' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>CASH AMOUNT</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mobile-input currency-num"
-                    value={cashAmount}
-                    onChange={(e) => setCashAmount(e.target.value)}
-                  />
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>CASH (₹)</label>
+                      <button
+                        type="button"
+                        onClick={() => setCashAmount(Math.max(0, Number((grandTotal - Number(upiAmount || 0)).toFixed(2))))}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent-secondary, #00f0ff)',
+                          fontSize: '0.68rem',
+                          cursor: 'pointer',
+                          padding: 0,
+                          fontWeight: 600,
+                          textDecoration: 'underline'
+                        }}
+                      >
+                        Fill Rem.
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="mobile-input currency-num"
+                      value={cashAmount}
+                      onChange={(e) => setCashAmount(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>UPI (₹)</label>
+                      <button
+                        type="button"
+                        onClick={() => setUpiAmount(Math.max(0, Number((grandTotal - Number(cashAmount || 0)).toFixed(2))))}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent-secondary, #00f0ff)',
+                          fontSize: '0.68rem',
+                          cursor: 'pointer',
+                          padding: 0,
+                          fontWeight: 600,
+                          textDecoration: 'underline'
+                        }}
+                      >
+                        Fill Rem.
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="mobile-input currency-num"
+                      value={upiAmount}
+                      onChange={(e) => setUpiAmount(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>UPI AMOUNT</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mobile-input currency-num"
-                    value={upiAmount}
-                    onChange={(e) => setUpiAmount(e.target.value)}
-                  />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'right' }}>
+                  Total Entered: ₹{(Number(cashAmount || 0) + Number(upiAmount || 0)).toFixed(2)} / ₹{grandTotal.toFixed(2)}
                 </div>
               </div>
             )}

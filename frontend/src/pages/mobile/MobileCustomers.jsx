@@ -138,6 +138,15 @@ export default function MobileCustomers() {
       return
     }
 
+    const trimmedPhone = phone.trim()
+    if (trimmedPhone) {
+      const duplicate = (serverCustomers || []).find(c => !c.deleted && (c.phone || '').trim() === trimmedPhone && (!editMode || String(c.id) !== String(editingId)))
+      if (duplicate) {
+        showToast(`Phone already registered to '${duplicate.name}'`, 'error')
+        return
+      }
+    }
+
     const payload = {
       name: trimmedName,
       phone: phone.trim(),

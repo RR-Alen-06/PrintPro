@@ -719,7 +719,11 @@ const GroupBilling = () => {
   const splitTotalGst = useMemo(() => splitRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0), [splitRows])
   const splitCount = splitMembers.length
   const rawSplitAmount = splitCount > 0 ? (splitSubtotal + splitTotalGst) / splitCount : 0
-  const splitAmount = roundingMode === 'up' ? Math.ceil(rawSplitAmount) : Math.floor(rawSplitAmount)
+  const splitAmount = roundingMode === 'exact' 
+    ? Number(rawSplitAmount.toFixed(2)) 
+    : roundingMode === 'up' 
+    ? Math.ceil(rawSplitAmount) 
+    : Math.floor(rawSplitAmount)
   const ownerDiff = (splitSubtotal + splitTotalGst) - splitAmount * splitCount // positive = owner earns, negative = owner absorbs
 
   const splitMemberTotals = useMemo(() =>
@@ -1413,6 +1417,7 @@ const GroupBilling = () => {
                 <div style={{ fontSize: '12px', color: '#71717a', marginBottom: '6px' }}>Rounding Mode</div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {[
+                    { key: 'exact', label: '≈ Exact (2 Dec)', desc: 'Precise to the paisa' },
                     { key: 'up', label: '▲ Round Up', desc: 'No loss to owner' },
                     { key: 'down', label: '▼ Round Down', desc: 'No fractions charged' },
                   ].map((opt) => (

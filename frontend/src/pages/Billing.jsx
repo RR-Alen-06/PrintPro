@@ -2292,13 +2292,43 @@ const Billing = () => {
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Cash Amount</label>
-              <input className="form-input" type="number" min="0" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Cash Amount</label>
+                {total > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const rem = Math.max(0, total - Number(upiAmount || 0))
+                      setCashAmount(rem > 0 ? Number(rem.toFixed(2)) : '0')
+                    }}
+                    style={{ fontSize: '0.72rem', padding: '2px 6px', color: 'var(--accent)' }}
+                  >
+                    Fill Remaining (₹{Math.max(0, total - Number(upiAmount || 0)).toFixed(2)})
+                  </button>
+                )}
+              </div>
+              <input className="form-input" type="number" min="0" step="0.01" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">UPI Amount</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ margin: 0 }}>UPI Amount</label>
+                {total > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const rem = Math.max(0, total - Number(cashAmount || 0))
+                      setUpiAmount(rem > 0 ? Number(rem.toFixed(2)) : '0')
+                    }}
+                    style={{ fontSize: '0.72rem', padding: '2px 6px', color: 'var(--accent)' }}
+                  >
+                    Fill Remaining (₹{Math.max(0, total - Number(cashAmount || 0)).toFixed(2)})
+                  </button>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} style={{ flex: 1 }} />
+                <input className="form-input" type="number" min="0" step="0.01" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} style={{ flex: 1 }} />
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
