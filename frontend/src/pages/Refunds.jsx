@@ -3,10 +3,12 @@ import { useAppContext } from '../context/AppContext'
 import { useBills } from '../hooks/useBillsQuery'
 import { usePayments, useDeletedPayments, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { AlertCircle, ArrowLeftRight, Banknote, HelpCircle, Smartphone, RefreshCw, Trash2, User } from 'lucide-react'
+import { ReminderService } from '../services/reminderService'
+import { AlertCircle, ArrowLeftRight, Banknote, HelpCircle, Smartphone, RefreshCw, Trash2, User, MessageSquare } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const Refunds = () => {
+  const { business } = useAppContext()
   const { data: bills = [] } = useBills()
   const { data: payments = [] } = usePayments()
   const { data: customers = [] } = useCustomers()
@@ -86,6 +88,8 @@ const Refunds = () => {
         customerId: r.customerId,
         customerCode: custCode,
         customerName: targetCust?.name || r.customerName || 'Unknown Customer',
+        customerPhone: targetCust?.phone || '',
+        invoiceNumber: invoiceCode,
         description: `Refund for Bill #${invoiceCode}`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
@@ -130,6 +134,7 @@ const Refunds = () => {
         customerId: r.customerId,
         customerCode: custCode,
         customerName: targetCust?.name || 'Unknown Customer',
+        customerPhone: targetCust?.phone || '',
         description: `Returned Advance to Customer (${custCode})`,
         cash: Math.abs(r.cashAmount || 0),
         upi: Math.abs(r.upiAmount || 0),
@@ -294,34 +299,67 @@ const Refunds = () => {
                   <th>UPI (₹)</th>
                   <th>Total (₹)</th>
                   <th>Notes</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.date).toLocaleDateString()}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{log.id}</td>
-                    <td>
-                      <span className={`badge badge-${log.type === 'Bill Refund' ? 'partial' : log.type === 'Payment Deletion' ? 'unpaid' : 'info'}`} style={{ fontSize: '0.7rem' }}>
-                        {log.type}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <User size={13} className="text-muted" />
-                        <div>
-                          <span style={{ fontWeight: 500 }}>{log.customerName}</span>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.customerCode || log.customerId}</div>
+                {filteredLogs.map((log) => {
+                  const hasPhone = Boolean(log.customerPhone)
+                  const handleShare = () => {
+                    const voucher = ReminderService.buildRefundVoucherMessage(
+                      {
+                        id: log.id,
+                        date: log.date,
+                        amount: log.total,
+                        mode: log.method,
+                        invoiceNumber: log.invoiceNumber,
+                        notes: log.notes || log.description
+                      },
+                      { name: log.customerName, phone: log.customerPhone },
+                      business
+                    )
+                    const url = ReminderService.getWhatsAppUrl(log.customerPhone, voucher)
+                    window.open(url, '_blank')
+                  }
+
+                  return (
+                    <tr key={log.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.date).toLocaleDateString()}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{log.id}</td>
+                      <td>
+                        <span className={`badge badge-${log.type === 'Bill Refund' ? 'partial' : log.type === 'Payment Deletion' ? 'unpaid' : 'info'}`} style={{ fontSize: '0.7rem' }}>
+                          {log.type}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <User size={13} className="text-muted" />
+                          <div>
+                            <span style={{ fontWeight: 500 }}>{log.customerName}</span>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.customerCode || log.customerId}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td>{log.description}</td>
-                    <td>₹{log.cash.toFixed(2)}</td>
-                    <td>₹{log.upi.toFixed(2)}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
-                    <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{log.notes}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>{log.description}</td>
+                      <td>₹{log.cash.toFixed(2)}</td>
+                      <td>₹{log.upi.toFixed(2)}</td>
+                      <td style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{log.notes}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          title={hasPhone ? `Send WhatsApp refund voucher to ${log.customerPhone}` : 'No phone number for customer'}
+                          disabled={!hasPhone}
+                          onClick={handleShare}
+                          style={{ padding: '4px 8px', color: hasPhone ? '#25D366' : 'var(--text-muted)' }}
+                        >
+                          <MessageSquare size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

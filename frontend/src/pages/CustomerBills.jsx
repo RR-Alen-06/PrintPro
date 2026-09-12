@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
-import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
+import { usePayments, useInventory, usePaymentMutations, useAdvancePaymentMutations } from '../hooks/useEntitiesQuery'
+import { ReminderService } from '../services/reminderService'
+import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2, MessageSquare } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
@@ -18,6 +19,8 @@ const CustomerBills = () => {
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
+  const { createPayment: createPaymentMutation } = usePaymentMutations()
+  const { addAdvancePayment } = useAdvancePaymentMutations()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
@@ -382,7 +385,60 @@ const CustomerBills = () => {
 
   const handleConfirmRefund = async () => {
     if (!editingBill || !refundInfo) return
+    const cust = selectedCustomer || activeCustomers.find(c => c.id === editingBill.customerId)
+    
+    // 1. Update bill payload (adjusted line items and amounts)
     await updateBillMutation({ id: editingBill.id, data: refundInfo.payload })
+
+    // 2. Handle Direct Refund vs Advance Store Credit
+    if (refundInfo.directRefund > 0) {
+      if (refundChoice === 'advance') {
+        // Automatically credit customer's Advance balance / store credit wallet
+        await addAdvancePayment({
+          customerId: editingBill.customerId,
+          customerName: editingBill.customerName,
+          date: new Date().toISOString().slice(0, 10),
+          amount: refundInfo.directRefund,
+          cashAmount: 0,
+          upiAmount: 0,
+          notes: `Store credit refund for Bill #${editingBill.invoiceNumber || editingBill.id}`,
+          isRefundCredit: true,
+        })
+      } else {
+        // Direct cash or UPI refund outflow
+        await createPaymentMutation({
+          billId: editingBill.id,
+          customerId: editingBill.customerId,
+          customerName: editingBill.customerName,
+          date: new Date().toISOString().slice(0, 10),
+          cashAmount: refundMethod === 'cash' ? -refundInfo.directRefund : 0,
+          upiAmount: refundMethod === 'upi' ? -refundInfo.directRefund : 0,
+          totalPaid: -refundInfo.directRefund,
+          paymentType: 'refund',
+          notes: `Direct ${refundMethod.toUpperCase()} refund for Bill #${editingBill.invoiceNumber || editingBill.id}`,
+          isRefund: true,
+        })
+      }
+    }
+
+    // 3. Option to share WhatsApp refund voucher if customer has phone
+    if (cust?.phone) {
+      const voucherText = ReminderService.buildRefundVoucherMessage(
+        {
+          amount: refundInfo.refundDue,
+          mode: refundChoice === 'advance' ? 'advance' : refundMethod,
+          invoiceNumber: editingBill.invoiceNumber || editingBill.id,
+          notes: `Refund processed for bill modification`
+        },
+        cust,
+        business
+      )
+      const waUrl = ReminderService.getWhatsAppUrl(cust.phone, voucherText)
+      if (confirm(`Refund of ₹${refundInfo.refundDue.toFixed(2)} processed successfully!\n\nWould you like to send a WhatsApp Refund Voucher to ${cust.name}?`)) {
+        window.open(waUrl, '_blank')
+      }
+    }
+
     setShowRefundModal(false)
     setRefundInfo(null)
     setCustomerUpiId('')
