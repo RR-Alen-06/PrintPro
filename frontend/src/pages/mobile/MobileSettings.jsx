@@ -2,12 +2,13 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { clearAllCloudData } from '../../lib/syncService'
+import { SequenceService } from '../../services/sequenceService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   Building2, Shield, Gift, Monitor, LogOut, Check, Save, Upload,
   Cpu, Sliders, Smartphone, AlertCircle, RefreshCw, Tag, Trash2,
-  FileText, Percent, Palette, Database, HelpCircle
+  FileText, Percent, Palette, Database, HelpCircle, Hash
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -17,6 +18,18 @@ export default function MobileSettings() {
     business, updateBusiness, settings, updateSettings, promoCodes, setPromoCodes,
     currentUser, logout, showToast, syncFromCloud
   } = useAppContext()
+
+  // Sequence configuration local state
+  const [seqConfigs, setSeqConfigs] = useState({
+    invPrefix: settings.invPrefix || 'INV',
+    cusPrefix: settings.cusPrefix || 'CUS',
+    itmPrefix: settings.itmPrefix || 'ITM',
+    payPrefix: settings.payPrefix || 'PAY',
+    expPrefix: settings.expPrefix || 'EXP',
+    grpPrefix: settings.grpPrefix || 'GRP',
+    cnPrefix: settings.cnPrefix || 'CN',
+    seqPadding: settings.seqPadding || 6,
+  })
 
   // Business state
   const [biz, setBiz] = useState({
@@ -99,6 +112,38 @@ export default function MobileSettings() {
       showToast('Branding Image Uploaded!', 'success')
     }
     reader.readAsDataURL(file)
+  }
+
+  // Save Sequence & ID Settings
+  const handleSaveSequence = async () => {
+    const cleanPadding = Math.min(10, Math.max(3, Number(seqConfigs.seqPadding) || 6))
+    const updated = {
+      invPrefix: seqConfigs.invPrefix.trim().toUpperCase() || 'INV',
+      cusPrefix: seqConfigs.cusPrefix.trim().toUpperCase() || 'CUS',
+      itmPrefix: seqConfigs.itmPrefix.trim().toUpperCase() || 'ITM',
+      payPrefix: seqConfigs.payPrefix.trim().toUpperCase() || 'PAY',
+      expPrefix: seqConfigs.expPrefix.trim().toUpperCase() || 'EXP',
+      grpPrefix: seqConfigs.grpPrefix.trim().toUpperCase() || 'GRP',
+      cnPrefix: seqConfigs.cnPrefix.trim().toUpperCase() || 'CN',
+      seqPadding: cleanPadding,
+    }
+    if (updateSettings) {
+      updateSettings(updated)
+    }
+
+    try {
+      await SequenceService.updateSequenceConfig('BILL', updated.invPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('CUSTOMER', updated.cusPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('INVENTORY', updated.itmPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('PAYMENT', updated.payPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('EXPENSE', updated.expPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('GROUP', updated.grpPrefix, cleanPadding)
+      await SequenceService.updateSequenceConfig('CREDITNOTE', updated.cnPrefix, cleanPadding)
+    } catch (err) {
+      console.warn('Sync sequence config to server failed:', err)
+    }
+
+    showToast('Sequence & ID Format Settings Saved!', 'success')
   }
 
   // Save Accounting & Branding Defaults
@@ -505,6 +550,125 @@ export default function MobileSettings() {
 
         <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveAccountingAndBranding} style={{ color: 'var(--warning)' }}>
           Save Tax Settings
+        </button>
+      </div>
+
+      {/* SECTION 4B: SEQUENCE & ID FORMAT */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Hash size={20} style={{ color: '#3b82f6' }} />
+          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+            ID &amp; SEQUENCE CODES
+          </h3>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                INVOICE PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.invPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, invPrefix: e.target.value.toUpperCase() })}
+                placeholder="INV"
+                maxLength={8}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                CLIENT PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.cusPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, cusPrefix: e.target.value.toUpperCase() })}
+                placeholder="CUS"
+                maxLength={8}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                ITEM PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.itmPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, itmPrefix: e.target.value.toUpperCase() })}
+                placeholder="ITM"
+                maxLength={8}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                PAYMENT PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.payPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, payPrefix: e.target.value.toUpperCase() })}
+                placeholder="PAY"
+                maxLength={8}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                EXPENSE PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.expPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, expPrefix: e.target.value.toUpperCase() })}
+                placeholder="EXP"
+                maxLength={8}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                GROUP PREFIX
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={seqConfigs.grpPrefix}
+                onChange={(e) => setSeqConfigs({ ...seqConfigs, grpPrefix: e.target.value.toUpperCase() })}
+                placeholder="GRP"
+                maxLength={8}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              ZERO-PADDING DIGITS
+            </label>
+            <select
+              className="mobile-input"
+              value={seqConfigs.seqPadding}
+              onChange={(e) => setSeqConfigs({ ...seqConfigs, seqPadding: Number(e.target.value) })}
+            >
+              <option value={4}>4 digits (e.g. 0001)</option>
+              <option value={5}>5 digits (e.g. 00001)</option>
+              <option value={6}>6 digits (e.g. 000001)</option>
+              <option value={8}>8 digits (e.g. 00000001)</option>
+            </select>
+          </div>
+        </div>
+
+        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveSequence} style={{ color: '#3b82f6' }}>
+          Save Sequence Settings
         </button>
       </div>
 

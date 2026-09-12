@@ -2,11 +2,15 @@ import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
 import { mapBillFromApi } from './bills'
 import { isValidUUID } from '../lib/uuid'
+import { SequenceService } from '../services/sequenceService'
 
-export const mapCustomerFromApi = (c: any) => ({
-  ...c,
-  id: c.id,
-  customerCode: c.customer_code || c.customerCode || c.code || (typeof c.id === 'string' && !c.id.includes('-') ? c.id : undefined),
+export const mapCustomerFromApi = (c: any) => {
+  if (!c) return c;
+  const customerCode = c.customer_code || c.customerCode || c.code || SequenceService.formatDisplayCode('customer', c.id, 'CUS');
+  return {
+    ...c,
+    id: c.id,
+    customerCode,
   type: c.type || 'regular',
   name: c.name || '',
   phone: c.phone || '',
@@ -17,7 +21,8 @@ export const mapCustomerFromApi = (c: any) => ({
   creditLimit: Number(c.credit_limit !== undefined ? c.credit_limit : (c.creditLimit || 0)),
   loyaltyPoints: Number(c.loyalty_points !== undefined ? c.loyalty_points : (c.loyaltyPoints || 0)),
   createdAt: c.created_at || c.createdAt || new Date().toISOString()
-});
+  };
+};
 
 export const getCustomers = async (type = 'all', search = '') => {
   if (isBackendAvailable()) {

@@ -1,20 +1,48 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase, logSupabaseError } from '../lib/supabase'
+import { SequenceService } from '../services/sequenceService'
 
-export const mapItemFromApi = (i: any) => ({
-  ...i,
-  id: i.id,
-  name: i.name || '',
-  type: i.type || 'print',
-  hsnCode: i.hsn_code || i.hsnCode || '',
-  sellingPrice: Number(i.selling_price !== undefined ? i.selling_price : (i.sellingPrice || 0)),
-  colorSingle: Number(i.color_single !== undefined ? i.color_single : (i.colorSingle || 0)),
-  colorDouble: Number(i.color_double !== undefined ? i.color_double : (i.colorDouble || 0)),
-  bwSingle: Number(i.bw_single !== undefined ? i.bw_single : (i.bwSingle || 0)),
-  bwDouble: Number(i.bw_double !== undefined ? i.bw_double : (i.bwDouble || 0)),
-  stock: Number(i.stock || 0),
-  lowStockAlert: Number(i.low_stock_alert !== undefined ? i.low_stock_alert : (i.lowStockAlert || 5))
-});
+export const mapItemFromApi = (i: any) => {
+  if (!i) return i;
+  const parseNum = (val: any, fallback = 0) => {
+    if (val === null || val === undefined || val === '') return fallback;
+    const num = Number(val);
+    return isNaN(num) ? fallback : num;
+  };
+
+  const itemCode = i.item_code || i.itemCode || SequenceService.formatDisplayCode('inventory', i.id, 'ITM');
+  const sellingPrice = parseNum(i.selling_price !== undefined ? i.selling_price : i.sellingPrice, 0);
+  const colorSingle = parseNum(i.color_single !== undefined ? i.color_single : i.colorSingle, 0);
+  const colorDouble = parseNum(i.color_double !== undefined ? i.color_double : i.colorDouble, 0);
+  const bwSingle = parseNum(i.bw_single !== undefined ? i.bw_single : i.bwSingle, 0);
+  const bwDouble = parseNum(i.bw_double !== undefined ? i.bw_double : i.bwDouble, 0);
+  const stock = parseNum(i.stock, 0);
+  const lowStockAlert = parseNum(i.low_stock_alert !== undefined ? i.low_stock_alert : i.lowStockAlert, 5);
+
+  return {
+    ...i,
+    id: i.id,
+    itemCode,
+    item_code: itemCode,
+    name: i.name || '',
+    type: i.type || 'print',
+    hsnCode: i.hsn_code || i.hsnCode || '',
+    hsn_code: i.hsn_code || i.hsnCode || '',
+    sellingPrice,
+    selling_price: sellingPrice,
+    colorSingle,
+    color_single: colorSingle,
+    colorDouble,
+    color_double: colorDouble,
+    bwSingle,
+    bw_single: bwSingle,
+    bwDouble,
+    bw_double: bwDouble,
+    stock,
+    lowStockAlert,
+    low_stock_alert: lowStockAlert,
+  };
+};
 
 export const getItems = async () => {
   if (isBackendAvailable()) {

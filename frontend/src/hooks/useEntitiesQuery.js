@@ -164,15 +164,33 @@ export function useInventoryMutations() {
       await queryClient.cancelQueries({ queryKey: userInventoryKey })
       const previousItems = queryClient.getQueryData(userInventoryKey) || []
 
+      const singleC = Number(newItem.color_single !== undefined ? newItem.color_single : (newItem.colorSingle || 0)) || 0
+      const doubleC = Number(newItem.color_double !== undefined ? newItem.color_double : (newItem.colorDouble || 0)) || 0
+      const singleB = Number(newItem.bw_single !== undefined ? newItem.bw_single : (newItem.bwSingle || 0)) || 0
+      const doubleB = Number(newItem.bw_double !== undefined ? newItem.bw_double : (newItem.bwDouble || 0)) || 0
+      const sp = Number(newItem.selling_price !== undefined ? newItem.selling_price : (newItem.sellingPrice || 0)) || 0
+      const stock = Number(newItem.stock || 0) || 0
+      const lowStock = Number(newItem.low_stock_alert !== undefined ? newItem.low_stock_alert : (newItem.lowStockAlert || 50)) || 50
+
       const optimisticItem = {
         id: newItem.id || `temp-item-${Date.now()}`,
-        name: newItem.name,
-        color_single: newItem.color_single || 0,
-        color_double: newItem.color_double || 0,
-        bw_single: newItem.bw_single || 0,
-        bw_double: newItem.bw_double || 0,
-        stock: newItem.stock || 0,
-        low_stock_alert: newItem.low_stock_alert || 50,
+        name: newItem.name || '',
+        type: newItem.type || 'print',
+        hsnCode: newItem.hsn_code || newItem.hsnCode || '',
+        hsn_code: newItem.hsn_code || newItem.hsnCode || '',
+        sellingPrice: sp,
+        selling_price: sp,
+        colorSingle: singleC,
+        color_single: singleC,
+        colorDouble: doubleC,
+        color_double: doubleC,
+        bwSingle: singleB,
+        bw_single: singleB,
+        bwDouble: doubleB,
+        bw_double: doubleB,
+        stock,
+        lowStockAlert: lowStock,
+        low_stock_alert: lowStock,
         isOptimistic: true,
       }
 
@@ -215,7 +233,34 @@ export function useInventoryMutations() {
       const previousItems = queryClient.getQueryData(userInventoryKey) || []
 
       queryClient.setQueryData(userInventoryKey, (old = []) =>
-        old.map((i) => (i.id === id ? { ...i, ...data } : i))
+        old.map((i) => {
+          if (i.id !== id) return i
+          const singleC = Number(data.color_single !== undefined ? data.color_single : (data.colorSingle !== undefined ? data.colorSingle : (i.colorSingle ?? i.color_single ?? 0))) || 0
+          const doubleC = Number(data.color_double !== undefined ? data.color_double : (data.colorDouble !== undefined ? data.colorDouble : (i.colorDouble ?? i.color_double ?? 0))) || 0
+          const singleB = Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle !== undefined ? data.bwSingle : (i.bwSingle ?? i.bw_single ?? 0))) || 0
+          const doubleB = Number(data.bw_double !== undefined ? data.bw_double : (data.bwDouble !== undefined ? data.bwDouble : (i.bwDouble ?? i.bw_double ?? 0))) || 0
+          const sp = Number(data.selling_price !== undefined ? data.selling_price : (data.sellingPrice !== undefined ? data.sellingPrice : (i.sellingPrice ?? i.selling_price ?? 0))) || 0
+          const stock = data.stock !== undefined ? Number(data.stock) : Number(i.stock || 0)
+          const lowStock = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert !== undefined ? data.lowStockAlert : (i.lowStockAlert ?? i.low_stock_alert ?? 50))) || 50
+
+          return {
+            ...i,
+            ...data,
+            colorSingle: singleC,
+            color_single: singleC,
+            colorDouble: doubleC,
+            color_double: doubleC,
+            bwSingle: singleB,
+            bw_single: singleB,
+            bwDouble: doubleB,
+            bw_double: doubleB,
+            sellingPrice: sp,
+            selling_price: sp,
+            stock: isNaN(stock) ? 0 : stock,
+            lowStockAlert: lowStock,
+            low_stock_alert: lowStock,
+          }
+        })
       )
 
       return { previousItems, userInventoryKey }

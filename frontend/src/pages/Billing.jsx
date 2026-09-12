@@ -15,20 +15,25 @@ import { SkeletonBox } from '../components/common/Skeleton'
 import LoyaltyEnginePanel from '../components/common/LoyaltyEnginePanel'
 import LedgerBillCard from '../components/common/LedgerBillCard'
 import { LoyaltyService } from '../services/loyaltyService'
+import { SequenceService } from '../services/sequenceService'
 
 
-const makeInitialRow = (inventory) => ({
-  id: `row-${Date.now()}`,
-  itemId: inventory[0]?.id || '',
-  itemName: inventory[0]?.name || 'A4 Paper',
-  isCustom: false,
-  printType: 'color',
-  sides: 'single',
-  qty: 1,
-  unitPrice: inventory[0]?.colorSingle ?? 10.0,
-  amount: inventory[0]?.colorSingle ?? 10.0,
-  gstRate: 0,
-})
+const makeInitialRow = (inventory) => {
+  const firstItem = inventory[0]
+  const defaultPrice = Number(firstItem?.colorSingle !== undefined ? firstItem.colorSingle : (firstItem?.color_single ?? 10.0)) || 10.0
+  return {
+    id: `row-${Date.now()}`,
+    itemId: firstItem?.id || '',
+    itemName: firstItem?.name || 'A4 Paper',
+    isCustom: false,
+    printType: 'color',
+    sides: 'single',
+    qty: 1,
+    unitPrice: defaultPrice,
+    amount: defaultPrice,
+    gstRate: 0,
+  }
+}
 
 const Billing = () => {
   const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
@@ -380,11 +385,11 @@ const Billing = () => {
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
   const PRESETS = useMemo(() => {
     const getPrice = (item, printType, sides) => {
-      if (item.type === 'product') return item.sellingPrice || 0
-      if (printType === 'color' && sides === 'single') return item.colorSingle || 0
-      if (printType === 'color' && sides === 'double') return item.colorDouble || 0
-      if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
-      if (printType === 'bw' && sides === 'double') return item.bwDouble || 0
+      if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
+      if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
+      if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
+      if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
+      if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
       return 0
     }
     const presets = []
@@ -715,11 +720,11 @@ const Billing = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
-    if (item.type === 'product') return item.sellingPrice || 0
-    if (printType === 'color' && sides === 'single') return item.colorSingle
-    if (printType === 'color' && sides === 'double') return item.colorDouble
-    if (printType === 'bw' && sides === 'single') return item.bwSingle
-    if (printType === 'bw' && sides === 'double') return item.bwDouble
+    if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
+    if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
+    if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
+    if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
+    if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
     return 0
   }
 
@@ -1840,6 +1845,15 @@ const Billing = () => {
     }
   }
 
+  const previewInvoiceNumber = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'BILL',
+      bills,
+      settings?.invPrefix || 'INV',
+      settings?.seqPadding || 6
+    )
+  }, [bills, settings?.invPrefix, settings?.seqPadding])
+
   return (
     <div>
       <div className="page-header">
@@ -1874,7 +1888,12 @@ const Billing = () => {
               </>
             ) : (
               <>
-                <h2>New Print Bill</h2>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span>New Print Bill</span>
+                  <span className="badge badge-primary" style={{ fontSize: '0.78rem', fontFamily: 'monospace', letterSpacing: '0.04em', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', padding: '3px 8px' }}>
+                    Auto-Assigned: #{previewInvoiceNumber}
+                  </span>
+                </h2>
                 <p className="text-muted">Build the bill, add items, and handle cash/UPI payments.</p>
               </>
             )}

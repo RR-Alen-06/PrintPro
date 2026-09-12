@@ -5,6 +5,7 @@ import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { LedgerService } from '../services/ledgerService'
+import { SequenceService } from '../services/sequenceService'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
@@ -22,7 +23,7 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
   const navigate = useNavigate()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
@@ -33,6 +34,15 @@ const Customers = () => {
   const customers = serverCustomers
   const bills = serverBills || contextBills || []
   const payments = serverPayments || contextPayments || []
+
+  const previewCustomerCode = useMemo(() => {
+    return SequenceService.peekNextSequence(
+      'CUSTOMER',
+      customers,
+      settings?.cusPrefix || 'CUS',
+      settings?.seqPadding || 6
+    )
+  }, [customers, settings?.cusPrefix, settings?.seqPadding])
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -1111,7 +1121,14 @@ const Customers = () => {
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editMode ? 'Edit Customer' : 'Add Customer'}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h3 style={{ margin: 0 }}>{editMode ? 'Edit Customer' : 'Add Customer'}</h3>
+                {!editMode && (
+                  <span className="badge badge-info" style={{ fontFamily: 'monospace', fontSize: '0.75rem', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
+                    Auto-ID: {previewCustomerCode}
+                  </span>
+                )}
+              </div>
               <button className="modal-close btn-icon" onClick={closeModal} type="button">
                 <X size={20} />
               </button>

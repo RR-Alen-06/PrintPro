@@ -124,10 +124,11 @@ const CustomerBills = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
-    if (printType === 'color' && sides === 'single') return item.colorSingle
-    if (printType === 'color' && sides === 'double') return item.colorDouble
-    if (printType === 'bw' && sides === 'single') return item.bwSingle
-    if (printType === 'bw' && sides === 'double') return item.bwDouble
+    if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
+    if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
+    if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
+    if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
+    if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
     return 0
   }
 

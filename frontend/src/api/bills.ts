@@ -1,6 +1,7 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
 import { supabase } from '../lib/supabase'
 import { isValidUUID } from '../lib/uuid'
+import { SequenceService } from '../services/sequenceService'
 
 export interface BillFilters {
   status?: string;
@@ -9,12 +10,15 @@ export interface BillFilters {
   customer?: string;
 }
 
-export const mapBillFromApi = (b: any) => ({
-  ...b,
-  id: b.id,
-  invoiceNumber: b.invoice_number || b.invoiceNumber || (typeof b.id === 'string' && !b.id.includes('-') ? b.id : undefined),
-  customerId: b.customer_id || b.customerId,
-  customerName: b.customer_name || b.customerName || 'Walk-in Customer',
+export const mapBillFromApi = (b: any) => {
+  if (!b) return b;
+  const invoiceNumber = b.invoice_number || b.invoiceNumber || b.bill_number || SequenceService.formatDisplayCode('bill', b.id, 'INV');
+  return {
+    ...b,
+    id: b.id,
+    invoiceNumber,
+    customerId: b.customer_id || b.customerId,
+    customerName: b.customer_name || b.customerName || 'Walk-in Customer',
   date: b.date ? new Date(b.date).toISOString().slice(0, 10) : b.date,
   dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : (b.dueDate || null),
   subtotal: Number(b.subtotal || 0),
@@ -37,7 +41,8 @@ export const mapBillFromApi = (b: any) => ({
     unitPrice: Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0)),
     amount: Number(item.amount || 0),
   }))
-});
+  };
+};
 
 export const getBills = async (filters: BillFilters = {}) => {
   if (isBackendAvailable()) {

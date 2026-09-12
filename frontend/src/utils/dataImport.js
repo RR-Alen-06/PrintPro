@@ -83,14 +83,25 @@ export const importCustomersFromCSV = (data) => {
 }
 
 export const importInventoryFromCSV = (data) => {
-  return data.map((row) => ({
-    name: row['Name'] || row['name'] || 'Unnamed Item',
-    colorSingle: parseFloat(row['Color Single'] || row['colorSingle'] || 0),
-    colorDouble: parseFloat(row['Color Double'] || row['colorDouble'] || 0),
-    bwSingle: parseFloat(row['B/W Single'] || row['bwSingle'] || 0),
-    bwDouble: parseFloat(row['B/W Double'] || row['bwDouble'] || 0),
-    stock: parseInt(row['Stock'] || row['stock'] || 0, 10),
-  }))
+  return data.map((row) => {
+    const cs = parseFloat(row['Color Single'] || row['colorSingle'] || row['color_single'] || 0) || 0
+    const cd = parseFloat(row['Color Double'] || row['colorDouble'] || row['color_double'] || 0) || 0
+    const bs = parseFloat(row['B/W Single'] || row['bwSingle'] || row['bw_single'] || 0) || 0
+    const bd = parseFloat(row['B/W Double'] || row['bwDouble'] || row['bw_double'] || 0) || 0
+    const st = parseInt(row['Stock'] || row['stock'] || 0, 10) || 0
+    return {
+      name: row['Name'] || row['name'] || 'Unnamed Item',
+      colorSingle: cs,
+      color_single: cs,
+      colorDouble: cd,
+      color_double: cd,
+      bwSingle: bs,
+      bw_single: bs,
+      bwDouble: bd,
+      bw_double: bd,
+      stock: st,
+    }
+  })
 }
 
 export const validateBackupFile = (data) => {

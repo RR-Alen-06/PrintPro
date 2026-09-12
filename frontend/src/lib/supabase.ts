@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || ''
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ''
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://placeholder-project.supabase.co'
+const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key'
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!(import.meta as any).env?.VITE_SUPABASE_URL || (!(import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY && !(import.meta as any).env?.VITE_SUPABASE_ANON_KEY)) {
   logger.error('Supabase URL, Publishable Key or Anon Key is missing from environment variables.');
 }
 

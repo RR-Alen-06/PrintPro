@@ -9,6 +9,7 @@ import { getPayments, mapPaymentFromApi } from '../api/payments'
 import { getItems, mapItemFromApi } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
 import { getProfile } from '../api/profile'
+import { SequenceService } from '../services/sequenceService'
 
 const AppContext = createContext(null)
 
@@ -1183,18 +1184,38 @@ export const AppProvider = ({ children }: any) => {
 
         const mappedInventory = fetchedInventory.map(i => {
           const parsed = parseInventoryName(i.name)
+          const parseNum = (val: any, fallback = 0) => {
+            if (val === null || val === undefined || val === '') return fallback
+            const num = Number(val)
+            return isNaN(num) ? fallback : num
+          }
+          const cs = parseNum(i.colorSingle !== undefined ? i.colorSingle : i.color_single, 0)
+          const cd = parseNum(i.colorDouble !== undefined ? i.colorDouble : i.color_double, 0)
+          const bs = parseNum(i.bwSingle !== undefined ? i.bwSingle : i.bw_single, 0)
+          const bd = parseNum(i.bwDouble !== undefined ? i.bwDouble : i.bw_double, 0)
+          const sp = parseNum(i.sellingPrice !== undefined ? i.sellingPrice : (i.selling_price !== undefined ? i.selling_price : parsed.sellingPrice), 0)
+          const stock = parseNum(i.stock, 0)
+          const lowStock = parseNum(i.lowStockAlert !== undefined ? i.lowStockAlert : i.low_stock_alert, 5)
+
           return {
             id: i.id,
             name: i.name || parsed.name,
             type: i.type || parsed.type,
-            hsnCode: i.hsnCode || i.hsn_code || parsed.hsnCode,
-            sellingPrice: Number(i.sellingPrice ?? i.selling_price ?? parsed.sellingPrice ?? 0),
-            colorSingle: Number(i.colorSingle ?? i.color_single ?? 0),
-            colorDouble: Number(i.colorDouble ?? i.color_double ?? 0),
-            bwSingle: Number(i.bwSingle ?? i.bw_single ?? 0),
-            bwDouble: Number(i.bwDouble ?? i.bw_double ?? 0),
-            stock: Number(i.stock ?? 0),
-            lowStockAlert: Number(i.lowStockAlert ?? i.low_stock_alert ?? 5)
+            hsnCode: i.hsnCode || i.hsn_code || parsed.hsnCode || '',
+            hsn_code: i.hsn_code || i.hsnCode || parsed.hsnCode || '',
+            sellingPrice: sp,
+            selling_price: sp,
+            colorSingle: cs,
+            color_single: cs,
+            colorDouble: cd,
+            color_double: cd,
+            bwSingle: bs,
+            bw_single: bs,
+            bwDouble: bd,
+            bw_double: bd,
+            stock,
+            lowStockAlert: lowStock,
+            low_stock_alert: lowStock
           }
         })
 
@@ -1223,8 +1244,11 @@ export const AppProvider = ({ children }: any) => {
 
         const mappedExpenses = fetchedPurchases.map(exp => {
           const parsed = parseExpenseNotes(exp.notes)
+          const expenseCode = exp.expense_code || exp.expenseCode || exp.code || SequenceService.formatDisplayCode('expense', exp.id, 'EXP')
           return {
             id: String(exp.id),
+            expenseCode,
+            expense_code: expenseCode,
             date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
             description: exp.item_name || '',
             amount: Number(exp.total || 0),
