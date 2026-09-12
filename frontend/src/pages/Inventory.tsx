@@ -4,9 +4,9 @@ import { useInventory, useInventoryMutations } from '../hooks/useEntitiesQuery'
 import { SequenceService } from '../services/sequenceService'
 import EmptyState from '../components/common/EmptyState'
 import { TableSkeleton } from '../components/common/Skeleton'
-import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, AlertCircle, Inbox, Tag } from 'lucide-react'
 
-const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', stock: '', lowStockAlert: '', hsnCode: '' }
+const EMPTY_FORM = { name: '', type: 'print', colorSingle: '', colorDouble: '', bwSingle: '', bwDouble: '', sellingPrice: '', hsnCode: '' }
 
 const priceFields = [
   { key: 'colorSingle', label: 'Color Single (₹)' },
@@ -54,10 +54,6 @@ const Inventory = () => {
       const sp = form.sellingPrice
       if (sp === '' || sp === undefined) { errs.sellingPrice = 'Required.' }
       else if (isNaN(Number(sp)) || Number(sp) < 0) { errs.sellingPrice = 'Enter a valid price.' }
-
-      const st = form.stock
-      if (st === '' || st === undefined) { errs.stock = 'Required.' }
-      else if (isNaN(Number(st)) || Number(st) < 0) { errs.stock = 'Enter a valid stock qty.' }
     } else {
       priceFields.forEach(({ key }) => {
         const val = form[key]
@@ -69,12 +65,12 @@ const Inventory = () => {
   }
 
   // ── Add item ───────────────────────────────────────────────────────────────
-  const handleAddChange = (field, value) => {
+  const handleAddChange = (field: string, value: any) => {
     setAddForm((f) => ({ ...f, [field]: value }))
     if (addErrors[field]) setAddErrors((e) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const handleAddSubmit = async (e) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errs = validateForm(addForm)
     if (Object.keys(errs).length > 0) { setAddErrors(errs); return }
@@ -89,14 +85,12 @@ const Inventory = () => {
         color_double: addForm.type === 'product' ? 0 : Number(addForm.colorDouble || 0),
         bw_single: addForm.type === 'product' ? 0 : Number(addForm.bwSingle || 0),
         bw_double: addForm.type === 'product' ? 0 : Number(addForm.bwDouble || 0),
-        stock: Number(addForm.stock || 0),
-        low_stock_alert: Number(addForm.lowStockAlert || 50),
       })
 
       setAddForm(EMPTY_FORM)
       setAddErrors({})
       setAddSuccess(true)
-      setTimeout(() => { setAddSuccess(false); setShowAddForm(false) }, 1600)
+      setTimeout(() => { setAddSuccess(false); setShowAddForm(false) }, 1200)
     } catch (err: any) {
       setAddErrors({ form: err.message || 'Failed to add item' })
     }
@@ -113,8 +107,6 @@ const Inventory = () => {
       bwSingle: item.bwSingle !== undefined ? item.bwSingle : (item.bw_single !== undefined ? item.bw_single : 0),
       bwDouble: item.bwDouble !== undefined ? item.bwDouble : (item.bw_double !== undefined ? item.bw_double : 0),
       sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price !== undefined ? item.selling_price : 0),
-      stock: item.stock !== undefined ? item.stock : 0,
-      lowStockAlert: item.lowStockAlert !== undefined ? item.lowStockAlert : (item.low_stock_alert !== undefined ? item.low_stock_alert : 50),
       hsnCode: item.hsnCode || item.hsn_code || ''
     })
     setEditErrors({})
@@ -140,8 +132,6 @@ const Inventory = () => {
       const cd = editForm.type === 'product' ? 0 : Number(editForm.colorDouble || 0)
       const bs = editForm.type === 'product' ? 0 : Number(editForm.bwSingle || 0)
       const bd = editForm.type === 'product' ? 0 : Number(editForm.bwDouble || 0)
-      const st = Number(editForm.stock || 0)
-      const lowStock = Number(editForm.lowStockAlert || 50)
       const hsn = editForm.hsnCode?.trim() || null
 
       await (updateItem as any)({
@@ -161,9 +151,6 @@ const Inventory = () => {
           bwSingle: bs,
           bw_double: bd,
           bwDouble: bd,
-          stock: st,
-          low_stock_alert: lowStock,
-          lowStockAlert: lowStock,
         }
       })
       setEditingId(null)
@@ -187,14 +174,14 @@ const Inventory = () => {
 
   const visibleInventory = inventory
     .filter((item) => !deletedIds.has(item.id))
-    .sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+    .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { numeric: true }))
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Inventory &amp; Pricing</h1>
-          <p>Manage paper types and standard physical items (like books/pens) with pricing and stock levels.</p>
+          <p>Manage print paper configurations and standard products or services with 0ms POS sync.</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setShowAddForm((v) => !v); setAddErrors({}); setAddSuccess(false) }}>
           <Plus size={16} /> {showAddForm ? 'Cancel' : 'Add Item'}
@@ -205,7 +192,7 @@ const Inventory = () => {
       {showAddForm && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>New Pricing / Inventory Item</h3>
+            <h3 style={{ margin: 0 }}>New Pricing / Catalog Item</h3>
             <span className="badge badge-info" style={{ fontFamily: 'monospace', fontSize: '0.78rem', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
               Auto-Assigned Code: {previewItemCode}
             </span>
@@ -230,7 +217,7 @@ const Inventory = () => {
                   onChange={(e) => handleAddChange('type', e.target.value)}
                 >
                   <option value="print">Print Paper Size</option>
-                  <option value="product">Standard Product (Pen, Book, etc.)</option>
+                  <option value="product">Standard Product / Service</option>
                 </select>
               </div>
 
@@ -240,7 +227,7 @@ const Inventory = () => {
                 <input
                   className={`form-input${addErrors.name ? ' form-input-error' : ''}`}
                   type="text"
-                  placeholder="e.g. A4 Paper, Blue Ballpoint Pen"
+                  placeholder="e.g. A4 Paper, Lamination, Spiral Binding"
                   value={addForm.name}
                   onChange={(e) => handleAddChange('name', e.target.value)}
                 />
@@ -263,44 +250,19 @@ const Inventory = () => {
             <div className="form-row" style={{ flexWrap: 'wrap', gap: '16px', marginTop: '12px' }}>
               {/* Product specific fields */}
               {addForm.type === 'product' ? (
-                <>
-                  <div className="form-group" style={{ flex: '1 1 120px' }}>
-                    <label className="form-label">Selling Price (₹)</label>
-                    <input
-                      className={`form-input${addErrors.sellingPrice ? ' form-input-error' : ''}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={addForm.sellingPrice}
-                      onChange={(e) => handleAddChange('sellingPrice', e.target.value)}
-                    />
-                    {addErrors.sellingPrice && <div className="form-error">{addErrors.sellingPrice}</div>}
-                  </div>
-                  <div className="form-group" style={{ flex: '1 1 120px' }}>
-                    <label className="form-label">Stock Qty</label>
-                    <input
-                      className={`form-input${addErrors.stock ? ' form-input-error' : ''}`}
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      value={addForm.stock}
-                      onChange={(e) => handleAddChange('stock', e.target.value)}
-                    />
-                    {addErrors.stock && <div className="form-error">{addErrors.stock}</div>}
-                  </div>
-                  <div className="form-group" style={{ flex: '1 1 120px' }}>
-                    <label className="form-label">Low Stock Warning At</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min="0"
-                      placeholder="5"
-                      value={addForm.lowStockAlert}
-                      onChange={(e) => handleAddChange('lowStockAlert', e.target.value)}
-                    />
-                  </div>
-                </>
+                <div className="form-group" style={{ flex: '1 1 180px' }}>
+                  <label className="form-label">Selling Price (₹) <span style={{ color: 'var(--error)' }}>*</span></label>
+                  <input
+                    className={`form-input${addErrors.sellingPrice ? ' form-input-error' : ''}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={addForm.sellingPrice}
+                    onChange={(e) => handleAddChange('sellingPrice', e.target.value)}
+                  />
+                  {addErrors.sellingPrice && <div className="form-error">{addErrors.sellingPrice}</div>}
+                </div>
               ) : (
                 /* Print specific fields */
                 priceFields.map(({ key, label }) => (
@@ -321,7 +283,7 @@ const Inventory = () => {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
               <button type="submit" className="btn btn-primary btn-sm">
                 <Plus size={14} /> Add Item
               </button>
@@ -338,7 +300,7 @@ const Inventory = () => {
         <div className="bill-view-header" style={{ marginBottom: '16px' }}>
           <div>
             <h2>Price Management</h2>
-            <p className="text-muted" style={{ marginTop: '2px' }}>Set per-page prices for each paper type and print configuration.</p>
+            <p className="text-muted" style={{ marginTop: '2px' }}>Set per-page rates for paper types and standard rates for products/services.</p>
           </div>
         </div>
 
@@ -349,10 +311,11 @@ const Inventory = () => {
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Name &amp; Code</th>
+                <th>Type</th>
                 <th>Color Single (₹)</th>
                 <th>Color Double (₹)</th>
-                <th>B/W Single (₹)</th>
+                <th>B/W Single / Selling Price (₹)</th>
                 <th>B/W Double (₹)</th>
                 <th>Actions</th>
               </tr>
@@ -360,11 +323,11 @@ const Inventory = () => {
             <tbody>
               {visibleInventory.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ padding: '0' }}>
+                  <td colSpan={7} style={{ padding: '0' }}>
                     <EmptyState
                       Icon={Inbox as any}
                       title="No items in inventory"
-                      description="You haven't configured any paper or pricing configurations yet."
+                      description="You haven't configured any paper or product pricing yet."
                       actionText="Create Pricing Profile"
                       onAction={() => {
                         setShowAddForm(true)
@@ -400,6 +363,11 @@ const Inventory = () => {
                           style={{ fontSize: '0.75rem', padding: '2px 6px', width: '100px' }}
                         />
                       </td>
+                      <td>
+                        <span className={`badge badge-${isProd ? 'secondary' : 'info'}`}>
+                          {isProd ? 'Product' : 'Print'}
+                        </span>
+                      </td>
                       <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorSingle} onChange={(e) => handleEditChange('colorSingle', e.target.value)} />}</td>
                       <td>{isProd ? '—' : <input className="form-input" style={{ width: '80px' }} type="number" min="0" step="0.01" value={editForm.colorDouble} onChange={(e) => handleEditChange('colorDouble', e.target.value)} />}</td>
                       <td>
@@ -433,17 +401,7 @@ const Inventory = () => {
                       </td>
                       <td>
                         {isProd ? (
-                          <>
-                            <input
-                              className={`form-input${editErrors.stock ? ' form-input-error' : ''}`}
-                              type="number"
-                              min="0"
-                              value={editForm.stock}
-                              onChange={(e) => handleEditChange('stock', e.target.value)}
-                              style={{ width: '90px' }}
-                            />
-                            {editErrors.stock && <div className="form-error">{editErrors.stock}</div>}
-                          </>
+                          '—'
                         ) : (
                           <>
                             <input
@@ -484,8 +442,7 @@ const Inventory = () => {
                 const bwSinglePrice = formatPrice(item.bwSingle !== undefined ? item.bwSingle : item.bw_single)
                 const bwDoublePrice = formatPrice(item.bwDouble !== undefined ? item.bwDouble : item.bw_double)
                 const sellingPriceFormatted = formatPrice(item.sellingPrice !== undefined ? item.sellingPrice : item.selling_price)
-                const stockQty = Number(item.stock || 0)
-                const lowStockAlertQty = Number(item.lowStockAlert !== undefined ? item.lowStockAlert : (item.low_stock_alert !== undefined ? item.low_stock_alert : 5))
+                const isProduct = item.type === 'product'
 
                 return (
                   <tr key={item.id}>
@@ -495,10 +452,6 @@ const Inventory = () => {
                         <span className="badge badge-outline" style={{ fontSize: '0.68rem', fontFamily: 'monospace' }}>
                           {item.itemCode || item.item_code || (typeof item.id === 'string' && item.id.length > 8 ? `ITM-${item.id.slice(-6).toUpperCase()}` : `ITM-${String(item.id).padStart(6, '0')}`)}
                         </span>
-                        {item.type === 'product' && <span className="badge badge-secondary" style={{ fontSize: '0.7rem' }}>Product</span>}
-                        {item.type === 'product' && stockQty <= lowStockAlertQty && (
-                          <span className="badge badge-danger" style={{ fontSize: '0.7rem', background: 'var(--error-bg)', color: 'var(--error)' }}>Low Stock</span>
-                        )}
                       </div>
                       {(item.hsnCode || item.hsn_code) && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>
@@ -506,13 +459,18 @@ const Inventory = () => {
                         </div>
                       )}
                     </td>
-                    <td>{item.type === 'product' ? '—' : `₹${colorSinglePrice}`}</td>
-                    <td>{item.type === 'product' ? '—' : `₹${colorDoublePrice}`}</td>
-                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? 'var(--success)' : 'inherit' }}>
-                      {item.type === 'product' ? `₹${sellingPriceFormatted}` : `₹${bwSinglePrice}`}
+                    <td>
+                      <span className={`badge badge-${isProduct ? 'secondary' : 'info'}`} style={{ fontSize: '0.7rem' }}>
+                        {isProduct ? 'Product' : 'Print'}
+                      </span>
                     </td>
-                    <td style={{ fontWeight: item.type === 'product' ? 700 : 400, color: item.type === 'product' ? (stockQty <= lowStockAlertQty ? 'var(--error)' : 'var(--text-muted)') : 'inherit' }}>
-                      {item.type === 'product' ? `${stockQty} left` : `₹${bwDoublePrice}`}
+                    <td>{isProduct ? '—' : `₹${colorSinglePrice}`}</td>
+                    <td>{isProduct ? '—' : `₹${colorDoublePrice}`}</td>
+                    <td style={{ fontWeight: isProduct ? 700 : 400, color: isProduct ? 'var(--success)' : 'inherit' }}>
+                      {isProduct ? `₹${sellingPriceFormatted}` : `₹${bwSinglePrice}`}
+                    </td>
+                    <td>
+                      {isProduct ? '—' : `₹${bwDoublePrice}`}
                     </td>
                     <td>
                       {isDeleteConfirm ? (
@@ -557,3 +515,4 @@ const Inventory = () => {
 }
 
 export default Inventory
+

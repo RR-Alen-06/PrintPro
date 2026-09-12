@@ -194,7 +194,7 @@ export function useInventory() {
       return res.data?.data || []
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 10, // 10 minutes (changes infrequently)
+    staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
 
@@ -267,7 +267,7 @@ export function useInventoryMutations() {
       }
     },
     onSettled: () => {
-      // Optimistic cache covers this mutation
+      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
     },
   })
 
@@ -330,7 +330,7 @@ export function useInventoryMutations() {
       }
     },
     onSettled: () => {
-      // Handled via optimistic and onSuccess update
+      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
     },
   })
 
@@ -354,7 +354,7 @@ export function useInventoryMutations() {
       }
     },
     onSettled: () => {
-      // Handled optimistically
+      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
     },
   })
 
