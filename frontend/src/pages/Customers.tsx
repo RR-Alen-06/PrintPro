@@ -6,8 +6,9 @@ import { useBills } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { LedgerService } from '../services/ledgerService'
 import { SequenceService } from '../services/sequenceService'
+import { ReminderService } from '../services/reminderService'
 import EmptyState from '../components/common/EmptyState'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
+import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, MessageSquare } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
 
 const EMPTY_FORM = {
@@ -597,6 +598,21 @@ const Customers = () => {
                   >
                     <Pencil size={13} /> Edit
                   </button>
+                  {selectedCustomer.phone && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const text = ReminderService.buildLedgerReminderMessage(selectedCustomer, outstandingBalance, business, settings)
+                        const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                        window.open(url, '_blank')
+                      }}
+                      title="Send WhatsApp Payment Reminder"
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#25D366' }}
+                    >
+                      <MessageSquare size={13} /> WhatsApp
+                    </button>
+                  )}
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={(e) => { e.stopPropagation(); setShowLedgerModal(true) }}

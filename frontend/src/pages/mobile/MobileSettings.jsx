@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { clearAllCloudData } from '../../lib/syncService'
 import { SequenceService } from '../../services/sequenceService'
+import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   Building2, Shield, Gift, Monitor, LogOut, Check, Save, Upload,
   Cpu, Sliders, Smartphone, AlertCircle, RefreshCw, Tag, Trash2,
-  FileText, Percent, Palette, Database, HelpCircle, Hash
+  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -30,6 +31,14 @@ export default function MobileSettings() {
     cnPrefix: settings.cnPrefix || 'CN',
     seqPadding: settings.seqPadding || 6,
   })
+
+  // WhatsApp templates state
+  const [waTemplates, setWaTemplates] = useState({
+    whatsappGreeting: settings.whatsappGreeting || 'Dear *{customer_name}*,',
+    whatsappFooter: settings.whatsappFooter || 'Thank you for choosing *{shop_name}*! For any queries, contact us at {phone}.',
+    includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== false,
+  })
+  const [waPreviewTab, setWaPreviewTab] = useState('invoice')
 
   // Business state
   const [biz, setBiz] = useState({
@@ -144,6 +153,18 @@ export default function MobileSettings() {
     }
 
     showToast('Sequence & ID Format Settings Saved!', 'success')
+  }
+
+  // Save WhatsApp Templates
+  const handleSaveWhatsApp = () => {
+    if (updateSettings) {
+      updateSettings({
+        whatsappGreeting: waTemplates.whatsappGreeting.trim(),
+        whatsappFooter: waTemplates.whatsappFooter.trim(),
+        includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
+      })
+    }
+    showToast('WhatsApp Reminder Templates Saved!', 'success')
   }
 
   // Save Accounting & Branding Defaults
@@ -669,6 +690,136 @@ export default function MobileSettings() {
 
         <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveSequence} style={{ color: '#3b82f6' }}>
           Save Sequence Settings
+        </button>
+      </div>
+
+      {/* SECTION 4C: WHATSAPP & REMINDER TEMPLATES */}
+      <div className="mobile-card" style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <MessageSquare size={20} style={{ color: '#25D366' }} />
+          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+            WHATSAPP NOTIFICATIONS
+          </h3>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              GREETING TEMPLATE
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              value={waTemplates.whatsappGreeting}
+              onChange={(e) => setWaTemplates({ ...waTemplates, whatsappGreeting: e.target.value })}
+              placeholder="Dear *{customer_name}*,"
+            />
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+              <code>{'{customer_name}'}</code> auto-fills client name.
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              CLOSING FOOTER TEMPLATE
+            </label>
+            <textarea
+              className="mobile-input"
+              rows={2}
+              value={waTemplates.whatsappFooter}
+              onChange={(e) => setWaTemplates({ ...waTemplates, whatsappFooter: e.target.value })}
+              placeholder="Thank you for choosing *{shop_name}*!"
+              style={{ resize: 'vertical' }}
+            />
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+              <code>{'{shop_name}'}</code> auto-fills business name.
+            </div>
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700 }}>
+            <input
+              type="checkbox"
+              checked={waTemplates.includeUpiInWhatsApp}
+              onChange={(e) => setWaTemplates({ ...waTemplates, includeUpiInWhatsApp: e.target.checked })}
+              style={{ width: '16px', height: '16px', accentColor: '#25D366' }}
+            />
+            <span>Include 1-Click UPI Pay Link</span>
+          </label>
+
+          {/* Live Preview */}
+          <div style={{ background: '#0b141a', border: '1px solid #1f2c34', borderRadius: '8px', padding: '10px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#25D366' }}>WHATSAPP PREVIEW</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  type="button"
+                  onClick={() => setWaPreviewTab('invoice')}
+                  style={{
+                    background: waPreviewTab === 'invoice' ? '#25D366' : 'transparent',
+                    color: waPreviewTab === 'invoice' ? '#000' : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700
+                  }}
+                >
+                  Bill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWaPreviewTab('reminder')}
+                  style={{
+                    background: waPreviewTab === 'reminder' ? '#25D366' : 'transparent',
+                    color: waPreviewTab === 'reminder' ? '#000' : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700
+                  }}
+                >
+                  Reminder
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              fontFamily: 'monospace',
+              fontSize: '0.72rem',
+              color: '#e9edef',
+              whiteSpace: 'pre-wrap',
+              maxHeight: '180px',
+              overflowY: 'auto'
+            }}>
+              {waPreviewTab === 'invoice' ? (
+                ReminderService.buildInvoiceMessage(
+                  {
+                    invoiceNumber: `${seqConfigs.invPrefix || 'INV'}-000042`,
+                    date: new Date().toISOString(),
+                    customerName: 'Rahul Sharma',
+                    items: [{ name: 'A4 Color Print', qty: 10, rate: 10, amount: 100 }],
+                    total: 100,
+                    paidTotal: 0,
+                    balance: 100,
+                  },
+                  business,
+                  waTemplates
+                )
+              ) : (
+                ReminderService.buildLedgerReminderMessage(
+                  { name: 'Rahul Sharma', phone: '9876543210' },
+                  -350,
+                  business,
+                  waTemplates
+                )
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveWhatsApp} style={{ color: '#25D366' }}>
+          Save WhatsApp Templates
         </button>
       </div>
 
