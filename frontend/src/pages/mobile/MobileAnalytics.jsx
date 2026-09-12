@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
-import { usePayments, useInventory } from '../../hooks/useEntitiesQuery'
+import { usePayments, useInventory, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import { jsPDF } from 'jspdf'
@@ -17,7 +17,7 @@ import '../../styles/mobile.css'
 
 export default function MobileAnalytics() {
   const navigate = useNavigate()
-  const { showToast, promoCodes = [], advancePayments = [] } = useAppContext()
+  const { showToast, promoCodes = [] } = useAppContext()
 
   // TanStack Queries
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
@@ -25,6 +25,7 @@ export default function MobileAnalytics() {
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: inventory = [], isLoading: isLoadingInventory } = useInventory()
+  const { data: advancePayments = [], isLoading: isLoadingAdvance } = useAdvancePayments()
 
   const [period, setPeriod] = useState('monthly') // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom' | 'all'
   const [customStartDate, setCustomStartDate] = useState('')
