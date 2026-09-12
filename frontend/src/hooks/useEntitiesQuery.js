@@ -553,10 +553,11 @@ export function useAdvancePaymentMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey })
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-        queryClient.invalidateQueries({ queryKey: ['profile'] })
-      }, 1500)
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
@@ -567,10 +568,11 @@ export function useAdvancePaymentMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey })
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] })
-        queryClient.invalidateQueries({ queryKey: ['profile'] })
-      }, 1500)
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 
