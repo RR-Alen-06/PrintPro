@@ -1032,7 +1032,7 @@ const Billing = () => {
     setCustomerEmail('')
   }
 
-  const processEditBillSave = (finalPayload) => {
+  const processEditBillSave = async (finalPayload) => {
     const oldBill = bills.find(b => b.id === editingBillId)
     const oldPaidCash = oldBill?.paymentMethod?.cash || 0
     const oldPaidUpi = oldBill?.paymentMethod?.upi || 0
@@ -1059,14 +1059,21 @@ const Billing = () => {
       setRefundQrGenerated(false)
       setShowRefundModal(true)
     } else {
-      editBill(editingBillId, finalPayload)
-      setIsEditing(false)
-      setEditingBillId(null)
-      resetForm()
+      try {
+        await updateBillMutation({ id: editingBillId, data: finalPayload })
+        if (typeof editBill === 'function') editBill(editingBillId, finalPayload)
+        showToast(`Bill #${finalPayload.invoiceNumber || editingBillId} updated successfully!`, 'success')
+      } catch (err) {
+        showAlert(`Failed to update bill: ${err.message}`, 'error')
+      } finally {
+        setIsEditing(false)
+        setEditingBillId(null)
+        resetForm()
+      }
     }
   }
 
-  const handleConfirmRefund = () => {
+  const handleConfirmRefund = async () => {
     if (!refundInfo) return
 
     const refundAction = {
@@ -1076,14 +1083,21 @@ const Billing = () => {
       advanceAmount: refundInfo.advanceRefund,
     }
 
-    editBill(editingBillId, refundInfo.billPayload, refundAction)
-    setShowRefundModal(false)
-    setRefundInfo(null)
-    setCustomerUpiId('')
-    setRefundQrGenerated(false)
-    setIsEditing(false)
-    setEditingBillId(null)
-    resetForm()
+    try {
+      await updateBillMutation({ id: editingBillId, data: refundInfo.billPayload })
+      if (typeof editBill === 'function') editBill(editingBillId, refundInfo.billPayload, refundAction)
+      showToast(`Bill updated with refund applied!`, 'success')
+    } catch (err) {
+      showAlert(`Failed to update bill with refund: ${err.message}`, 'error')
+    } finally {
+      setShowRefundModal(false)
+      setRefundInfo(null)
+      setCustomerUpiId('')
+      setRefundQrGenerated(false)
+      setIsEditing(false)
+      setEditingBillId(null)
+      resetForm()
+    }
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────

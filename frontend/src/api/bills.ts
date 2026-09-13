@@ -248,9 +248,54 @@ export const createBill = async (data: any) => {
 }
 
 export const updateBill = async (id: string, data: any) => {
+  const billPayload: any = {};
+  if (data.customer_id !== undefined || data.customerId !== undefined) {
+    billPayload.customer_id = data.customer_id || data.customerId;
+  }
+  if (data.date !== undefined) billPayload.date = data.date;
+  if (data.due_date !== undefined || data.dueDate !== undefined) {
+    billPayload.due_date = data.due_date || data.dueDate || null;
+  }
+  if (data.subtotal !== undefined) billPayload.subtotal = Number(data.subtotal || 0);
+  if (data.discount_type !== undefined || data.discountType !== undefined) {
+    billPayload.discount_type = data.discount_type || data.discountType;
+  }
+  if (data.discount_value !== undefined || data.discountValue !== undefined) {
+    billPayload.discount_value = Number(data.discount_value !== undefined ? data.discount_value : data.discountValue);
+  }
+  if (data.gst_percent !== undefined || data.gstPercent !== undefined) {
+    billPayload.gst_percent = Number(data.gst_percent !== undefined ? data.gst_percent : data.gstPercent);
+  }
+  if (data.gst_amount !== undefined || data.gstAmount !== undefined) {
+    billPayload.gst_amount = Number(data.gst_amount !== undefined ? data.gst_amount : data.gstAmount);
+  }
+  if (data.total !== undefined) billPayload.total = Number(data.total || 0);
+  if (data.amount_paid !== undefined || data.amountPaid !== undefined) {
+    billPayload.amount_paid = Number(data.amount_paid !== undefined ? data.amount_paid : data.amountPaid);
+  }
+  if (data.balance !== undefined) billPayload.balance = Number(data.balance || 0);
+  if (data.status !== undefined) billPayload.status = data.status;
+  if (data.notes !== undefined) billPayload.notes = data.notes;
+
+  if (Array.isArray(data.items)) {
+    billPayload.items = data.items.map((item: any) => {
+      const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
+      const q = Number(item.qty || 1);
+      return {
+        item_id: item.item_id || item.itemId || null,
+        item_name: item.item_name || item.itemName || item.name || 'Print Item',
+        print_type: item.print_type || item.printType || 'color',
+        sides: item.sides || 'single',
+        qty: q,
+        unit_price: uPrice,
+        amount: Number(item.amount !== undefined ? item.amount : (q * uPrice)),
+      };
+    });
+  }
+
   if (isBackendAvailable()) {
     try {
-      const res = await api.put(`/bills/${id}`, data);
+      const res = await api.put(`/bills/${id}`, billPayload);
       return { data: { data: mapBillFromApi(res.data.data) } };
     } catch (err: any) {
       if (err.response && err.response.status >= 400 && err.response.status < 500) {
@@ -270,13 +315,54 @@ export const updateBill = async (id: string, data: any) => {
     if (found?.id) billId = found.id;
   }
 
+  // Remove items array from scalar bill update payload for Supabase
+  const { items: supabaseItems, ...scalarUpdates } = billPayload;
+
+  // Resolve customer_id if not a UUID
+  if (scalarUpdates.customer_id && !isValidUUID(scalarUpdates.customer_id)) {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('customer_code', scalarUpdates.customer_id)
+      .maybeSingle();
+    if (cust?.id) {
+      scalarUpdates.customer_id = cust.id;
+    } else {
+      delete scalarUpdates.customer_id;
+    }
+  }
+
   const { data: bill, error: billError } = await supabase
     .from('bills')
-    .update(data)
+    .update(scalarUpdates)
     .eq('id', billId)
     .select()
     .single();
   if (billError) throw billError;
+
+  // Update bill_items if provided
+  if (supabaseItems && supabaseItems.length > 0) {
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from('bill_items').delete().eq('bill_id', billId);
+    const sanitizedItems = supabaseItems.map((item: any) => {
+      const row: any = {
+        bill_id: billId,
+        user_id: user?.id,
+        item_name: item.item_name,
+        print_type: item.print_type,
+        sides: item.sides,
+        qty: item.qty,
+        unit_price: item.unit_price,
+        amount: item.amount,
+      };
+      if (item.item_id && isValidUUID(item.item_id)) {
+        row.item_id = item.item_id;
+      }
+      return row;
+    });
+    await supabase.from('bill_items').insert(sanitizedItems);
+  }
+
   return { data: { data: mapBillFromApi(bill) } };
 }
 
