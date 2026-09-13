@@ -115,4 +115,53 @@ describe('Receipt Formatting & Audit Sync Suite', () => {
     expect(text).toContain('Paid in Full');
     expect(text).not.toContain('Balance Due: ₹');
   });
+
+  it('calculates and prints previous outstanding and net total amount due in formatWhatsAppReceipt', async () => {
+    const { formatWhatsAppReceipt } = await import('../../utils/receiptFormatter');
+
+    const customer = {
+      id: 'cust-10',
+      name: 'Rohan Gupta',
+      credit_balance: 500,
+    };
+
+    const previousBill = {
+      id: 'bill-prev-1',
+      customerId: 'cust-10',
+      date: '2026-09-10',
+      total: 300,
+      amountPaid: 100,
+      balance: 200,
+    };
+
+    const currentBill = {
+      id: 'bill-curr-2',
+      customerId: 'cust-10',
+      date: '2026-09-13',
+      invoiceNumber: 'INV-8888',
+      total: 150,
+      amountPaid: 50,
+      balance: 100,
+      items: [{ name: 'Glossy Print', qty: 10, unitPrice: 15, amount: 150 }],
+    };
+
+    const formatted = formatWhatsAppReceipt(
+      currentBill,
+      mockShopSettings,
+      { shopName: 'PrintPro Station', upiId: 'station@upi' },
+      '',
+      {
+        bills: [previousBill, currentBill],
+        payments: [{ billId: 'bill-curr-2', cashAmount: 50 }],
+        customers: [customer],
+      }
+    );
+
+    expect(formatted).toContain('LEDGER SUMMARY');
+    expect(formatted).toContain('Previous Outstanding      ₹200.00');
+    expect(formatted).toContain('Current Bill              ₹150.00');
+    expect(formatted).toContain('Total Amount Due          ₹350.00');
+    expect(formatted).toContain('Remaining to Pay          ₹300.00');
+    expect(formatted).toContain('station%40upi');
+  });
 });
