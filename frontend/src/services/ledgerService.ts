@@ -10,7 +10,7 @@ export class LedgerService {
     advanceReturns = [],
   }: {
     bills: Array<{
-      id: string;
+      id: string | number;
       bill_number?: string;
       invoiceNumber?: string;
       created_at?: string;
@@ -26,19 +26,22 @@ export class LedgerService {
       deleted_at?: string | null;
     }>;
     payments: Array<{
-      id: string;
+      id: string | number;
       payment_number?: string;
       created_at?: string;
       date?: string;
       amount?: number;
+      totalPaid?: number;
+      total_paid?: number;
+      paid_amount?: number;
       payment_method?: string;
       paymentType?: string;
       notes?: string;
-      bill_id?: string | null;
-      billId?: string | null;
+      bill_id?: string | number | null;
+      billId?: string | number | null;
     }>;
     advanceReturns?: Array<{
-      id: string;
+      id: string | number;
       created_at?: string;
       date?: string;
       amount: number;
@@ -62,12 +65,12 @@ export class LedgerService {
       loyalty_points: number;
     }> = [];
 
-    const nonDeletedBills = bills.filter((b) => !b.deleted && !b.deleted_at);
-    const paymentBillIds = new Set(payments.map((p) => p.bill_id || p.billId).filter(Boolean));
+    const nonDeletedBills = (bills || []).filter((b) => !b.deleted && !b.deleted_at);
+    const paymentBillIds = new Set((payments || []).map((p) => String(p.bill_id || p.billId || '')).filter(Boolean));
 
     nonDeletedBills.forEach((b) => {
       const grandTotal = Number(b.grand_total !== undefined ? b.grand_total : (b.total || 0));
-      const hasPaymentRecord = paymentBillIds.has(b.id);
+      const hasPaymentRecord = paymentBillIds.has(String(b.id));
       const paidTotal = Number(b.paid_total !== undefined ? b.paid_total : (b.amount_paid || 0));
       const advUsed = Number(b.advance_used || 0);
       const directPaid = hasPaymentRecord ? 0 : Math.max(0, paidTotal - advUsed);
@@ -76,7 +79,7 @@ export class LedgerService {
       rawEvents.push({
         date: b.created_at || b.date || new Date().toISOString(),
         type: 'BILL',
-        reference_no: b.bill_number || b.invoiceNumber || `BILL-${b.id.slice(0, 6)}`,
+        reference_no: b.bill_number || b.invoiceNumber || `BILL-${String(b.id || '').slice(0, 6)}`,
         description: `Bill generated (${b.payment_method || 'POS'})`,
         bill_amount: grandTotal,
         paid_amount: effectivePaidOnBill,
@@ -85,12 +88,12 @@ export class LedgerService {
       });
     });
 
-    payments.forEach((p) => {
-      const amt = Number(p.amount || 0);
+    (payments || []).forEach((p) => {
+      const amt = Number(p.amount !== undefined ? p.amount : (p.totalPaid !== undefined ? p.totalPaid : (p.total_paid !== undefined ? p.total_paid : (p.paid_amount || 0))));
       rawEvents.push({
         date: p.created_at || p.date || new Date().toISOString(),
         type: 'PAYMENT',
-        reference_no: p.payment_number || `PAY-${p.id.slice(0, 6).toUpperCase()}`,
+        reference_no: p.payment_number || `PAY-${String(p.id || '').slice(0, 6).toUpperCase()}`,
         description: p.notes || `Payment received via ${p.payment_method || p.paymentType || 'Cash'}`,
         bill_amount: 0,
         paid_amount: amt,
@@ -99,12 +102,12 @@ export class LedgerService {
       });
     });
 
-    advanceReturns.forEach((ar) => {
+    (advanceReturns || []).forEach((ar) => {
       const amt = Number(ar.amount || 0);
       rawEvents.push({
         date: ar.created_at || ar.date || new Date().toISOString(),
         type: 'ADVANCE_RETURN',
-        reference_no: `RET-${ar.id.slice(0, 6).toUpperCase()}`,
+        reference_no: `RET-${String(ar.id || '').slice(0, 6).toUpperCase()}`,
         description: ar.notes || `Advance refunded to customer (${ar.payment_method || 'Cash'})`,
         bill_amount: amt,
         paid_amount: 0,
@@ -152,72 +155,81 @@ export class LedgerService {
    */
   static computeCustomerSummary({
     customer,
-    bills,
-    payments,
+    bills = [],
+    payments = [],
   }: {
     customer: {
-      id: string;
+      id: string | number;
       user_id?: string | null;
       customer_code?: string | null;
-      name: string;
+      name?: string;
       mobile?: string | null;
       phone?: string | null;
       email?: string | null;
-      type?: 'regular' | 'walkin';
+      type?: 'regular' | 'walkin' | 'random';
       credit_limit?: number;
       creditLimit?: number;
       advance_balance?: number;
       advanceBalance?: number;
       creditBalance?: number;
+      credit_balance?: number;
       loyalty_points?: number;
       loyaltyPoints?: number;
       created_at?: string;
       createdAt?: string;
     };
-    bills: Array<{
-      customer_id?: string;
-      customerId?: string;
+    bills?: Array<{
+      customer_id?: string | number;
+      customerId?: string | number;
       grand_total?: number;
       total?: number;
       deleted?: boolean;
       deleted_at?: string | null;
     }>;
-    payments: Array<{
-      customer_id?: string;
-      customerId?: string;
+    payments?: Array<{
+      customer_id?: string | number;
+      customerId?: string | number;
       amount?: number;
+      totalPaid?: number;
+      total_paid?: number;
+      paid_amount?: number;
     }>;
   }): CustomerSummary {
-    const custId = customer.id;
-    const custBills = bills.filter(
-      (b) => (b.customer_id === custId || b.customerId === custId) && !b.deleted && !b.deleted_at
+    const custId = String(customer?.id || '');
+    const custBills = (bills || []).filter(
+      (b) => String(b.customer_id || b.customerId || '') === custId && !b.deleted && !b.deleted_at
     );
-    const custPayments = payments.filter((p) => p.customer_id === custId || p.customerId === custId);
+    const custPayments = (payments || []).filter((p) => String(p.customer_id || p.customerId || '') === custId);
 
     const totalBilled = custBills.reduce(
       (sum, b) => sum + Number(b.grand_total !== undefined ? b.grand_total : (b.total || 0)),
       0
     );
-    const totalPaid = custPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const totalPaid = custPayments.reduce(
+      (sum, p) => sum + Number(p.amount !== undefined ? p.amount : (p.totalPaid !== undefined ? p.totalPaid : (p.total_paid !== undefined ? p.total_paid : (p.paid_amount || 0)))),
+      0
+    );
 
     const advBalance = Number(
       customer.advance_balance !== undefined
         ? customer.advance_balance
         : customer.advanceBalance !== undefined
         ? customer.advanceBalance
+        : customer.credit_balance !== undefined
+        ? customer.credit_balance
         : (customer.creditBalance || 0)
     );
 
     const balanceDue = Math.max(0, totalBilled - totalPaid - advBalance);
 
     return {
-      id: customer.id,
+      id: String(customer.id),
       user_id: customer.user_id,
       customer_code: customer.customer_code,
-      name: customer.name,
+      name: customer.name || 'Customer',
       mobile: customer.mobile || customer.phone || null,
       email: customer.email || null,
-      type: customer.type || 'regular',
+      type: (customer.type as any) || 'regular',
       credit_limit: customer.credit_limit || customer.creditLimit || 0,
       total_billed: Number(totalBilled.toFixed(2)),
       total_paid: Number(totalPaid.toFixed(2)),
@@ -238,7 +250,7 @@ export class LedgerService {
     advancePayments = [],
     period = 'all',
   }: {
-    customerId: string;
+    customerId: string | number;
     bills?: any[];
     payments?: any[];
     advancePayments?: any[];
@@ -246,16 +258,16 @@ export class LedgerService {
     settings?: any;
   }) {
     const entries: any[] = [];
-    const custIdStr = String(customerId);
+    const custIdStr = String(customerId || '');
 
-    const selectedBills = bills.filter(
-      (b) => String(b.customerId || b.customer_id) === custIdStr && !b.deleted && !b.deleted_at
+    const selectedBills = (bills || []).filter(
+      (b) => String(b.customerId || b.customer_id || '') === custIdStr && !b.deleted && !b.deleted_at
     );
-    const selectedPayments = payments.filter(
-      (p) => String(p.customerId || p.customer_id) === custIdStr && !p.notes?.includes('advance deposit')
+    const selectedPayments = (payments || []).filter(
+      (p) => String(p.customerId || p.customer_id || '') === custIdStr && !p.notes?.includes('advance deposit')
     );
     const selectedAdvances = (advancePayments || []).filter(
-      (a) => String(a.customerId || a.customer_id) === custIdStr
+      (a) => String(a.customerId || a.customer_id || '') === custIdStr
     );
 
     // Initial pass of bills
@@ -298,7 +310,7 @@ export class LedgerService {
     // Initial pass of payments
     selectedPayments.forEach((payment) => {
       const excess = Number(payment.excessCredit || payment.excess_credit || 0);
-      const paidAmt = Number(payment.totalPaid !== undefined ? payment.totalPaid : (payment.amount || 0));
+      const paidAmt = Number(payment.totalPaid !== undefined ? payment.totalPaid : (payment.amount !== undefined ? payment.amount : (payment.total_paid || 0)));
       const isRefund =
         paidAmt < 0 ||
         payment.paymentType === 'refund' ||
@@ -315,7 +327,7 @@ export class LedgerService {
         creditAmt = Math.max(0, creditAmt);
       }
 
-      const targetBill = bills.find((b: any) => String(b.id) === String(payment.billId || payment.bill_id));
+      const targetBill = (bills || []).find((b: any) => String(b.id) === String(payment.billId || payment.bill_id));
       const billCode = payment.invoiceNumber || payment.bill_number || targetBill?.invoiceNumber || targetBill?.bill_number || payment.billId || payment.bill_id;
 
       entries.push({
