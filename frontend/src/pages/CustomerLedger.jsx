@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers } from '../hooks/useCustomersQuery'
@@ -37,6 +38,9 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
+  const [searchParams] = useSearchParams()
+  const paramCustId = searchParams.get('customerId')
+
   const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud, processRefund } = useAppContext()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
@@ -70,8 +74,16 @@ const CustomerLedger = () => {
     return `upi://pay?${params.toString()}`
   }
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
+  const [selectedCustomerId, setSelectedCustomerId] = useState(paramCustId || activeCustomers[0]?.id || '')
   const [ledgerPeriod, setLedgerPeriod] = useState('all')
+
+  useEffect(() => {
+    if (paramCustId) {
+      setSelectedCustomerId(paramCustId)
+    } else if (!selectedCustomerId && activeCustomers.length > 0) {
+      setSelectedCustomerId(activeCustomers[0].id)
+    }
+  }, [paramCustId, activeCustomers, selectedCustomerId])
   
   const [payCash, setPayCash] = useState('')
   const [payUpi, setPayUpi] = useState('')
@@ -91,30 +103,30 @@ const CustomerLedger = () => {
   }
 
   const selectedCustomer = useMemo(
-    () => activeCustomers.find((c) => c.id === selectedCustomerId),
+    () => activeCustomers.find((c) => String(c.id) === String(selectedCustomerId)),
     [activeCustomers, selectedCustomerId]
   )
 
   const customerBills = useMemo(
-    () => bills.filter((b) => b.customerId === selectedCustomerId && !b.deleted),
+    () => bills.filter((b) => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at),
     [bills, selectedCustomerId]
   )
 
   const customerPayments = useMemo(
-    () => payments.filter((p) => p.customerId === selectedCustomerId && !p.notes?.includes('advance deposit')),
+    () => payments.filter((p) => String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit')),
     [payments, selectedCustomerId]
   )
 
   const customerAdvances = useMemo(
-    () => (advancePayments || []).filter((a) => a.customerId === selectedCustomerId),
+    () => (advancePayments || []).filter((a) => String(a.customerId || a.customer_id) === String(selectedCustomerId)),
     [advancePayments, selectedCustomerId]
   )
 
   const customerSettlements = useMemo(() => {
     return payments.filter(p => {
       if (!p.isGroupPayment) return false
-      if (p.customerId === selectedCustomerId) return true
-      return (p.groupSettlements || []).some(s => s.customerId === selectedCustomerId)
+      if (String(p.customerId || p.customer_id) === String(selectedCustomerId)) return true
+      return (p.groupSettlements || []).some(s => String(s.customerId || s.customer_id) === String(selectedCustomerId))
     })
   }, [payments, selectedCustomerId])
 

@@ -19,7 +19,7 @@ export default function MobileCustomerLedger() {
   const [searchParams] = useSearchParams()
   const paramCustId = searchParams.get('customerId')
 
-  const { business, settings, advancePayments, showToast } = useAppContext()
+  const { business, settings, advancePayments, contextCustomers, contextBills, contextPayments, showToast } = useAppContext()
 
   // TanStack Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
@@ -28,7 +28,11 @@ export default function MobileCustomerLedger() {
   const { createPayment, isCreatingPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
 
-  const activeCustomers = useMemo(() => (serverCustomers || []).filter(c => !c.deleted), [serverCustomers])
+  const customers = serverCustomers.length > 0 ? serverCustomers : (contextCustomers || [])
+  const bills = serverBills.length > 0 ? serverBills : (contextBills || [])
+  const payments = serverPayments.length > 0 ? serverPayments : (contextPayments || [])
+
+  const activeCustomers = useMemo(() => (customers || []).filter(c => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(paramCustId || activeCustomers[0]?.id || '')
   const [ledgerPeriod, setLedgerPeriod] = useState('all') // 'all' | 'monthly' | 'yearly'
 
@@ -38,12 +42,14 @@ export default function MobileCustomerLedger() {
   const [payUpi, setPayUpi] = useState('')
   const [payNotes, setPayNotes] = useState('')
 
-  // Sync selectedCustomerId when activeCustomers loads
+  // Sync selectedCustomerId when activeCustomers loads or paramCustId changes
   React.useEffect(() => {
-    if (!selectedCustomerId && activeCustomers.length > 0) {
+    if (paramCustId) {
+      setSelectedCustomerId(paramCustId)
+    } else if (!selectedCustomerId && activeCustomers.length > 0) {
       setSelectedCustomerId(activeCustomers[0].id)
     }
-  }, [activeCustomers, selectedCustomerId])
+  }, [paramCustId, activeCustomers, selectedCustomerId])
 
   const selectedCustomer = useMemo(() => {
     return activeCustomers.find(c => String(c.id) === String(selectedCustomerId))
@@ -55,18 +61,18 @@ export default function MobileCustomerLedger() {
 
     const res = LedgerService.calculateLedger({
       customerId: selectedCustomerId,
-      bills: serverBills,
-      payments: serverPayments,
+      bills,
+      payments,
       advancePayments: advancePayments || [],
       period: ledgerPeriod,
       settings: settings || {}
     })
 
-    const custBills = (serverBills || []).filter(b => String(b.customerId) === String(selectedCustomerId) && !b.deleted)
-    const custPayments = (serverPayments || []).filter(p => String(p.customerId) === String(selectedCustomerId))
+    const custBills = (bills || []).filter(b => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at)
+    const custPayments = (payments || []).filter(p => String(p.customerId || p.customer_id) === String(selectedCustomerId))
 
-    const invoiced = custBills.reduce((s, b) => s + Number(b.total || 0), 0)
-    const paid = custPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
+    const invoiced = custBills.reduce((s, b) => s + Number(b.total !== undefined ? b.total : (b.grand_total || 0)), 0)
+    const paid = custPayments.reduce((s, p) => s + Number(p.totalPaid !== undefined ? p.totalPaid : (p.amount !== undefined ? p.amount : (p.total_paid || 0))), 0)
 
     return {
       ledgerEntries: (res.entries || []).slice().reverse(), // Show newest first on mobile
@@ -74,7 +80,7 @@ export default function MobileCustomerLedger() {
       totalInvoiced: invoiced,
       totalPaid: paid
     }
-  }, [selectedCustomerId, serverBills, serverPayments, advancePayments, ledgerPeriod, settings])
+  }, [selectedCustomerId, bills, payments, advancePayments, ledgerPeriod, settings])
 
   const handleRecordPaymentSubmit = async (e) => {
     e.preventDefault()

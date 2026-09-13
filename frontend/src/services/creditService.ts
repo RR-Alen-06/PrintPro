@@ -38,8 +38,8 @@ export class CreditService {
     if (customer.code && customer.code.trim()) {
       return customer.code.trim().toUpperCase();
     }
-    if (customer.id && typeof customer.id === 'string') {
-      const cleanId = customer.id.replace(/-/g, '').slice(0, 6).toUpperCase();
+    if (customer.id) {
+      const cleanId = String(customer.id).replace(/-/g, '').slice(0, 6).toUpperCase();
       return `CUS-${cleanId}`;
     }
     return customer.type === 'random' ? 'CUS-WALKIN' : 'CUS-GENERAL';
@@ -204,7 +204,7 @@ export class CreditService {
 
       return {
         billId: bill.id,
-        invoiceNumber: bill.invoiceNumber || bill.bill_number || `INV-${bill.id.slice(0, 6)}`,
+        invoiceNumber: bill.invoiceNumber || bill.bill_number || `INV-${String(bill.id).slice(0, 6)}`,
         date: bill.date || bill.created_at || new Date().toISOString(),
         total: billTot,
         currentBalance: currentBal,
