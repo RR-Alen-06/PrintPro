@@ -22,6 +22,7 @@ import {
   importFromCSV, validateBackupFile, restoreFromBackup
 } from '../utils/dataImport'
 import { SequenceService } from '../services/sequenceService'
+import { clearTransactionRecords } from '../lib/syncService'
 
 const DataManagement = () => {
   const queryClient = useQueryClient()
@@ -222,29 +223,37 @@ const DataManagement = () => {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleResetTransactions = () => {
+  const handleResetTransactions = async () => {
     if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
       if (showToast) showToast('Type RESET in capital letters to confirm', 'error')
       return
     }
 
-    const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
-    const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
+    try {
+      if (showToast) showToast('Clearing transaction records from database...', 'info')
+      await clearTransactionRecords()
 
-    const cleanState = {
-      ...currentState,
-      bills: [],
-      payments: [],
-      expenses: [],
-      advancePayments: [],
-      advances: [],
+      const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
+      const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
+
+      const cleanState = {
+        ...currentState,
+        bills: [],
+        payments: [],
+        expenses: [],
+        advancePayments: [],
+        advances: [],
+      }
+
+      localStorage.setItem(userKey, JSON.stringify(cleanState))
+      queryClient.clear()
+      setShowResetModal(false)
+      setResetConfirmationText('')
+      if (showToast) showToast('Transaction records cleared successfully. Reloading...', 'success')
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (err) {
+      if (showToast) showToast(`Failed to clear transactions: ${err.message}`, 'error')
     }
-
-    localStorage.setItem(userKey, JSON.stringify(cleanState))
-    setShowResetModal(false)
-    setResetConfirmationText('')
-    if (showToast) showToast('Transaction records cleared. Reloading...', 'info')
-    setTimeout(() => window.location.reload(), 1500)
   }
 
   const exportItems = [

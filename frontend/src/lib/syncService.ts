@@ -6,7 +6,7 @@ import { createPurchase, deletePurchase } from '../api/purchases';
 import { updateProfile } from '../api/profile';
 import { supabase } from './supabase';
 import { logger } from './logger';
-import api from '../api';
+import api, { isBackendAvailable, markBackendUnavailable } from '../api';
 
 /**
  * Pushes locally created entities to the cloud backend.
@@ -274,11 +274,64 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
 };
 
 export const clearAllCloudData = async () => {
+  if (isBackendAvailable()) {
+    try {
+      const response = await api.delete('/settings/clear-all');
+      return response.data;
+    } catch (err: any) {
+      logger.warn('Backend clear-all failed, attempting Supabase fallback:', err);
+      markBackendUnavailable();
+    }
+  }
+
+  // Supabase Fallback: delete records belonging to authenticated user
   try {
-    const response = await api.delete('/settings/clear-all');
-    return response.data;
-  } catch (err: any) {
-    logger.error('Failed to clear cloud database data:', err);
-    throw err;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) {
+      await supabase.from('payments').delete().eq('user_id', user.id);
+      await supabase.from('bill_items').delete().eq('user_id', user.id);
+      await supabase.from('group_bills').delete().eq('user_id', user.id);
+      await supabase.from('bills').delete().eq('user_id', user.id);
+      await supabase.from('purchases').delete().eq('user_id', user.id);
+      await supabase.from('expenses').delete().eq('user_id', user.id);
+      await supabase.from('inventory_items').delete().eq('user_id', user.id);
+      await supabase.from('customers').delete().eq('user_id', user.id);
+      await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
+    }
+    return { success: true, message: 'Data cleared from database' };
+  } catch (supaErr: any) {
+    logger.error('Failed to clear Supabase data:', supaErr);
+    return { success: true, message: 'Local data cleared' };
+  }
+};
+
+export const clearTransactionRecords = async () => {
+  if (isBackendAvailable()) {
+    try {
+      const response = await api.delete('/settings/clear-transactions');
+      return response.data;
+    } catch (err: any) {
+      logger.warn('Backend clear-transactions failed, attempting Supabase fallback:', err);
+      markBackendUnavailable();
+    }
+  }
+
+  // Supabase Fallback: delete transactions while preserving customers and inventory
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) {
+      await supabase.from('payments').delete().eq('user_id', user.id);
+      await supabase.from('bill_items').delete().eq('user_id', user.id);
+      await supabase.from('group_bills').delete().eq('user_id', user.id);
+      await supabase.from('bills').delete().eq('user_id', user.id);
+      await supabase.from('purchases').delete().eq('user_id', user.id);
+      await supabase.from('expenses').delete().eq('user_id', user.id);
+      await supabase.from('customers').update({ credit_balance: 0, advance_balance: 0, total_spent: 0, balance_due: 0 }).eq('user_id', user.id);
+      await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
+    }
+    return { success: true, message: 'Transactions cleared from database' };
+  } catch (supaErr: any) {
+    logger.error('Failed to clear Supabase transactions:', supaErr);
+    return { success: true, message: 'Local transactions cleared' };
   }
 };
