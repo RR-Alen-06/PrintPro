@@ -1,55 +1,146 @@
-import React, { useRef, useState } from 'react'
-import { Download, Upload, CheckCircle, X, AlertTriangle } from 'lucide-react'
+import React, { useRef, useState, useMemo } from 'react'
+import {
+  Download, Upload, CheckCircle, X, AlertTriangle, RefreshCw,
+  Database, HardDrive, Trash2, ShieldAlert, FileSpreadsheet, Check
+} from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { useBills } from '../hooks/useBillsQuery'
-import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { usePayments, useInventory, useInventoryMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
-import { createFullBackup, exportBillsToCSV, exportCustomersToCSV, exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV } from '../utils/dataExport'
-import { importFromJSON, importCustomersFromCSV, importInventoryFromCSV, importFromCSV, validateBackupFile, restoreFromBackup } from '../utils/dataImport'
+import { useGroupBills } from '../hooks/useGroupBillsQuery'
+import { useQueryClient } from '@tanstack/react-query'
+
+import {
+  createFullBackup, exportBillsToCSV, exportCustomersToCSV,
+  exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV,
+  exportAdvancesToCSV, exportGroupsToCSV
+} from '../utils/dataExport'
+import {
+  importFromJSON, importCustomersFromCSV, importInventoryFromCSV,
+  importFromCSV, validateBackupFile, restoreFromBackup
+} from '../utils/dataImport'
 import { SequenceService } from '../services/sequenceService'
 
 const DataManagement = () => {
-  const { business, customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], payments: contextPayments = [], expenses: contextExpenses = [], settings, addCustomer, addInventoryItem } = useAppContext()
+  const queryClient = useQueryClient()
+  const {
+    currentUser,
+    business,
+    customers: contextCustomers = [],
+    customerGroups: contextGroups = [],
+    inventory: contextInventory = [],
+    bills: contextBills = [],
+    payments: contextPayments = [],
+    expenses: contextExpenses = [],
+    advancePayments: contextAdvances = [],
+    counters = {},
+    sequences = {},
+    settings,
+    addCustomer,
+    addInventoryItem,
+    showToast,
+  } = useAppContext()
+
   const { data: serverBills = [] } = useBills()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverInventory = [] } = useInventory()
   const { data: serverPayments = [] } = usePayments()
   const { data: serverExpenses = [] } = useExpenses()
+  const { data: serverAdvances = [] } = useAdvancePayments()
+  const { groupBills: serverGroups = [] } = useGroupBills()
+
+  const { createCustomer: createCustomerMutation } = useCustomerMutations()
+
+  const { createItem: createInventoryMutation } = useInventoryMutations()
 
   const bills = serverBills.length > 0 ? serverBills : contextBills
   const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
   const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
   const payments = serverPayments.length > 0 ? serverPayments : contextPayments
   const expenses = serverExpenses.length > 0 ? serverExpenses : contextExpenses
+  const advances = serverAdvances.length > 0 ? serverAdvances : contextAdvances
+  const groups = serverGroups.length > 0 ? serverGroups : contextGroups
+
   const [exportMessage, setExportMessage] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const [importType, setImportType] = useState('backup')
   const [selectedReport, setSelectedReport] = useState(null)
-  const [reportPeriod, setReportPeriod] = useState('all') // 'all'|'daily'|'weekly'|'monthly'|'quarterly'|'yearly'|'custom'
+  const [reportPeriod, setReportPeriod] = useState('all')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
+  const [isResyncing, setIsResyncing] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetConfirmationText, setResetConfirmationText] = useState('')
   const fileInputRef = useRef(null)
 
-  const showExport = (msg) => { setExportMessage(msg); setTimeout(() => setExportMessage(''), 4000) }
-  const showImport = (msg) => { setImportMessage(msg); setTimeout(() => setImportMessage(''), 4000) }
+  const showExport = (msg) => {
+    setExportMessage(msg)
+    if (showToast) showToast(msg, 'success')
+    setTimeout(() => setExportMessage(''), 4000)
+  }
+
+  const showImport = (msg) => {
+    setImportMessage(msg)
+    if (showToast) showToast(msg, msg.startsWith('Error') ? 'error' : 'success')
+    setTimeout(() => setImportMessage(''), 4000)
+  }
+
+  // Calculate approximate storage usage
+  const storageStats = useMemo(() => {
+    let bytes = 0
+    try {
+      for (const key in localStorage) {
+        if (Object.prototype.hasOwnProperty.call(localStorage, key) && key.startsWith('printpro')) {
+          bytes += (localStorage[key].length + key.length) * 2
+        }
+      }
+    } catch (_) {}
+    const kb = (bytes / 1024).toFixed(1)
+    const mb = (bytes / (1024 * 1024)).toFixed(2)
+    return {
+      bytes,
+      formatted: bytes > 1024 * 1024 ? `${mb} MB` : `${kb} KB`,
+      totalRecords:
+        bills.length +
+        customers.length +
+        inventory.length +
+        payments.length +
+        expenses.length +
+        advances.length +
+        groups.length,
+    }
+  }, [bills, customers, inventory, payments, expenses, advances, groups])
 
   const handleFullBackup = () => {
-    const appState = { business, customers, inventory, bills, payments, expenses, settings }
+    const appState = {
+      business,
+      customers,
+      customerGroups: groups,
+      inventory,
+      bills,
+      payments,
+      expenses,
+      advancePayments: advances,
+      counters,
+      sequences,
+      settings,
+    }
     createFullBackup(appState)
-    showExport('Full backup downloaded successfully')
+    showExport('Complete 8-Entity JSON Backup downloaded successfully')
   }
 
   const handleExportBills = () => {
-    const active = bills.filter((b) => !b.deleted)
+    const active = bills.filter((b) => !b.deleted && !b.deleted_at)
     exportBillsToCSV(active)
     showExport(`${active.length} bills exported to CSV`)
   }
 
   const handleExportCustomers = () => {
-    exportCustomersToCSV(customers)
-    showExport(`${customers.length} customers exported to CSV`)
+    const active = customers.filter((c) => !c.deleted && !c.deleted_at)
+    exportCustomersToCSV(active)
+    showExport(`${active.length} customers exported to CSV`)
   }
 
   const handleExportInventory = () => {
@@ -67,6 +158,29 @@ const DataManagement = () => {
     showExport(`${(expenses || []).length} expenses exported to CSV`)
   }
 
+  const handleExportAdvances = () => {
+    exportAdvancesToCSV(advances || [])
+    showExport(`${(advances || []).length} advance deposits exported to CSV`)
+  }
+
+  const handleExportGroups = () => {
+    exportGroupsToCSV(groups || [])
+    showExport(`${(groups || []).length} customer groups exported to CSV`)
+  }
+
+  const handleForceResync = async () => {
+    setIsResyncing(true)
+    try {
+      await queryClient.invalidateQueries()
+      await queryClient.refetchQueries()
+      if (showToast) showToast('All cloud registers synchronized with Supabase', 'success')
+    } catch (err) {
+      if (showToast) showToast('Resync failed, check network connection', 'error')
+    } finally {
+      setIsResyncing(false)
+    }
+  }
+
   const handleImportFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -74,22 +188,32 @@ const DataManagement = () => {
     try {
       if (importType === 'backup') {
         const data = await importFromJSON(file)
-        if (!validateBackupFile(data)) throw new Error('Invalid backup file format')
+        if (!validateBackupFile(data)) throw new Error('Invalid backup file format: missing required ERP registers')
         const restored = restoreFromBackup(data)
-        showImport('Backup restored — reloading in 2s…')
+        showImport('Backup restored successfully — reloading in 2s…')
         const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
         localStorage.setItem(userKey, JSON.stringify(restored))
         setTimeout(() => window.location.reload(), 2000)
       } else if (importType === 'customers') {
         const data = await importFromCSV(file)
         const imported = importCustomersFromCSV(data)
-        imported.forEach((c) => addCustomer(c))
-        showImport(`${imported.length} customers imported successfully`)
+        for (const c of imported) {
+          try {
+            if (createCustomerMutation) await createCustomerMutation(c)
+          } catch (_) {}
+          if (addCustomer) addCustomer(c)
+        }
+        showImport(`${imported.length} customers imported and synced`)
       } else if (importType === 'inventory') {
         const data = await importFromCSV(file)
         const items = importInventoryFromCSV(data)
-        items.forEach((item) => addInventoryItem(item))
-        showImport(`${items.length} inventory items imported successfully`)
+        for (const item of items) {
+          try {
+            if (createInventoryMutation) await createInventoryMutation(item)
+          } catch (_) {}
+          if (addInventoryItem) addInventoryItem(item)
+        }
+        showImport(`${items.length} inventory items imported and synced`)
       }
     } catch (error) {
       showImport(`Error: ${error.message}`)
@@ -98,292 +222,116 @@ const DataManagement = () => {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  // ── Period date range helper ──────────────────────────────────────────────
-  const getPeriodRange = (period) => {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    if (period === 'daily') {
-      return { start: today, end: new Date(today.getTime() + 86400000 - 1) }
-    }
-    if (period === 'weekly') {
-      const day = today.getDay()
-      const mon = new Date(today); mon.setDate(today.getDate() - (day === 0 ? 6 : day - 1))
-      const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-      return { start: mon, end: sun }
-    }
-    if (period === 'monthly') {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1)
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      return { start, end }
-    }
-    if (period === 'quarterly') {
-      const q = Math.floor(now.getMonth() / 3)
-      const start = new Date(now.getFullYear(), q * 3, 1)
-      const end = new Date(now.getFullYear(), q * 3 + 3, 0)
-      return { start, end }
-    }
-    if (period === 'yearly') {
-      const start = new Date(now.getFullYear(), 0, 1)
-      const end = new Date(now.getFullYear(), 11, 31)
-      return { start, end }
-    }
-    if (period === 'custom') {
-      let start = null
-      if (customStartDate) {
-        const [y, m, d] = customStartDate.split('-').map(Number)
-        start = new Date(y, m - 1, d, 0, 0, 0, 0)
-      }
-      let end = null
-      if (customEndDate) {
-        const [y, m, d] = customEndDate.split('-').map(Number)
-        end = new Date(y, m - 1, d, 23, 59, 59, 999)
-      }
-      return { start, end }
-    }
-    return null
-  }
-
-  const filterByPeriod = (items, dateKey) => {
-    if (reportPeriod === 'all') return items
-    const range = getPeriodRange(reportPeriod)
-    if (!range) return items
-    return items.filter((item) => {
-      const d = item[dateKey] ? new Date(item[dateKey]) : null
-      if (!d) return false
-      const afterStart = range.start ? d >= range.start : true
-      const beforeEnd = range.end ? d <= range.end : true
-      return afterStart && beforeEnd
-    })
-  }
-
-  const getReportData = (type) => {
-    if (type === 'bills') return filterByPeriod(bills.filter(b => !b.deleted), 'date')
-    if (type === 'customers') return filterByPeriod(customers, 'createdAt')
-    if (type === 'payments') return filterByPeriod(payments, 'date')
-    if (type === 'expenses') return filterByPeriod(expenses || [], 'date')
-    if (type === 'inventory') return inventory
-    return []
-  }
-
-  const generateReportPDF = (type, data) => {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-    const W = doc.internal.pageSize.getWidth()
-    const H = doc.internal.pageSize.getHeight()
-    const MARGIN = 12
-    let y = 16
-    let page = 1
-
-    const fNum = (val) => {
-      const num = Number(val)
-      return isNaN(num) ? '0.00' : num.toFixed(2)
+  const handleResetTransactions = () => {
+    if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
+      if (showToast) showToast('Type RESET in capital letters to confirm', 'error')
+      return
     }
 
-    let cols = []
-    let rows = []
-    let title = ""
+    const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
+    const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
 
-    if (type === 'bills') {
-      title = "Bills Report"
-      cols = [
-        { label: 'Bill ID', w: 25 },
-        { label: 'Customer', w: 45 },
-        { label: 'Date', w: 25 },
-        { label: 'Subtotal', w: 22 },
-        { label: 'Discount', w: 22 },
-        { label: 'Total', w: 22 },
-        { label: 'Paid', w: 22 },
-        { label: 'Balance', w: 22 },
-        { label: 'Status', w: 20 }
-      ]
-      rows = data.map(b => [
-        b.invoiceNumber || b.id || '',
-        b.customerName || '',
-        b.date || '',
-        fNum(b.subtotal),
-        b.discountAmount ? fNum(b.discountAmount) : fNum(b.discountValue),
-        fNum(b.total),
-        fNum(b.amountPaid),
-        fNum(b.balance),
-        (b.status || '').toUpperCase()
-      ])
-    } else if (type === 'customers') {
-      title = "Customers Report"
-      cols = [
-        { label: 'Customer ID', w: 30 },
-        { label: 'Type', w: 25 },
-        { label: 'Name', w: 55 },
-        { label: 'Phone', w: 35 },
-        { label: 'Email', w: 50 },
-        { label: 'Credit Bal', w: 25 },
-        { label: 'Advance Bal', w: 25 }
-      ]
-      rows = data.map(c => [
-        c.customerCode || c.id || '',
-        (c.type || '').toUpperCase(),
-        c.name || '',
-        c.phone || '—',
-        c.email || '—',
-        fNum(c.creditBalance),
-        fNum(c.advanceBalance)
-      ])
-    } else if (type === 'payments') {
-      title = "Payments Report"
-      cols = [
-        { label: 'Payment ID', w: 30 },
-        { label: 'Bill ID', w: 30 },
-        { label: 'Customer', w: 45 },
-        { label: 'Date', w: 30 },
-        { label: 'Cash Paid', w: 25 },
-        { label: 'UPI Paid', w: 25 },
-        { label: 'Total Paid', w: 25 },
-        { label: 'Excess Credit', w: 25 }
-      ]
-      rows = data.map(p => {
-        const targetBill = bills.find(b => String(b.id) === String(p.billId))
-        const targetCust = customers.find(c => String(c.id) === String(p.customerId || targetBill?.customerId))
-        return [
-          p.paymentCode || SequenceService.formatDisplayCode('payment', p.id, 'PAY'),
-          targetBill?.invoiceNumber || (p.billId ? SequenceService.formatDisplayCode('bill', p.billId, 'INV') : '—'),
-          targetCust?.customerCode || targetCust?.name || (p.customerId ? SequenceService.formatDisplayCode('customer', p.customerId, 'CUS') : '—'),
-          p.date ? p.date.slice(0, 10) : '',
-          fNum(p.cashAmount),
-          fNum(p.upiAmount),
-          fNum(p.totalPaid),
-          fNum(p.excessCredit)
-        ]
-      })
-    } else if (type === 'expenses') {
-      title = "Expenses Report"
-      cols = [
-        { label: 'Expense ID', w: 30 },
-        { label: 'Date', w: 30 },
-        { label: 'Description', w: 85 },
-        { label: 'Cash Amount', w: 30 },
-        { label: 'UPI Amount', w: 30 },
-        { label: 'Total Amount', w: 35 }
-      ]
-      rows = data.map(e => [
-        e.expenseCode || SequenceService.formatDisplayCode('expense', e.id, 'EXP'),
-        e.date || '',
-        e.description || '',
-        fNum(e.cashAmount),
-        fNum(e.upiAmount),
-        fNum(e.amount)
-      ])
-    } else if (type === 'inventory') {
-      title = "Inventory Pricing Report"
-      cols = [
-        { label: 'Item ID', w: 30 },
-        { label: 'Item Name', w: 75 },
-        { label: 'Color Single', w: 30 },
-        { label: 'Color Double', w: 30 },
-        { label: 'B/W Single', w: 30 },
-        { label: 'B/W Double', w: 30 }
-      ]
-      rows = data.map(i => [
-        i.itemCode || SequenceService.formatDisplayCode('inventory', i.id, 'ITM'),
-        i.name || '',
-        fNum(i.colorSingle !== undefined ? i.colorSingle : i.color_single),
-        fNum(i.colorDouble !== undefined ? i.colorDouble : i.color_double),
-        fNum(i.bwSingle !== undefined ? i.bwSingle : i.bw_single),
-        fNum(i.bwDouble !== undefined ? i.bwDouble : i.bw_double)
-      ])
+    const cleanState = {
+      ...currentState,
+      bills: [],
+      payments: [],
+      expenses: [],
+      advancePayments: [],
+      advances: [],
     }
 
-    const printHeaders = () => {
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(8)
-      doc.setFillColor(240, 240, 240)
-      doc.rect(MARGIN, y - 4, W - MARGIN * 2, 6, 'F')
-      let curX = MARGIN + 2
-      cols.forEach(col => {
-        doc.text(col.label, curX, y)
-        curX += col.w
-      })
-      y += 6
-      doc.setLineWidth(0.2)
-      doc.line(MARGIN, y - 4, W - MARGIN, y - 4)
-      doc.setFont('helvetica', 'normal')
-    }
-
-    const checkPage = (needed = 8) => {
-      if (y + needed > H - 12) {
-        doc.setFontSize(8)
-        doc.text(`Page ${page}`, W / 2, H - 6, { align: 'center' })
-        doc.addPage()
-        page++
-        y = 16
-        printHeaders()
-      }
-    }
-
-    const getPeriodText = () => {
-      if (reportPeriod === 'custom') {
-        return `Custom (${customStartDate || 'Start'} to ${customEndDate || 'End'})`
-      }
-      return reportPeriod.toUpperCase()
-    }
-
-    // Title
-    doc.setFontSize(14)
-    doc.setFont('helvetica', 'bold')
-    doc.text(title, MARGIN, y)
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Period: ${getPeriodText()} · Generated: ${new Date().toLocaleString()} · Row Count: ${data.length}`, W - MARGIN, y, { align: 'right' })
-    y += 10
-
-    printHeaders()
-
-    // Print rows
-    doc.setFontSize(8)
-    rows.forEach(row => {
-      checkPage(7)
-      let curX = MARGIN + 2
-      row.forEach((cell, idx) => {
-        const colWidth = cols[idx].w - 3
-        const truncated = String(cell).substring(0, Math.floor(colWidth / 1.5))
-        doc.text(truncated, curX, y)
-        curX += cols[idx].w
-      })
-      y += 6
-    })
-
-    // Footer on last page
-    doc.setFontSize(8)
-    doc.text(`Page ${page}`, W / 2, H - 6, { align: 'center' })
-
-    doc.save(`${type}-report-${new Date().toISOString().slice(0, 10)}.pdf`)
+    localStorage.setItem(userKey, JSON.stringify(cleanState))
+    setShowResetModal(false)
+    setResetConfirmationText('')
+    if (showToast) showToast('Transaction records cleared. Reloading...', 'info')
+    setTimeout(() => window.location.reload(), 1500)
   }
 
   const exportItems = [
-    { label: 'Bills', type: 'bills', count: bills.filter((b) => !b.deleted).length, action: handleExportBills, desc: 'All active bills with full details' },
-    { label: 'Customers', type: 'customers', count: customers.length, action: handleExportCustomers, desc: 'All customers with contact & balance info' },
-    { label: 'Payments', type: 'payments', count: payments.length, action: handleExportPayments, desc: 'All payment records with cash/UPI split' },
-    { label: 'Expenses', type: 'expenses', count: (expenses || []).length, action: handleExportExpenses, desc: 'All expenses with cash/UPI breakdown' },
-    { label: 'Inventory', type: 'inventory', count: inventory.length, action: handleExportInventory, desc: 'Item pricing list' },
+    { label: 'Invoices & Bills', type: 'bills', count: bills.filter((b) => !b.deleted && !b.deleted_at).length, action: handleExportBills, desc: 'All active bills with line items & paid status' },
+    { label: 'Customers & Ledgers', type: 'customers', count: customers.filter((c) => !c.deleted && !c.deleted_at).length, action: handleExportCustomers, desc: 'All customer contact, type & credit balance info' },
+    { label: 'Payments Register', type: 'payments', count: payments.length, action: handleExportPayments, desc: 'All payment allocations with Cash/UPI split' },
+    { label: 'Expenses & Cashbook', type: 'expenses', count: (expenses || []).length, action: handleExportExpenses, desc: 'All expense vouchers with category breakdown' },
+    { label: 'Advance Deposits', type: 'advances', count: (advances || []).length, action: handleExportAdvances, desc: 'All customer advance receipts and balances' },
+    { label: 'Customer Groups', type: 'groups', count: (groups || []).length, action: handleExportGroups, desc: 'All corporate group billing accounts and members' },
+    { label: 'Inventory & Rates', type: 'inventory', count: inventory.length, action: handleExportInventory, desc: 'Paper pricing catalog (Color & B/W rates)' },
   ]
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Data Management</h1>
-        <p>Backup, export, and import your data safely.</p>
+    <div style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800 }}>Data Management & Backup</h1>
+          <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)' }}>
+            Enterprise data security, complete 8-entity backups, CSV exports, and cloud resynchronization.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleForceResync}
+            disabled={isResyncing}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <RefreshCw size={14} className={isResyncing ? 'spin' : ''} />
+            {isResyncing ? 'Resyncing...' : 'Force Cloud Resync'}
+          </button>
+        </div>
+      </div>
+
+      {/* Storage Inspector Metrics */}
+      <div className="card" style={{ marginBottom: '24px', background: 'linear-gradient(135deg, rgba(20, 10, 38, 0.9) 0%, rgba(30, 15, 55, 0.9) 100%)', border: '1px solid var(--border-accent, rgba(255, 47, 176, 0.3))' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'rgba(0, 240, 255, 0.15)', color: 'var(--aurora-cyan, #00f0ff)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <HardDrive size={22} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent-secondary, #00f0ff)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Local Database & Cache Inspector
+              </div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
+                {storageStats.formatted} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-muted)' }}>({storageStats.totalRecords} total records indexed)</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ textAlign: 'center', padding: '6px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>{bills.length}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Bills</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '6px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>{customers.length}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Customers</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '6px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>{inventory.length}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Items</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '6px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>{advances.length}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Advances</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid-2" style={{ gap: '24px' }}>
-        {/* Export */}
+        {/* Export Panel */}
         <div className="card">
           <div style={{ marginBottom: '16px' }}>
-            <h2>Export Data</h2>
-            <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '4px' }}>Download data in JSON or CSV format for backup or analysis.</p>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Export & Full Backup</h2>
+            <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '4px' }}>
+              Download complete 8-entity JSON backup or itemized CSV register sheets.
+            </p>
           </div>
 
-          <button className="btn btn-primary" onClick={handleFullBackup} style={{ width: '100%', marginBottom: '8px' }}>
-            <Download size={16} /> Full Backup (JSON)
+          <button className="btn btn-primary" onClick={handleFullBackup} style={{ width: '100%', marginBottom: '8px', padding: '12px', fontSize: '0.95rem' }}>
+            <Download size={18} /> Full System Backup (8-Entity JSON)
           </button>
-          <p className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '16px' }}>
-            Complete backup of all data including settings, expenses, and users.
+          <p className="text-muted" style={{ fontSize: '0.76rem', marginBottom: '16px' }}>
+            Preserves Bills, Customers, Groups, Inventory, Payments, Expenses, Advances, and Sequence Counters.
           </p>
 
           <hr style={{ margin: '8px 0 16px', opacity: 0.15 }} />
@@ -395,53 +343,50 @@ const DataManagement = () => {
                   <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{item.label} (CSV)</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{item.desc} · <strong>{item.count}</strong> rows</div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedReport(item.type)}>
-                    View Report
-                  </button>
-                  <button className="btn btn-secondary btn-sm" onClick={item.action}>
-                    <Download size={14} /> Export
-                  </button>
-                </div>
+                <button className="btn btn-secondary btn-sm" onClick={item.action}>
+                  <Download size={14} /> Export CSV
+                </button>
               </div>
             ))}
           </div>
 
           {exportMessage && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', marginTop: '16px', background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', marginTop: '16px', background: 'var(--success-bg, rgba(16,185,129,0.1))', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 'var(--radius-md)', color: 'var(--aurora-green, #10b981)', fontSize: '0.875rem' }}>
               <CheckCircle size={16} /> {exportMessage}
             </div>
           )}
         </div>
 
-        {/* Import */}
+        {/* Import & Recovery Panel */}
         <div className="card">
           <div style={{ marginBottom: '16px' }}>
-            <h2>Import Data</h2>
-            <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '4px' }}>Upload JSON/CSV to restore or bulk-add data.</p>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Import & Restore</h2>
+            <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '4px' }}>
+              Restore from full JSON backup or bulk-upload Customer / Inventory CSV records.
+            </p>
           </div>
 
-          <div className="form-group">
+          <div className="form-group" style={{ marginBottom: '14px' }}>
             <label className="form-label">Import Type</label>
             <select className="form-select" value={importType} onChange={(e) => setImportType(e.target.value)}>
-              <option value="backup">Full Backup (JSON) — restores everything</option>
-              <option value="customers">Customers (CSV)</option>
-              <option value="inventory">Inventory (CSV)</option>
+              <option value="backup">Full Backup (JSON) — Complete System Restoration</option>
+              <option value="customers">Customers (CSV) — Bulk Client Import</option>
+              <option value="inventory">Inventory Catalog (CSV) — Bulk Pricing Import</option>
             </select>
           </div>
 
           <div style={{ padding: '12px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
             {importType === 'backup' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--error)' }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                <span><strong>Format:</strong> JSON backup from this app. Replaces all current data.</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#f59e0b' }}>
+                <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                <span><strong>Full Restoration:</strong> Safely replaces all local registers with backup content and auto-reloads.</span>
               </span>
             )}
             {importType === 'customers' && (
-              <><strong>Columns:</strong> Type, Name, Phone, Email, Credit Balance</>
+              <><strong>Expected CSV Columns:</strong> Type, Name, Phone, Email, Credit Balance, Status</>
             )}
             {importType === 'inventory' && (
-              <><strong>Columns:</strong> Name, Color Single, Color Double, B/W Single, B/W Double</>
+              <><strong>Expected CSV Columns:</strong> Name, Color Single, Color Double, B/W Single, B/W Double</>
             )}
           </div>
 
@@ -453,327 +398,83 @@ const DataManagement = () => {
             style={{ display: 'none' }}
           />
 
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} style={{ width: '100%' }}>
-            <Upload size={16} /> Choose File & Import
+          <button
+            className="btn btn-secondary"
+            onClick={() => fileInputRef.current?.click()}
+            style={{ width: '100%', padding: '12px', fontSize: '0.95rem', marginBottom: '24px' }}
+          >
+            <Upload size={18} /> Select File to Import ({importType === 'backup' ? '.JSON' : '.CSV'})
           </button>
 
           {importMessage && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 14px',
-              marginTop: '16px',
-              background: importMessage.startsWith('Error') ? 'var(--error-bg)' : 'var(--success-bg)',
-              border: `1px solid ${importMessage.startsWith('Error') ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
-              borderRadius: 'var(--radius-md)',
-              color: importMessage.startsWith('Error') ? 'var(--error)' : 'var(--success)',
-              fontSize: '0.875rem'
-            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', marginBottom: '16px', background: importMessage.startsWith('Error') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', border: `1px solid ${importMessage.startsWith('Error') ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, borderRadius: 'var(--radius-md)', color: importMessage.startsWith('Error') ? '#ef4444' : '#10b981', fontSize: '0.875rem' }}>
               {importMessage.startsWith('Error') ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
-              <span>{importMessage}</span>
+              {importMessage}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Guide */}
-      <div className="card" style={{ marginTop: '24px' }}>
-        <h2 style={{ marginBottom: '16px' }}>Backup Guide</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '16px' }}>
-          {[
-            { title: 'Regular Backups', desc: 'Create a JSON backup weekly. It includes all bills, customers, payments, expenses, and settings.' },
-            { title: 'CSV Exports', desc: 'Export individual modules for Excel analysis. Each file includes all relevant columns.' },
-            { title: 'Bulk Import', desc: 'Use CSV import to add multiple customers or inventory items at once from Excel.' },
-            { title: 'Recovery', desc: 'Upload a JSON backup to restore everything. Current data will be replaced — always verify first.' },
-          ].map((item) => (
-            <div key={item.title} style={{ padding: '14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-              <div style={{ fontWeight: 600, marginBottom: '6px' }}>{item.title}</div>
-              <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Report Preview Section */}
-      {selectedReport && (
-        <div className="card report-print-area" style={{ marginTop: '24px' }}>
-          <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <h2 style={{ margin: 0 }}>Report Preview: {selectedReport.toUpperCase()}</h2>
-              <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '2px' }}>Rows in report: {getReportData(selectedReport).length}</p>
-            </div>
-            {/* Period selector & Custom Date Range Wrapper */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-                {['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'].map((p) => (
-                  <button
-                    key={p} type="button"
-                    onClick={() => setReportPeriod(p)}
-                    style={{
-                      padding: '5px 12px', borderRadius: '5px', border: 'none', cursor: 'pointer',
-                      fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
-                      background: reportPeriod === p ? 'var(--accent)' : 'transparent',
-                      color: reportPeriod === p ? '#fff' : '#71717a',
-                    }}
-                  >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
-                ))}
-              </div>
-
-              {reportPeriod === 'custom' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>From:</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: '12px', width: '135px', height: '28px' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>To:</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: '12px', width: '135px', height: '28px' }}
-                    />
-                  </div>
+          {/* Danger Zone / Safe Clean */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px', marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ShieldAlert size={15} /> Clear Demo Transactions
                 </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => generateReportPDF(selectedReport, getReportData(selectedReport))}>
-                <Download size={14} /> Download PDF
-              </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
-                Print Report
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedReport(null)}>
-                <X size={14} /> Close
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Purges demo bills, payments & expenses while keeping shop settings.
+                </div>
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowResetModal(true)}
+                style={{ color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.4)' }}
+              >
+                Clear Data
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Print-only header */}
-          <div className="print-only" style={{ display: 'none', marginBottom: '20px', borderBottom: '2px solid #ddd', paddingBottom: '12px' }}>
-            <h1 style={{ margin: '0 0 6px 0', fontSize: '20px', fontWeight: 'bold', color: '#111' }}>
-              {business?.shopName || 'PrintPro'} — {selectedReport.charAt(0).toUpperCase() + selectedReport.slice(1)} Report
-            </h1>
-            <p style={{ margin: 0, fontSize: '11px', color: '#555', display: 'flex', gap: '16px' }}>
-              <span><strong>Period:</strong> {reportPeriod === 'custom' ? `${customStartDate || 'Start'} to ${customEndDate || 'End'}` : reportPeriod.toUpperCase()}</span>
-              <span><strong>Generated:</strong> {new Date().toLocaleString()}</span>
-              <span><strong>Total Rows:</strong> {getReportData(selectedReport).length}</span>
+      {/* Confirmation Modal */}
+      {showResetModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', marginBottom: '12px' }}>
+              <AlertTriangle size={24} />
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Confirm Transaction Purge</h3>
+            </div>
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.4', marginBottom: '16px' }}>
+              This will clear all Bills, Payments, Expenses, and Advance records from local storage. Your customer list, inventory catalog, sequence generator, and shop settings will be preserved.
             </p>
-          </div>
-
-          <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-            <table className="table">
-              <thead>
-                {selectedReport === 'bills' && (
-                  <tr>
-                    <th>Bill ID</th>
-                    <th>Customer</th>
-                    <th>Date</th>
-                    <th style={{ textAlign: 'right' }}>Subtotal (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Discount (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Total (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Paid (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Balance (₹)</th>
-                    <th>Status</th>
-                  </tr>
-                )}
-                {selectedReport === 'customers' && (
-                  <tr>
-                    <th>Customer ID</th>
-                    <th>Type</th>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                    <th style={{ textAlign: 'right' }}>Credit Bal (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Advance Bal (₹)</th>
-                  </tr>
-                )}
-                {selectedReport === 'payments' && (
-                  <tr>
-                    <th>Payment ID</th>
-                    <th>Bill ID</th>
-                    <th>Customer ID</th>
-                    <th>Date</th>
-                    <th style={{ textAlign: 'right' }}>Cash (₹)</th>
-                    <th style={{ textAlign: 'right' }}>UPI (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Total Paid (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Excess (₹)</th>
-                  </tr>
-                )}
-                {selectedReport === 'expenses' && (
-                  <tr>
-                    <th>Expense ID</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th style={{ textAlign: 'right' }}>Cash (₹)</th>
-                    <th style={{ textAlign: 'right' }}>UPI (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Total (₹)</th>
-                  </tr>
-                )}
-                {selectedReport === 'inventory' && (
-                  <tr>
-                    <th>Item ID</th>
-                    <th>Item Name</th>
-                    <th style={{ textAlign: 'right' }}>Color Single (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Color Double (₹)</th>
-                    <th style={{ textAlign: 'right' }}>B/W Single (₹)</th>
-                    <th style={{ textAlign: 'right' }}>B/W Double (₹)</th>
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {getReportData(selectedReport).map((row, idx) => (
-                  <tr key={idx}>
-                    {selectedReport === 'bills' && (
-                      <>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.invoiceNumber || SequenceService.formatDisplayCode('bill', row.id, 'INV')}</td>
-                        <td>{row.customerName}</td>
-                        <td>{row.date}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.subtotal).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.discountAmount ?? row.discountValue).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.total).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.amountPaid).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.balance).toFixed(2)}</td>
-                        <td><span className={`badge badge-${row.status}`}>{row.status.toUpperCase()}</span></td>
-                      </>
-                    )}
-                    {selectedReport === 'customers' && (
-                      <>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.customerCode || SequenceService.formatDisplayCode('customer', row.id, 'CUS')}</td>
-                        <td><span className={`badge ${row.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{row.type.toUpperCase()}</span></td>
-                        <td>{row.name}</td>
-                        <td>{row.phone || '—'}</td>
-                        <td>{row.email || '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.creditBalance || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.advanceBalance || 0).toFixed(2)}</td>
-                      </>
-                    )}
-                    {selectedReport === 'payments' && (
-                      <>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.paymentCode || SequenceService.formatDisplayCode('payment', row.id, 'PAY')}</td>
-                        <td style={{ fontFamily: 'monospace' }}>{row.invoiceNumber || (row.billId ? SequenceService.formatDisplayCode('bill', row.billId, 'INV') : '—')}</td>
-                        <td style={{ fontFamily: 'monospace' }}>{row.customerCode || (row.customerId ? SequenceService.formatDisplayCode('customer', row.customerId, 'CUS') : '—')}</td>
-                        <td>{row.date ? row.date.slice(0, 10) : ''}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.upiAmount || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.totalPaid || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.excessCredit || 0).toFixed(2)}</td>
-                      </>
-                    )}
-                    {selectedReport === 'expenses' && (
-                      <>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.expenseCode || SequenceService.formatDisplayCode('expense', row.id, 'EXP')}</td>
-                        <td>{row.date}</td>
-                        <td>{row.description}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.upiAmount || 0).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.amount || 0).toFixed(2)}</td>
-                      </>
-                    )}
-                    {selectedReport === 'inventory' && (
-                      <>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.itemCode || SequenceService.formatDisplayCode('inventory', row.id, 'ITM')}</td>
-                        <td>{row.name}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.colorSingle !== undefined ? row.colorSingle : (row.color_single || 0)).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.colorDouble !== undefined ? row.colorDouble : (row.color_double || 0)).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.bwSingle !== undefined ? row.bwSingle : (row.bw_single || 0)).toFixed(2)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(row.bwDouble !== undefined ? row.bwDouble : (row.bw_double || 0)).toFixed(2)}</td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ffffff', marginBottom: '8px' }}>
+              Type <strong>RESET</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              className="form-input"
+              value={resetConfirmationText}
+              onChange={(e) => setResetConfirmationText(e.target.value)}
+              placeholder="RESET"
+              style={{ marginBottom: '16px' }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => { setShowResetModal(false); setResetConfirmationText('') }}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleResetTransactions}
+                disabled={resetConfirmationText.trim().toUpperCase() !== 'RESET'}
+                style={{ backgroundColor: '#ef4444', borderColor: '#ef4444' }}
+              >
+                Purge Transactions
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Print-only styles for reports */}
-      <style>{`
-        @page {
-          size: landscape;
-          margin: 10mm 12mm;
-        }
-        @media print {
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .no-print, .sidebar, .header, .page-header, .grid-2, button, .btn {
-            display: none !important;
-          }
-          .card:not(.report-print-area) {
-            display: none !important;
-          }
-          .app-layout, .main-wrapper, .main-content {
-            display: block !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            border: none !important;
-            background: transparent !important;
-          }
-          body {
-            background: #fff !important;
-            color: #000 !important;
-          }
-          .report-print-area {
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            background: #fff !important;
-            color: #000 !important;
-          }
-          .print-only {
-            display: block !important;
-          }
-          .report-print-area .table-container {
-            max-height: none !important;
-            overflow: visible !important;
-          }
-          .report-print-area table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-            margin-top: 15px !important;
-          }
-          .report-print-area th,
-          .report-print-area td {
-            color: #000 !important;
-            border: 1px solid #ddd !important;
-            padding: 6px 10px !important;
-            font-size: 11px !important;
-          }
-          .report-print-area td {
-            word-break: break-word !important;
-          }
-          /* Keep ID and Status badges on one line */
-          .report-print-area td:first-child,
-          .report-print-area td .badge {
-            white-space: nowrap !important;
-          }
-          .report-print-area th {
-            background: #f4f4f5 !important;
-            font-weight: bold !important;
-            text-align: left;
-          }
-          .report-print-area tr {
-            page-break-inside: avoid !important;
-          }
-        }
-      `}</style>
     </div>
   )
 }

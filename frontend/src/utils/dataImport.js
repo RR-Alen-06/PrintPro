@@ -105,14 +105,29 @@ export const importInventoryFromCSV = (data) => {
 }
 
 export const validateBackupFile = (data) => {
-  if (!data.data) return false
-  const required = ['business', 'customers', 'inventory', 'bills', 'payments', 'settings']
+  if (!data || typeof data !== 'object' || !data.data) return false
+  const required = ['customers', 'inventory', 'bills']
   return required.every((key) => key in data.data)
 }
 
 export const restoreFromBackup = (backupData) => {
   if (!validateBackupFile(backupData)) {
-    throw new Error('Invalid backup file format')
+    throw new Error('Invalid backup file format: missing required ERP registers')
   }
-  return backupData.data
+
+  const payload = backupData.data
+  return {
+    business: payload.business || {},
+    customers: payload.customers || [],
+    customerGroups: payload.customerGroups || payload.groups || [],
+    inventory: payload.inventory || [],
+    bills: payload.bills || [],
+    payments: payload.payments || [],
+    expenses: payload.expenses || [],
+    advancePayments: payload.advancePayments || payload.advances || [],
+    counters: payload.counters || {},
+    sequences: payload.sequences || {},
+    settings: payload.settings || {},
+  }
 }
+

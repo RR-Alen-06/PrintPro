@@ -121,29 +121,63 @@ export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') 
 
 export const exportExpensesToCSV = (expenses, filename = 'expenses-export.csv') => {
   const flat = expenses.map((e) => ({
-    'Expense Code': e.expenseCode || SequenceService.formatDisplayCode('expense', e.id, 'EXP'),
+    'Expense Code': e.voucherNumber || e.voucher_number || e.expenseCode || SequenceService.formatDisplayCode('expense', e.id, 'EXP'),
     'Date': e.date,
-    'Description': e.description,
-    'Total Amount (₹)': Number(e.amount).toFixed(2),
-    'Cash Paid (₹)': Number(e.cashAmount || 0).toFixed(2),
-    'UPI Paid (₹)': Number(e.upiAmount || 0).toFixed(2),
+    'Category': e.category || 'General',
+    'Description': e.description || '',
+    'Vendor': e.vendor || '',
+    'Total Amount (₹)': Number(e.amount || 0).toFixed(2),
+    'Payment Method': e.paymentMethod || e.payment_method || 'Cash',
+  }))
+  exportToCSV(flat, filename)
+}
+
+export const exportAdvancesToCSV = (advances, filename = 'advances-export.csv') => {
+  const flat = advances.map((a) => ({
+    'Receipt Number': a.receiptNumber || a.receipt_number || a.advanceNumber || SequenceService.formatDisplayCode('advance', a.id, 'ADV'),
+    'Customer Name': a.customerName || a.customer_name || '',
+    'Customer Code': a.customerCode || '',
+    'Date': a.date,
+    'Deposit Amount (₹)': Number(a.amount || 0).toFixed(2),
+    'Payment Method': a.paymentMethod || a.payment_method || 'Cash',
+    'Notes': a.notes || '',
+  }))
+  exportToCSV(flat, filename)
+}
+
+export const exportGroupsToCSV = (groups, filename = 'customer-groups-export.csv') => {
+  const flat = groups.map((g) => ({
+    'Group ID': g.id,
+    'Group Name': g.name || '',
+    'Contact Person': g.contactPerson || '',
+    'Phone': g.phone || '',
+    'Email': g.email || '',
+    'Members Count': (g.members || []).length,
+    'Total Outstanding (₹)': Number(g.totalOutstanding || 0).toFixed(2),
+    'Credit Limit (₹)': Number(g.creditLimit || 0).toFixed(2),
   }))
   exportToCSV(flat, filename)
 }
 
 export const createFullBackup = (appState) => {
   const backup = {
-    version: '1.1',
+    version: '2.0',
+    app: 'PrintPro ERP',
     exportDate: new Date().toISOString(),
     data: {
-      business: appState.business,
-      customers: appState.customers,
-      inventory: appState.inventory,
-      bills: appState.bills,
-      payments: appState.payments,
+      business: appState.business || {},
+      customers: appState.customers || [],
+      customerGroups: appState.customerGroups || appState.groups || [],
+      inventory: appState.inventory || [],
+      bills: appState.bills || [],
+      payments: appState.payments || [],
       expenses: appState.expenses || [],
-      settings: appState.settings,
+      advancePayments: appState.advancePayments || appState.advances || [],
+      counters: appState.counters || {},
+      sequences: appState.sequences || {},
+      settings: appState.settings || {},
     },
   }
   exportToJSON(backup, `printpro-full-backup-${new Date().toISOString().slice(0, 10)}.json`)
 }
+

@@ -1,21 +1,23 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { useInventory, useInventoryMutations, usePayments } from '../../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations, usePayments, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
+import { useGroupBills } from '../../hooks/useGroupBillsQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { jsPDF } from 'jspdf'
 import {
   Database, Download, Upload, RefreshCw, Trash2, FileSpreadsheet,
-  FileText, Calendar, CheckCircle, AlertTriangle, Layers, Loader2
+  FileText, Calendar, CheckCircle, AlertTriangle, Layers, Loader2, HardDrive
 } from 'lucide-react'
 import {
   createFullBackup, exportBillsToCSV, exportCustomersToCSV,
-  exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV
+  exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV,
+  exportAdvancesToCSV, exportGroupsToCSV
 } from '../../utils/dataExport'
 import {
   importFromJSON, importCustomersFromCSV, importInventoryFromCSV,
@@ -27,7 +29,7 @@ export default function MobileDataManagement() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, settings, syncFromCloud, showToast, addCustomer: contextAddCustomer, addInventoryItem: contextAddInventoryItem
+    business, settings, counters = {}, sequences = {}, syncFromCloud, showToast, addCustomer: contextAddCustomer, addInventoryItem: contextAddInventoryItem
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -36,6 +38,9 @@ export default function MobileDataManagement() {
   const { data: inventory = [] } = useInventory()
   const { data: payments = [] } = usePayments()
   const { data: expenses = [] } = useExpenses()
+  const { data: advances = [] } = useAdvancePayments()
+  const { groupBills: groups = [] } = useGroupBills()
+
   const { createCustomer: createCustomerMutation } = useCustomerMutations()
   const { createItem: createInventoryMutation } = useInventoryMutations()
 
@@ -46,16 +51,54 @@ export default function MobileDataManagement() {
   const [reportPeriod, setReportPeriod] = useState('all') // 'all'|'daily'|'weekly'|'monthly'|'quarterly'|'yearly'|'custom'
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
-  const [selectedReportEntity, setSelectedReportEntity] = useState('bills') // 'bills'|'customers'|'payments'|'expenses'
+  const [selectedReportEntity, setSelectedReportEntity] = useState('bills') // 'bills'|'customers'|'payments'|'expenses'|'advances'
 
   const fileInputRef = useRef(null)
+
+  // Calculate approximate storage usage
+  const storageStats = useMemo(() => {
+    let bytes = 0
+    try {
+      for (const key in localStorage) {
+        if (Object.prototype.hasOwnProperty.call(localStorage, key) && key.startsWith('printpro')) {
+          bytes += (localStorage[key].length + key.length) * 2
+        }
+      }
+    } catch (_) {}
+    const kb = (bytes / 1024).toFixed(1)
+    const mb = (bytes / (1024 * 1024)).toFixed(2)
+    return {
+      bytes,
+      formatted: bytes > 1024 * 1024 ? `${mb} MB` : `${kb} KB`,
+      totalRecords:
+        bills.length +
+        customers.length +
+        inventory.length +
+        payments.length +
+        expenses.length +
+        advances.length +
+        groups.length,
+    }
+  }, [bills, customers, inventory, payments, expenses, advances, groups])
 
   // 1. Export JSON Full Backup
   const handleFullBackup = () => {
     try {
-      const appState = { business, customers, inventory, bills, payments, expenses, settings }
+      const appState = {
+        business,
+        customers,
+        customerGroups: groups,
+        inventory,
+        bills,
+        payments,
+        expenses,
+        advancePayments: advances,
+        counters,
+        sequences,
+        settings,
+      }
       createFullBackup(appState)
-      showToast('Full JSON Backup downloaded successfully', 'success')
+      showToast('Full 8-Entity JSON Backup downloaded', 'success')
     } catch (e) {
       showToast('Failed to create backup', 'error')
     }
@@ -80,11 +123,18 @@ export default function MobileDataManagement() {
       } else if (entity === 'expenses') {
         exportExpensesToCSV(expenses || [])
         showToast(`${(expenses || []).length} expenses exported to CSV`, 'success')
+      } else if (entity === 'advances') {
+        exportAdvancesToCSV(advances || [])
+        showToast(`${(advances || []).length} advance deposits exported to CSV`, 'success')
+      } else if (entity === 'groups') {
+        exportGroupsToCSV(groups || [])
+        showToast(`${(groups || []).length} customer groups exported to CSV`, 'success')
       }
     } catch (e) {
       showToast('CSV export failed', 'error')
     }
   }
+
 
   // 3. File Import (JSON backup or CSV)
   const triggerImport = (type) => {
