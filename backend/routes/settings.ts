@@ -24,8 +24,11 @@ router.delete('/clear-all', async (req: any, res: any, next: any) => {
     await conn.query('DELETE FROM group_bills WHERE user_id = $1', [userId]);
     await conn.query('DELETE FROM bills WHERE user_id = $1', [userId]);
 
-    // 4. Delete purchases/expenses
+    // 4. Delete purchases/expenses & audit logs
     await conn.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
+    try {
+      await conn.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
+    } catch (_) {}
 
     // 5. Delete inventory items
     await conn.query('DELETE FROM inventory_items WHERE user_id = $1', [userId]);
@@ -76,8 +79,11 @@ router.delete('/clear-transactions', async (req: any, res: any, next: any) => {
     await conn.query('DELETE FROM group_bills WHERE user_id = $1', [userId]);
     await conn.query('DELETE FROM bills WHERE user_id = $1', [userId]);
 
-    // 4. Delete purchases/expenses
+    // 4. Delete purchases/expenses & audit logs
     await conn.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
+    try {
+      await conn.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
+    } catch (_) {}
 
     // 5. Reset customer credit and advance balances to 0
     await conn.query(

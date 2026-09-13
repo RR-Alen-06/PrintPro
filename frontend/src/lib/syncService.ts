@@ -294,6 +294,9 @@ export const clearAllCloudData = async () => {
       await supabase.from('bills').delete().eq('user_id', user.id);
       await supabase.from('purchases').delete().eq('user_id', user.id);
       await supabase.from('expenses').delete().eq('user_id', user.id);
+      try {
+        await supabase.from('audit_log').delete().eq('user_id', user.id);
+      } catch (_) {}
       await supabase.from('inventory_items').delete().eq('user_id', user.id);
       await supabase.from('customers').delete().eq('user_id', user.id);
       await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
@@ -326,6 +329,9 @@ export const clearTransactionRecords = async () => {
       await supabase.from('bills').delete().eq('user_id', user.id);
       await supabase.from('purchases').delete().eq('user_id', user.id);
       await supabase.from('expenses').delete().eq('user_id', user.id);
+      try {
+        await supabase.from('audit_log').delete().eq('user_id', user.id);
+      } catch (_) {}
       await supabase.from('customers').update({ credit_balance: 0, advance_balance: 0, total_spent: 0, balance_due: 0 }).eq('user_id', user.id);
       await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
     }

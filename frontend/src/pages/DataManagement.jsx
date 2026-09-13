@@ -454,7 +454,7 @@ const DataManagement = () => {
               <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Confirm Transaction Purge</h3>
             </div>
             <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.4', marginBottom: '16px' }}>
-              This will clear all Bills, Payments, Expenses, and Advance records from local storage. Your customer list, inventory catalog, sequence generator, and shop settings will be preserved.
+              This will permanently clear all Bills, Payments, Expenses, and Advance records from the database and local storage. Your customer list, inventory catalog, sequence generator, and shop settings will be preserved.
             </p>
             <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ffffff', marginBottom: '8px' }}>
               Type <strong>RESET</strong> to confirm:
