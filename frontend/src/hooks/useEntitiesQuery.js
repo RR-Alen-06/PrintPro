@@ -218,8 +218,6 @@ export function useInventoryMutations() {
       const singleB = Number(newItem.bw_single !== undefined ? newItem.bw_single : (newItem.bwSingle || 0)) || 0
       const doubleB = Number(newItem.bw_double !== undefined ? newItem.bw_double : (newItem.bwDouble || 0)) || 0
       const sp = Number(newItem.selling_price !== undefined ? newItem.selling_price : (newItem.sellingPrice || 0)) || 0
-      const stock = Number(newItem.stock || 0) || 0
-      const lowStock = Number(newItem.low_stock_alert !== undefined ? newItem.low_stock_alert : (newItem.lowStockAlert || 50)) || 50
 
       const optimisticItem = {
         id: newItem.id || `temp-item-${Date.now()}`,
@@ -237,9 +235,6 @@ export function useInventoryMutations() {
         bw_single: singleB,
         bwDouble: doubleB,
         bw_double: doubleB,
-        stock,
-        lowStockAlert: lowStock,
-        low_stock_alert: lowStock,
         isOptimistic: true,
       }
 
@@ -289,8 +284,6 @@ export function useInventoryMutations() {
           const singleB = Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle !== undefined ? data.bwSingle : (i.bwSingle ?? i.bw_single ?? 0))) || 0
           const doubleB = Number(data.bw_double !== undefined ? data.bw_double : (data.bwDouble !== undefined ? data.bwDouble : (i.bwDouble ?? i.bw_double ?? 0))) || 0
           const sp = Number(data.selling_price !== undefined ? data.selling_price : (data.sellingPrice !== undefined ? data.sellingPrice : (i.sellingPrice ?? i.selling_price ?? 0))) || 0
-          const stock = data.stock !== undefined ? Number(data.stock) : Number(i.stock || 0)
-          const lowStock = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert !== undefined ? data.lowStockAlert : (i.lowStockAlert ?? i.low_stock_alert ?? 50))) || 50
 
           return {
             ...i,
@@ -305,9 +298,6 @@ export function useInventoryMutations() {
             bw_double: doubleB,
             sellingPrice: sp,
             selling_price: sp,
-            stock: isNaN(stock) ? 0 : stock,
-            lowStockAlert: lowStock,
-            low_stock_alert: lowStock,
           }
         })
       )
