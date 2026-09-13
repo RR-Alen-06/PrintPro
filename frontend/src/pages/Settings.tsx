@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useProfile, useProfileMutations } from '../hooks/useProfileQuery'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2, Hash, MessageSquare } from 'lucide-react'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2, Hash, MessageSquare, Printer } from 'lucide-react'
 import { clearAllCloudData } from '../lib/syncService'
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
@@ -43,6 +43,20 @@ const Settings = () => {
     upiId: business.upiId || '',
   })
   const [bizSaved, setBizSaved] = useState(false)
+
+  // Sync serverProfile with local form state when loaded from cloud
+  useEffect(() => {
+    if (serverProfile && Object.keys(serverProfile).length > 0) {
+      setBiz((prev) => ({
+        shopName: prev.shopName || serverProfile.shop_name || '',
+        ownerName: prev.ownerName || serverProfile.owner_name || '',
+        phone: prev.phone || serverProfile.phone || '',
+        address: prev.address || serverProfile.address || '',
+        gstin: prev.gstin || serverProfile.gstin || '',
+        upiId: prev.upiId || serverProfile.upi_id || '',
+      }))
+    }
+  }, [serverProfile])
 
   // Accounting settings local state
   const [acct, setAcct] = useState({
@@ -152,6 +166,8 @@ const Settings = () => {
     showGstBreakdown: settings.showGstBreakdown !== false,
     showUpiQrCode: settings.showUpiQrCode !== false,
     silentThermalPrint: settings.silentThermalPrint === true,
+    printPaperSize: settings.printPaperSize || '80mm',
+    autoPrintOnSave: settings.autoPrintOnSave === true,
     shopSealUrl: settings.shopSealUrl || '',
     signatorySignatureUrl: settings.signatorySignatureUrl || '',
     pdfShowType: settings.pdfShowType !== false,
@@ -1353,6 +1369,39 @@ const Settings = () => {
               />
               <span style={{ fontWeight: 600 }}>Enable Silent Thermal Printing on Bill Creation</span>
             </label>
+            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={branding.autoPrintOnSave}
+                onChange={(e) => setBranding((prev) => ({ ...prev, autoPrintOnSave: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              <span style={{ fontWeight: 600 }}>Auto-Trigger Print Dialog on Bill Save</span>
+            </label>
+          </div>
+
+          {/* Thermal Printer Paper Format */}
+          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
+            <h4 style={{ marginBottom: '10px', fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Printer size={16} /> Default Print Format & Thermal Roll Size
+            </h4>
+            <div className="form-row" style={{ alignItems: 'center' }}>
+              <div className="form-group" style={{ flex: '1 1 240px' }}>
+                <label className="form-label">Receipt Output Format</label>
+                <select
+                  className="form-control"
+                  value={branding.printPaperSize}
+                  onChange={(e) => setBranding((prev) => ({ ...prev, printPaperSize: e.target.value }))}
+                >
+                  <option value="58mm">58mm POS Thermal Roll (Compact)</option>
+                  <option value="80mm">80mm POS Thermal Roll (Standard / Wide)</option>
+                  <option value="A4">A4 Full Page Document (Standard PDF / Invoice)</option>
+                </select>
+              </div>
+              <div style={{ flex: '1 1 300px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Configures default receipt width and formatting for 1-click printing across POS Billing and Customer Bills.
+              </div>
+            </div>
           </div>
 
           {/* Shop Seal & Authorized Signature */}

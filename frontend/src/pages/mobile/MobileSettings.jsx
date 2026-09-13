@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
+import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
 import { clearAllCloudData } from '../../lib/syncService'
 import { SequenceService } from '../../services/sequenceService'
 import { ReminderService } from '../../services/reminderService'
@@ -9,7 +10,7 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   Building2, Shield, Gift, Monitor, LogOut, Check, Save, Upload,
   Cpu, Sliders, Smartphone, AlertCircle, RefreshCw, Tag, Trash2,
-  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare
+  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare, Printer
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -19,6 +20,8 @@ export default function MobileSettings() {
     business, updateBusiness, settings, updateSettings, promoCodes, setPromoCodes,
     currentUser, logout, showToast, syncFromCloud
   } = useAppContext()
+  const { data: serverProfile = {} } = useProfile()
+  const { updateProfile } = useProfileMutations()
 
   // Sequence configuration local state
   const [seqConfigs, setSeqConfigs] = useState({
@@ -49,6 +52,20 @@ export default function MobileSettings() {
     gstin: business.gstin || '',
     upiId: business.upiId || '',
   })
+
+  // Sync serverProfile with local business form state when loaded
+  useEffect(() => {
+    if (serverProfile && Object.keys(serverProfile).length > 0) {
+      setBiz((prev) => ({
+        shopName: prev.shopName || serverProfile.shop_name || '',
+        ownerName: prev.ownerName || serverProfile.owner_name || '',
+        phone: prev.phone || serverProfile.phone || '',
+        address: prev.address || serverProfile.address || '',
+        gstin: prev.gstin || serverProfile.gstin || '',
+        upiId: prev.upiId || serverProfile.upi_id || '',
+      }))
+    }
+  }, [serverProfile])
 
   // Accounting defaults state
   const [gstRate, setGstRate] = useState(settings.gstRate ?? 0)
@@ -91,17 +108,33 @@ export default function MobileSettings() {
   const [newPromoMinAmount, setNewPromoMinAmount] = useState('')
 
   // Preferences local state
+  const [printPaperSize, setPrintPaperSize] = useState(settings.printPaperSize || '80mm')
+  const [autoPrintOnSave, setAutoPrintOnSave] = useState(settings.autoPrintOnSave === true)
   const [silentThermalPrint, setSilentThermalPrint] = useState(settings.silentThermalPrint === true)
   const [isSyncing, setIsSyncing] = useState(false)
   const [showClearDataModal, setShowClearDataModal] = useState(false)
 
   // Save Business Profile
-  const handleSaveBusiness = (e) => {
+  const handleSaveBusiness = async (e) => {
     e.preventDefault()
     if (updateBusiness) {
       updateBusiness(biz)
     }
-    showToast('Business Profile Updated!', 'success')
+    try {
+      if (updateProfile) {
+        await updateProfile({
+          shop_name: biz.shopName,
+          owner_name: biz.ownerName,
+          phone: biz.phone,
+          address: biz.address,
+          gstin: biz.gstin,
+          upi_id: biz.upiId,
+        })
+      }
+      showToast('Business Profile Updated & Synced to Cloud!', 'success')
+    } catch (err) {
+      showToast('Business Profile Updated locally!', 'info')
+    }
   }
 
   // Image File Upload Helper
@@ -984,7 +1017,28 @@ export default function MobileSettings() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Receipt Output Format</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Default width for 1-tap printing</div>
+          </div>
+          <select
+            className="mobile-input"
+            value={printPaperSize}
+            onChange={(e) => {
+              setPrintPaperSize(e.target.value)
+              if (updateSettings) updateSettings({ printPaperSize: e.target.value })
+              showToast(`Print format set to ${e.target.value}`, 'success')
+            }}
+            style={{ width: 'auto', minWidth: '100px', fontSize: '0.8rem', padding: '6px 8px' }}
+          >
+            <option value="58mm">58mm Thermal</option>
+            <option value="80mm">80mm Thermal</option>
+            <option value="A4">A4 Standard</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
           <div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Silent Thermal Print</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-print receipt without print dialog</div>
@@ -1012,6 +1066,44 @@ export default function MobileSettings() {
               position: 'absolute',
               top: '2px',
               left: silentThermalPrint ? '22px' : '2px',
+              transition: 'var(--transition)'
+            }} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
+          <div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Auto-Print on Bill Save</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Automatically trigger printer on POS save</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !autoPrintOnSave
+              setAutoPrintOnSave(next)
+              if (updateSettings) updateSettings({ autoPrintOnSave: next })
+              showToast(next ? 'Auto-print enabled' : 'Auto-print disabled', 'info')
+            }}
+            style={{
+              width: '44px',
+              height: '24px',
+              borderRadius: '999px',
+              background: autoPrintOnSave ? 'var(--accent-primary)' : 'var(--bg-input)',
+              border: '1px solid var(--border)',
+              position: 'relative',
+              cursor: 'pointer',
+              boxShadow: autoPrintOnSave ? '0 0 8px rgba(255, 47, 176, 0.4)' : 'none',
+              transition: 'var(--transition)'
+            }}
+          >
+            <div style={{
+              width: '18px',
+              height: '18px',
+              borderRadius: '50%',
+              background: '#ffffff',
+              position: 'absolute',
+              top: '2px',
+              left: autoPrintOnSave ? '22px' : '2px',
               transition: 'var(--transition)'
             }} />
           </button>
