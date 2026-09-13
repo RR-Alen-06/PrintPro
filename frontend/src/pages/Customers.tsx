@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills } from '../hooks/useBillsQuery'
@@ -24,8 +25,9 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast, recordPayment } = useAppContext()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills } = useBills()
@@ -98,19 +100,26 @@ const Customers = () => {
 
   const ledgerData = useMemo(() => {
     if (!selectedCustomer) return []
-    const customerBills = bills.filter((b: any) => b.customerId === selectedCustomer.id && !b.deleted)
-    const customerPayments = payments.filter((p: any) => p.customerId === selectedCustomer.id)
+    const custId = String(selectedCustomer.id)
+    const customerBills = bills.filter((b: any) => {
+      const bCustId = String(b.customerId || b.customer_id || '')
+      return bCustId === custId && !b.deleted && !b.deleted_at
+    })
+    const customerPayments = payments.filter((p: any) => {
+      const pCustId = String(p.customerId || p.customer_id || '')
+      return pCustId === custId
+    })
     const res = LedgerService.buildCustomerLedger({
       bills: customerBills,
       payments: customerPayments
     })
-    return res.entries.map(e => ({
-      date: e.date?.slice(0, 10) || e.date,
+    return (res?.entries || []).map(e => ({
+      date: e.date?.slice(0, 10) || e.date || '',
       type: e.type === 'BILL' ? `Invoice #${e.reference_no}` : e.description,
       refId: e.reference_no,
-      debit: e.bill_amount,
-      credit: e.paid_amount,
-      balance: e.running_balance
+      debit: Number(e.bill_amount || 0),
+      credit: Number(e.paid_amount || 0),
+      balance: Number(e.running_balance || 0)
     }))
   }, [selectedCustomer, bills, payments])
 
@@ -124,11 +133,11 @@ const Customers = () => {
     
     ledgerData.forEach((row: any) => {
       const typeStr = row.refId === 'OB' ? 'OB ' : row.refId
-      msg += `${row.date} | ${typeStr} | ₹${row.debit.toFixed(0)} | ₹${row.credit.toFixed(0)}\n`
+      msg += `${row.date} | ${typeStr} | ₹${Number(row.debit || 0).toFixed(0)} | ₹${Number(row.credit || 0).toFixed(0)}\n`
     })
     
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
-    const outstanding = ledgerData.length > 0 ? ledgerData[ledgerData.length - 1].balance : 0
+    const outstanding = ledgerData.length > 0 ? Number(ledgerData[ledgerData.length - 1].balance || 0) : 0
     msg += `*Net Outstanding Balance: ₹${outstanding.toFixed(2)}*\n`
     
     if (outstanding > 0 && business?.upiId) {
@@ -148,8 +157,8 @@ const Customers = () => {
       if (c.deleted) return false  // hide deleted from normal tabs
       const matchesSearch =
         !searchQuery ||
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(c.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (c.phone || '').includes(searchQuery)
       const matchesType = filterType === 'all' || c.type === filterType
       return matchesSearch && matchesType
@@ -159,9 +168,14 @@ const Customers = () => {
   // Bills for selected customer (non-deleted, newest first)
   const customerBills = useMemo(() => {
     if (!selectedCustomerId) return []
+    const custId = String(selectedCustomerId)
     return bills
-      .filter((b: any) => !b.deleted && b.customerId === selectedCustomerId)
-      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .filter((b: any) => {
+        if (b.deleted || b.deleted_at) return false
+        const bCustId = String(b.customerId || b.customer_id || '')
+        return bCustId === custId
+      })
+      .sort((a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
   }, [bills, selectedCustomerId])
 
   // Outstanding balance for selected customer
@@ -172,19 +186,19 @@ const Customers = () => {
       bills,
       payments
     })
-    return summary.balance_due
+    return Number(summary?.balance_due || 0)
   }, [selectedCustomer, bills, payments])
 
   // Total outstanding for any customer (for list display)
   const getCustomerOutstanding = (customerId: string) => {
-    const cust = customers.find((c: any) => c.id === customerId)
+    const cust = customers.find((c: any) => String(c.id) === String(customerId))
     if (!cust) return 0
     const summary = LedgerService.computeCustomerSummary({
       customer: cust,
       bills,
       payments
     })
-    return summary.balance_due
+    return Number(summary?.balance_due || 0)
   }
 
   // Apply payment to oldest unpaid bills first via FIFO
@@ -194,20 +208,52 @@ const Customers = () => {
     const totalPaying = cash + upi
     if (totalPaying <= 0 || !selectedCustomer) return
 
-    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
-    await (createPayment as any)({
-      customer_id: selectedCustomer.id,
-      cash_amount: cash,
-      upi_amount: upi,
-      total_paid: totalPaying,
-      payment_type: 'partial',
-      notes: `Payment from customer page (${method})`,
-    })
+    const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
+    try {
+      if (recordPayment) {
+        await recordPayment({
+          customerId: selectedCustomer.id,
+          amount: totalPaying,
+          paymentMethod: method,
+          cashAmount: cash,
+          upiAmount: upi,
+          notes: `Payment from customer page (${method.toUpperCase()})`,
+        })
+      }
 
-    setPayCash(0)
-    setPayUpi(0)
-    setPaySuccess(true)
-    setTimeout(() => setPaySuccess(false), 3500)
+      if (createPayment) {
+        await (createPayment as any)({
+          customer_id: selectedCustomer.id,
+          customerId: selectedCustomer.id,
+          customerName: selectedCustomer.name,
+          cash_amount: cash,
+          cashAmount: cash,
+          upi_amount: upi,
+          upiAmount: upi,
+          total_paid: totalPaying,
+          totalPaid: totalPaying,
+          payment_type: 'partial',
+          paymentType: 'partial',
+          paymentMethod: method,
+          notes: `Payment from customer page (${method.toUpperCase()})`,
+          date: new Date().toISOString()
+        })
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
+
+      setPayCash('')
+      setPayUpi('')
+      setPaySuccess(true)
+      setTimeout(() => setPaySuccess(false), 3500)
+    } catch (err: any) {
+      showAlert(err.message || 'Failed to record payment', 'error')
+    }
   }
 
   const handleTargetBillPayment = async (bill: any) => {
@@ -216,22 +262,44 @@ const Customers = () => {
     const totalPaying = cash + upi
     if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
 
-    const method = cash > 0 && upi > 0 ? 'Split Payment' : (upi > 0 ? 'UPI' : 'Cash')
-    await (createPayment as any)({
-      bill_id: bill.id,
-      customer_id: bill.customerId || bill.customer_id,
-      cash_amount: cash,
-      upi_amount: upi,
-      total_paid: totalPaying,
-      payment_type: totalPaying >= (bill.balance || bill.total || 0) ? 'full' : 'partial',
-      notes: `Selective payment for bill ${bill.id} (${method})`,
-    })
+    const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
+    const bBal = Number(bill.balance !== undefined ? bill.balance : (bill.total || bill.grand_total || 0))
+    try {
+      if (createPayment) {
+        await (createPayment as any)({
+          bill_id: bill.id,
+          billId: bill.id,
+          customer_id: bill.customerId || bill.customer_id,
+          customerId: bill.customerId || bill.customer_id,
+          cash_amount: cash,
+          cashAmount: cash,
+          upi_amount: upi,
+          upiAmount: upi,
+          total_paid: totalPaying,
+          totalPaid: totalPaying,
+          payment_type: totalPaying >= bBal ? 'full' : 'partial',
+          paymentType: totalPaying >= bBal ? 'full' : 'partial',
+          paymentMethod: method,
+          notes: `Selective payment for bill ${bill.id} (${method.toUpperCase()})`,
+          date: new Date().toISOString()
+        })
+      }
 
-    setTargetBillPayId(null)
-    setTargetCash(0)
-    setTargetUpi(0)
-    setTargetPaySuccess(true)
-    setTimeout(() => setTargetPaySuccess(false), 3500)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
+
+      setTargetBillPayId(null)
+      setTargetCash('')
+      setTargetUpi('')
+      setTargetPaySuccess(true)
+      setTimeout(() => setTargetPaySuccess(false), 3500)
+    } catch (err: any) {
+      showAlert(err.message || 'Failed to record bill payment', 'error')
+    }
   }
 
   const openModal = () => {
@@ -640,7 +708,7 @@ const Customers = () => {
                     ₹{outstandingBalance.toFixed(2)}
                   </span>
                 </div>
-                {Number(selectedCustomer.advanceBalance || 0) > 0 && (
+                {Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0) > 0 && (
                   <div style={{
                     display: 'inline-flex', alignItems: 'center', gap: '8px',
                     padding: '8px 16px', borderRadius: 'var(--radius-md)',
@@ -649,7 +717,7 @@ const Customers = () => {
                     <Wallet size={13} style={{ color: 'var(--info)' }} />
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Advance</span>
                     <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--info)' }}>
-                      ₹{Number(selectedCustomer.advanceBalance).toFixed(2)}
+                      ₹{Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0).toFixed(2)}
                     </span>
                   </div>
                 )}
@@ -681,260 +749,271 @@ const Customers = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {customerBills.map((bill) => (
-                        <React.Fragment key={bill.id}>
-                          <tr>
-                            <td>
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ padding: '4px' }}
-                                onClick={() => setExpandedBillId(expandedBillId === bill.id ? null : bill.id)}
-                              >
-                                {expandedBillId === bill.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                              </button>
-                            </td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.invoiceNumber || bill.id}</td>
-                            <td>{bill.date}</td>
-                            <td>₹{bill.total.toFixed(2)}</td>
-                            <td>₹{bill.amountPaid.toFixed(2)}</td>
-                            <td style={{ color: bill.balance > 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 600 }}>
-                              ₹{bill.balance.toFixed(2)}
-                            </td>
-                            <td>
-                              <span className={`badge badge-${bill.status === 'paid' ? 'paid' : bill.status === 'partial' ? 'partial' : 'unpaid'}`}>
-                                {bill.status}
-                              </span>
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      {customerBills.map((bill: any) => {
+                        const bTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total !== undefined ? bill.grand_total : 0))
+                        const bPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paid_total !== undefined ? bill.paid_total : 0)))
+                        const bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
+                        const bStatus = bill.status || (bPaid >= bTotal && bTotal > 0 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid'))
+
+                        return (
+                          <React.Fragment key={bill.id}>
+                            <tr>
+                              <td>
                                 <button
-                                  type="button"
                                   className="btn btn-ghost btn-sm"
-                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
-                                  onClick={() => navigate(`/billing?edit=${bill.id}`)}
-                                  title="Edit Bill"
+                                  style={{ padding: '4px' }}
+                                  onClick={() => setExpandedBillId(expandedBillId === bill.id ? null : bill.id)}
                                 >
-                                  <Pencil size={14} /> Edit
+                                  {expandedBillId === bill.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                 </button>
-                                {bill.status !== 'paid' && (
+                              </td>
+                              <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.invoiceNumber || bill.bill_number || bill.id}</td>
+                              <td>{bill.date?.slice(0, 10) || bill.created_at?.slice(0, 10) || 'N/A'}</td>
+                              <td>₹{bTotal.toFixed(2)}</td>
+                              <td>₹{bPaid.toFixed(2)}</td>
+                              <td style={{ color: bBalance > 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 600 }}>
+                                ₹{bBalance.toFixed(2)}
+                              </td>
+                              <td>
+                                <span className={`badge badge-${bStatus === 'paid' ? 'paid' : bStatus === 'partial' ? 'partial' : 'unpaid'}`}>
+                                  {bStatus}
+                                </span>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                                   <button
                                     type="button"
                                     className="btn btn-ghost btn-sm"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: '#10b981', fontSize: '12px' }}
-                                    onClick={() => {
-                                      setTargetBillPayId(targetBillPayId === bill.id ? null : bill.id)
-                                      setTargetCash(0)
-                                      setTargetUpi(0)
-                                      setTargetBillQrGenerated(false)
-                                      setTargetBillUpiCheckoutAmount(0)
-                                    }}
-                                    title="Pay This Bill"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
+                                    onClick={() => navigate(`/billing?edit=${bill.id}`)}
+                                    title="Edit Bill"
                                   >
-                                    <Wallet size={13} /> Pay
+                                    <Pencil size={14} /> Edit
                                   </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                           {expandedBillId === bill.id && (
-                             <tr>
-                               <td colSpan={8} style={{ padding: '0 16px 12px', background: 'var(--bg-elevated)' }}>
-                                <div style={{ padding: '12px 0' }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Line Items</div>
-                                  <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                        <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Item</th>
-                                        <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Type</th>
-                                        <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Sides</th>
-                                        <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Qty</th>
-                                        <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Unit</th>
-                                        <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Amount</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {(bill.items || []).map((item, i) => (
-                                        <tr key={i}>
-                                          <td style={{ padding: '4px 8px', color: 'var(--text-primary)' }}>{item.itemName || item.name}</td>
-                                          <td style={{ padding: '4px 8px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
-                                          <td style={{ padding: '4px 8px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
-                                          <td style={{ padding: '4px 8px', textAlign: 'right' }}>{item.qty}</td>
-                                          <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{Number(item.unitPrice).toFixed(2)}</td>
-                                          <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{Number(item.amount).toFixed(2)}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-
-                                  {/* Post-Bill Discount Form */}
-                                  <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
-                                    <form autoComplete="off" onSubmit={(e) => {
-                                      e.preventDefault()
-                                      const formEl = e.target as any
-                                      const type = formEl.discountType.value
-                                      const val = Number(formEl.discountValue.value || 0)
-                                      if (val < 0) {
-                                        showAlert('Discount value cannot be negative.', 'error')
-                                        return
-                                      }
-                                      applyPostDiscount(bill.id, type, val)
-                                      showAlert('Post-bill discount applied successfully.', 'success')
-                                    }} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                      <select name="discountType" className="form-select" style={{ width: '120px', padding: '6px', height: '32px', fontSize: '0.8rem' }} defaultValue={bill.discountType || 'flat'}>
-                                        <option value="flat">Flat (₹)</option>
-                                        <option value="percent">Percent (%)</option>
-                                      </select>
-                                      <input
-                                        type="number"
-                                        name="discountValue"
-                                        step="any"
-                                        className="form-input"
-                                        style={{ width: '100px', padding: '6px', height: '32px', fontSize: '0.8rem' }}
-                                        placeholder="Value"
-                                        defaultValue={bill.discountValue || 0}
-                                        min="0"
-                                      />
-                                      <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '6px 12px', height: '32px', fontSize: '0.8rem' }}>
-                                        Apply Discount
-                                      </button>
-                                    </form>
-                                  </div>
+                                  {bStatus !== 'paid' && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-sm"
+                                      style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: '#10b981', fontSize: '12px' }}
+                                      onClick={() => {
+                                        setTargetBillPayId(targetBillPayId === bill.id ? null : bill.id)
+                                        setTargetCash('')
+                                        setTargetUpi('')
+                                        setTargetBillQrGenerated(false)
+                                        setTargetBillUpiCheckoutAmount(0)
+                                      }}
+                                      title="Pay This Bill"
+                                    >
+                                      <Wallet size={13} /> Pay
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
-                          )}
-                          {/* Pay This Bill Panel */}
-                          {targetBillPayId === bill.id && bill.status !== 'paid' && (
-                            <tr>
-                              <td colSpan={8} style={{ padding: '0 16px 12px', background: 'rgba(16,185,129,0.05)' }}>
-                                <div style={{ padding: '12px', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', marginTop: '4px' }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Wallet size={13} /> Pay This Bill Only — {bill.id}
-                                    <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{Number(bill.balance).toFixed(2)})</span>
+                            {expandedBillId === bill.id && (
+                              <tr>
+                                <td colSpan={8} style={{ padding: '0 16px 12px', background: 'var(--bg-elevated)' }}>
+                                  <div style={{ padding: '12px 0' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Line Items</div>
+                                    <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
+                                      <thead>
+                                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Item</th>
+                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Type</th>
+                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Sides</th>
+                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Qty</th>
+                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Unit</th>
+                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Amount</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(bill.items || []).map((item: any, i: number) => {
+                                          const unitPrice = Number(item.unitPrice !== undefined ? item.unitPrice : (item.rate !== undefined ? item.rate : (item.price || 0)))
+                                          const itemAmount = Number(item.amount !== undefined ? item.amount : (item.total !== undefined ? item.total : (unitPrice * Number(item.qty || 1))))
+                                          return (
+                                            <tr key={i}>
+                                              <td style={{ padding: '4px 8px', color: 'var(--text-primary)' }}>{item.itemName || item.name || 'Item'}</td>
+                                              <td style={{ padding: '4px 8px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
+                                              <td style={{ padding: '4px 8px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
+                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>{item.qty || 1}</td>
+                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{unitPrice.toFixed(2)}</td>
+                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{itemAmount.toFixed(2)}</td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+
+                                    {/* Post-Bill Discount Form */}
+                                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
+                                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
+                                      <form autoComplete="off" onSubmit={(e) => {
+                                        e.preventDefault()
+                                        const formEl = e.target as any
+                                        const type = formEl.discountType.value
+                                        const val = Number(formEl.discountValue.value || 0)
+                                        if (val < 0) {
+                                          showAlert('Discount value cannot be negative.', 'error')
+                                          return
+                                        }
+                                        applyPostDiscount(bill.id, type, val)
+                                        showAlert('Post-bill discount applied successfully.', 'success')
+                                      }} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <select name="discountType" className="form-select" style={{ width: '120px', padding: '6px', height: '32px', fontSize: '0.8rem' }} defaultValue={bill.discountType || 'flat'}>
+                                          <option value="flat">Flat (₹)</option>
+                                          <option value="percent">Percent (%)</option>
+                                        </select>
+                                        <input
+                                          type="number"
+                                          name="discountValue"
+                                          step="any"
+                                          className="form-input"
+                                          style={{ width: '100px', padding: '6px', height: '32px', fontSize: '0.8rem' }}
+                                          placeholder="Value"
+                                          defaultValue={bill.discountValue || 0}
+                                          min="0"
+                                        />
+                                        <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '6px 12px', height: '32px', fontSize: '0.8rem' }}>
+                                          Apply Discount
+                                        </button>
+                                      </form>
+                                    </div>
                                   </div>
-                                  {(() => {
-                                    const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
-                                    const isSplit = bill.groupBillId && groupMembers.length > 1
-                                    if (!isSplit) return null
-                                    const groupBal = groupMembers.reduce((s, b) => s + b.balance, 0)
-                                    return (
-                                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                </td>
+                              </tr>
+                            )}
+                            {/* Pay This Bill Panel */}
+                            {targetBillPayId === bill.id && bStatus !== 'paid' && (
+                              <tr>
+                                <td colSpan={8} style={{ padding: '0 16px 12px', background: 'rgba(16,185,129,0.05)' }}>
+                                  <div style={{ padding: '12px', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', marginTop: '4px' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <Wallet size={13} /> Pay This Bill Only — {bill.invoiceNumber || bill.id}
+                                      <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{bBalance.toFixed(2)})</span>
+                                    </div>
+                                    {(() => {
+                                      const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
+                                      const isSplit = bill.groupBillId && groupMembers.length > 1
+                                      if (!isSplit) return null
+                                      const groupBal = groupMembers.reduce((s, b) => s + Number(b.balance || 0), 0)
+                                      return (
+                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                          <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={() => {
+                                              setTargetCash(String(bBalance))
+                                              setTargetUpi('0')
+                                            }}
+                                          >
+                                            Pay My Share (₹{bBalance.toFixed(2)})
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={() => {
+                                              setTargetCash(String(groupBal))
+                                              setTargetUpi('0')
+                                            }}
+                                          >
+                                            Pay Full Group (₹{Number(groupBal).toFixed(2)})
+                                          </button>
+                                        </div>
+                                      )
+                                    })()}
+                                    {targetPaySuccess && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', marginBottom: '8px' }}>
+                                        <CheckCircle size={14} /> Payment recorded!
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                      <div>
+                                        <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash (₹)</label>
+                                        <input className="form-input" type="number" min="0" step="0.01" value={targetCash}
+                                          style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
+                                          onChange={(e) => setTargetCash(e.target.value)} />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI (₹)</label>
+                                        <input className="form-input" type="number" min="0" step="0.01" value={targetUpi}
+                                          style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
+                                          onChange={(e) => {
+                                            setTargetUpi(e.target.value)
+                                            setTargetBillQrGenerated(false)
+                                            setTargetBillUpiCheckoutAmount(0)
+                                          }} />
+                                      </div>
+                                      <button
+                                        type="button" className="btn btn-primary"
+                                        style={{ padding: '7px 16px', fontSize: '13px', background: '#10b981', border: 'none' }}
+                                        onClick={() => handleTargetBillPayment(bill)}
+                                      >
+                                        Record Payment
+                                      </button>
+                                      <button
+                                        type="button" className="btn btn-ghost btn-sm"
+                                        onClick={() => setTargetBillPayId(null)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+
+                                    {/* Inline UPI Checkout Option */}
+                                    <div style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
+                                      <label className="form-label" style={{ fontSize: '0.78rem', color: '#71717a' }}>UPI Checkout</label>
+                                      <div style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
                                         <button
                                           type="button"
                                           className="btn btn-secondary btn-sm"
-                                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                                          disabled={!Number(targetUpi || 0)}
                                           onClick={() => {
-                                            setTargetCash(String(bill.balance))
-                                            setTargetUpi('0')
+                                            setTargetBillUpiCheckoutAmount(Number(targetUpi || 0))
+                                            setTargetBillQrGenerated(true)
                                           }}
+                                          style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                                         >
-                                          Pay My Share (₹{Number(bill.balance).toFixed(2)})
+                                          <Link2 size={14} /> Generate QR
                                         </button>
                                         <button
                                           type="button"
-                                          className="btn btn-secondary btn-sm"
-                                          style={{ fontSize: '11px', padding: '4px 8px' }}
-                                          onClick={() => {
-                                            setTargetCash(String(groupBal))
-                                            setTargetUpi('0')
-                                          }}
+                                          className="btn btn-ghost btn-sm"
+                                          disabled={!Number(targetUpi || 0) || !business?.upiId}
+                                          onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${bill.invoiceNumber || bill.id}`))}
+                                          style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                                         >
-                                          Pay Full Group (₹{Number(groupBal).toFixed(2)})
+                                          <Copy size={14} /> Copy Link
                                         </button>
                                       </div>
-                                    )
-                                  })()}
-                                  {targetPaySuccess && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', marginBottom: '8px' }}>
-                                      <CheckCircle size={14} /> Payment recorded!
+                                      {business?.upiId ? (
+                                        <>
+                                          {targetBillQrGenerated && targetBillUpiCheckoutAmount > 0 && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: 'fit-content' }}>
+                                              <img
+                                                src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${bill.invoiceNumber || bill.id}`))}`}
+                                                alt="UPI QR Code"
+                                                style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
+                                                width={110} height={110}
+                                              />
+                                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{targetBillUpiCheckoutAmount.toFixed(2)}</span>
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
+                                      )}
                                     </div>
-                                  )}
-                                   <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                                    <div>
-                                      <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash (₹)</label>
-                                      <input className="form-input" type="number" min="0" step="0.01" value={targetCash}
-                                        style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
-                                        onChange={(e) => setTargetCash(e.target.value)} />
+                                    <div style={{ fontSize: '11px', color: '#71717a', marginTop: '8px' }}>
+                                      ⚠ This payment applies only to {bill.invoiceNumber || bill.id}, no FIFO reordering.
                                     </div>
-                                    <div>
-                                      <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI (₹)</label>
-                                      <input className="form-input" type="number" min="0" step="0.01" value={targetUpi}
-                                        style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
-                                        onChange={(e) => {
-                                          setTargetUpi(e.target.value)
-                                          setTargetBillQrGenerated(false)
-                                          setTargetBillUpiCheckoutAmount(0)
-                                        }} />
-                                    </div>
-                                    <button
-                                      type="button" className="btn btn-primary"
-                                      style={{ padding: '7px 16px', fontSize: '13px', background: '#10b981', border: 'none' }}
-                                      onClick={() => handleTargetBillPayment(bill)}
-                                    >
-                                      Record Payment
-                                    </button>
-                                    <button
-                                      type="button" className="btn btn-ghost btn-sm"
-                                      onClick={() => setTargetBillPayId(null)}
-                                    >
-                                      Cancel
-                                    </button>
                                   </div>
-
-                                  {/* Inline UPI Checkout Option */}
-                                  <div style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
-                                    <label className="form-label" style={{ fontSize: '0.78rem', color: '#71717a' }}>UPI Checkout</label>
-                                    <div style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        disabled={!Number(targetUpi || 0)}
-                                        onClick={() => {
-                                          setTargetBillUpiCheckoutAmount(Number(targetUpi || 0))
-                                          setTargetBillQrGenerated(true)
-                                        }}
-                                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                      >
-                                        <Link2 size={14} /> Generate QR
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-ghost btn-sm"
-                                        disabled={!Number(targetUpi || 0) || !business?.upiId}
-                                        onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${bill.id}`))}
-                                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                      >
-                                        <Copy size={14} /> Copy Link
-                                      </button>
-                                    </div>
-                                    {business?.upiId ? (
-                                      <>
-                                        {targetBillQrGenerated && targetBillUpiCheckoutAmount > 0 && (
-                                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: 'fit-content' }}>
-                                            <img
-                                              src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${bill.id}`))}`}
-                                              alt="UPI QR Code"
-                                              style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
-                                              width={110} height={110}
-                                            />
-                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{targetBillUpiCheckoutAmount.toFixed(2)}</span>
-                                          </div>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
-                                    )}
-                                  </div>
-                                  <div style={{ fontSize: '11px', color: '#71717a', marginTop: '8px' }}>
-                                    ⚠ This payment applies only to {bill.id}, no FIFO reordering.
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      ))}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -943,13 +1022,18 @@ const Customers = () => {
 
             {/* Promotions Used section */}
             {(() => {
+              const custId = String(selectedCustomer.id)
               const customerPromos = bills
-                .filter((b) => !b.deleted && b.customerId === selectedCustomer.id && b.promoCode)
-                .map((b) => ({
+                .filter((b: any) => {
+                  if (b.deleted || b.deleted_at) return false
+                  const bCustId = String(b.customerId || b.customer_id || '')
+                  return bCustId === custId && b.promoCode
+                })
+                .map((b: any) => ({
                   code: b.promoCode,
-                  usedOn: b.date,
-                  invoice: b.id,
-                  discount: b.promoDiscount || b.discountAmount || 0,
+                  usedOn: b.date?.slice(0, 10) || b.created_at?.slice(0, 10) || 'N/A',
+                  invoice: b.invoiceNumber || b.bill_number || b.id,
+                  discount: Number(b.promoDiscount || b.discountAmount || b.discount_amount || 0),
                   status: 'Redeemed',
                 }))
 
@@ -974,12 +1058,12 @@ const Customers = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {customerPromos.map((cp, idx) => (
+                          {customerPromos.map((cp: any, idx: number) => (
                             <tr key={idx}>
                               <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{cp.code}</td>
                               <td>{cp.usedOn}</td>
                               <td style={{ fontFamily: 'monospace' }}>{cp.invoice}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>₹{cp.discount.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>₹{Number(cp.discount || 0).toFixed(2)}</td>
                               <td style={{ textAlign: 'center' }}>
                                 <span className="badge badge-paid" style={{ textTransform: 'none', fontSize: '0.7rem', padding: '2px 6px' }}>
                                   {cp.status}

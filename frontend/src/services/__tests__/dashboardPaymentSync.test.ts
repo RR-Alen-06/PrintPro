@@ -1,8 +1,23 @@
 import { describe, it, expect } from 'vitest'
 
+interface MockBill {
+  id: string
+  customerId: string
+  date?: string
+  total: number
+  amountPaid: number
+  balance: number
+  status?: string
+  deleted?: boolean
+  deleted_at?: string | null
+  isGroupParent?: boolean
+  is_group_parent?: boolean
+  paymentMethod?: { cash: number; upi: number }
+}
+
 describe('Dashboard Quick Record Payment & FIFO Engine Suite', () => {
   it('correctly calculates customer outstanding balance excluding deleted and group parent bills', () => {
-    const bills = [
+    const bills: MockBill[] = [
       { id: 'b1', customerId: 'c1', total: 1000, amountPaid: 400, balance: 600, status: 'partial', deleted: false },
       { id: 'b2', customerId: 'c1', total: 500, amountPaid: 0, balance: 500, status: 'unpaid', deleted: false },
       { id: 'b3', customerId: 'c1', total: 300, amountPaid: 300, balance: 0, status: 'paid', deleted: false },
@@ -23,7 +38,7 @@ describe('Dashboard Quick Record Payment & FIFO Engine Suite', () => {
   })
 
   it('allocates payment chronologically across unpaid bills using FIFO algorithm', () => {
-    const unpaidBills = [
+    const unpaidBills: MockBill[] = [
       { id: 'b1', customerId: 'c1', date: '2026-03-01T10:00:00Z', total: 500, amountPaid: 100, balance: 400, paymentMethod: { cash: 100, upi: 0 } },
       { id: 'b2', customerId: 'c1', date: '2026-03-05T10:00:00Z', total: 600, amountPaid: 0, balance: 600, paymentMethod: { cash: 0, upi: 0 } },
     ]
@@ -32,7 +47,7 @@ describe('Dashboard Quick Record Payment & FIFO Engine Suite', () => {
     let R_upi = 0
     const paymentRecords: any[] = []
 
-    const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } }))
+    const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...(b.paymentMethod || { cash: 0, upi: 0 }) } }))
 
     for (const bill of updatedBills) {
       let remaining = bill.total - bill.amountPaid
@@ -89,7 +104,7 @@ describe('Dashboard Quick Record Payment & FIFO Engine Suite', () => {
   })
 
   it('converts excess overpayment to advance customer credit', () => {
-    const unpaidBills = [
+    const unpaidBills: MockBill[] = [
       { id: 'b1', customerId: 'c1', date: '2026-03-01T10:00:00Z', total: 400, amountPaid: 0, balance: 400, paymentMethod: { cash: 0, upi: 0 } },
     ]
 
@@ -97,7 +112,7 @@ describe('Dashboard Quick Record Payment & FIFO Engine Suite', () => {
     let R_upi = 500 // Total received = 700, bill total due = 400, excess = 300
     const paymentRecords: any[] = []
 
-    const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } }))
+    const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...(b.paymentMethod || { cash: 0, upi: 0 }) } }))
 
     for (const bill of updatedBills) {
       let remaining = bill.total - bill.amountPaid
