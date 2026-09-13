@@ -50,6 +50,7 @@ const CustomerLedger = () => {
   const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
+  const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
   const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0)
 
@@ -58,7 +59,6 @@ const CustomerLedger = () => {
   const handleWriteOff = async (billId, balanceAmt) => {
     if (window.confirm(`Are you sure you want to write off the outstanding balance of ₹${balanceAmt.toFixed(2)} for Invoice #${billId}? This cannot be undone.`)) {
       await updateBillMutation({ id: billId, data: { status: 'paid', balance: 0, notes: `Written off ₹${balanceAmt.toFixed(2)}` } })
-      showToast(`Invoice #${billId} written off successfully!`, 'success')
     }
   }
 
@@ -161,7 +161,8 @@ const CustomerLedger = () => {
       if (remaining <= 0) break
       const toPay = Math.min(remaining, Number(b.balance || 0))
       const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
-      const newPaid = Number((Number(b.paidTotal || b.totalPaid || 0) + toPay).toFixed(2))
+      const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || b.paidTotal || b.totalPaid || 0))
+      const newPaid = Number((currentPaid + toPay).toFixed(2))
       const newStatus = newBal === 0 ? 'paid' : 'partial'
 
       await updateBillMutation({
@@ -169,11 +170,25 @@ const CustomerLedger = () => {
         data: {
           balance: newBal,
           status: newStatus,
-          paidTotal: newPaid,
-          totalPaid: newPaid,
+          amountPaid: newPaid,
+          amount_paid: newPaid,
         }
       })
-      remaining -= toPay
+      remaining = Number((remaining - toPay).toFixed(2))
+    }
+
+    if (remaining > 0) {
+      const currentAdv = Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0)
+      const newAdv = Number((currentAdv + remaining).toFixed(2))
+      await updateCustomerMutation({
+        id: selectedCustomer.id,
+        data: {
+          advanceBalance: newAdv,
+          advance_balance: newAdv,
+          creditBalance: newAdv,
+          credit_balance: newAdv,
+        }
+      })
     }
 
     await createPayment({
@@ -181,7 +196,7 @@ const CustomerLedger = () => {
       cash_amount: cash,
       upi_amount: upi,
       total_paid: total,
-      payment_type: 'partial',
+      payment_type: unpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
       notes: `Payment from ledger page (${method})`,
     })
 

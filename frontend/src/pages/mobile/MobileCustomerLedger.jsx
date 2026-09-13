@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
-import { useCustomers } from '../../hooks/useCustomersQuery'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { LedgerService } from '../../services/ledgerService'
@@ -27,6 +27,7 @@ export default function MobileCustomerLedger() {
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
+  const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
   const customers = serverCustomers.length > 0 ? serverCustomers : (contextCustomers || [])
   const bills = serverBills.length > 0 ? serverBills : (contextBills || [])
@@ -42,6 +43,12 @@ export default function MobileCustomerLedger() {
   const [payUpi, setPayUpi] = useState('')
   const [payNotes, setPayNotes] = useState('')
 
+  // Refund State
+  const [showRefundModal, setShowRefundModal] = useState(false)
+  const [refundCash, setRefundCash] = useState('')
+  const [refundUpi, setRefundUpi] = useState('')
+  const [refundNotes, setRefundNotes] = useState('')
+
   // Sync selectedCustomerId when activeCustomers loads or paramCustId changes
   React.useEffect(() => {
     if (paramCustId) {
@@ -52,37 +59,48 @@ export default function MobileCustomerLedger() {
   }, [paramCustId, activeCustomers, selectedCustomerId])
 
   const selectedCustomer = useMemo(() => {
-    return activeCustomers.find(c => String(c.id) === String(selectedCustomerId))
+    return activeCustomers.find((c) => String(c.id) === String(selectedCustomerId))
   }, [activeCustomers, selectedCustomerId])
+
+  const customerBills = useMemo(() => {
+    return (bills || []).filter((b) => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at)
+  }, [bills, selectedCustomerId])
+
+  const customerPayments = useMemo(() => {
+    return (payments || []).filter((p) => String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit'))
+  }, [payments, selectedCustomerId])
+
+  const customerAdvances = useMemo(() => {
+    return (advancePayments || []).filter((a) => String(a.customerId || a.customer_id) === String(selectedCustomerId))
+  }, [advancePayments, selectedCustomerId])
+
+  const ledgerResult = useMemo(() => {
+    if (!selectedCustomer) return { entries: [], openingBalance: 0, totalDebits: 0, totalCredits: 0, finalBalance: 0 }
+    return LedgerService.calculateLedger({
+      customerId: selectedCustomer.id,
+      bills: customerBills,
+      payments: customerPayments,
+      advancePayments: customerAdvances,
+      period: ledgerPeriod,
+      settings
+    })
+  }, [selectedCustomer, customerBills, customerPayments, customerAdvances, ledgerPeriod, settings])
 
   // Compute Mathematically Precise Ledger Timeline using LedgerService
   const { ledgerEntries, closingBalance, totalInvoiced, totalPaid } = useMemo(() => {
-    if (!selectedCustomerId) return { ledgerEntries: [], closingBalance: 0, totalInvoiced: 0, totalPaid: 0 }
-
-    const res = LedgerService.calculateLedger({
-      customerId: selectedCustomerId,
-      bills,
-      payments,
-      advancePayments: advancePayments || [],
-      period: ledgerPeriod,
-      settings: settings || {}
-    })
-
-    const custBills = (bills || []).filter(b => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at)
-    const custPayments = (payments || []).filter(p => String(p.customerId || p.customer_id) === String(selectedCustomerId))
-
-    const invoiced = custBills.reduce((s, b) => s + Number(b.total !== undefined ? b.total : (b.grand_total || 0)), 0)
-    const paid = custPayments.reduce((s, p) => s + Number(p.totalPaid !== undefined ? p.totalPaid : (p.amount !== undefined ? p.amount : (p.total_paid || 0))), 0)
+    const res = ledgerResult
+    const invoiced = res.totalDebits || customerBills.reduce((s, b) => s + Number(b.total !== undefined ? b.total : (b.grand_total || 0)), 0)
+    const paid = res.totalCredits || customerPayments.reduce((s, p) => s + Number(p.totalPaid !== undefined ? p.totalPaid : (p.amount !== undefined ? p.amount : (p.total_paid || 0))), 0)
 
     return {
       ledgerEntries: (res.entries || []).slice().reverse(), // Show newest first on mobile
-      closingBalance: res.closingBalance || 0,
+      closingBalance: res.finalBalance !== undefined ? res.finalBalance : (res.closingBalance || 0),
       totalInvoiced: invoiced,
       totalPaid: paid
     }
-  }, [selectedCustomerId, bills, payments, advancePayments, ledgerPeriod, settings])
+  }, [ledgerResult, customerBills, customerPayments])
 
-  const handleRecordPaymentSubmit = async (e) => {
+  const handleRecordPayment = async (e) => {
     e.preventDefault()
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
@@ -94,8 +112,8 @@ export default function MobileCustomerLedger() {
     }
 
     try {
-      const unpaidBills = (serverBills || [])
-        .filter((b) => String(b.customerId) === String(selectedCustomer.id) && !b.deleted && (Number(b.balance || 0) > 0))
+      const unpaidBills = (customerBills || [])
+        .filter((b) => (Number(b.balance || 0) > 0))
         .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
 
       let remaining = total
@@ -103,7 +121,8 @@ export default function MobileCustomerLedger() {
         if (remaining <= 0) break
         const toPay = Math.min(remaining, Number(b.balance || 0))
         const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
-        const newPaid = Number((Number(b.paidTotal || b.totalPaid || 0) + toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || b.paidTotal || b.totalPaid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
         const newStatus = newBal === 0 ? 'paid' : 'partial'
 
         await updateBillMutation({
@@ -111,11 +130,25 @@ export default function MobileCustomerLedger() {
           data: {
             balance: newBal,
             status: newStatus,
-            paidTotal: newPaid,
-            totalPaid: newPaid,
+            amountPaid: newPaid,
+            amount_paid: newPaid,
           }
         })
-        remaining -= toPay
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      if (remaining > 0) {
+        const currentAdv = Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0)
+        const newAdv = Number((currentAdv + remaining).toFixed(2))
+        await updateCustomerMutation({
+          id: selectedCustomer.id,
+          data: {
+            advanceBalance: newAdv,
+            advance_balance: newAdv,
+            creditBalance: newAdv,
+            credit_balance: newAdv,
+          }
+        })
       }
 
       await createPayment({
@@ -123,7 +156,7 @@ export default function MobileCustomerLedger() {
         cash_amount: cash,
         upi_amount: upi,
         total_paid: total,
-        payment_type: 'partial',
+        payment_type: unpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
         notes: payNotes.trim() || 'Payment from mobile ledger'
       })
 
