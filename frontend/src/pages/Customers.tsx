@@ -315,12 +315,12 @@ const Customers = () => {
 
   const openEditModal = (customer) => {
     setForm({
-      type: customer.type,
-      name: customer.name,
+      type: customer.type || 'regular',
+      name: customer.name || '',
       phone: customer.phone || '',
       email: customer.email || '',
-      creditBalance: String(customer.creditBalance || 0),
-      creditLimit: String(customer.creditLimit || 0),
+      creditBalance: String(customer.creditBalance !== undefined ? customer.creditBalance : (customer.credit_balance !== undefined ? customer.credit_balance : 0)),
+      creditLimit: String(customer.creditLimit !== undefined ? customer.creditLimit : (customer.credit_limit !== undefined ? customer.credit_limit : 0)),
       openingBalanceMethod: 'cash',
       openingCash: '',
       openingUpi: '',
