@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
-import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity } from 'lucide-react'
+import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
@@ -35,11 +35,13 @@ const formatCurrency = (val) => {
 
 const Dashboard = () => {
   const queryClient = useQueryClient()
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill } = useAppContext()
+  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill, recordPayment } = useAppContext()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverPayments } = usePayments()
   const { data: serverExpenses } = useExpenses()
+  const { createPayment: createPaymentMutation } = usePaymentMutations()
+
   const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
   const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
   const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
@@ -50,6 +52,99 @@ const Dashboard = () => {
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState(null)
+
+  // Quick Record Payment Modal States
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false)
+  const [paymentCustomerId, setPaymentCustomerId] = useState('')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentMode, setPaymentMode] = useState('cash') // 'cash' | 'upi' | 'split'
+  const [paymentCash, setPaymentCash] = useState('')
+  const [paymentUpi, setPaymentUpi] = useState('')
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false)
+
+  // Live calculation of selected customer's total due across unpaid bills
+  const selectedCustomerDue = useMemo(() => {
+    if (!paymentCustomerId) return 0
+    const custBills = (bills || []).filter(
+      (b) => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(paymentCustomerId)
+    )
+    return custBills.reduce((sum, b) => {
+      const tot = Number(b.total || 0)
+      const paid = Number(b.amountPaid || b.amount_paid || 0)
+      return sum + Math.max(0, tot - paid)
+    }, 0)
+  }, [paymentCustomerId, bills])
+
+  const handleRecordPaymentSubmit = async (e) => {
+    e.preventDefault()
+    if (!paymentCustomerId) {
+      showToast?.('Please select a customer', 'warning')
+      return
+    }
+
+    let cash = 0
+    let upi = 0
+    if (paymentMode === 'cash') {
+      cash = Number(paymentAmount)
+    } else if (paymentMode === 'upi') {
+      upi = Number(paymentAmount)
+    } else {
+      cash = Number(paymentCash || 0)
+      upi = Number(paymentUpi || 0)
+    }
+
+    const total = cash + upi
+    if (isNaN(total) || total <= 0) {
+      showToast?.('Please enter a valid payment amount', 'warning')
+      return
+    }
+
+    setIsSubmittingPayment(true)
+    try {
+      // 1. AppContext FIFO allocation (optimistic & offline-first)
+      recordPayment?.({
+        customerId: paymentCustomerId,
+        cashAmount: cash,
+        upiAmount: upi,
+        notes: paymentNotes || 'Quick Payment via Dashboard',
+      })
+
+      // 2. Cloud mutation
+      try {
+        if (createPaymentMutation) {
+          await createPaymentMutation({
+            customer_id: paymentCustomerId,
+            cash_amount: cash,
+            upi_amount: upi,
+            total_paid: total,
+            notes: paymentNotes || 'Quick Payment via Dashboard',
+            date: new Date().toISOString(),
+          })
+        }
+      } catch (err) {
+        console.warn('Cloud payment sync queued:', err)
+      }
+
+      const custObj = (customers || []).find((c) => String(c.id) === String(paymentCustomerId))
+      showToast?.(`Recorded payment of ₹${total.toLocaleString('en-IN')} for ${custObj?.name || 'Customer'}`, 'success')
+
+      // Invalidate queries so dashboard cards update instantly
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+
+      setShowRecordPaymentModal(false)
+      setPaymentCustomerId('')
+      setPaymentAmount('')
+      setPaymentCash('')
+      setPaymentUpi('')
+      setPaymentNotes('')
+    } finally {
+      setIsSubmittingPayment(false)
+    }
+  }
 
   const handleSync = async () => {
     setIsSyncing(true)
@@ -606,7 +701,7 @@ const Dashboard = () => {
 
         <button
           className="btn"
-          onClick={() => navigate('/customers/ledger')}
+          onClick={() => setShowRecordPaymentModal(true)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1414,8 +1509,245 @@ const Dashboard = () => {
           </div>
         )
       })()}
+
+      {/* Quick Record Payment Modal */}
+      {showRecordPaymentModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={() => setShowRecordPaymentModal(false)}
+        >
+          <div
+            className="card"
+            style={{
+              maxWidth: '520px',
+              width: '100%',
+              padding: '24px',
+              border: '1px solid var(--border)',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              borderRadius: 'var(--radius-lg)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                  <Receipt size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Quick Record Payment
+                  </h3>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Auto-allocated across oldest unpaid bills (FIFO)
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRecordPaymentModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRecordPaymentSubmit}>
+              {/* Customer Selection */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label" style={{ fontWeight: 700 }}>Select Customer *</label>
+                <select
+                  className="form-control"
+                  value={paymentCustomerId}
+                  onChange={(e) => {
+                    const cId = e.target.value
+                    setPaymentCustomerId(cId)
+                    // If customer selected, check their due
+                    const custBills = (bills || []).filter(
+                      (b) => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(cId)
+                    )
+                    const due = custBills.reduce((sum, b) => sum + Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0)), 0)
+                    if (due > 0) {
+                      setPaymentAmount(String(due))
+                    }
+                  }}
+                  required
+                  style={{ width: '100%' }}
+                >
+                  <option value="">-- Choose Customer --</option>
+                  {(customers || [])
+                    .filter((c) => !c.deleted && !c.deleted_at)
+                    .map((c) => {
+                      const custBills = (bills || []).filter(
+                        (b) => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(c.id)
+                      )
+                      const due = custBills.reduce((sum, b) => sum + Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0)), 0)
+                      return (
+                        <option key={c.id} value={c.id}>
+                          {c.name} {c.phone ? `(${c.phone})` : ''} — Due: ₹{due.toFixed(2)}
+                        </option>
+                      )
+                    })}
+                </select>
+              </div>
+
+              {/* Outstanding Balance Banner */}
+              {paymentCustomerId && (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    background: selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                    border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>TOTAL DUE BALANCE</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: selectedCustomerDue > 0 ? '#ef4444' : '#10b981' }}>
+                      ₹{selectedCustomerDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  {selectedCustomerDue > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => {
+                        setPaymentAmount(String(selectedCustomerDue))
+                        if (paymentMode === 'split') {
+                          setPaymentCash(String(selectedCustomerDue))
+                          setPaymentUpi('0')
+                        }
+                      }}
+                      style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                    >
+                      Pay Full Due
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Payment Mode Selector */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label" style={{ fontWeight: 700 }}>Payment Mode</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  {['cash', 'upi', 'split'].map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setPaymentMode(mode)}
+                      style={{
+                        padding: '8px',
+                        borderRadius: 'var(--radius-md)',
+                        border: paymentMode === mode ? '2px solid #3b82f6' : '1px solid var(--border)',
+                        background: paymentMode === mode ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg-input)',
+                        color: paymentMode === mode ? '#3b82f6' : 'var(--text-secondary)',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase'
+                      }}
+                    >
+                      {mode === 'split' ? 'Cash + UPI' : mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Amount Fields */}
+              {paymentMode === 'split' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Cash Amount (₹)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="form-control currency-num"
+                      placeholder="0.00"
+                      value={paymentCash}
+                      onChange={(e) => setPaymentCash(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">UPI Amount (₹)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="form-control currency-num"
+                      placeholder="0.00"
+                      value={paymentUpi}
+                      onChange={(e) => setPaymentUpi(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label" style={{ fontWeight: 700 }}>Payment Amount (₹) *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="form-control currency-num"
+                    placeholder="Enter amount"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    required
+                    style={{ fontSize: '1.1rem', fontWeight: 700 }}
+                  />
+                </div>
+              )}
+
+              {/* Reference Notes */}
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label">Notes / Reference (Optional)</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="e.g. GPay Ref #12345, Counter Cash..."
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                />
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowRecordPaymentModal(false)}
+                  disabled={isSubmittingPayment}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isSubmittingPayment}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontWeight: 800 }}
+                >
+                  <CheckCircle size={16} />
+                  {isSubmittingPayment ? 'Recording...' : 'Record Payment Now'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export default Dashboard
+

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { usePayments } from '../../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
@@ -97,7 +97,7 @@ export default function MobileDashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, syncFromCloud, showToast, addCustomer: contextAddCustomer
+    business, syncFromCloud, showToast, addCustomer: contextAddCustomer, recordPayment
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -106,6 +106,7 @@ export default function MobileDashboard() {
   const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { createPayment: createPaymentMutation } = usePaymentMutations()
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('today') // 'today' | 'week' | 'month' | 'fy' | 'custom' | 'all'
@@ -120,6 +121,16 @@ export default function MobileDashboard() {
   )
 
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false)
+
+  // Payment Form States
+  const [paymentCustomerId, setPaymentCustomerId] = useState('')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentMode, setPaymentMode] = useState('cash')
+  const [paymentCash, setPaymentCash] = useState('')
+  const [paymentUpi, setPaymentUpi] = useState('')
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false)
 
   // Customer Modal Form
   const [newCustName, setNewCustName] = useState('')
@@ -127,9 +138,114 @@ export default function MobileDashboard() {
   const [newCustEmail, setNewCustEmail] = useState('')
   const [newCustType, setNewCustType] = useState('regular')
 
+  // Calculate live outstanding dues for selected customer in payment modal
+  const selectedCustomerDue = useMemo(() => {
+    if (!paymentCustomerId) return 0
+    return (bills || [])
+      .filter(b => {
+        if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+        const bCustId = b.customerId || b.customer_id
+        return String(bCustId) === String(paymentCustomerId) && Number(b.balance || 0) > 0
+      })
+      .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+  }, [bills, paymentCustomerId])
+
   const handleNavigate = useCallback((path) => {
     navigate(path)
   }, [navigate])
+
+  const handleRecordPaymentSubmit = useCallback(async (e) => {
+    e.preventDefault()
+    const total = parseFloat(paymentAmount) || 0
+    if (!paymentCustomerId) {
+      showToast('Please select a customer', 'error')
+      return
+    }
+    if (total <= 0) {
+      showToast('Please enter a valid payment amount', 'error')
+      return
+    }
+
+    let cash = 0
+    let upi = 0
+    if (paymentMode === 'cash') {
+      cash = total
+    } else if (paymentMode === 'upi') {
+      upi = total
+    } else if (paymentMode === 'split') {
+      cash = parseFloat(paymentCash) || 0
+      upi = parseFloat(paymentUpi) || 0
+      if (Math.abs((cash + upi) - total) > 0.01) {
+        showToast(`Split total (₹${cash + upi}) must equal ₹${total}`, 'error')
+        return
+      }
+    }
+
+    setIsSubmittingPayment(true)
+    try {
+      const selectedCust = (customers || []).find(c => String(c.id) === String(paymentCustomerId))
+      const custName = selectedCust?.name || 'Customer'
+
+      // 1. Instant local optimistic FIFO payment recording via AppContext
+      if (recordPayment) {
+        await recordPayment({
+          customerId: paymentCustomerId,
+          amount: total,
+          paymentMethod: paymentMode === 'split' ? 'split' : paymentMode,
+          cashAmount: cash,
+          upiAmount: upi,
+          notes: paymentNotes || 'Mobile Dashboard Quick Payment'
+        })
+      }
+
+      // 2. Cloud mutation for remote sync
+      if (createPaymentMutation) {
+        await createPaymentMutation({
+          customerId: paymentCustomerId,
+          customerName: custName,
+          totalPaid: total,
+          cashAmount: cash,
+          upiAmount: upi,
+          paymentMethod: paymentMode === 'split' ? 'split' : paymentMode,
+          notes: paymentNotes || 'Mobile Dashboard Quick Payment',
+          date: new Date().toISOString()
+        })
+      }
+
+      // 3. React Query multi-entity cache invalidation
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
+
+      showToast(`Payment of ₹${total.toLocaleString('en-IN')} recorded for ${custName}`, 'success')
+      setShowRecordPaymentModal(false)
+      setPaymentCustomerId('')
+      setPaymentAmount('')
+      setPaymentMode('cash')
+      setPaymentCash('')
+      setPaymentUpi('')
+      setPaymentNotes('')
+    } catch (err) {
+      showToast(err.message || 'Failed to record payment', 'error')
+    } finally {
+      setIsSubmittingPayment(false)
+    }
+  }, [
+    paymentAmount,
+    paymentCustomerId,
+    paymentMode,
+    paymentCash,
+    paymentUpi,
+    paymentNotes,
+    customers,
+    recordPayment,
+    createPaymentMutation,
+    queryClient,
+    showToast
+  ])
 
   // Handle Cloud Sync
   const handleSync = useCallback(async () => {
@@ -443,7 +559,7 @@ export default function MobileDashboard() {
         </button>
         <button
           className="mobile-btn mobile-btn-secondary"
-          onClick={() => navigate('/mobile/accounting')}
+          onClick={() => setShowRecordPaymentModal(true)}
           style={{ minHeight: '48px', fontSize: '0.82rem', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#3b82f6' }}
         >
           <Receipt size={18} /> + PAYMENT
@@ -572,6 +688,183 @@ export default function MobileDashboard() {
 
           <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }} disabled={isCreatingCustomer}>
             {isCreatingCustomer ? 'Saving Customer...' : 'Save Customer Record'}
+          </button>
+        </form>
+      </BottomSheet>
+
+      {/* Quick Record Payment Modal Drawer */}
+      <BottomSheet
+        isOpen={showRecordPaymentModal}
+        onClose={() => setShowRecordPaymentModal(false)}
+        title="Record Customer Payment"
+      >
+        <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              SELECT CUSTOMER
+            </label>
+            <select
+              className="mobile-input"
+              value={paymentCustomerId}
+              onChange={(e) => {
+                setPaymentCustomerId(e.target.value)
+                const due = (bills || [])
+                  .filter(b => {
+                    if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+                    const bCustId = b.customerId || b.customer_id
+                    return String(bCustId) === String(e.target.value) && Number(b.balance || 0) > 0
+                  })
+                  .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+                if (due > 0) {
+                  setPaymentAmount(due.toString())
+                }
+              }}
+              required
+              style={{ padding: '10px 12px' }}
+            >
+              <option value="">-- Choose Customer --</option>
+              {customers.map((c) => {
+                const due = (bills || [])
+                  .filter(b => {
+                    if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+                    const bCustId = b.customerId || b.customer_id
+                    return String(bCustId) === String(c.id) && Number(b.balance || 0) > 0
+                  })
+                  .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+                return (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {due > 0 ? `(Due: ₹${due.toLocaleString('en-IN')})` : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          {/* Outstanding Balance Banner if customer selected */}
+          {paymentCustomerId && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-md)',
+              background: selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+              border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
+            }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>TOTAL OUTSTANDING</span>
+                <span style={{
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  color: selectedCustomerDue > 0 ? 'var(--error)' : 'var(--success)'
+                }}>
+                  ₹{selectedCustomerDue.toLocaleString('en-IN')}
+                </span>
+              </div>
+              {selectedCustomerDue > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPaymentAmount(selectedCustomerDue.toString())}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--accent-primary)',
+                    background: 'rgba(255, 47, 176, 0.15)',
+                    color: 'var(--accent-primary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Pay Full Due
+                </button>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              AMOUNT RECEIVED (₹)
+            </label>
+            <input
+              type="number"
+              className="mobile-input"
+              placeholder="0.00"
+              step="any"
+              min="0"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              required
+              style={{ fontSize: '1.1rem', fontWeight: 800 }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              PAYMENT MODE
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+              {['cash', 'upi', 'split'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`mobile-btn ${paymentMode === m ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                  onClick={() => setPaymentMode(m)}
+                  style={{ minHeight: '36px', fontSize: '0.78rem', textTransform: 'uppercase' }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {paymentMode === 'split' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>CASH (₹)</label>
+                <input
+                  type="number"
+                  className="mobile-input"
+                  placeholder="0.00"
+                  step="any"
+                  value={paymentCash}
+                  onChange={(e) => setPaymentCash(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>UPI (₹)</label>
+                <input
+                  type="number"
+                  className="mobile-input"
+                  placeholder="0.00"
+                  step="any"
+                  value={paymentUpi}
+                  onChange={(e) => setPaymentUpi(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              REMARKS / REFERENCE (OPTIONAL)
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              placeholder="e.g. GPay / Cash counter settlement"
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="mobile-btn mobile-btn-primary"
+            style={{ marginTop: '8px', minHeight: '44px' }}
+            disabled={isSubmittingPayment}
+          >
+            {isSubmittingPayment ? 'Recording...' : '✓ Record & Settle Invoices (FIFO)'}
           </button>
         </form>
       </BottomSheet>
