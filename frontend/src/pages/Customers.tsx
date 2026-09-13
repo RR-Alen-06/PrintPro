@@ -79,7 +79,7 @@ const Customers = () => {
   const [expandedBillId, setExpandedBillId] = useState(null)
 
   const selectedCustomer = useMemo(
-    () => customers.find((c) => c.id === selectedCustomerId),
+    () => (selectedCustomerId ? customers.find((c) => String(c.id) === String(selectedCustomerId)) : null),
     [customers, selectedCustomerId]
   )
 
@@ -538,15 +538,15 @@ const Customers = () => {
               ) : (
                 filteredCustomers.map((customer) => {
                   const outstanding = getCustomerOutstanding(customer.id)
-                  const isSelected = selectedCustomerId === customer.id
+                  const isSelected = selectedCustomerId !== null && String(selectedCustomerId) === String(customer.id)
                   return (
                     <div
                       key={customer.id}
                       onClick={() => {
                         if (customer.deleted) return
                         setSelectedCustomerId(isSelected ? null : customer.id)
-                        setPayCash(0)
-                        setPayUpi(0)
+                        setPayCash('')
+                        setPayUpi('')
                         setPaySuccess(false)
                       }}
                       style={{
