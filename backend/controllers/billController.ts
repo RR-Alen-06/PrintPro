@@ -308,15 +308,22 @@ export async function updateBill(req: any, res: any, next: any) {
     const { id } = req.params;
     const {
       customer_id,
+      customerId,
       date,
       due_date,
+      dueDate,
       subtotal,
       discount_type,
+      discountType,
       discount_value,
+      discountValue,
       gst_percent,
+      gstPercent,
       gst_amount,
+      gstAmount,
       total,
       amount_paid,
+      amountPaid,
       balance,
       status,
       notes,
@@ -330,16 +337,23 @@ export async function updateBill(req: any, res: any, next: any) {
     }
 
     const updates: Record<string, any> = {};
-    if (customer_id !== undefined) updates.customer_id = customer_id;
+    const finalCustId = customer_id !== undefined ? customer_id : customerId;
+    if (finalCustId !== undefined) updates.customer_id = finalCustId;
     if (date !== undefined) updates.date = date;
-    if (due_date !== undefined) updates.due_date = due_date;
+    const finalDueDate = due_date !== undefined ? due_date : dueDate;
+    if (finalDueDate !== undefined) updates.due_date = finalDueDate;
     if (subtotal !== undefined) updates.subtotal = parseFloat(subtotal) || 0;
-    if (discount_type !== undefined) updates.discount_type = discount_type;
-    if (discount_value !== undefined) updates.discount_value = parseFloat(discount_value) || 0;
-    if (gst_percent !== undefined) updates.gst_percent = parseFloat(gst_percent) || 0;
-    if (gst_amount !== undefined) updates.gst_amount = parseFloat(gst_amount) || 0;
+    const finalDiscType = discount_type !== undefined ? discount_type : discountType;
+    if (finalDiscType !== undefined) updates.discount_type = finalDiscType;
+    const finalDiscVal = discount_value !== undefined ? discount_value : discountValue;
+    if (finalDiscVal !== undefined) updates.discount_value = parseFloat(finalDiscVal) || 0;
+    const finalGstPct = gst_percent !== undefined ? gst_percent : gstPercent;
+    if (finalGstPct !== undefined) updates.gst_percent = parseFloat(finalGstPct) || 0;
+    const finalGstAmt = gst_amount !== undefined ? gst_amount : gstAmount;
+    if (finalGstAmt !== undefined) updates.gst_amount = parseFloat(finalGstAmt) || 0;
     if (total !== undefined) updates.total = parseFloat(total) || 0;
-    if (amount_paid !== undefined) updates.amount_paid = parseFloat(amount_paid) || 0;
+    const finalAmtPaid = amount_paid !== undefined ? amount_paid : amountPaid;
+    if (finalAmtPaid !== undefined) updates.amount_paid = parseFloat(finalAmtPaid) || 0;
     if (balance !== undefined) updates.balance = parseFloat(balance) || 0;
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
