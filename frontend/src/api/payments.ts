@@ -201,7 +201,7 @@ export const getDeletedPayments = async () => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get('/payments/deleted');
-      const mapped = (res.data.data || []).map(mapPaymentFromApi);
+      const mapped = (res.data?.data || res.data || []).map(mapPaymentFromApi);
       return { data: { data: mapped } };
     } catch (err: any) {
       if (err.response && err.response.status >= 400 && err.response.status < 500) {
@@ -210,14 +210,32 @@ export const getDeletedPayments = async () => {
       markBackendUnavailable();
     }
   }
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .or('is_refund.eq.true,total_paid.lt.0')
-    .order('date', { ascending: false });
-  if (error) throw error;
-  const mapped = (data || []).map(mapPaymentFromApi);
-  return { data: { data: mapped } };
+  try {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .or('payment_type.eq.refund,total_paid.lt.0')
+      .order('date', { ascending: false });
+
+    if (error) {
+      // Fallback query without filter if schema differs
+      const { data: allData, error: allErr } = await supabase
+        .from('payments')
+        .select('*')
+        .order('date', { ascending: false });
+      if (allErr) return { data: { data: [] } };
+      const filtered = (allData || []).filter(
+        (p: any) => p.payment_type === 'refund' || Number(p.total_paid || p.amount || 0) < 0 || p.is_refund === true || (p.notes && p.notes.toLowerCase().includes('refund'))
+      );
+      const mapped = filtered.map(mapPaymentFromApi);
+      return { data: { data: mapped } };
+    }
+
+    const mapped = (data || []).map(mapPaymentFromApi);
+    return { data: { data: mapped } };
+  } catch {
+    return { data: { data: [] } };
+  }
 }
 
 export const deletePayment = async (id: string) => {
