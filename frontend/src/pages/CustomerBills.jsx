@@ -340,6 +340,8 @@ const CustomerBills = () => {
       upiAmount: Number(upiAmount || 0),
       amountPaid,
       advanceUsed: appliedAdvance,
+      balance: netBalance,
+      status: netBalance <= 0 ? 'paid' : (amountPaid + appliedAdvance > 0 ? 'partial' : 'unpaid'),
       notes,
       paymentMode: amountPaid >= total - appliedAdvance ? 'full' : 'partial',
       items: mergedItemRows.map((row) => ({
