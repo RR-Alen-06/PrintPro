@@ -241,12 +241,16 @@ export async function deletePayment(req: any, res: any, next: any) {
 export async function getDeletedPayments(req: any, res: any, next: any) {
   try {
     const pool = getPool();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.json({ success: true, data: [] });
+    }
     const [payments] = await pool.query(
       'SELECT * FROM payments WHERE user_id = $1 AND (total_paid < 0 OR payment_type = \'refund\' OR notes ILIKE \'%refund%\') ORDER BY date DESC',
-      [req.user.id]
+      [userId]
     );
-    res.json({ success: true, data: payments });
+    res.json({ success: true, data: payments || [] });
   } catch (err) {
-    next(err);
+    res.json({ success: true, data: [] });
   }
 }
