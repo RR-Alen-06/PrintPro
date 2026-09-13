@@ -323,11 +323,84 @@ export const restoreBill = async (id: string) => {
       markBackendUnavailable();
     }
   }
+
+  let billId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('bills')
+      .select('id')
+      .eq('invoice_number', id)
+      .maybeSingle();
+    if (found?.id) billId = found.id;
+  }
+
   const { error } = await supabase
     .from('bills')
     .update({ deleted_at: null })
-    .eq('id', id);
+    .eq('id', billId);
   if (error) throw error;
+  return { data: { success: true } };
+}
+
+export const permanentDeleteBill = async (id: string) => {
+  if (isBackendAvailable()) {
+    try {
+      await api.delete(`/bills/${id}/permanent`);
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
+  }
+
+  let billId = id;
+  if (!isValidUUID(id)) {
+    const { data: found } = await supabase
+      .from('bills')
+      .select('id')
+      .eq('invoice_number', id)
+      .maybeSingle();
+    if (found?.id) billId = found.id;
+  }
+
+  // Delete dependent items first
+  await supabase.from('bill_items').delete().eq('bill_id', billId);
+  
+  const { error } = await supabase
+    .from('bills')
+    .delete()
+    .eq('id', billId);
+  if (error) throw error;
+  return { data: { success: true } };
+}
+
+export const purgeAllDeletedBills = async () => {
+  if (isBackendAvailable()) {
+    try {
+      await api.delete('/bills/deleted/purge-all');
+      return { data: { success: true } };
+    } catch (err: any) {
+      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err;
+      }
+      markBackendUnavailable();
+    }
+  }
+
+  const { data: deletedBills } = await supabase
+    .from('bills')
+    .select('id')
+    .not('deleted_at', 'is', null);
+
+  if (deletedBills && deletedBills.length > 0) {
+    const ids = deletedBills.map((b) => b.id);
+    await supabase.from('bill_items').delete().in('bill_id', ids);
+    const { error } = await supabase.from('bills').delete().in('id', ids);
+    if (error) throw error;
+  }
+
   return { data: { success: true } };
 }
 

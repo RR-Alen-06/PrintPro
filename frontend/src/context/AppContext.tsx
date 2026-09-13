@@ -262,6 +262,18 @@ const baseReducer = (state, action) => {
         customers: updatedCustomers,
       }
     }
+    case 'PERMANENT_DELETE_BILL': {
+      return {
+        ...state,
+        bills: state.bills.filter((b) => b.id !== action.payload && b.invoiceNumber !== action.payload && b.invoice_number !== action.payload),
+      }
+    }
+    case 'PURGE_DELETED_BILLS': {
+      return {
+        ...state,
+        bills: state.bills.filter((b) => !b.deleted && !b.deleted_at),
+      }
+    }
     case 'DELETE_CUSTOMER': {
       return {
         ...state,
@@ -2819,6 +2831,8 @@ export const AppProvider = ({ children }: any) => {
       removeInventoryItem,
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
+      permanentDeleteBill: (id) => dispatch({ type: 'PERMANENT_DELETE_BILL', payload: id }),
+      purgeDeletedBills: () => dispatch({ type: 'PURGE_DELETED_BILLS' }),
       addNotification: (notification) => dispatch({ type: 'ADD_NOTIFICATION', payload: notification }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),
       markAllNotificationsRead: () => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ' }),
