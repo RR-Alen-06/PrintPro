@@ -68,5 +68,26 @@ describe('BillingService', () => {
     expect(message).toContain('PRINTPRO STUDIO')
     expect(message).toContain('BILL-0001')
     expect(message).toContain('Xerox Copy')
+    expect(message).toContain('LEDGER SUMMARY')
+    expect(message).toContain('Previous Outstanding')
+  })
+
+  it('correctly includes prior customer outstanding when provided', () => {
+    const bill = {
+      id: 'BILL-0002',
+      bill_number: 'BILL-0002',
+      customer_name: 'Anita Roy',
+      total: 100,
+      grand_total: 100,
+      cash_paid: 50,
+      paid_total: 50,
+      previous_outstanding: 250,
+    }
+
+    const message = BillingService.formatWhatsAppReceipt(bill, 'PrintPro Studio')
+    expect(message).toContain('Previous Outstanding : ₹250.00')
+    expect(message).toContain('Current Bill Total   : ₹100.00')
+    expect(message).toContain('Total Amount Due     : ₹350.00')
+    expect(message).toContain('Remaining to Pay : ₹300.00')
   })
 })

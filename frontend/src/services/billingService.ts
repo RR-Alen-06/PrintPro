@@ -245,7 +245,15 @@ export class BillingService {
     const directPaid = Number(bill.cash_paid || 0) + Number(bill.upi_paid || 0);
     const advUsed = Number(bill.advance_used || 0);
     const totalPaid = Number(bill.paid_total || (directPaid + advUsed));
-    const isFullyPaid = totalPaid >= grandTotal - 0.01;
+
+    const previousOutstanding = Number(
+      (financialSummary as any)?.previousOutstanding !== undefined
+        ? (financialSummary as any).previousOutstanding
+        : ((bill as any).previous_outstanding || (bill as any).previousOutstanding || (bill as any).previousBalance || 0)
+    );
+    const totalAmountDue = previousOutstanding + grandTotal;
+    const remainingBalance = Math.max(0, totalAmountDue - totalPaid);
+    const isFullyPaid = remainingBalance <= 0.01;
 
     let text = `🧾 *${shopName.toUpperCase()}*
 
@@ -265,12 +273,19 @@ Rounding : ${Number(bill.rounding_adjustment || 0) >= 0 ? '+' : ''}₹${Number(b
 🧾 *Total Amount* : ₹${grandTotal.toFixed(2)}
 
 ━━━━━━━━━━━━━━━━━━━━━━
+*LEDGER SUMMARY*
+Previous Outstanding : ₹${previousOutstanding.toFixed(2)}
+Current Bill Total   : ₹${grandTotal.toFixed(2)}
+Total Amount Due     : ₹${totalAmountDue.toFixed(2)}
+
+━━━━━━━━━━━━━━━━━━━━━━
 *PAYMENTS*
 Cash Paid : ₹${Number(bill.cash_paid || 0).toFixed(2)}
 UPI Paid : ₹${Number(bill.upi_paid || 0).toFixed(2)}
 Advance Used : ₹${advUsed.toFixed(2)}
 *Total Paid* : ₹${totalPaid.toFixed(2)}
-Balance Due : ₹${Math.max(0, grandTotal - totalPaid).toFixed(2)}
+Balance Due (This Bill) : ₹${Math.max(0, grandTotal - totalPaid).toFixed(2)}
+Remaining to Pay : ₹${remainingBalance.toFixed(2)}
 Status : ${isFullyPaid ? 'Fully Paid ✅' : 'Payment Pending ⚠️'}`;
 
     if (financialSummary?.loyalty?.enabled && financialSummary.loyalty.points_earned > 0) {

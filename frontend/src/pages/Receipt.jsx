@@ -300,21 +300,66 @@ const Receipt = () => {
       txt(`Loyalty Discount (${bill.loyaltyPointsRedeemed} pts):`, labelX, y); txt(`-Rs.${loyaltyDisc.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     }
 
+    // Calculate Previous Outstanding & Total Gross / Net Dues
+    const custId = bill.customerId || bill.customer_id
+    const customer = customers.find((c) => String(c.id) === String(custId) || (c.customerCode && String(c.customerCode) === String(custId)) || (c.code && String(c.code) === String(custId)))
+    
+    let previousOutstanding = 0
+    if (custId) {
+      const currentBillDateStr = bill.createdAt || bill.created_at || bill.date || ''
+      const currentBillTime = currentBillDateStr ? new Date(currentBillDateStr).getTime() : Date.now()
+      const pastBills = bills.filter((b) => {
+        if (b.deleted || b.deleted_at) return false
+        const bCustId = b.customerId || b.customer_id
+        if (String(bCustId) !== String(custId)) return false
+        if (String(b.id) === String(bill.id)) return false
+        const bDateStr = b.createdAt || b.created_at || b.date || ''
+        const bTime = bDateStr ? new Date(bDateStr).getTime() : 0
+        if (bTime && currentBillTime && bTime !== currentBillTime) {
+          return bTime < currentBillTime
+        }
+        return true
+      })
+      if (pastBills.length > 0) {
+        previousOutstanding = pastBills.reduce((sum, b) => {
+          const bal = b.balance !== undefined ? Number(b.balance) : Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0))
+          return sum + (isNaN(bal) ? 0 : bal)
+        }, 0)
+      } else if (customer) {
+        const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0))
+        const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0)
+        previousOutstanding = Math.max(0, totalCustCredit - currentBillBal)
+      }
+    }
+
+    const currentTotal = Number(bill.total || 0)
+    const totalGrossDue = previousOutstanding + currentTotal
+    const paidAmt = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || 0)))
+    const balAmt = Number(bill.balance !== undefined ? bill.balance : Math.max(0, currentTotal - paidAmt))
+    const netTotalDue = Math.max(0, totalGrossDue - paidAmt)
+
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(rgb.r, rgb.g, rgb.b)
-    txt('Total:', labelX, y); txt(`Rs.${Number(bill.total || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
-
-    const paidAmt = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || 0)))
-    const balAmt = Number(bill.balance !== undefined ? bill.balance : 0)
+    txt('Current Bill Total:', labelX, y); txt(`Rs.${currentTotal.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(50, 50, 50)
+    txt('Previous Balance:', labelX, y); txt(`Rs.${previousOutstanding.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+    txt('Total Gross Due:', labelX, y); txt(`Rs.${totalGrossDue.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
     txt('Amount Paid:', labelX, y); txt(`Rs.${paidAmt.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
 
     if (balAmt > 0) {
       doc.setTextColor(239, 68, 68)
-      txt('Balance Due:', labelX, y); txt(`Rs.${balAmt.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      txt('Bill Balance Due:', labelX, y); txt(`Rs.${balAmt.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
       doc.setTextColor(50, 50, 50)
+    }
+
+    if (netTotalDue > 0) {
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(239, 68, 68)
+      txt('Net Total Due:', labelX, y); txt(`Rs.${netTotalDue.toFixed(2)}`, valX, y, { align: 'right' }); y += 5
+      doc.setTextColor(50, 50, 50)
+      doc.setFont('helvetica', 'normal')
     } else if (Number(bill.writtenOffAmount || 0) > 0) {
       doc.setTextColor(148, 163, 184)
       txt('Written Off:', labelX, y); txt(`Rs.${Number(bill.writtenOffAmount || 0).toFixed(2)}`, valX, y, { align: 'right' }); y += 5
@@ -341,9 +386,10 @@ const Receipt = () => {
       y += 7
     }
 
-    // Payment breakdown & QR code
-    const upiLink = getUpiLink(bill.balance)
-    const qrBase64 = (settings.showUpiQrCode !== false && bill.balance > 0) 
+    // Payment breakdown & QR code (encodes Net Total Due)
+    const upiTargetAmount = netTotalDue > 0 ? netTotalDue : balAmt
+    const upiLink = getUpiLink(upiTargetAmount)
+    const qrBase64 = (settings.showUpiQrCode !== false && upiTargetAmount > 0) 
       ? await getQrCodeBase64(upiLink) 
       : ''
 
@@ -353,7 +399,7 @@ const Receipt = () => {
       doc.addImage(qrBase64, 'PNG', W - MARGIN - qrSize, y, qrSize, qrSize)
       doc.setFontSize(7)
       doc.setFont('helvetica', 'bold')
-      txt('Scan QR to Pay Balance', W - MARGIN - qrSize + qrSize/2, y + qrSize + 3, { align: 'center' })
+      txt('Scan QR to Pay Total Due', W - MARGIN - qrSize + qrSize/2, y + qrSize + 3, { align: 'center' })
       
       doc.setFontSize(8)
       doc.setFont('helvetica', 'bold')

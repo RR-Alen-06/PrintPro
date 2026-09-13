@@ -19,29 +19,49 @@ export default function LedgerBillCard({
   const customerSuffix = customerCode ? ` (${customerCode})` : ''
 
   // 2. Previous Outstanding Calculation
-  const currentBillDate = bill.date ? new Date(bill.date) : new Date()
-  const pastBills = bills.filter(b =>
-    !b.deleted &&
-    String(b.customerId || b.customer_id) === String(customerId) &&
-    String(b.id) !== String(bill.id) &&
-    (b.date ? new Date(b.date) < currentBillDate : true)
-  )
-  const previousOutstanding = pastBills.reduce((sum, b) => sum + Number(b.balance !== undefined ? b.balance : Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0))), 0)
+  let previousOutstanding = 0
+  if (customerId) {
+    const currentBillDateStr = bill.createdAt || bill.created_at || bill.date || ''
+    const currentBillTime = currentBillDateStr ? new Date(currentBillDateStr).getTime() : Date.now()
+    const pastBills = bills.filter(b => {
+      if (b.deleted || b.deleted_at) return false
+      const bCustId = b.customerId || b.customer_id
+      if (String(bCustId) !== String(customerId)) return false
+      if (String(b.id) === String(bill.id)) return false
+      const bDateStr = b.createdAt || b.created_at || b.date || ''
+      const bTime = bDateStr ? new Date(bDateStr).getTime() : 0
+      if (bTime && currentBillTime && bTime !== currentBillTime) {
+        return bTime < currentBillTime
+      }
+      return true
+    })
+    if (pastBills.length > 0) {
+      previousOutstanding = pastBills.reduce((sum, b) => {
+        const bal = b.balance !== undefined ? Number(b.balance) : Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0))
+        return sum + (isNaN(bal) ? 0 : bal)
+      }, 0)
+    } else if (customer) {
+      const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0))
+      const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0)
+      previousOutstanding = Math.max(0, totalCustCredit - currentBillBal)
+    }
+  }
 
   // 3. Current Bill Totals
   const currentBill = Number(bill.total || 0)
   const totalAmountDue = previousOutstanding + currentBill
 
   // 4. Payments for this Bill
-  const billPayments = payments.filter(p => !p.deleted && String(p.billId || p.bill_id) === String(bill.id))
+  const billPayments = payments.filter(p => !p.deleted && !p.deleted_at && String(p.billId || p.bill_id) === String(bill.id))
   const cashPaid = billPayments.reduce((sum, p) => sum + Number(p.cashAmount || p.cash_amount || 0), 0)
   const upiPaid = billPayments.reduce((sum, p) => sum + Number(p.upiAmount || p.upi_amount || 0), 0)
   const advanceUsed = Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || 0)
-  const paidNow = cashPaid + upiPaid + advanceUsed
+  const directPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || (cashPaid + upiPaid))))
+  const paidNow = Math.max(directPaid, cashPaid + upiPaid) + advanceUsed
 
   // 5. Remaining Balance
   const remainingBalance = Math.max(0, totalAmountDue - paidNow)
-  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.credit_balance || 0)
+  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || customer?.credit_balance || 0)
 
   // 6. Loyalty Earned
   const isRegular = (customer?.type || 'regular') === 'regular'
