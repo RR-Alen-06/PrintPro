@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
-import { clearAllCloudData } from '../../lib/syncService'
+import { clearAllCloudData, clearTransactionRecords } from '../../lib/syncService'
+import { useQueryClient } from '@tanstack/react-query'
 import { SequenceService } from '../../services/sequenceService'
 import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -10,12 +11,13 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   Building2, Shield, Gift, Monitor, LogOut, Check, Save, Upload,
   Cpu, Sliders, Smartphone, AlertCircle, RefreshCw, Tag, Trash2,
-  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare, Printer
+  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare, Printer, RotateCcw, AlertTriangle
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileSettings() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const {
     business, updateBusiness, settings, updateSettings, promoCodes, setPromoCodes,
     currentUser, logout, showToast, syncFromCloud
@@ -112,7 +114,15 @@ export default function MobileSettings() {
   const [autoPrintOnSave, setAutoPrintOnSave] = useState(settings.autoPrintOnSave === true)
   const [silentThermalPrint, setSilentThermalPrint] = useState(settings.silentThermalPrint === true)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [showClearDataModal, setShowClearDataModal] = useState(false)
+  
+  // Clear and Factory Reset modals state
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetConfirmationText, setResetConfirmationText] = useState('')
+  const [isResetting, setIsResetting] = useState(false)
+
+  const [showFactoryResetModal, setShowFactoryResetModal] = useState(false)
+  const [factoryResetConfirmationText, setFactoryResetConfirmationText] = useState('')
+  const [isFactoryResetting, setIsFactoryResetting] = useState(false)
 
   // Save Business Profile
   const handleSaveBusiness = async (e) => {
@@ -301,15 +311,67 @@ export default function MobileSettings() {
     }
   }
 
-  // Purge / Clear Cloud Database
-  const handleConfirmClearData = async () => {
+  // Reset Transaction History (Bills, Payments, Expenses)
+  const handleConfirmResetTransactions = async () => {
+    if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
+      showToast('Type RESET in capital letters to confirm', 'error')
+      return
+    }
+
     try {
-      await clearAllCloudData()
-      showToast('All local and cloud database records purged', 'info')
-      setShowClearDataModal(false)
-      window.location.reload()
+      setIsResetting(true)
+      showToast('Purging transaction records from cloud database...', 'info')
+      await clearTransactionRecords()
+
+      const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
+      const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
+
+      const cleanState = {
+        ...currentState,
+        bills: [],
+        payments: [],
+        expenses: [],
+        advancePayments: [],
+        advances: [],
+      }
+
+      localStorage.setItem(userKey, JSON.stringify(cleanState))
+      queryClient.clear()
+      setShowResetModal(false)
+      setResetConfirmationText('')
+      showToast('Transactions wiped! Reloading terminal...', 'success')
+      setTimeout(() => window.location.reload(), 1000)
     } catch (e) {
-      showToast('Failed to purge database', 'error')
+      showToast(`Failed to reset transactions: ${e.message || e}`, 'error')
+    } finally {
+      setIsResetting(false)
+    }
+  }
+
+  // Full Factory Reset
+  const handleConfirmFactoryReset = async () => {
+    if (factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET') {
+      showToast('Type FACTORY RESET in capital letters to confirm', 'error')
+      return
+    }
+
+    try {
+      setIsFactoryResetting(true)
+      showToast('Executing full factory reset...', 'info')
+      await clearAllCloudData()
+      if (currentUser?.id) {
+        localStorage.removeItem(`printpro-state:${currentUser.id}`)
+      }
+      localStorage.removeItem('printpro-state')
+      queryClient.clear()
+      setShowFactoryResetModal(false)
+      setFactoryResetConfirmationText('')
+      showToast('All system data factory reset! Reloading...', 'success')
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (e) {
+      showToast(`Failed to factory reset: ${e.message || e}`, 'error')
+    } finally {
+      setIsFactoryResetting(false)
     }
   }
 
@@ -1125,13 +1187,29 @@ export default function MobileSettings() {
           <div>Database Sync: <strong style={{ color: 'var(--success)' }}>Supabase PostgreSQL Connected</strong></div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button className="mobile-btn mobile-btn-secondary" onClick={handleSyncCloud} disabled={isSyncing} style={{ fontSize: '0.78rem' }}>
-            <RefreshCw size={14} className={isSyncing ? 'spin' : ''} /> Force Sync
+            <RefreshCw size={14} className={isSyncing ? 'spin' : ''} /> Force Cloud Sync
           </button>
-          <button className="mobile-btn" onClick={() => setShowClearDataModal(true)} style={{ background: 'var(--error-bg)', color: 'var(--error)', border: '1px solid var(--error)', fontSize: '0.78rem' }}>
-            <Database size={14} /> Purge Cloud Data
-          </button>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <button
+              type="button"
+              className="mobile-btn"
+              onClick={() => setShowResetModal(true)}
+              style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', border: '1px solid rgba(234, 179, 8, 0.5)', fontSize: '0.78rem' }}
+            >
+              <RotateCcw size={14} /> Reset Trans.
+            </button>
+            <button
+              type="button"
+              className="mobile-btn"
+              onClick={() => setShowFactoryResetModal(true)}
+              style={{ background: 'var(--error-bg)', color: 'var(--error)', border: '1px solid var(--error)', fontSize: '0.78rem' }}
+            >
+              <Trash2 size={14} /> Factory Reset
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1230,23 +1308,98 @@ export default function MobileSettings() {
         </form>
       </BottomSheet>
 
-      {/* Clear Database Modal */}
-      {showClearDataModal && (
-        <div className="bottom-sheet-overlay" onClick={() => setShowClearDataModal(false)}>
+      {/* Reset Transactions Bottom Sheet Modal */}
+      {showResetModal && (
+        <div className="bottom-sheet-overlay" onClick={() => { if (!isResetting) setShowResetModal(false) }}>
           <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
             <div className="bottom-sheet-drag-handle" />
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--error)', marginBottom: '8px' }}>
-              Purge Cloud & Local Database?
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              This will permanently delete all stored invoices, customers, and payment logs from local and cloud storage.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#eab308' }}>
+              <RotateCcw size={20} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+                Reset Transaction History
+              </h3>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
+              This will erase all Bills, Payments, Expenses, and reset customer balances. Customer directory, item catalog, and settings are preserved.
             </p>
+            <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', marginBottom: '6px' }}>
+              Type <strong>RESET</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              className="mobile-input"
+              value={resetConfirmationText}
+              onChange={(e) => setResetConfirmationText(e.target.value)}
+              placeholder="RESET"
+              style={{ marginBottom: '14px', textTransform: 'uppercase' }}
+              autoFocus
+            />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <button className="mobile-btn mobile-btn-secondary" onClick={() => setShowClearDataModal(false)}>
+              <button
+                type="button"
+                className="mobile-btn mobile-btn-secondary"
+                onClick={() => { setShowResetModal(false); setResetConfirmationText('') }}
+                disabled={isResetting}
+              >
                 Cancel
               </button>
-              <button className="mobile-btn" style={{ background: 'var(--error)', color: '#fff' }} onClick={handleConfirmClearData}>
-                Confirm Purge
+              <button
+                type="button"
+                className="mobile-btn"
+                style={{ background: '#eab308', color: '#000000', fontWeight: 700 }}
+                onClick={handleConfirmResetTransactions}
+                disabled={resetConfirmationText.trim().toUpperCase() !== 'RESET' || isResetting}
+              >
+                {isResetting ? 'Resetting...' : 'Confirm Reset'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Factory Reset Bottom Sheet Modal */}
+      {showFactoryResetModal && (
+        <div className="bottom-sheet-overlay" onClick={() => { if (!isFactoryResetting) setShowFactoryResetModal(false) }}>
+          <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
+            <div className="bottom-sheet-drag-handle" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--error)' }}>
+              <AlertTriangle size={20} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+                Full Factory Reset
+              </h3>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
+              Permanently wipes <strong>ALL bills, payments, expenses, customer accounts, and inventory items</strong>. Basic shop profile credentials are kept.
+            </p>
+            <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', marginBottom: '6px' }}>
+              Type <strong>FACTORY RESET</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              className="mobile-input"
+              value={factoryResetConfirmationText}
+              onChange={(e) => setFactoryResetConfirmationText(e.target.value)}
+              placeholder="FACTORY RESET"
+              style={{ marginBottom: '14px', textTransform: 'uppercase' }}
+              autoFocus
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <button
+                type="button"
+                className="mobile-btn mobile-btn-secondary"
+                onClick={() => { setShowFactoryResetModal(false); setFactoryResetConfirmationText('') }}
+                disabled={isFactoryResetting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="mobile-btn"
+                style={{ background: 'var(--error)', color: '#fff', fontWeight: 700 }}
+                onClick={handleConfirmFactoryReset}
+                disabled={factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET' || isFactoryResetting}
+              >
+                {isFactoryResetting ? 'Resetting...' : 'Confirm Factory Reset'}
               </button>
             </div>
           </div>
