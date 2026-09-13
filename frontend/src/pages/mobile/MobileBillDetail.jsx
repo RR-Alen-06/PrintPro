@@ -269,7 +269,7 @@ export default function MobileBillDetail() {
     try {
       if (createCreditNote) {
         await createCreditNote(bill.id, returnedItems, returnSettlement)
-        showToast('Credit Note created and inventory restocked!', 'success')
+        showToast('Credit Note created successfully!', 'success')
         setShowReturnModal(false)
       } else {
         showToast('Credit note feature unavailable', 'error')

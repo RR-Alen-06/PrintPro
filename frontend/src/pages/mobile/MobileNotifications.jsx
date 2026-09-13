@@ -73,7 +73,7 @@ export default function MobileNotifications() {
     const type = notif.type || 'info'
     const title = (notif.title || '').toLowerCase()
 
-    if (type === 'warning' || title.includes('stock') || title.includes('alert')) {
+    if (type === 'warning' || title.includes('alert') || title.includes('overdue') || title.includes('pending')) {
       return {
         icon: AlertTriangle,
         color: 'var(--warning)',

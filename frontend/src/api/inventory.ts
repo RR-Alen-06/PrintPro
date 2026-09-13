@@ -16,8 +16,6 @@ export const mapItemFromApi = (i: any) => {
   const colorDouble = parseNum(i.color_double !== undefined ? i.color_double : i.colorDouble, 0);
   const bwSingle = parseNum(i.bw_single !== undefined ? i.bw_single : i.bwSingle, 0);
   const bwDouble = parseNum(i.bw_double !== undefined ? i.bw_double : i.bwDouble, 0);
-  const stock = parseNum(i.stock, 0);
-  const lowStockAlert = parseNum(i.low_stock_alert !== undefined ? i.low_stock_alert : i.lowStockAlert, 5);
 
   return {
     ...i,
@@ -38,9 +36,6 @@ export const mapItemFromApi = (i: any) => {
     bw_single: bwSingle,
     bwDouble,
     bw_double: bwDouble,
-    stock,
-    lowStockAlert,
-    low_stock_alert: lowStockAlert,
   };
 };
 
@@ -77,8 +72,6 @@ export const createItem = async (data: any) => {
     color_double: Number(data.color_double !== undefined ? data.color_double : (data.colorDouble || 0)),
     bw_single: Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle || 0)),
     bw_double: Number(data.bw_double !== undefined ? data.bw_double : (data.bwDouble || 0)),
-    stock: Number(data.stock || 0),
-    low_stock_alert: Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert || 50))
   };
 
   if (isBackendAvailable()) {
@@ -123,10 +116,6 @@ export const updateItem = async (id, data) => {
   if (data.bw_double !== undefined || data.bwDouble !== undefined) {
     payload.bw_double = Number(data.bw_double !== undefined ? data.bw_double : data.bwDouble);
   }
-  if (data.stock !== undefined) payload.stock = Number(data.stock);
-  if (data.low_stock_alert !== undefined || data.lowStockAlert !== undefined) {
-    payload.low_stock_alert = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : data.lowStockAlert);
-  }
 
   if (isBackendAvailable()) {
     try {
@@ -167,21 +156,7 @@ export const deleteItem = async (id) => {
 }
 
 export const getLowStock = async () => {
-  if (isBackendAvailable()) {
-    try {
-      const res = await api.get('/inventory/low-stock');
-      return { data: { data: res.data.data } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
-        throw err;
-      }
-      markBackendUnavailable();
-    }
-  }
-  const { data, error } = await supabase.from('inventory_items').select('*');
-  if (error) throw error;
-  const filtered = (data || []).filter(i => (i.stock || 0) <= (i.low_stock_alert || 50));
-  return { data: { data: filtered } };
+  return { data: { data: [] } };
 }
 
 

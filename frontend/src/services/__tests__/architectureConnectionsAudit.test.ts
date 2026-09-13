@@ -101,10 +101,6 @@ describe('Systematic 14-Point Architecture Connections Audit', () => {
     expect(bill.subtotal).toBe(720)
     expect(bill.gstAmount).toBe(99.6)
     expect(bill.roundedTotal).toBe(820)
-
-    // 3. Stock deduction simulation
-    const updatedStock = mockInventory[1].stock - billItems[1].qty
-    expect(updatedStock).toBe(48)
   })
 
   // ── Connection 2: Billing -> Loyalty ───────────────────────────────────────
@@ -372,19 +368,14 @@ describe('Systematic 14-Point Architecture Connections Audit', () => {
   })
 
   // ── Connection 12: Notifications & Alerts ─────────────────────────────────
-  it('12. Notifications: overdue bill, low stock, and credit limit breach trigger correctly', () => {
+  it('12. Notifications: overdue bill and credit limit breach trigger correctly', () => {
     // 1. Overdue bill condition
     const todayStr = '2026-08-30'
     const bill = { dueDate: '2026-08-25', balance: 500, deleted: false }
     const isOverdue = bill.dueDate < todayStr && bill.balance > 0 && !bill.deleted
     expect(isOverdue).toBe(true)
 
-    // 2. Low stock threshold alert condition
-    const invItem = { name: 'Glossy Photo Paper', stock: 12, lowStockAlert: 20 }
-    const isLowStock = invItem.stock < invItem.lowStockAlert
-    expect(isLowStock).toBe(true)
-
-    // 3. Customer credit limit breach condition
+    // 2. Customer credit limit breach condition
     const customer = { name: 'Acme Corp', creditLimit: 2000, creditBalance: 2500 }
     const isCreditBreached = customer.creditBalance > customer.creditLimit
     expect(isCreditBreached).toBe(true)

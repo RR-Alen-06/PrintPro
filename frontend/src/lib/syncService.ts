@@ -71,9 +71,8 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
           color_double: payload.colorDouble || 0,
           bw_single: payload.bwSingle || 0,
           bw_double: payload.bwDouble || 0,
-          stock: payload.stock || 0,
-          low_stock_alert: payload.lowStockAlert || 5
         });
+        break;
 
       case 'UPDATE_INVENTORY_ITEM':
         if (payload.id) {
@@ -86,8 +85,6 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
             color_double: payload.updates.colorDouble,
             bw_single: payload.updates.bwSingle,
             bw_double: payload.updates.bwDouble,
-            stock: payload.updates.stock || 0,
-            low_stock_alert: payload.updates.lowStockAlert || 5
           });
         }
         break;
