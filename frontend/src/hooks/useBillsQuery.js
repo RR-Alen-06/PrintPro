@@ -172,7 +172,7 @@ export function useBillMutations() {
       const previousQueries = queryClient.getQueriesData({ queryKey: userBillsKey, exact: false })
 
       queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (old = []) =>
-        Array.isArray(old) ? old.filter((b) => b.id !== id) : old
+        Array.isArray(old) ? old.filter((b) => b.id !== id && b.invoice_number !== id && b.invoiceNumber !== id) : old
       )
 
       return { previousQueries }
@@ -197,9 +197,81 @@ export function useBillMutations() {
       await billsApi.restoreBill(id)
       return id
     },
+    onMutate: async (id) => {
+      const deletedKey = [...BILLS_QUERY_KEY, 'deleted', userId]
+      await queryClient.cancelQueries({ queryKey: deletedKey, exact: false })
+      const previousDeleted = queryClient.getQueryData(deletedKey)
+
+      queryClient.setQueriesData({ queryKey: deletedKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.filter((b) => b.id !== id && b.invoice_number !== id && b.invoiceNumber !== id) : old
+      )
+
+      return { previousDeleted }
+    },
+    onError: (err, id, context) => {
+      if (context?.previousDeleted) {
+        queryClient.setQueryData([...BILLS_QUERY_KEY, 'deleted', userId], context.previousDeleted)
+      }
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+    },
+  })
+
+  const permanentDeleteBillMutation = useMutation({
+    mutationFn: async (id) => {
+      await billsApi.permanentDeleteBill(id)
+      return id
+    },
+    onMutate: async (id) => {
+      const deletedKey = [...BILLS_QUERY_KEY, 'deleted', userId]
+      await queryClient.cancelQueries({ queryKey: deletedKey, exact: false })
+      const previousDeleted = queryClient.getQueryData(deletedKey)
+
+      queryClient.setQueriesData({ queryKey: deletedKey, exact: false }, (old = []) =>
+        Array.isArray(old) ? old.filter((b) => b.id !== id && b.invoice_number !== id && b.invoiceNumber !== id) : old
+      )
+
+      return { previousDeleted }
+    },
+    onError: (err, id, context) => {
+      if (context?.previousDeleted) {
+        queryClient.setQueryData([...BILLS_QUERY_KEY, 'deleted', userId], context.previousDeleted)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+    },
+  })
+
+  const purgeAllDeletedBillsMutation = useMutation({
+    mutationFn: async () => {
+      await billsApi.purgeAllDeletedBills()
+      return true
+    },
+    onMutate: async () => {
+      const deletedKey = [...BILLS_QUERY_KEY, 'deleted', userId]
+      await queryClient.cancelQueries({ queryKey: deletedKey, exact: false })
+      const previousDeleted = queryClient.getQueryData(deletedKey)
+      queryClient.setQueriesData({ queryKey: deletedKey, exact: false }, () => [])
+      return { previousDeleted }
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousDeleted) {
+        queryClient.setQueryData([...BILLS_QUERY_KEY, 'deleted', userId], context.previousDeleted)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
 
@@ -208,9 +280,12 @@ export function useBillMutations() {
     updateBill: updateBillMutation.mutateAsync,
     deleteBill: deleteBillMutation.mutateAsync,
     restoreBill: restoreBillMutation.mutateAsync,
+    permanentDeleteBill: permanentDeleteBillMutation.mutateAsync,
+    purgeAllDeletedBills: purgeAllDeletedBillsMutation.mutateAsync,
     isCreatingBill: createBillMutation.isPending,
     isUpdatingBill: updateBillMutation.isPending,
     isDeletingBill: deleteBillMutation.isPending,
     isRestoringBill: restoreBillMutation.isPending,
+    isPurgingBill: permanentDeleteBillMutation.isPending || purgeAllDeletedBillsMutation.isPending,
   }
 }
