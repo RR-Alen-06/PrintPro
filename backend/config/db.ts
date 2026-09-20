@@ -33,9 +33,15 @@ const connectionString = process.env.DATABASE_URL ||
 
 logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
 
+const sslOptions: any = process.env.DB_CA_CERT
+  ? { rejectUnauthorized: true, ca: process.env.DB_CA_CERT }
+  : (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true'
+      ? { rejectUnauthorized: true }
+      : { rejectUnauthorized: false });
+
 const pgPool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false }
+  ssl: sslOptions
 });
 
 export class PgConnectionWrapper {

@@ -161,6 +161,9 @@ export async function createBill(req: any, res: any, next: any) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
+    // Enforce tenant-scoped transaction concurrency lock to eliminate sequential invoice collision race conditions
+    await conn.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [req.user.id]);
+
     // Generate human-readable invoice_number (e.g. BILL0001)
     const [maxBill] = await conn.query(
       `SELECT invoice_number FROM bills WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
