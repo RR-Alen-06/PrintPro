@@ -32,29 +32,35 @@ app.set('trust proxy', 1); // so req.ip works behind reverse proxies
 // ── Global middleware ────────────────────────────────────────────────────────
 app.use(helmet());
 
-// Configure CORS with allowed local development origins and configured CORS_ORIGIN
-const allowedOrigins = [
+// Configure CORS with allowed production origins, configured CORS_ORIGIN, and development origins
+const configuredOrigins = (process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o: string) => o.trim())
+  .filter(Boolean);
+
+const defaultAllowedOrigins = [
+  'https://printpro-in.vercel.app',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
-  'https://printpro-in.vercel.app',
-  process.env.CORS_ORIGIN
-].filter(Boolean);
+  'http://localhost:5173'
+];
 
-const corsOptions = {
+const allowedOriginsSet = new Set([...defaultAllowedOrigins, ...configuredOrigins]);
+
+const corsOptions: cors.CorsOptions = {
   origin: (origin: any, callback: any) => {
-    if (
-      !origin ||
-      allowedOrigins.indexOf(origin) !== -1 ||
-      origin.startsWith('http://localhost:') ||
-      origin.endsWith('-print-service.vercel.app') ||
-      /^https:\/\/print-pro-[a-z0-9-]+\.vercel\.app$/.test(origin) ||
-      /^https:\/\/printpro-[a-z0-9-]+\.vercel\.app$/.test(origin)
-    ) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    if (!origin) {
+      return callback(null, true);
     }
+    if (allowedOriginsSet.has(origin)) {
+      return callback(null, true);
+    }
+    // Allow standard local development addresses
+    if (ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   optionsSuccessStatus: 200

@@ -99,7 +99,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE || '' }}  # Optional for personal repos
-        continue-on-error: true
 
   # ---------------------------------------------------------------------------
   # 4. ESLint Security Plugin – Backend SARIF
