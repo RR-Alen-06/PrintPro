@@ -89,3 +89,6 @@ backend/uploads/
 .netlify/
 .vercel
 .env*
+
+# ------ Local Agent Rules & Configurations ------------------
+.agents/
