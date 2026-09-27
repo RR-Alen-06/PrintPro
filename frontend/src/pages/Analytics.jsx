@@ -4,6 +4,7 @@ import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { usePayments, useInventory, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
+import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import PeriodReport from '../components/PeriodReport'
 import { Banknote, Smartphone, Tag, ShieldAlert, RefreshCw, Box, Users } from 'lucide-react'
@@ -24,7 +25,8 @@ const filterByDate = (items, dateKey, range) => {
 }
 
 const Analytics = () => {
-  const { promoCodes, auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { promoCodes = [] } = usePromoCodes()
   const { data: bills = [] } = useBills()
   const { data: customers = [] } = useCustomers()
   const { data: payments = [] } = usePayments()

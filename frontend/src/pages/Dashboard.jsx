@@ -5,7 +5,7 @@ import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, Che
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
@@ -35,18 +35,20 @@ const formatCurrency = (val) => {
 
 const Dashboard = () => {
   const queryClient = useQueryClient()
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill, recordPayment } = useAppContext()
+  const { bills: contextBills, customers: contextCustomers, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill, recordPayment } = useAppContext()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverPayments } = usePayments()
   const { data: serverExpenses } = useExpenses()
+  const { data: serverAdvancePayments, isLoading: isLoadingAdvances } = useAdvancePayments()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
 
   const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
   const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
   const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
   const expenses = serverExpenses?.length > 0 ? serverExpenses : (contextExpenses || [])
-  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
+  const advancePayments = serverAdvancePayments !== undefined ? (serverAdvancePayments || []) : []
+  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
   const navigate = useNavigate()
   const today = new Date()
 
