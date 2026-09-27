@@ -565,15 +565,15 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
   const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], showAlert, showToast, settings, promoCodes } = useAppContext()
-  const { data: serverInventory = [] } = useInventory()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverBills = [] } = useBills()
+  const { data: serverInventory = [], isSuccess: isInventoryLoaded } = useInventory()
+  const { data: serverCustomers = [], isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverBills = [], isSuccess: isBillsLoaded } = useBills()
   const { createBill } = useBillMutations()
   const { createCustomer, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
-  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
+  const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
+  const bills = isBillsLoaded ? serverBills : (contextBills || [])
 
   // ── Inline Add Customer modal state ─────────────────────────────────────────
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)

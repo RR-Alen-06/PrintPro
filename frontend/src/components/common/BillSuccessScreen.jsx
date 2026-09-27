@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { Check, Download, Share2, Printer, PlusCircle, ArrowRight, Wallet, AlertTriangle, Sparkles } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
-import { usePayments } from '../../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import LedgerBillCard from './LedgerBillCard'
 
 /**
@@ -16,7 +17,9 @@ import LedgerBillCard from './LedgerBillCard'
  * @param {function} props.onCreateNew - Callback to clear success screen and create new bill
  */
 export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCreateNew }) => {
-  const { recordSpecificBillPayment, business, settings } = useAppContext()
+  const queryClient = useQueryClient()
+  const { business, settings } = useAppContext()
+  const { createPayment } = usePaymentMutations()
   const { data: serverBills = [] } = useBills()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverPayments = [] } = usePayments()
@@ -40,7 +43,7 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
   const outstanding = Math.max(localBill.total - localBill.amountPaid, 0)
   const isPaid = localBill.status === 'paid' || outstanding <= 0
 
-  const handleRecordSuccessPayment = (e) => {
+  const handleRecordSuccessPayment = async (e) => {
     e.preventDefault()
     const cash = Number(payCash || 0)
     const upi = Number(payUpi || 0)
@@ -57,13 +60,32 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
     }
 
     try {
-      recordSpecificBillPayment({
-        billId: localBill.id,
-        customerId: localBill.customerId,
-        cashAmount: cash,
-        upiAmount: upi,
-        notes: 'Settle balance via bill success screen',
-      })
+      if (createPayment) {
+        await createPayment({
+          bill_id: localBill.id,
+          billId: localBill.id,
+          customer_id: localBill.customerId || localBill.customer_id,
+          customerId: localBill.customerId || localBill.customer_id,
+          cash_amount: cash,
+          cashAmount: cash,
+          upi_amount: upi,
+          upiAmount: upi,
+          total_paid: totalPay,
+          totalPaid: totalPay,
+          payment_type: totalPay >= outstanding ? 'full' : 'partial',
+          paymentType: totalPay >= outstanding ? 'full' : 'partial',
+          paymentMethod: cash > 0 && upi > 0 ? 'split' : (cash > 0 ? 'cash' : 'upi'),
+          notes: 'Settle balance via bill success screen',
+          date: new Date().toISOString()
+        })
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
       
       setPayMsg('Payment recorded successfully!')
       setPayCash('')
@@ -71,10 +93,12 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
       setPayError('')
       
       // Update local state to reflect payment immediately without mutating props
-      const nextAmountPaid = Number((localBill.amountPaid + totalPay).toFixed(2))
+      const currentPaid = Number(localBill.amountPaid !== undefined ? localBill.amountPaid : (localBill.amount_paid || 0))
+      const nextAmountPaid = Number((currentPaid + totalPay).toFixed(2))
       setLocalBill(prev => ({
         ...prev,
         amountPaid: nextAmountPaid,
+        amount_paid: nextAmountPaid,
         balance: Math.max(prev.total - nextAmountPaid, 0),
         status: nextAmountPaid >= prev.total ? 'paid' : (nextAmountPaid > 0 ? 'partial' : 'unpaid'),
         paymentMethod: {
@@ -84,7 +108,7 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
         }
       }))
     } catch (err) {
-      setPayError('Failed to record payment.')
+      setPayError(err?.response?.data?.message || err?.message || 'Failed to record payment.')
     }
   }
 

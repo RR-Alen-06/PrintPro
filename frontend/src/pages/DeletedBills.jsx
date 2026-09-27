@@ -16,7 +16,7 @@ const DeletedBills = () => {
     showToast
   } = useAppContext()
 
-  const { data: serverDeletedBills = [], isLoading, refetch } = useDeletedBills()
+  const { data: serverDeletedBills = [], isLoading, isSuccess, refetch } = useDeletedBills()
   const {
     restoreBill,
     permanentDeleteBill,
@@ -28,9 +28,9 @@ const DeletedBills = () => {
   // Data union fallback
   const contextDeleted = (contextBills || []).filter((b) => b.deleted || b.deleted_at)
   const deletedBills = useMemo(() => {
-    if (serverDeletedBills && serverDeletedBills.length > 0) return serverDeletedBills
+    if (isSuccess) return serverDeletedBills
     return contextDeleted
-  }, [serverDeletedBills, contextDeleted])
+  }, [isSuccess, serverDeletedBills, contextDeleted])
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('')
