@@ -7,11 +7,19 @@ import { useQueryClient } from '@tanstack/react-query'
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
 
+import { useSettings, useSettingsMutations } from '../hooks/useSettingsQuery'
+import { usePromoCodes, usePromoCodeMutations } from '../hooks/usePromoCodesQuery'
+
 const Settings = () => {
   const queryClient = useQueryClient()
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, currentUser } = useAppContext()
+  const { business, showConfirm, showToast, currentUser } = useAppContext()
   const { data: serverProfile = {} } = useProfile()
   const { updateProfile } = useProfileMutations()
+
+  const { settings = {} } = useSettings()
+  const { updateSettings } = useSettingsMutations()
+  const { promoCodes = [] } = usePromoCodes()
+  const { createPromoCode, updatePromoCode, deletePromoCode } = usePromoCodeMutations()
 
   // Sequence configuration local state
   const [seqConfigs, setSeqConfigs] = useState({
@@ -91,73 +99,13 @@ const Settings = () => {
   // Promo / Coupon Codes local state
   const [newPromo, setNewPromo] = useState({
     code: '',
-    type: 'percent',
+    type: 'percent' as 'percent' | 'flat',
     value: '',
     minAmount: '',
     startDate: '',
     endDate: '',
     enabled: true,
   })
-
-  const handleAddPromo = (e) => {
-    e.preventDefault()
-    const codeUpper = newPromo.code.trim().toUpperCase()
-    if (!codeUpper) {
-      alert("Please enter a coupon code.")
-      return
-    }
-    const val = Number(newPromo.value)
-    if (isNaN(val) || val <= 0) {
-      alert("Please enter a valid discount value.")
-      return
-    }
-    if (newPromo.type === 'percent' && val > 100) {
-      alert("Percentage discount cannot exceed 100%.")
-      return
-    }
-    const minAmt = Number(newPromo.minAmount || 0)
-    
-    // Check if code already exists
-    if (promoCodes?.some(p => p.code === codeUpper)) {
-      alert("A coupon with this code already exists.")
-      return
-    }
-
-    const updated = [
-      ...(promoCodes || []),
-      {
-        code: codeUpper,
-        type: newPromo.type,
-        value: val,
-        minAmount: minAmt,
-        startDate: newPromo.startDate || null,
-        endDate: newPromo.endDate || null,
-        enabled: newPromo.enabled,
-      }
-    ]
-    setPromoCodes(updated)
-    setNewPromo({
-      code: '',
-      type: 'percent',
-      value: '',
-      minAmount: '',
-      startDate: '',
-      endDate: '',
-      enabled: true,
-    })
-  }
-
-  const handleDeletePromo = (codeToDelete) => {
-    const updated = (promoCodes || []).filter(p => p.code !== codeToDelete)
-    setPromoCodes(updated)
-  }
-
-  const handleTogglePromoEnabled = (codeToToggle) => {
-    const updated = (promoCodes || []).map(p => 
-      p.code === codeToToggle ? { ...p, enabled: p.enabled !== false ? false : true } : p
-    )
-    setPromoCodes(updated)
-  }
 
   // Invoice Branding local state
   const [branding, setBranding] = useState({
@@ -181,36 +129,176 @@ const Settings = () => {
   })
   const [brandingSaved, setBrandingSaved] = useState(false)
 
-  const handleLoyaltySave = (e) => {
+  // Sync server settings with local form state when loaded from cloud
+  useEffect(() => {
+    if (settings && Object.keys(settings).length > 0) {
+      setSeqConfigs(prev => ({
+        invPrefix: settings.invPrefix || prev.invPrefix,
+        cusPrefix: settings.cusPrefix || prev.cusPrefix,
+        itmPrefix: settings.itmPrefix || prev.itmPrefix,
+        payPrefix: settings.payPrefix || prev.payPrefix,
+        expPrefix: settings.expPrefix || prev.expPrefix,
+        grpPrefix: settings.grpPrefix || prev.grpPrefix,
+        cnPrefix: settings.cnPrefix || prev.cnPrefix,
+        seqPadding: settings.seqPadding || prev.seqPadding,
+      }))
+      setWaTemplates(prev => ({
+        whatsappGreeting: settings.whatsappGreeting || prev.whatsappGreeting,
+        whatsappFooter: settings.whatsappFooter || prev.whatsappFooter,
+        includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== undefined ? settings.includeUpiInWhatsApp : prev.includeUpiInWhatsApp,
+      }))
+      setAcct(prev => ({
+        gstRate: settings.gstRate !== undefined ? settings.gstRate : prev.gstRate,
+        viewMode: settings.viewMode || prev.viewMode,
+        refundsEnabled: settings.refundsEnabled !== undefined ? settings.refundsEnabled : prev.refundsEnabled,
+        fyInvoicePrefixing: settings.fyInvoicePrefixing !== undefined ? settings.fyInvoicePrefixing : prev.fyInvoicePrefixing,
+      }))
+      setLoyalty(prev => ({
+        loyaltyEnabled: settings.loyaltyEnabled !== undefined ? settings.loyaltyEnabled : prev.loyaltyEnabled,
+        loyaltyForRandomCustomers: settings.loyaltyForRandomCustomers !== undefined ? serverSettings.loyaltyForRandomCustomers : prev.loyaltyForRandomCustomers,
+        loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== undefined ? settings.loyaltyRedeemEnabled : prev.loyaltyRedeemEnabled,
+        loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? prev.loyaltyRedeemRatioPoints,
+        loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? prev.loyaltyRedeemRatioRupees,
+        loyaltyTiers: Array.isArray(settings.loyaltyTiers) && settings.loyaltyTiers.length ? settings.loyaltyTiers : prev.loyaltyTiers,
+        loyaltyRedeemOptions: Array.isArray(settings.loyaltyRedeemOptions) && settings.loyaltyRedeemOptions.length ? settings.loyaltyRedeemOptions : prev.loyaltyRedeemOptions,
+      }))
+      setBranding(prev => ({
+        primaryColor: settings.primaryColor || prev.primaryColor,
+        logoUrl: settings.logoUrl || prev.logoUrl,
+        headerNotes: settings.headerNotes || prev.headerNotes,
+        footerNotes: settings.footerNotes || prev.footerNotes,
+        showGstBreakdown: settings.showGstBreakdown !== undefined ? settings.showGstBreakdown : prev.showGstBreakdown,
+        showUpiQrCode: settings.showUpiQrCode !== undefined ? settings.showUpiQrCode : prev.showUpiQrCode,
+        silentThermalPrint: settings.silentThermalPrint !== undefined ? settings.silentThermalPrint : prev.silentThermalPrint,
+        printPaperSize: settings.printPaperSize || prev.printPaperSize,
+        autoPrintOnSave: settings.autoPrintOnSave !== undefined ? settings.autoPrintOnSave : prev.autoPrintOnSave,
+        shopSealUrl: settings.shopSealUrl || prev.shopSealUrl,
+        signatorySignatureUrl: settings.signatorySignatureUrl || prev.signatorySignatureUrl,
+        pdfShowType: settings.pdfShowType !== undefined ? settings.pdfShowType : prev.pdfShowType,
+        pdfShowSides: settings.pdfShowSides !== undefined ? settings.pdfShowSides : prev.pdfShowSides,
+        pdfShowUnitPrice: settings.pdfShowUnitPrice !== undefined ? settings.pdfShowUnitPrice : prev.pdfShowUnitPrice,
+        pdfShowGstRate: settings.pdfShowGstRate !== undefined ? settings.pdfShowGstRate : prev.pdfShowGstRate,
+        pdfColorTheme: settings.pdfColorTheme || prev.pdfColorTheme,
+        pdfLegalFooter: settings.pdfLegalFooter || prev.pdfLegalFooter,
+      }))
+    }
+  }, [settings])
+
+  const handleAddPromo = async (e: any) => {
     e.preventDefault()
-    updateSettings({
-      loyaltyEnabled: loyalty.loyaltyEnabled,
-      loyaltyForRandomCustomers: loyalty.loyaltyForRandomCustomers,
-      loyaltyRedeemEnabled: loyalty.loyaltyRedeemEnabled,
-      loyaltyRedeemRatioPoints: Number(loyalty.loyaltyRedeemRatioPoints),
-      loyaltyRedeemRatioRupees: Number(loyalty.loyaltyRedeemRatioRupees),
-      loyaltyTiers: loyalty.loyaltyTiers.map(t => ({
-        from: Number(t.from),
-        to: Number(t.to),
-        points: Number(t.points),
-      })).filter(t => t.from >= 0 && t.to >= t.from && t.points > 0),
-      loyaltyRedeemOptions: loyalty.loyaltyRedeemOptions.map(o => ({
-        points: Number(o.points),
-        rupees: Number(o.rupees),
-      })).filter(o => o.points > 0 && o.rupees > 0).sort((a, b) => a.points - b.points),
-    })
-    setLoyaltySaved(true)
-    setTimeout(() => setLoyaltySaved(false), 3000)
+    const codeUpper = newPromo.code.trim().toUpperCase()
+    if (!codeUpper) {
+      alert("Please enter a coupon code.")
+      return
+    }
+    const val = Number(newPromo.value)
+    if (isNaN(val) || val <= 0) {
+      alert("Please enter a valid discount value.")
+      return
+    }
+    if (newPromo.type === 'percent' && val > 100) {
+      alert("Percentage discount cannot exceed 100%.")
+      return
+    }
+    const minAmt = Number(newPromo.minAmount || 0)
+    
+    // Check if code already exists
+    if (promoCodes?.some(p => p.code === codeUpper)) {
+      alert("A coupon with this code already exists.")
+      return
+    }
+
+    try {
+      await createPromoCode({
+        code: codeUpper,
+        type: newPromo.type,
+        value: val,
+        minAmount: minAmt,
+        startDate: newPromo.startDate || null,
+        endDate: newPromo.endDate || null,
+        enabled: newPromo.enabled,
+      })
+      setNewPromo({
+        code: '',
+        type: 'percent',
+        value: '',
+        minAmount: '',
+        startDate: '',
+        endDate: '',
+        enabled: true,
+      })
+      showToast?.(`Promo code ${codeUpper} created successfully!`, 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to create promo code', 'error')
+    }
   }
 
-  const handleBrandingSave = (e) => {
-    e.preventDefault()
-    updateSettings(branding)
-    setBrandingSaved(true)
-    setTimeout(() => setBrandingSaved(false), 3000)
+  const handleDeletePromo = async (codeToDelete: string) => {
+    const target = (promoCodes || []).find(p => p.code === codeToDelete || p.id === codeToDelete)
+    if (!target) return
+    try {
+      await deletePromoCode(target.id || target.code)
+      showToast?.(`Promo code ${target.code} deleted`, 'info')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to delete promo code', 'error')
+    }
   }
 
-  const handleLogoUpload = (e) => {
+  const handleTogglePromoEnabled = async (codeToToggle: string) => {
+    const target = (promoCodes || []).find(p => p.code === codeToToggle || p.id === codeToToggle)
+    if (!target) return
+    const newEnabled = target.enabled === false
+    try {
+      await updatePromoCode({
+        id: target.id || target.code,
+        data: { enabled: newEnabled }
+      })
+      showToast?.(`Promo code ${target.code} ${newEnabled ? 'enabled' : 'disabled'}`, 'info')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to update promo code', 'error')
+    }
+  }
+
+  const handleLoyaltySave = async (e: any) => {
+    e.preventDefault()
+    try {
+      await updateSettings({
+        loyaltyEnabled: loyalty.loyaltyEnabled,
+        loyaltyForRandomCustomers: loyalty.loyaltyForRandomCustomers,
+        loyaltyRedeemEnabled: loyalty.loyaltyRedeemEnabled,
+        loyaltyRedeemRatioPoints: Number(loyalty.loyaltyRedeemRatioPoints),
+        loyaltyRedeemRatioRupees: Number(loyalty.loyaltyRedeemRatioRupees),
+        loyaltyTiers: loyalty.loyaltyTiers.map(t => ({
+          from: Number(t.from),
+          to: Number(t.to),
+          points: Number(t.points),
+        })).filter(t => t.from >= 0 && t.to >= t.from && t.points > 0),
+        loyaltyRedeemOptions: loyalty.loyaltyRedeemOptions.map(o => ({
+          points: Number(o.points),
+          rupees: Number(o.rupees),
+        })).filter(o => o.points > 0 && o.rupees > 0).sort((a, b) => a.points - b.points),
+      })
+      setLoyaltySaved(true)
+      setTimeout(() => setLoyaltySaved(false), 3000)
+      showToast?.('Loyalty program settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save loyalty settings', 'error')
+    }
+  }
+
+  const handleBrandingSave = async (e: any) => {
+    e.preventDefault()
+    try {
+      await updateSettings(branding)
+      setBrandingSaved(true)
+      setTimeout(() => setBrandingSaved(false), 3000)
+      showToast?.('Branding settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save branding settings', 'error')
+    }
+  }
+
+  const handleLogoUpload = (e: any) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 200000) {
@@ -219,7 +307,7 @@ const Settings = () => {
     }
     const reader = new FileReader()
     reader.onloadend = () => {
-      setBranding(prev => ({ ...prev, logoUrl: reader.result }))
+      setBranding(prev => ({ ...prev, logoUrl: reader.result as string }))
     }
     reader.readAsDataURL(file)
   }
@@ -228,21 +316,21 @@ const Settings = () => {
     setBranding(prev => ({ ...prev, logoUrl: '' }))
   }
 
-  const handleSealUpload = (e) => {
+  const handleSealUpload = (e: any) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 200000) { alert('Seal image should be under 200KB.'); return }
     const reader = new FileReader()
-    reader.onloadend = () => { setBranding(prev => ({ ...prev, shopSealUrl: reader.result })) }
+    reader.onloadend = () => { setBranding(prev => ({ ...prev, shopSealUrl: reader.result as string })) }
     reader.readAsDataURL(file)
   }
 
-  const handleSignatureUpload = (e) => {
+  const handleSignatureUpload = (e: any) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 200000) { alert('Signature image should be under 200KB.'); return }
     const reader = new FileReader()
-    reader.onloadend = () => { setBranding(prev => ({ ...prev, signatorySignatureUrl: reader.result })) }
+    reader.onloadend = () => { setBranding(prev => ({ ...prev, signatorySignatureUrl: reader.result as string })) }
     reader.readAsDataURL(file)
   }
 
@@ -250,7 +338,6 @@ const Settings = () => {
 
   const handleSaveBiz = async (e: any) => {
     e.preventDefault()
-    updateBusiness(biz)
     try {
       await updateProfile({
         shop_name: biz.shopName,
@@ -262,24 +349,31 @@ const Settings = () => {
       } as any)
       setBizSaved(true)
       setTimeout(() => setBizSaved(false), 3000)
+      showToast?.('Business profile saved to cloud!', 'success')
     } catch (err) {
       console.error('Failed to save profile via query mutation:', err)
+      showToast?.('Failed to save profile', 'error')
     }
   }
 
-  const handleAcctSave = (e) => {
+  const handleAcctSave = async (e: any) => {
     e.preventDefault()
-    updateSettings({
-      gstRate: Number(acct.gstRate),
-      viewMode: acct.viewMode,
-      refundsEnabled: acct.refundsEnabled,
-      fyInvoicePrefixing: acct.fyInvoicePrefixing,
-    })
-    setAcctSaved(true)
-    setTimeout(() => setAcctSaved(false), 3000)
+    try {
+      await updateSettings({
+        gstRate: Number(acct.gstRate),
+        viewMode: acct.viewMode,
+        refundsEnabled: acct.refundsEnabled,
+        fyInvoicePrefixing: acct.fyInvoicePrefixing,
+      })
+      setAcctSaved(true)
+      setTimeout(() => setAcctSaved(false), 3000)
+      showToast?.('Accounting settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save accounting settings', 'error')
+    }
   }
 
-  const handleSeqSave = async (e) => {
+  const handleSeqSave = async (e: any) => {
     e.preventDefault()
     const cleanPadding = Math.min(10, Math.max(3, Number(seqConfigs.seqPadding) || 6))
     const updated = {
@@ -292,9 +386,8 @@ const Settings = () => {
       cnPrefix: seqConfigs.cnPrefix.trim().toUpperCase() || 'CN',
       seqPadding: cleanPadding,
     }
-    updateSettings(updated)
-
     try {
+      await updateSettings(updated)
       await SequenceService.updateSequenceConfig('BILL', updated.invPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('CUSTOMER', updated.cusPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('INVENTORY', updated.itmPrefix, cleanPadding)
@@ -302,25 +395,29 @@ const Settings = () => {
       await SequenceService.updateSequenceConfig('EXPENSE', updated.expPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('GROUP', updated.grpPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('CREDITNOTE', updated.cnPrefix, cleanPadding)
-    } catch (err) {
-      console.warn('Sync sequence config to server failed, stored locally:', err)
+      setSeqSaved(true)
+      setTimeout(() => setSeqSaved(false), 3000)
+      showToast('Sequence and ID format settings saved!', 'success')
+    } catch (err: any) {
+      console.warn('Sync sequence config to server failed:', err)
+      showToast(err?.message || 'Failed to save sequence settings', 'error')
     }
-
-    setSeqSaved(true)
-    setTimeout(() => setSeqSaved(false), 3000)
-    showToast('Sequence and ID format settings saved!', 'success')
   }
 
-  const handleWaSave = (e: React.FormEvent) => {
+  const handleWaSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    updateSettings({
-      whatsappGreeting: waTemplates.whatsappGreeting.trim(),
-      whatsappFooter: waTemplates.whatsappFooter.trim(),
-      includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
-    })
-    setWaSaved(true)
-    setTimeout(() => setWaSaved(false), 3000)
-    showToast('WhatsApp notification templates saved!', 'success')
+    try {
+      await updateSettings({
+        whatsappGreeting: waTemplates.whatsappGreeting.trim(),
+        whatsappFooter: waTemplates.whatsappFooter.trim(),
+        includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
+      })
+      setWaSaved(true)
+      setTimeout(() => setWaSaved(false), 3000)
+      showToast('WhatsApp notification templates saved!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save WhatsApp notification templates', 'error')
+    }
   }
 
   // Clear / Reset Modals state
