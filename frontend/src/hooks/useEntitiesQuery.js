@@ -348,13 +348,65 @@ export function useInventoryMutations() {
     },
   })
 
+  const adjustStockMutation = useMutation({
+    mutationFn: async ({ id, delta }) => {
+      const res = await inventoryApi.adjustStock(id, delta)
+      return res?.data?.data
+    },
+    onMutate: async ({ id, delta }) => {
+      const userInventoryKey = [...INVENTORY_QUERY_KEY, userId]
+      await queryClient.cancelQueries({ queryKey: userInventoryKey })
+      const previousItems = queryClient.getQueryData(userInventoryKey) || []
+
+      queryClient.setQueryData(userInventoryKey, (old = []) =>
+        old.map((i) => {
+          if (String(i.id) !== String(id)) return i
+          const currentStock = Number(i.stock || 0)
+          const newStock = Math.max(0, currentStock + Number(delta || 0))
+          return {
+            ...i,
+            stock: newStock,
+          }
+        })
+      )
+
+      return { previousItems, userInventoryKey }
+    },
+    onSuccess: (serverData, variables) => {
+      const userInventoryKey = [...INVENTORY_QUERY_KEY, userId]
+      if (serverData) {
+        queryClient.setQueryData(userInventoryKey, (old = []) =>
+          Array.isArray(old)
+            ? old.map((i) => (String(i.id) === String(variables.id) ? { ...serverData, isOptimistic: false } : i))
+            : old
+        )
+      }
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousItems && context?.userInventoryKey) {
+        queryClient.setQueryData(context.userInventoryKey, context.previousItems)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: INVENTORY_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+    },
+  })
+
   return {
     createItem: createItemMutation.mutateAsync,
     updateItem: updateItemMutation.mutateAsync,
     deleteItem: deleteItemMutation.mutateAsync,
+    adjustStock: (idOrObj, maybeDelta) => {
+      if (typeof idOrObj === 'object' && idOrObj !== null && 'id' in idOrObj) {
+        return adjustStockMutation.mutateAsync(idOrObj)
+      }
+      return adjustStockMutation.mutateAsync({ id: idOrObj, delta: maybeDelta })
+    },
     isCreatingItem: createItemMutation.isPending,
     isUpdatingItem: updateItemMutation.isPending,
     isDeletingItem: deleteItemMutation.isPending,
+    isAdjustingStock: adjustStockMutation.isPending,
   }
 }
 
