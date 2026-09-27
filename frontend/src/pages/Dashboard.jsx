@@ -5,7 +5,7 @@ import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, Che
 import { useNavigate } from 'react-router-dom'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
@@ -35,14 +35,16 @@ const formatCurrency = (val) => {
 
 const Dashboard = () => {
   const queryClient = useQueryClient()
-  const { advancePayments, deletedPayments, showToast, updateBill } = useAppContext()
+  const { deletedPayments, showToast, updateBill } = useAppContext()
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
 
-  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
+  const advancePayments = serverAdvancePayments
+  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
   const navigate = useNavigate()
   const today = new Date()
 

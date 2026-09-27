@@ -195,7 +195,12 @@ const NotificationsPage = () => {
 
       {/* Notifications List */}
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        {filteredNotifications.length === 0 ? (
+        {isLoading && notifications.length === 0 ? (
+          <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            <Bell size={40} className="spin" style={{ opacity: 0.3, marginBottom: '12px', display: 'inline-block' }} />
+            <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-primary)' }}>Loading notifications...</div>
+          </div>
+        ) : filteredNotifications.length === 0 ? (
           <div style={{ padding: '48px 24px' }}>
             <EmptyState
               Icon={Bell}
