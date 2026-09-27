@@ -13,14 +13,15 @@ const Receipt = () => {
   const [searchParams] = useSearchParams()
   const paramBillId = searchParams.get('id') || searchParams.get('billId')
 
-  const { bills: contextBills = [], payments: contextPayments = [], customers: contextCustomers = [], business, settings, showAlert, showToast } = useAppContext()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverPayments = [] } = usePayments()
+  const { business, settings, showAlert, showToast } = useAppContext()
+  const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
+  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverPayments = [], isLoading: isLoadingPayments } = usePayments()
 
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const bills = serverBills
+  const customers = serverCustomers
+  const payments = serverPayments
+  const isDataLoading = isLoadingBills || isLoadingCustomers || isLoadingPayments
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -497,6 +498,23 @@ const Receipt = () => {
   const handlePrint = () => {
     if (!selectedBill) return
     window.print()
+  }
+
+  if (isDataLoading && bills.length === 0) {
+    return (
+      <div>
+        <div className="page-header">
+          <div>
+            <h1>Print Receipt</h1>
+            <p>Loading receipt data...</p>
+          </div>
+        </div>
+        <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#a1a1aa' }}>
+          <FileText size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
+          <p>Loading bills and customer data...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
