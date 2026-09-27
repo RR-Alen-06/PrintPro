@@ -5,7 +5,7 @@ import { useAppContext } from '../context/AppContext'
 export const NOTIFICATIONS_QUERY_KEY = ['notifications']
 
 export function useNotifications() {
-  const { currentUser, notifications: contextNotifications = [] } = useAppContext()
+  const { currentUser } = useAppContext()
   const userId = currentUser?.id || 'anonymous'
 
   const queryKey = [...NOTIFICATIONS_QUERY_KEY, userId]
@@ -14,19 +14,15 @@ export function useNotifications() {
     queryKey,
     queryFn: async () => {
       const res = await notifApi.getNotifications()
-      const serverNotes = res.data?.data || []
-      return serverNotes.length > 0 ? serverNotes : contextNotifications
+      return res.data?.data || []
     },
-    initialData: contextNotifications,
     staleTime: 30000,
   })
 
-  // Prefer reactive context notifications if available, otherwise query data
-  const notifications = contextNotifications.length > 0 ? contextNotifications : (query.data || [])
-
   return {
-    notifications,
+    notifications: query.data || [],
     isLoading: query.isLoading,
+    isSuccess: query.isSuccess,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,
