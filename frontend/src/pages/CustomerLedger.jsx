@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
-import { useCustomers } from '../hooks/useCustomersQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -38,21 +39,24 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const paramCustId = searchParams.get('customerId')
 
-  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud, processRefund } = useAppContext()
+  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, showToast, syncFromCloud } = useAppContext()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isLoading: isLoadingBills } = useBills()
   const { data: serverPayments } = usePayments()
+  const { data: serverAdvancePayments, isLoading: isLoadingAdvances } = useAdvancePayments()
   const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
   const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
   const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
+  const advancePayments = serverAdvancePayments !== undefined ? (serverAdvancePayments || []) : []
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
   const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
-  const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0)
+  const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -96,6 +100,7 @@ const CustomerLedger = () => {
   const [refundCash, setRefundCash] = useState('')
   const [refundUpi, setRefundUpi] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false)
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -208,7 +213,7 @@ const CustomerLedger = () => {
     setTimeout(() => setPaySuccess(false), 3500)
   }
 
-  const handleProcessRefund = () => {
+  const handleProcessRefund = async () => {
     const rCash = Number(refundCash || 0)
     const rUpi = Number(refundUpi || 0)
     const totalRefund = rCash + rUpi
@@ -222,19 +227,49 @@ const CustomerLedger = () => {
       return
     }
 
-    processRefund({
-      customerId: selectedCustomer.id,
-      amount: totalRefund,
-      cashAmount: rCash,
-      upiAmount: rUpi,
-      notes: refundNotes || 'Refund from credit balance'
-    })
+    try {
+      setIsProcessingRefund(true)
+      await createPayment({
+        customer_id: selectedCustomer.id,
+        date: new Date().toISOString().slice(0, 10),
+        cash_amount: -rCash,
+        upi_amount: -rUpi,
+        total_paid: -totalRefund,
+        payment_type: 'refund',
+        notes: refundNotes || 'Refund from credit balance'
+      })
 
-    setRefundCash('')
-    setRefundUpi('')
-    setRefundNotes('')
-    setShowRefundModal(false)
-    showToast('Refund processed successfully', 'success')
+      // Adjust customer credit/advance balance if present
+      const currentCredit = Number(selectedCustomer.credit_balance || selectedCustomer.creditBalance || selectedCustomer.advance_balance || selectedCustomer.advanceBalance || 0)
+      if (currentCredit > 0) {
+        const newCredit = Math.max(0, currentCredit - totalRefund)
+        await updateCustomerMutation({
+          id: selectedCustomer.id,
+          data: {
+            credit_balance: newCredit,
+            creditBalance: newCredit,
+            advance_balance: newCredit,
+            advanceBalance: newCredit,
+          }
+        })
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+
+      setRefundCash('')
+      setRefundUpi('')
+      setRefundNotes('')
+      setShowRefundModal(false)
+      showToast('Refund processed successfully', 'success')
+    } catch (err) {
+      showToast(err?.message || 'Failed to process refund', 'error')
+    } finally {
+      setIsProcessingRefund(false)
+    }
   }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
@@ -892,10 +927,10 @@ const CustomerLedger = () => {
                 <button
                   className="btn btn-primary"
                   onClick={handleProcessRefund}
-                  disabled={Number(refundCash || 0) + Number(refundUpi || 0) <= 0 || (Number(refundCash || 0) + Number(refundUpi || 0)) > Math.abs(finalBalance)}
+                  disabled={isProcessingRefund || Number(refundCash || 0) + Number(refundUpi || 0) <= 0 || (Number(refundCash || 0) + Number(refundUpi || 0)) > Math.abs(finalBalance)}
                   style={{ flex: 2, background: 'var(--warning)', borderColor: 'var(--warning)', color: '#000' }}
                 >
-                  Confirm Refund
+                  {isProcessingRefund ? 'Processing...' : 'Confirm Refund'}
                 </button>
               </div>
             </div>

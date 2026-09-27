@@ -5,6 +5,7 @@ import { useBills } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
 import { usePayments, useInventory, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
+import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import { jsPDF } from 'jspdf'
 import {
@@ -17,7 +18,8 @@ import '../../styles/mobile.css'
 
 export default function MobileAnalytics() {
   const navigate = useNavigate()
-  const { showToast, promoCodes = [] } = useAppContext()
+  const { showToast } = useAppContext()
+  const { promoCodes = [] } = usePromoCodes()
 
   // TanStack Queries
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
