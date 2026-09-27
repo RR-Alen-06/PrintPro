@@ -25,18 +25,18 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast, recordPayment } = useAppContext()
+  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverBills } = useBills()
-  const { data: serverPayments } = usePayments()
+  const { data: serverBills, isSuccess: isBillsLoaded } = useBills()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
   const customers = serverCustomers
-  const bills = serverBills || contextBills || []
-  const payments = serverPayments || contextPayments || []
+  const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : (contextBills || [])
+  const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : (contextPayments || [])
 
   const previewCustomerCode = useMemo(() => {
     return SequenceService.peekNextSequence(
@@ -210,17 +210,6 @@ const Customers = () => {
 
     const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
     try {
-      if (recordPayment) {
-        await recordPayment({
-          customerId: selectedCustomer.id,
-          amount: totalPaying,
-          paymentMethod: method,
-          cashAmount: cash,
-          upiAmount: upi,
-          notes: `Payment from customer page (${method.toUpperCase()})`,
-        })
-      }
-
       if (createPayment) {
         await (createPayment as any)({
           customer_id: selectedCustomer.id,

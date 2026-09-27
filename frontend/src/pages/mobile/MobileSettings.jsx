@@ -19,7 +19,7 @@ export default function MobileSettings() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, updateBusiness, settings, updateSettings, promoCodes, setPromoCodes,
+    business, settings, updateSettings, promoCodes, setPromoCodes,
     currentUser, logout, showToast, syncFromCloud
   } = useAppContext()
   const { data: serverProfile = {} } = useProfile()
@@ -127,9 +127,6 @@ export default function MobileSettings() {
   // Save Business Profile
   const handleSaveBusiness = async (e) => {
     e.preventDefault()
-    if (updateBusiness) {
-      updateBusiness(biz)
-    }
     try {
       if (updateProfile) {
         await updateProfile({
@@ -143,7 +140,7 @@ export default function MobileSettings() {
       }
       showToast('Business Profile Updated & Synced to Cloud!', 'success')
     } catch (err) {
-      showToast('Business Profile Updated locally!', 'info')
+      showToast(err.message || 'Failed to update business profile', 'error')
     }
   }
 

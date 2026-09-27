@@ -97,7 +97,7 @@ export default function MobileDashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, syncFromCloud, showToast, addCustomer: contextAddCustomer, recordPayment
+    business, syncFromCloud, showToast
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -186,19 +186,7 @@ export default function MobileDashboard() {
       const selectedCust = (customers || []).find(c => String(c.id) === String(paymentCustomerId))
       const custName = selectedCust?.name || 'Customer'
 
-      // 1. Instant local optimistic FIFO payment recording via AppContext
-      if (recordPayment) {
-        await recordPayment({
-          customerId: paymentCustomerId,
-          amount: total,
-          paymentMethod: paymentMode === 'split' ? 'split' : paymentMode,
-          cashAmount: cash,
-          upiAmount: upi,
-          notes: paymentNotes || 'Mobile Dashboard Quick Payment'
-        })
-      }
-
-      // 2. Cloud mutation for remote sync
+      // Cloud mutation for durable persistence and optimistic React Query update
       if (createPaymentMutation) {
         await createPaymentMutation({
           customerId: paymentCustomerId,
@@ -212,7 +200,7 @@ export default function MobileDashboard() {
         })
       }
 
-      // 3. React Query multi-entity cache invalidation
+      // React Query multi-entity cache invalidation
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bills'] }),
         queryClient.invalidateQueries({ queryKey: ['payments'] }),
@@ -241,7 +229,6 @@ export default function MobileDashboard() {
     paymentUpi,
     paymentNotes,
     customers,
-    recordPayment,
     createPaymentMutation,
     queryClient,
     showToast
@@ -369,12 +356,6 @@ export default function MobileDashboard() {
         creditBalance: 0
       }
       const created = await createCustomerMutation(payload)
-      if (contextAddCustomer) {
-        contextAddCustomer({
-          id: created?.id || `cust-${Date.now()}`,
-          ...payload
-        })
-      }
       showToast(`Customer '${payload.name}' added successfully!`, 'success')
       setNewCustName('')
       setNewCustPhone('')
@@ -383,7 +364,7 @@ export default function MobileDashboard() {
     } catch (err) {
       showToast(err.message || 'Failed to add customer', 'error')
     }
-  }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, contextAddCustomer, showToast])
+  }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, showToast])
 
   // Financial CSV Export Trigger
   const handleExportCSV = useCallback(() => {
