@@ -3,6 +3,59 @@ import { getPool } from '../config/db';
 
 const router = express.Router();
 
+// GET /api/settings
+router.get('/', async (req: any, res: any, next: any) => {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      'SELECT settings FROM business_profile WHERE user_id = $1',
+      [req.user.id]
+    );
+    const settings = (rows && rows[0] && rows[0].settings) || {};
+    res.json({ success: true, data: settings });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/settings
+router.put('/', async (req: any, res: any, next: any) => {
+  try {
+    const pool = getPool();
+    const newSettings = req.body.settings !== undefined ? req.body.settings : req.body;
+
+    if (!newSettings || typeof newSettings !== 'object') {
+      return res.status(400).json({ success: false, error: 'Settings payload must be an object' });
+    }
+
+    const [existing] = await pool.query(
+      'SELECT id, settings FROM business_profile WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    let finalSettings = newSettings;
+    if (!existing || existing.length === 0) {
+      await pool.query(
+        'INSERT INTO business_profile (user_id, settings) VALUES ($1, $2)',
+        [req.user.id, JSON.stringify(finalSettings)]
+      );
+    } else {
+      const current = existing[0].settings || {};
+      finalSettings = typeof current === 'object' && !Array.isArray(current)
+        ? { ...current, ...newSettings }
+        : newSettings;
+      await pool.query(
+        'UPDATE business_profile SET settings = $1 WHERE user_id = $2',
+        [JSON.stringify(finalSettings), req.user.id]
+      );
+    }
+
+    res.json({ success: true, data: finalSettings });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // DELETE /api/settings/clear-all
 // Transactionally erases all data belonging strictly to the authenticated user in FK-safe order
 router.delete('/clear-all', async (req: any, res: any, next: any) => {
@@ -24,6 +77,11 @@ router.delete('/clear-all', async (req: any, res: any, next: any) => {
     await conn.query('DELETE FROM group_bills WHERE user_id = $1', [userId]);
     await conn.query('DELETE FROM bills WHERE user_id = $1', [userId]);
 
+    // 3.5 Delete promo codes
+    try {
+      await conn.query('DELETE FROM promo_codes WHERE user_id = $1', [userId]);
+    } catch (_) {}
+
     // 4. Delete purchases/expenses & audit logs
     await conn.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
     try {
@@ -36,10 +94,11 @@ router.delete('/clear-all', async (req: any, res: any, next: any) => {
     // 6. Delete customers
     await conn.query('DELETE FROM customers WHERE user_id = $1', [userId]);
 
-    // 7. Reset business profile embedded JSONB fields (advance_payments, etc.)
+    // 7. Reset business profile embedded JSONB fields (advance_payments, settings, etc.)
     await conn.query(
       `UPDATE business_profile 
-       SET advance_payments = '[]'::jsonb
+       SET advance_payments = '[]'::jsonb,
+           settings = '{}'::jsonb
        WHERE user_id = $1`,
       [userId]
     );

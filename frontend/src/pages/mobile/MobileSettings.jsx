@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
+import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
+import { usePromoCodes, usePromoCodeMutations } from '../../hooks/usePromoCodesQuery'
 import { clearAllCloudData, clearTransactionRecords } from '../../lib/syncService'
 import { useQueryClient } from '@tanstack/react-query'
 import { SequenceService } from '../../services/sequenceService'
@@ -19,11 +21,15 @@ export default function MobileSettings() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, updateBusiness, settings, updateSettings, promoCodes, setPromoCodes,
+    business, updateBusiness,
     currentUser, logout, showToast, syncFromCloud
   } = useAppContext()
   const { data: serverProfile = {} } = useProfile()
   const { updateProfile } = useProfileMutations()
+  const { settings = {} } = useSettings()
+  const { updateSettings } = useSettingsMutations()
+  const { promoCodes = [] } = usePromoCodes()
+  const { createPromoCode, updatePromoCode, deletePromoCode } = usePromoCodeMutations()
 
   // Sequence configuration local state
   const [seqConfigs, setSeqConfigs] = useState({
@@ -244,7 +250,7 @@ export default function MobileSettings() {
   }
 
   // Promo Code Operations
-  const handleAddPromoSubmit = (e) => {
+  const handleAddPromoSubmit = async (e) => {
     e.preventDefault()
     const codeUpper = newPromoCode.trim().toUpperCase()
     if (!codeUpper) {
@@ -257,35 +263,45 @@ export default function MobileSettings() {
       return
     }
 
-    const updated = [
-      ...(promoCodes || []),
-      {
+    try {
+      await createPromoCode({
         code: codeUpper,
         type: newPromoType,
         value: val,
         minAmount: Number(newPromoMinAmount || 0),
         enabled: true
-      }
-    ]
-    if (setPromoCodes) setPromoCodes(updated)
-    setNewPromoCode('')
-    setNewPromoValue('')
-    setNewPromoMinAmount('')
-    setShowAddPromoModal(false)
-    showToast(`Promo Code '${codeUpper}' Added!`, 'success')
+      })
+      setNewPromoCode('')
+      setNewPromoValue('')
+      setNewPromoMinAmount('')
+      setShowAddPromoModal(false)
+      showToast(`Promo Code '${codeUpper}' Added!`, 'success')
+    } catch (err) {
+      showToast(err?.message || 'Failed to add promo code', 'error')
+    }
   }
 
-  const handleTogglePromoEnabled = (code) => {
-    const updated = (promoCodes || []).map(p =>
-      p.code === code ? { ...p, enabled: p.enabled === false ? true : false } : p
-    )
-    if (setPromoCodes) setPromoCodes(updated)
+  const handleTogglePromoEnabled = async (code) => {
+    const target = (promoCodes || []).find(p => p.code === code || p.id === code)
+    if (!target) return
+    const newEnabled = target.enabled === false
+    try {
+      await updatePromoCode({ id: target.id || target.code, data: { enabled: newEnabled } })
+      showToast(`Promo code '${target.code}' ${newEnabled ? 'enabled' : 'disabled'}`, 'info')
+    } catch (err) {
+      showToast(err?.message || 'Failed to update promo code', 'error')
+    }
   }
 
-  const handleDeletePromo = (code) => {
-    const updated = (promoCodes || []).filter(p => p.code !== code)
-    if (setPromoCodes) setPromoCodes(updated)
-    showToast(`Promo code '${code}' deleted`, 'info')
+  const handleDeletePromo = async (code) => {
+    const target = (promoCodes || []).find(p => p.code === code || p.id === code)
+    if (!target) return
+    try {
+      await deletePromoCode(target.id || target.code)
+      showToast(`Promo code '${target.code}' deleted`, 'info')
+    } catch (err) {
+      showToast(err?.message || 'Failed to delete promo code', 'error')
+    }
   }
 
   // Save Preferences
