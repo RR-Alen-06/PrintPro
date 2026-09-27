@@ -5,7 +5,7 @@ import { useAppContext } from '../context/AppContext'
 export const NOTIFICATIONS_QUERY_KEY = ['notifications']
 
 export function useNotifications() {
-  const { currentUser } = useAppContext()
+  const { currentUser, notifications: contextNotifications = [] } = useAppContext()
   const userId = currentUser?.id || 'anonymous'
 
   const queryKey = [...NOTIFICATIONS_QUERY_KEY, userId]
