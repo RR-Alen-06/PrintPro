@@ -18,16 +18,19 @@ try {
   console.warn('Could not create upload directory:', err);
 }
 
+import crypto from 'crypto';
+
 // Multer configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const billId = req.body.billId || 'receipt';
+    const rawBillId = (req.body && req.body.billId) ? String(req.body.billId) : 'receipt';
     // Clean billId for filename safety
-    const cleanBillId = billId.replace(/[^a-zA-Z0-9_-]/g, '');
-    const filename = `${cleanBillId}-${Date.now()}.pdf`;
+    const cleanBillId = rawBillId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30) || 'receipt';
+    const randomEntropy = crypto.randomBytes(16).toString('hex');
+    const filename = `${cleanBillId}-${randomEntropy}.pdf`;
     cb(null, filename);
   }
 });
