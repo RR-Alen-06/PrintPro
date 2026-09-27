@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { useExpenses, useExpenseMutations } from '../hooks/useExpensesQuery'
 import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, useInventory } from '../hooks/useEntitiesQuery'
+import { usePayments, useInventory, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { ApiService } from '../services/apiService'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone, RefreshCw, Percent, Calculator, ExternalLink, Loader2 } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
@@ -11,18 +11,20 @@ import EmptyState from '../components/common/EmptyState'
 import { SequenceService } from '../services/sequenceService'
 
 const Accounting = () => {
-  const { settings, bills: contextBills = [], payments: contextPayments = [], advancePayments, customers: contextCustomers = [], inventory: contextInventory = [], deletedPayments, syncFromCloud, showToast } = useAppContext()
+  const { settings, bills: contextBills = [], payments: contextPayments = [], customers: contextCustomers = [], inventory: contextInventory = [], deletedPayments, syncFromCloud, showToast } = useAppContext()
   const { data: serverBills = [], isSuccess: isBillsLoaded } = useBills()
   const { data: serverCustomers = [], isSuccess: isCustomersLoaded } = useCustomers()
   const { data: serverPayments = [], isSuccess: isPaymentsLoaded } = usePayments()
   const { data: serverInventory = [], isSuccess: isInventoryLoaded } = useInventory()
   const { data: serverExpenses = [], isLoading: isLoadingExpenses, isSuccess: isExpensesLoaded } = useExpenses()
+  const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances, isSuccess: isAdvancesLoaded } = useAdvancePayments()
   
   const bills = isBillsLoaded ? serverBills : (contextBills || [])
   const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
   const payments = isPaymentsLoaded ? serverPayments : (contextPayments || [])
   const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
   const expenses = isExpensesLoaded ? serverExpenses : []
+  const advancePayments = isAdvancesLoaded ? serverAdvancePayments : []
   const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
 
   const previewExpenseCode = useMemo(() => {
