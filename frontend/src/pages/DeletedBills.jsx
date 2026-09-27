@@ -9,10 +9,6 @@ import {
 
 const DeletedBills = () => {
   const {
-    bills: contextBills,
-    restoreBill: contextRestoreBill,
-    permanentDeleteBill: contextPermanentDeleteBill,
-    purgeDeletedBills: contextPurgeDeletedBills,
     showToast
   } = useAppContext()
 
@@ -25,12 +21,7 @@ const DeletedBills = () => {
     isPurgingBill
   } = useBillMutations()
 
-  // Data union fallback
-  const contextDeleted = (contextBills || []).filter((b) => b.deleted || b.deleted_at)
-  const deletedBills = useMemo(() => {
-    if (serverDeletedBills && serverDeletedBills.length > 0) return serverDeletedBills
-    return contextDeleted
-  }, [serverDeletedBills, contextDeleted])
+  const deletedBills = serverDeletedBills
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('')
