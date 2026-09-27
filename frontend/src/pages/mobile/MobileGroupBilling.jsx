@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
@@ -10,7 +11,7 @@ import { SequenceService } from '../../services/sequenceService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
-  Users, Layers, Plus, Trash2, ChevronRight, User, Loader2, CheckCircle,
+  Users, Layers, Plus, Trash2, ChevronRight, ChevronDown, User, Loader2, CheckCircle,
   AlertCircle, Tag, Percent, Wallet, DollarSign, Gift, Sparkles, PlusCircle,
   FileText, Calendar, RotateCcw, ArrowLeftRight, Check, X
 } from 'lucide-react'
@@ -29,7 +30,8 @@ const getItemBasePrice = (inventory, itemId, printType, sides) => {
 
 export default function MobileGroupBilling() {
   const navigate = useNavigate()
-  const { showToast, settings, promoCodes } = useAppContext()
+  const queryClient = useQueryClient()
+  const { showToast, settings, promoCodes, recordSplitGroupPayment } = useAppContext()
 
   // Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
@@ -39,6 +41,7 @@ export default function MobileGroupBilling() {
   const { createBill: createBillMutation, isCreatingBill } = useBillMutations()
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
+  const { createPayment, isCreatingPayment } = usePaymentMutations()
 
   // Top Tab State: 'create' | 'masters'
   const [activeTab, setActiveTab] = useState('create')
@@ -624,6 +627,219 @@ export default function MobileGroupBilling() {
     return (serverBills || []).filter((b) => (b.isGroupParent || b.is_group_parent) && !b.deleted)
   }, [serverBills])
 
+  const [expandedGroupId, setExpandedGroupId] = useState(null)
+  const [payModalGroup, setPayModalGroup] = useState(null)
+  const [payModalBill, setPayModalBill] = useState(null)
+  const [payCash, setPayCash] = useState('')
+  const [payUpi, setPayUpi] = useState('')
+  const [payMode, setPayMode] = useState('share') // 'share' | 'full' | 'custom'
+  const [payNotes, setPayNotes] = useState('')
+
+  const allGroups = useMemo(() => {
+    const list = []
+    const seenIds = new Set()
+
+    for (const g of (groupBills || [])) {
+      if (!seenIds.has(g.id)) {
+        seenIds.add(g.id)
+        list.push({
+          id: g.id,
+          type: g.type || 'shared',
+          date: g.date || g.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+          memberBillIds: g.memberBillIds || g.member_bill_ids || [],
+          members: g.members || [],
+          notes: g.notes || '',
+          source: 'groupBill'
+        })
+      }
+    }
+
+    for (const b of groupMasterBills) {
+      if (!seenIds.has(b.id)) {
+        seenIds.add(b.id)
+        list.push({
+          id: b.id,
+          invoiceNumber: b.invoiceNumber || b.invoice_number,
+          customerName: b.customerName || b.customer_name || 'Group Master',
+          type: 'shared',
+          date: b.date || b.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+          memberBillIds: b.childBillIds || b.child_bill_ids || [],
+          total: b.total,
+          balance: b.balance,
+          status: b.status,
+          notes: b.notes || '',
+          source: 'masterBill'
+        })
+      }
+    }
+
+    return list.sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [groupBills, groupMasterBills])
+
+  const getGroupStats = useCallback((grp) => {
+    const memberBillIds = grp.memberBillIds || grp.member_bill_ids || grp.childBillIds || grp.child_bill_ids || []
+    const memberBills = memberBillIds
+      .map((id) => (serverBills || []).find((b) => String(b.id) === String(id) && !b.deleted))
+      .filter(Boolean)
+
+    const totalAmount = memberBills.length > 0
+      ? memberBills.reduce((s, b) => s + Number(b.total || 0), 0)
+      : (grp.total !== undefined ? Number(grp.total) : (Array.isArray(grp.members) ? grp.members.reduce((s, m) => s + Number(m.total || 0), 0) : 0))
+
+    const paidAmount = memberBills.length > 0
+      ? memberBills.reduce((s, b) => s + Number(b.amountPaid || b.amount_paid || 0), 0)
+      : (Array.isArray(grp.members) ? grp.members.reduce((s, m) => s + (Number(m.paid || 0) || Number(m.cashPaid || 0) + Number(m.upiPaid || 0)), 0) : 0)
+
+    const balanceAmount = Math.max(0, totalAmount - paidAmount)
+    return { memberBills, totalAmount, paidAmount, balanceAmount }
+  }, [serverBills])
+
+  const openPayModal = (bill, grp) => {
+    setPayModalBill(bill)
+    setPayModalGroup(grp)
+    const bBal = Number(bill.balance || 0)
+    setPayMode('share')
+    setPayCash(String(bBal))
+    setPayUpi('0')
+    setPayNotes('')
+  }
+
+  const closePayModal = () => {
+    setPayModalBill(null)
+    setPayModalGroup(null)
+    setPayCash('')
+    setPayUpi('')
+    setPayNotes('')
+  }
+
+  const splitSettlementPreview = useMemo(() => {
+    if (!payModalGroup || payModalGroup.type !== 'split' || !payModalBill) return []
+    const cash = parseFloat(payCash) || 0
+    const upi = parseFloat(payUpi) || 0
+    let rem = Number((cash + upi).toFixed(2))
+
+    const { memberBills } = getGroupStats(payModalGroup)
+    const unpaid = memberBills
+      .filter(b => Number(b.balance || 0) > 0)
+      .sort((a, b) => {
+        if (a.id === payModalBill.id) return -1
+        if (b.id === payModalBill.id) return 1
+        return String(a.id).localeCompare(String(b.id))
+      })
+
+    const list = []
+    for (const b of unpaid) {
+      if (rem <= 0) break
+      const apply = Math.min(rem, Number(b.balance || 0))
+      list.push({ bill: b, apply })
+      rem -= apply
+    }
+    return list
+  }, [payModalGroup, payModalBill, payCash, payUpi, getGroupStats])
+
+  const handleProcessPayment = async (e) => {
+    if (e) e.preventDefault()
+    const cash = parseFloat(payCash) || 0
+    const upi = parseFloat(payUpi) || 0
+    const totalPaying = Number((cash + upi).toFixed(2))
+
+    if (totalPaying <= 0) {
+      showToast('Please enter a valid payment amount', 'error')
+      return
+    }
+
+    if (!payModalBill || !payModalGroup) return
+
+    try {
+      if (payModalGroup.type === 'split') {
+        const { memberBills, balanceAmount: groupBal } = getGroupStats(payModalGroup)
+        if (totalPaying > groupBal + 0.01) {
+          showToast(`Amount ₹${totalPaying} exceeds group balance of ₹${groupBal.toFixed(2)}`, 'error')
+          return
+        }
+
+        const allUnpaidBills = memberBills
+          .filter(b => Number(b.balance || 0) > 0)
+          .sort((a, b) => {
+            if (a.id === payModalBill.id) return -1
+            if (b.id === payModalBill.id) return 1
+            return String(a.id).localeCompare(String(b.id))
+          })
+
+        let rem = totalPaying
+        const settlements = []
+        for (const b of allUnpaidBills) {
+          if (rem <= 0) break
+          const bBal = Number(b.balance || 0)
+          const apply = Math.min(rem, bBal)
+          const ratio = (cash + upi) > 0 ? cash / (cash + upi) : 1
+          const applyCash = Number((apply * ratio).toFixed(2))
+          const applyUpi = Number((apply - applyCash).toFixed(2))
+          settlements.push({ bill: b, apply, applyCash, applyUpi })
+          rem -= apply
+        }
+
+        for (const s of settlements) {
+          await createPayment({
+            bill_id: s.bill.id,
+            billId: s.bill.id,
+            customer_id: s.bill.customerId || s.bill.customer_id,
+            customerId: s.bill.customerId || s.bill.customer_id,
+            cash_amount: s.applyCash,
+            upi_amount: s.applyUpi,
+            total_paid: s.apply,
+            payment_type: s.apply >= Number(s.bill.balance || 0) ? 'full' : 'partial',
+            notes: payNotes.trim() || `Group split settlement (${payModalGroup.id}) paid by ${payModalBill.customerName || 'Payer'}`
+          })
+        }
+
+        if (recordSplitGroupPayment) {
+          recordSplitGroupPayment({
+            payerBillId: payModalBill.id,
+            payerCustomerId: payModalBill.customerId || payModalBill.customer_id,
+            cashAmount: cash,
+            upiAmount: upi,
+            groupBillId: payModalGroup.id,
+          })
+        }
+
+        showToast(`Settled ₹${totalPaying.toFixed(2)} across ${settlements.length} group bill(s)`, 'success')
+      } else {
+        const billBal = Number(payModalBill.balance || 0)
+        if (totalPaying > billBal + 0.01) {
+          showToast(`Amount ₹${totalPaying} exceeds bill balance of ₹${billBal.toFixed(2)}`, 'error')
+          return
+        }
+
+        await createPayment({
+          bill_id: payModalBill.id,
+          billId: payModalBill.id,
+          customer_id: payModalBill.customerId || payModalBill.customer_id,
+          customerId: payModalBill.customerId || payModalBill.customer_id,
+          cash_amount: cash,
+          upi_amount: upi,
+          total_paid: totalPaying,
+          payment_type: totalPaying >= billBal ? 'full' : 'partial',
+          notes: payNotes.trim() || `Payment for group bill ${payModalGroup.id || ''} - Invoice #${payModalBill.invoiceNumber || payModalBill.id}`
+        })
+
+        showToast(`Payment of ₹${totalPaying.toFixed(2)} recorded for ${payModalBill.customerName || 'Client'}`, 'success')
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['group-bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] }),
+      ])
+
+      closePayModal()
+    } catch (err) {
+      showToast(err.message || 'Failed to record payment', 'error')
+    }
+  }
+
   return (
     <MobileLayout title="Group Billing Terminal">
       {/* Top Navigation Tabs */}
@@ -663,7 +879,7 @@ export default function MobileGroupBilling() {
             boxShadow: activeTab === 'masters' ? 'var(--shadow-glow-cyan)' : 'none',
           }}
         >
-          <Layers size={15} /> Group Masters ({groupMasterBills.length})
+          <Layers size={15} /> Group Bills ({allGroups.length})
         </button>
       </div>
 
@@ -1338,8 +1554,8 @@ export default function MobileGroupBilling() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CONSOLIDATED INVOICES</span>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>GROUP MASTERS</h2>
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>CONSOLIDATED & GROUP INVOICES</span>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>GROUP BILLS</h2>
             </div>
             <button
               className="mobile-btn mobile-btn-primary"
@@ -1351,52 +1567,155 @@ export default function MobileGroupBilling() {
           </div>
 
           {/* Loading */}
-          {isLoadingBills && (
+          {(isLoadingBills || isLoadingGroupBills) && (
             <div className="mobile-card" style={{ textAlign: 'center', padding: '30px 16px' }}>
               <Loader2 size={28} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading group invoices...</p>
             </div>
           )}
 
-          {/* Group Master Bills Stack */}
-          {!isLoadingBills && groupMasterBills.length === 0 ? (
+          {/* Empty State */}
+          {!isLoadingBills && !isLoadingGroupBills && allGroups.length === 0 ? (
             <div className="mobile-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
               <Layers size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '12px' }} />
-              <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Group Master Invoices</h4>
+              <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Group Invoices Yet</h4>
               <p style={{ margin: 0, fontSize: '0.85rem' }}>Create group bills or combine existing unpaid customer invoices.</p>
             </div>
           ) : (
-            !isLoadingBills && (
+            !isLoadingBills && !isLoadingGroupBills && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {groupMasterBills.map((grp) => (
-                  <div
-                    key={grp.id}
-                    className="mobile-card"
-                    onClick={() => navigate(`/mobile/bill/${grp.id}`)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div>
-                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                          {grp.customerName || grp.customer_name || 'Group Master'}
+                {allGroups.map((grp) => {
+                  const { memberBills, totalAmount, paidAmount, balanceAmount } = getGroupStats(grp)
+                  const isExpanded = expandedGroupId === grp.id
+                  const isPaid = balanceAmount <= 0.01
+
+                  return (
+                    <div key={grp.id} className="mobile-card" style={{ padding: '14px' }}>
+                      {/* Group Header */}
+                      <div
+                        onClick={() => setExpandedGroupId(isExpanded ? null : grp.id)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                {grp.customerName || grp.id}
+                              </span>
+                              <span
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.68rem',
+                                  fontWeight: 800,
+                                  textTransform: 'uppercase',
+                                  background: grp.type === 'split' ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.2)',
+                                  color: grp.type === 'split' ? '#818cf8' : '#10b981',
+                                }}
+                              >
+                                {grp.type === 'split' ? 'Split' : 'Shared'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', fontFamily: 'JetBrains Mono' }}>
+                              {grp.date} • {memberBills.length || grp.memberBillIds?.length || 0} Member Bills
+                            </div>
+                          </div>
+                          <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : 'mobile-badge-error'}`}>
+                            {isPaid ? 'PAID' : 'UNPAID'}
+                          </span>
                         </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
-                          #{grp.invoiceNumber || grp.invoice_number || grp.id} • {grp.childBillIds?.length || grp.child_bill_ids?.length || 0} Member Bills
+
+                        {/* Financial Totals */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                          <div>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Total: </span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              ₹{totalAmount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bal: </span>
+                            <span className="currency-num" style={{ fontSize: '0.95rem', fontWeight: 800, color: balanceAmount > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                              ₹{balanceAmount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <ChevronDown
+                            size={16}
+                            style={{
+                              color: 'var(--text-muted)',
+                              transform: isExpanded ? 'rotate(180deg)' : 'none',
+                              transition: 'transform 0.2s ease',
+                            }}
+                          />
                         </div>
                       </div>
-                      <span className={`mobile-badge ${grp.status === 'paid' ? 'mobile-badge-success' : 'mobile-badge-error'}`}>
-                        {(grp.status || 'unpaid').toUpperCase()}
-                      </span>
-                    </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Group Total</span>
-                      <span className="currency-num" style={{ fontSize: '1.1rem', color: 'var(--accent-primary)', fontWeight: 800 }}>
-                        ₹{Number(grp.total || 0).toLocaleString('en-IN')}
-                      </span>
+                      {/* Expanded Member Bills List */}
+                      {isExpanded && (
+                        <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed var(--border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--accent-secondary)', textTransform: 'uppercase' }}>
+                            MEMBER INVOICES ({memberBills.length})
+                          </span>
+
+                          {memberBills.length === 0 ? (
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', padding: '8px' }}>
+                              Member bills not loaded or archived
+                            </div>
+                          ) : (
+                            memberBills.map((b) => {
+                              const bBal = Number(b.balance || 0)
+                              const bPaid = bBal <= 0.01 || b.status === 'paid' || b.settledByGroupPayment
+
+                              return (
+                                <div
+                                  key={b.id}
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '8px 10px',
+                                    background: 'var(--bg-card-hover)',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border)',
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                      {b.customerName || b.customer_name || 'Member'}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                      #{b.invoiceNumber || b.invoice_number || b.id} • Bal: ₹{bBal.toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {bPaid ? (
+                                      <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--success)' }}>
+                                        ✓ PAID
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="mobile-btn mobile-btn-primary"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          openPayModal(b, grp)
+                                        }}
+                                        style={{ minHeight: '28px', padding: '0 12px', fontSize: '0.75rem', width: 'auto' }}
+                                      >
+                                        Pay
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )
           )}
@@ -1677,6 +1996,180 @@ export default function MobileGroupBilling() {
             {isCreatingBill ? 'Consolidating...' : `Consolidate ${selectedBillIds.length} Bills into Group Master`}
           </button>
         </div>
+      </BottomSheet>
+
+      {/* Group Bill Member Payment BottomSheet */}
+      <BottomSheet
+        isOpen={Boolean(payModalBill && payModalGroup)}
+        onClose={closePayModal}
+        title={payModalGroup?.type === 'split' ? 'Settle Split Group Bill' : 'Settle Member Bill'}
+      >
+        {payModalBill && payModalGroup && (() => {
+          const { balanceAmount: groupBal } = getGroupStats(payModalGroup)
+          const billBal = Number(payModalBill.balance || 0)
+          const cash = parseFloat(payCash) || 0
+          const upi = parseFloat(payUpi) || 0
+          const totalPaying = Number((cash + upi).toFixed(2))
+          const remainingGroup = Math.max(0, groupBal - totalPaying)
+
+          return (
+            <form onSubmit={handleProcessPayment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Payer & Bill Summary Card */}
+              <div style={{ background: 'var(--bg-card-hover)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  {payModalGroup.type === 'split' ? 'Payer Member' : 'Member Invoice'}
+                </div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-primary)', marginTop: '2px' }}>
+                  {payModalBill.customerName || payModalBill.customer_name || 'Client'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Invoice Balance</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--warning)' }}>₹{billBal.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Group Total Due</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>₹{groupBal.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Split Quick Select Buttons */}
+              {payModalGroup.type === 'split' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="mobile-btn"
+                    onClick={() => {
+                      setPayMode('share')
+                      setPayCash(String(billBal))
+                      setPayUpi('0')
+                    }}
+                    style={{
+                      minHeight: '32px',
+                      fontSize: '0.72rem',
+                      background: payMode === 'share' ? 'var(--accent-primary)' : 'var(--bg-input)',
+                      color: payMode === 'share' ? '#000' : 'var(--text-secondary)',
+                      padding: '0 4px',
+                    }}
+                  >
+                    My Share
+                  </button>
+                  <button
+                    type="button"
+                    className="mobile-btn"
+                    onClick={() => {
+                      setPayMode('full')
+                      setPayCash(String(groupBal))
+                      setPayUpi('0')
+                    }}
+                    style={{
+                      minHeight: '32px',
+                      fontSize: '0.72rem',
+                      background: payMode === 'full' ? 'var(--accent-primary)' : 'var(--bg-input)',
+                      color: payMode === 'full' ? '#000' : 'var(--text-secondary)',
+                      padding: '0 4px',
+                    }}
+                  >
+                    Full Group
+                  </button>
+                  <button
+                    type="button"
+                    className="mobile-btn"
+                    onClick={() => setPayMode('custom')}
+                    style={{
+                      minHeight: '32px',
+                      fontSize: '0.72rem',
+                      background: payMode === 'custom' ? 'var(--accent-primary)' : 'var(--bg-input)',
+                      color: payMode === 'custom' ? '#000' : 'var(--text-secondary)',
+                      padding: '0 4px',
+                    }}
+                  >
+                    Custom
+                  </button>
+                </div>
+              )}
+
+              {/* Cash & UPI Inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>CASH (₹)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="mobile-input currency-num"
+                    placeholder="0.00"
+                    value={payCash}
+                    onChange={(e) => {
+                      setPayCash(e.target.value)
+                      setPayMode('custom')
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>UPI (₹)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="mobile-input currency-num"
+                    placeholder="0.00"
+                    value={payUpi}
+                    onChange={(e) => {
+                      setPayUpi(e.target.value)
+                      setPayMode('custom')
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Split Distribution Preview */}
+              {payModalGroup.type === 'split' && splitSettlementPreview.length > 0 && (
+                <div style={{ padding: '8px 10px', background: 'rgba(99,102,241,0.08)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.3)', fontSize: '0.75rem' }}>
+                  <div style={{ fontWeight: 700, color: '#818cf8', marginBottom: '4px' }}>
+                    Distribution Preview (Paying ₹{totalPaying.toFixed(2)}):
+                  </div>
+                  {splitSettlementPreview.map(({ bill, apply }) => (
+                    <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', color: 'var(--text-secondary)' }}>
+                      <span>✓ {bill.customerName || 'Member'}</span>
+                      <strong style={{ color: 'var(--success)' }}>₹{apply.toFixed(2)}</strong>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>
+                    <span>Group Balance after:</span>
+                    <strong style={{ color: remainingGroup > 0 ? 'var(--warning)' : 'var(--success)' }}>₹{remainingGroup.toFixed(2)}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes Input */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>NOTES / REFERENCE</label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  placeholder="e.g. Group settlement"
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="mobile-btn mobile-btn-primary"
+                disabled={isCreatingPayment || totalPaying <= 0}
+                style={{ marginTop: '6px' }}
+              >
+                {isCreatingPayment ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                    <Loader2 size={16} className="spin" /> Processing Payment...
+                  </span>
+                ) : (
+                  `Confirm & Settle ₹${totalPaying.toFixed(2)}`
+                )}
+              </button>
+            </form>
+          )
+        })()}
       </BottomSheet>
     </MobileLayout>
   )

@@ -2,17 +2,24 @@ import React, { useState, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
-import { useBills } from '../../hooks/useBillsQuery'
+import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { useInventory, useInventoryMutations, usePayments, useAdvancePayments } from '../../hooks/useEntitiesQuery'
-import { useExpenses } from '../../hooks/useExpensesQuery'
-import { useGroupBills } from '../../hooks/useGroupBillsQuery'
+import {
+  useInventory,
+  useInventoryMutations,
+  usePayments,
+  usePaymentMutations,
+  useAdvancePayments,
+  useAdvancePaymentMutations
+} from '../../hooks/useEntitiesQuery'
+import { useExpenses, useExpenseMutations } from '../../hooks/useExpensesQuery'
+import { useGroupBills, useGroupBillMutations } from '../../hooks/useGroupBillsQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { jsPDF } from 'jspdf'
 import {
   Database, Download, Upload, RefreshCw, Trash2, FileSpreadsheet,
-  FileText, Calendar, CheckCircle, AlertTriangle, Layers, Loader2, HardDrive
+  FileText, Calendar, CheckCircle, AlertTriangle, Layers, Loader2, HardDrive, X
 } from 'lucide-react'
 import {
   createFullBackup, exportBillsToCSV, exportCustomersToCSV,
@@ -29,22 +36,38 @@ export default function MobileDataManagement() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, settings, counters = {}, sequences = {}, syncFromCloud, showToast, addCustomer: contextAddCustomer, addInventoryItem: contextAddInventoryItem
+    currentUser, business, settings, counters = {}, sequences = {}, syncFromCloud, showToast
   } = useAppContext()
 
   // TanStack Queries & Mutations
-  const { data: bills = [] } = useBills()
-  const { data: customers = [] } = useCustomers()
-  const { data: inventory = [] } = useInventory()
-  const { data: payments = [] } = usePayments()
-  const { data: expenses = [] } = useExpenses()
-  const { data: advances = [] } = useAdvancePayments()
-  const { groupBills: groups = [] } = useGroupBills()
+  const { data: serverBills, isSuccess: isBillsLoaded } = useBills()
+  const { data: serverCustomers, isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverInventory, isSuccess: isInventoryLoaded } = useInventory()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
+  const { data: serverExpenses, isSuccess: isExpensesLoaded } = useExpenses()
+  const { data: serverAdvances, isSuccess: isAdvancesLoaded } = useAdvancePayments()
+  const { groupBills: serverGroups, isSuccess: isGroupsLoaded } = useGroupBills()
 
   const { createCustomer: createCustomerMutation } = useCustomerMutations()
   const { createItem: createInventoryMutation } = useInventoryMutations()
+  const { createBill: createBillMutation } = useBillMutations()
+  const { createPayment: createPaymentMutation } = usePaymentMutations()
+  const { createExpense: createExpenseMutation } = useExpenseMutations()
+  const { addAdvancePayment: createAdvanceMutation } = useAdvancePaymentMutations()
+  const { createGroupBill: createGroupBillMutation } = useGroupBillMutations()
+
+  const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : []
+  const customers = isCustomersLoaded || serverCustomers !== undefined ? (serverCustomers || []) : []
+  const inventory = isInventoryLoaded || serverInventory !== undefined ? (serverInventory || []) : []
+  const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : []
+  const expenses = isExpensesLoaded || serverExpenses !== undefined ? (serverExpenses || []) : []
+  const advances = isAdvancesLoaded || serverAdvances !== undefined ? (serverAdvances || []) : []
+  const groups = isGroupsLoaded || serverGroups !== undefined ? (serverGroups || []) : []
 
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreProgress, setRestoreProgress] = useState(null)
+  const [restoreSummaryModal, setRestoreSummaryModal] = useState(null)
   const [importType, setImportType] = useState('backup') // 'backup' | 'customers' | 'inventory'
   const [showImportSheet, setShowImportSheet] = useState(false)
   const [showReportSheet, setShowReportSheet] = useState(false)
@@ -152,44 +175,330 @@ export default function MobileDataManagement() {
     try {
       if (importType === 'backup') {
         const data = await importFromJSON(file)
-        if (!validateBackupFile(data)) throw new Error('Invalid backup format')
+        if (!validateBackupFile(data)) throw new Error('Invalid backup file format: missing required ERP registers')
         const restored = restoreFromBackup(data)
-        const userId = localStorage.getItem('printpro_current_user_id')
-        if (userId) {
-          localStorage.setItem(`printpro-state:${userId}`, JSON.stringify(restored))
-        } else {
-          localStorage.setItem('printpro-state', JSON.stringify(restored))
+
+        setIsRestoring(true)
+        setRestoreProgress({
+          stage: 'Initializing restoration...',
+          progress: 5,
+          currentEntity: 'Preparing registers',
+          processedCount: 0,
+          totalCount: 0,
+        })
+
+        // Restore strategy: Option (a) - Safe Non-destructive Merge
+        // Persists restored records alongside existing backend data using real mutation hooks.
+        // ID mapping maintains relational integrity between customers, bills, payments, and groups.
+        const idMap = {
+          customers: {},
+          inventory: {},
+          bills: {},
         }
-        showToast('Backup restored! Reloading app in 2s...', 'success')
-        setTimeout(() => window.location.reload(), 2000)
+
+        const stats = {
+          customers: { total: (restored.customers || []).length, success: 0, failed: 0 },
+          inventory: { total: (restored.inventory || []).length, success: 0, failed: 0 },
+          bills: { total: (restored.bills || []).length, success: 0, failed: 0 },
+          payments: { total: (restored.payments || []).length, success: 0, failed: 0 },
+          expenses: { total: (restored.expenses || []).length, success: 0, failed: 0 },
+          advances: { total: (restored.advancePayments || []).length, success: 0, failed: 0 },
+          groups: { total: (restored.customerGroups || []).length, success: 0, failed: 0 },
+        }
+
+        const totalRecords = Object.values(stats).reduce((acc, s) => acc + s.total, 0)
+        let processed = 0
+        const failures = []
+
+        const updateProg = (stage, entityName) => {
+          const pct = totalRecords > 0 ? Math.min(95, Math.round((processed / totalRecords) * 90) + 5) : 50
+          setRestoreProgress({
+            stage,
+            progress: pct,
+            currentEntity: entityName,
+            processedCount: processed,
+            totalCount: totalRecords,
+          })
+        }
+
+        // 1. Customers
+        const customersList = restored.customers || []
+        for (let i = 0; i < customersList.length; i++) {
+          const c = customersList[i]
+          updateProg(`Restoring customers (${i + 1}/${customersList.length})...`, 'Customers')
+          try {
+            if (!c.name || !String(c.name).trim()) throw new Error('Customer name missing')
+            if (createCustomerMutation) {
+              const res = await createCustomerMutation(c)
+              const createdId = res?.id || res?.data?.id
+              if (c.id && createdId) idMap.customers[c.id] = createdId
+            }
+            stats.customers.success++
+          } catch (err) {
+            stats.customers.failed++
+            failures.push(`Customer "${c.name || c.id || i + 1}": ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 2. Inventory
+        const inventoryList = restored.inventory || []
+        for (let i = 0; i < inventoryList.length; i++) {
+          const item = inventoryList[i]
+          updateProg(`Restoring inventory (${i + 1}/${inventoryList.length})...`, 'Inventory')
+          try {
+            if (!item.name || !String(item.name).trim()) throw new Error('Item name missing')
+            if (createInventoryMutation) {
+              const res = await createInventoryMutation(item)
+              const createdId = res?.id || res?.data?.id
+              if (item.id && createdId) idMap.inventory[item.id] = createdId
+            }
+            stats.inventory.success++
+          } catch (err) {
+            stats.inventory.failed++
+            failures.push(`Inventory "${item.name || item.id || i + 1}": ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 3. Bills
+        const billsList = restored.bills || []
+        for (let i = 0; i < billsList.length; i++) {
+          const b = billsList[i]
+          updateProg(`Restoring bills (${i + 1}/${billsList.length})...`, 'Bills')
+          try {
+            const rawCustId = b.customerId || b.customer_id
+            const mappedCustId = idMap.customers[rawCustId] || rawCustId
+            const mappedItems = (b.items || []).map((it) => {
+              const rawItemId = it.itemId || it.item_id
+              const mappedItemId = idMap.inventory[rawItemId] || rawItemId
+              return { ...it, itemId: mappedItemId, item_id: mappedItemId }
+            })
+
+            const billPayload = {
+              ...b,
+              customerId: mappedCustId,
+              customer_id: mappedCustId,
+              items: mappedItems,
+            }
+
+            if (createBillMutation) {
+              const res = await createBillMutation(billPayload)
+              const createdId = res?.id || res?.data?.id
+              if (b.id && createdId) idMap.bills[b.id] = createdId
+              if (b.invoiceNumber && createdId) idMap.bills[b.invoiceNumber] = createdId
+              if (b.invoice_number && createdId) idMap.bills[b.invoice_number] = createdId
+            }
+            stats.bills.success++
+          } catch (err) {
+            stats.bills.failed++
+            failures.push(`Bill #${b.invoiceNumber || b.invoice_number || b.id || i + 1}: ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 4. Payments
+        const paymentsList = restored.payments || []
+        for (let i = 0; i < paymentsList.length; i++) {
+          const p = paymentsList[i]
+          updateProg(`Restoring payments (${i + 1}/${paymentsList.length})...`, 'Payments')
+          try {
+            const rawBillId = p.billId || p.bill_id
+            const mappedBillId = idMap.bills[rawBillId] || rawBillId
+            const rawCustId = p.customerId || p.customer_id
+            const mappedCustId = idMap.customers[rawCustId] || rawCustId
+
+            const paymentPayload = {
+              ...p,
+              billId: mappedBillId,
+              bill_id: mappedBillId,
+              customerId: mappedCustId,
+              customer_id: mappedCustId,
+            }
+
+            if (createPaymentMutation) {
+              await createPaymentMutation(paymentPayload)
+            }
+            stats.payments.success++
+          } catch (err) {
+            stats.payments.failed++
+            failures.push(`Payment (₹${p.totalPaid || p.amount || 0}): ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 5. Expenses
+        const expensesList = restored.expenses || []
+        for (let i = 0; i < expensesList.length; i++) {
+          const exp = expensesList[i]
+          updateProg(`Restoring expenses (${i + 1}/${expensesList.length})...`, 'Expenses')
+          try {
+            if (createExpenseMutation) {
+              await createExpenseMutation(exp)
+            }
+            stats.expenses.success++
+          } catch (err) {
+            stats.expenses.failed++
+            failures.push(`Expense "${exp.description || exp.item_name || i + 1}": ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 6. Advances
+        const advancesList = restored.advancePayments || []
+        for (let i = 0; i < advancesList.length; i++) {
+          const adv = advancesList[i]
+          updateProg(`Restoring advances (${i + 1}/${advancesList.length})...`, 'Advance Payments')
+          try {
+            const rawCustId = adv.customerId || adv.customer_id
+            const mappedCustId = idMap.customers[rawCustId] || rawCustId
+            const advPayload = {
+              ...adv,
+              customerId: mappedCustId,
+              customer_id: mappedCustId,
+            }
+
+            if (createAdvanceMutation) {
+              await createAdvanceMutation(advPayload)
+            }
+            stats.advances.success++
+          } catch (err) {
+            stats.advances.failed++
+            failures.push(`Advance (₹${adv.amount || 0}): ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // 7. Groups
+        const groupsList = restored.customerGroups || []
+        for (let i = 0; i < groupsList.length; i++) {
+          const grp = groupsList[i]
+          updateProg(`Restoring customer groups (${i + 1}/${groupsList.length})...`, 'Customer Groups')
+          try {
+            const mappedMemberBillIds = (grp.memberBillIds || grp.member_bill_ids || []).map(
+              (bid) => idMap.bills[bid] || bid
+            )
+            const groupPayload = {
+              ...grp,
+              memberBillIds: mappedMemberBillIds,
+              member_bill_ids: mappedMemberBillIds,
+            }
+
+            if (createGroupBillMutation) {
+              await createGroupBillMutation(groupPayload)
+            }
+            stats.groups.success++
+          } catch (err) {
+            stats.groups.failed++
+            failures.push(`Group "${grp.name || grp.id || i + 1}": ${err?.response?.data?.message || err?.message || 'Failed to save'}`)
+          }
+          processed++
+        }
+
+        // Synchronize local sequence & settings state in localStorage
+        const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
+        const existingLocal = JSON.parse(localStorage.getItem(userKey) || '{}')
+        const updatedLocal = {
+          ...existingLocal,
+          business: restored.business && Object.keys(restored.business).length > 0 ? restored.business : existingLocal.business,
+          settings: restored.settings && Object.keys(restored.settings).length > 0 ? restored.settings : existingLocal.settings,
+          counters: restored.counters && Object.keys(restored.counters).length > 0 ? restored.counters : existingLocal.counters,
+          sequences: restored.sequences && Object.keys(restored.sequences).length > 0 ? restored.sequences : existingLocal.sequences,
+        }
+        localStorage.setItem(userKey, JSON.stringify(updatedLocal))
+
+        await queryClient.invalidateQueries()
+
+        setRestoreProgress({
+          stage: 'Restoration completed!',
+          progress: 100,
+          currentEntity: 'Completed',
+          processedCount: processed,
+          totalCount: totalRecords,
+        })
+
+        const totalSuccess = Object.values(stats).reduce((acc, s) => acc + s.success, 0)
+        const summaryData = {
+          stats,
+          totalRecords,
+          totalSuccess,
+          failures,
+        }
+        setRestoreSummaryModal(summaryData)
+
+        if (failures.length === 0) {
+          showToast(`All ${totalSuccess} records restored and synced to database! Reloading in 3s...`, 'success')
+          setTimeout(() => window.location.reload(), 3000)
+        } else {
+          showToast(`Restored with warnings: ${totalSuccess} of ${totalRecords} saved, ${failures.length} failed. See details.`, 'warning')
+        }
       } else if (importType === 'customers') {
         const data = await importFromCSV(file)
         const imported = importCustomersFromCSV(data)
-        for (const c of imported) {
+        let successCount = 0
+        const failures = []
+
+        for (let i = 0; i < imported.length; i++) {
+          const c = imported[i]
           try {
-            await createCustomerMutation(c)
+            if (!c.name || !String(c.name).trim()) throw new Error('Customer name is required')
+            if (createCustomerMutation) {
+              await createCustomerMutation(c)
+            }
+            successCount++
           } catch (mErr) {
-            console.error('Customer import mutation notice:', mErr)
+            const label = c.name ? `"${c.name}"` : `Row ${i + 1}`
+            const reason = mErr?.response?.data?.message || mErr?.message || 'Failed to save'
+            failures.push(`${label}: ${reason}`)
           }
-          if (contextAddCustomer) await contextAddCustomer(c)
         }
-        showToast(`${imported.length} customers imported successfully`, 'success')
+
+        await queryClient.invalidateQueries({ queryKey: ['customers'] })
+
+        if (failures.length === 0) {
+          showToast(`All ${successCount} customers imported & persisted to database`, 'success')
+        } else if (successCount > 0) {
+          showToast(`${successCount} of ${imported.length} customers imported. ${failures.length} failed: ${failures.slice(0, 2).join('; ')}`, 'warning')
+        } else {
+          showToast(`Customer import failed (0 of ${imported.length} saved): ${failures.slice(0, 2).join('; ')}`, 'error')
+        }
       } else if (importType === 'inventory') {
         const data = await importFromCSV(file)
         const items = importInventoryFromCSV(data)
-        for (const item of items) {
+        let successCount = 0
+        const failures = []
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
           try {
-            await createInventoryMutation(item)
+            if (!item.name || !String(item.name).trim()) throw new Error('Item name is required')
+            if (createInventoryMutation) {
+              await createInventoryMutation(item)
+            }
+            successCount++
           } catch (mErr) {
-            console.error('Inventory import mutation notice:', mErr)
+            const label = item.name ? `"${item.name}"` : `Row ${i + 1}`
+            const reason = mErr?.response?.data?.message || mErr?.message || 'Failed to save'
+            failures.push(`${label}: ${reason}`)
           }
-          if (contextAddInventoryItem) await contextAddInventoryItem(item)
         }
-        showToast(`${items.length} inventory items imported successfully`, 'success')
+
+        await queryClient.invalidateQueries({ queryKey: ['inventory'] })
+
+        if (failures.length === 0) {
+          showToast(`All ${successCount} inventory items imported & persisted to database`, 'success')
+        } else if (successCount > 0) {
+          showToast(`${successCount} of ${items.length} inventory items imported. ${failures.length} failed: ${failures.slice(0, 2).join('; ')}`, 'warning')
+        } else {
+          showToast(`Inventory import failed (0 of ${items.length} saved): ${failures.slice(0, 2).join('; ')}`, 'error')
+        }
       }
       setShowImportSheet(false)
     } catch (error) {
       showToast(`Import Error: ${error.message}`, 'error')
+    } finally {
+      setIsRestoring(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -371,12 +680,38 @@ export default function MobileDataManagement() {
           </div>
         </div>
 
+        {isRestoring && restoreProgress && (
+          <div style={{ marginBottom: '14px', padding: '10px', background: 'var(--bg-card-hover)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Loader2 size={13} className="spin" />
+                {restoreProgress.stage}
+              </span>
+              <span>{restoreProgress.progress}%</span>
+            </div>
+            <div style={{ width: '100%', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${restoreProgress.progress}%`,
+                  height: '100%',
+                  background: 'var(--accent-primary)',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'right' }}>
+              {restoreProgress.processedCount} / {restoreProgress.totalCount} records
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button className="mobile-btn mobile-btn-primary" onClick={handleFullBackup}>
+          <button className="mobile-btn mobile-btn-primary" onClick={handleFullBackup} disabled={isRestoring}>
             <Download size={16} /> Export Full JSON Backup
           </button>
-          <button className="mobile-btn mobile-btn-secondary" onClick={() => triggerImport('backup')}>
-            <Upload size={16} /> Restore from JSON Backup
+          <button className="mobile-btn mobile-btn-secondary" onClick={() => triggerImport('backup')} disabled={isRestoring}>
+            {isRestoring ? <Loader2 size={16} className="spin" /> : <Upload size={16} />}
+            {isRestoring ? 'Restoring to Database...' : 'Restore from JSON Backup'}
           </button>
         </div>
       </div>
@@ -526,6 +861,46 @@ export default function MobileDataManagement() {
             <Download size={16} /> Generate & Download PDF
           </button>
         </div>
+      </BottomSheet>
+
+      {/* Restore Summary BottomSheet */}
+      <BottomSheet isOpen={!!restoreSummaryModal} onClose={() => setRestoreSummaryModal(null)} title="Restore Summary">
+        {restoreSummaryModal && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: restoreSummaryModal.failures.length === 0 ? 'var(--success)' : 'var(--warning)', fontWeight: 800 }}>
+              {restoreSummaryModal.failures.length === 0 ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+              <span>
+                {restoreSummaryModal.totalSuccess} of {restoreSummaryModal.totalRecords} records persisted to database
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '0.75rem' }}>
+              {Object.entries(restoreSummaryModal.stats || {}).map(([key, st]) => (
+                <div key={key} style={{ padding: '8px', background: 'var(--bg-card-hover)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                  <div style={{ textTransform: 'capitalize', fontWeight: 700, color: 'var(--text-secondary)' }}>{key}</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: st.failed > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
+                    {st.success} ok {st.failed > 0 ? `(${st.failed} failed)` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {restoreSummaryModal.failures.length > 0 && (
+              <div style={{ maxHeight: '140px', overflowY: 'auto', background: 'rgba(239, 68, 68, 0.08)', padding: '8px', borderRadius: '6px', border: '1px solid var(--danger)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--danger)', marginBottom: '4px' }}>
+                  Errors / Warnings ({restoreSummaryModal.failures.length}):
+                </div>
+                {restoreSummaryModal.failures.map((err, i) => (
+                  <div key={i} style={{ fontSize: '0.7rem', color: 'var(--text-primary)', marginBottom: '2px' }}>• {err}</div>
+                ))}
+              </div>
+            )}
+
+            <button className="mobile-btn mobile-btn-primary" onClick={() => setRestoreSummaryModal(null)} style={{ marginTop: '8px' }}>
+              Close Summary
+            </button>
+          </div>
+        )}
       </BottomSheet>
     </MobileLayout>
   )

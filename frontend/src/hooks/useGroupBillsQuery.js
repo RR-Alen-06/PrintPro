@@ -20,6 +20,7 @@ export function useGroupBills() {
   return {
     groupBills: query.data || [],
     isLoading: query.isLoading,
+    isSuccess: query.isSuccess,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,

@@ -14,19 +14,18 @@ export function useNotifications() {
     queryKey,
     queryFn: async () => {
       const res = await notifApi.getNotifications()
-      const serverNotes = res.data?.data || []
-      return serverNotes.length > 0 ? serverNotes : contextNotifications
+      return res.data?.data || []
     },
-    initialData: contextNotifications,
     staleTime: 30000,
   })
 
-  // Prefer reactive context notifications if available, otherwise query data
-  const notifications = contextNotifications.length > 0 ? contextNotifications : (query.data || [])
+  // Use query data once resolved; only use context before query settles
+  const notifications = query.isSuccess ? (query.data || []) : (contextNotifications || [])
 
   return {
     notifications,
     isLoading: query.isLoading,
+    isSuccess: query.isSuccess,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,

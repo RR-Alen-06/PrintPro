@@ -21,7 +21,7 @@ export default function MobileBillDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const {
-    business, settings, showToast, applyPostDiscount, createCreditNote, recordPayment: contextRecordPayment
+    business, settings, showToast, applyPostDiscount, createCreditNote
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -184,18 +184,6 @@ export default function MobileBillDetail() {
         notes: payNotes || 'Mobile Terminal Payment Record'
       })
 
-      if (contextRecordPayment) {
-        contextRecordPayment({
-          id: `PAY-${Date.now()}`,
-          billId: bill.id,
-          customerId: bill.customerId || bill.customer_id,
-          date: new Date().toISOString().slice(0, 10),
-          cashAmount: cash,
-          upiAmount: upi,
-          totalPaid: totalNewPaid,
-          notes: payNotes || 'Mobile Terminal Payment Record'
-        })
-      }
 
       showToast(`Recorded ₹${totalNewPaid.toFixed(2)} payment successfully!`, 'success')
       setPayCashAmount('')

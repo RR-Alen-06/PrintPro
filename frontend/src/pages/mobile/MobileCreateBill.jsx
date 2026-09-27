@@ -22,7 +22,7 @@ export default function MobileCreateBill() {
   const [searchParams] = useSearchParams()
   const editBillId = searchParams.get('edit')
 
-  const { promoCodes, settings, showToast, addBill, editBill, addCustomer } = useAppContext()
+  const { promoCodes, settings, showToast, editBill } = useAppContext()
 
   // TanStack Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
@@ -215,16 +215,6 @@ export default function MobileCreateBill() {
     try {
       createCustomerMutation(newCustPayload)
         .then((created) => {
-          if (addCustomer) {
-            addCustomer({
-              id: created?.id || tempId,
-              name: trimmedName,
-              phone: newCustPayload.phone,
-              type: 'regular',
-              totalSpent: 0,
-              balanceDue: 0
-            })
-          }
           if (created?.id) {
             setSelectedCustomerId((curr) => (curr === tempId ? created.id : curr))
           }
@@ -393,7 +383,6 @@ export default function MobileCreateBill() {
 
         mutationPromise
           .then(async (created) => {
-            if (addBill) addBill(created || billPayload)
             const savedResultId = created?.id || billPayload.id
             if (created?.id && created.id !== billPayload.id) {
               navigate(`/mobile/bill/${created.id}`, { replace: true })

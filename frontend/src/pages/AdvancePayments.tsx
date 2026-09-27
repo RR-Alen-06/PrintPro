@@ -7,12 +7,12 @@ import EmptyState from '../components/common/EmptyState'
 import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
-  const { business, customers: contextCustomers = [], addCustomer } = useAppContext()
-  const { data: serverCustomers = [] } = useCustomers()
+  const { business, customers: contextCustomers = [] } = useAppContext()
+  const { data: serverCustomers = [], isSuccess: isCustomersSuccess } = useCustomers()
   const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
   const { addAdvancePayment: serverAddAdvance, deleteAdvancePayment: serverDeleteAdvance } = useAdvancePaymentMutations()
 
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
+  const customers = isCustomersSuccess ? serverCustomers : contextCustomers
   const advancePayments = serverAdvancePayments
   const { createCustomer } = useCustomerMutations()
 
@@ -127,16 +127,15 @@ const AdvancePayments = () => {
             credit_balance: 0,
             credit_limit: 0,
           })
-          custId = createdCust?.id || await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
-          custName = newName.trim()
-        } catch (custErr: any) {
-          try {
-            custId = await addCustomer({ type: newType, name: newName.trim(), phone: newPhone.trim(), email: '', creditBalance: 0 })
-            custName = newName.trim()
-          } catch (e: any) {
-            setFormError(`Failed to save customer: ${custErr.message || 'Sync error'}`)
+          if (!createdCust?.id) {
+            setFormError('Failed to create customer: No ID returned by server.')
             return
           }
+          custId = createdCust.id
+          custName = newName.trim()
+        } catch (custErr: any) {
+          setFormError(`Failed to save customer: ${custErr.message || 'Sync error'}`)
+          return
         }
       } else {
         if (!custId) { setFormError('Select a customer.'); return }

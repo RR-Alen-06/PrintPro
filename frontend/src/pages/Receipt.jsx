@@ -14,13 +14,13 @@ const Receipt = () => {
   const paramBillId = searchParams.get('id') || searchParams.get('billId')
 
   const { bills: contextBills = [], payments: contextPayments = [], customers: contextCustomers = [], business, settings, showAlert, showToast } = useAppContext()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverPayments = [] } = usePayments()
+  const { data: serverBills = [], isSuccess: isBillsLoaded } = useBills()
+  const { data: serverCustomers = [], isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverPayments = [], isSuccess: isPaymentsLoaded } = usePayments()
 
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const bills = isBillsLoaded ? serverBills : contextBills
+  const customers = isCustomersLoaded ? serverCustomers : contextCustomers
+  const payments = isPaymentsLoaded ? serverPayments : contextPayments
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
