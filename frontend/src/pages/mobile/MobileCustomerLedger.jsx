@@ -417,7 +417,7 @@ export default function MobileCustomerLedger() {
 
       {/* Record Payment Bottom Sheet */}
       <BottomSheet isOpen={showPayModal} onClose={() => setShowPayModal(false)} title="Record Customer Payment">
-        <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form onSubmit={handleRecordPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CLIENT</label>
             <input type="text" className="mobile-input" value={selectedCustomer?.name || ''} readOnly style={{ opacity: 0.8 }} />
