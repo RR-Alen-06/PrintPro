@@ -23,8 +23,9 @@ router.post('/', validateInventoryItem, addItem);
 // PUT /api/inventory/:id
 router.put('/:id', validateInventoryItem, updateItem);
 
-// PUT /api/inventory/:id/stock
-router.put('/:id/stock', validateInventoryItem, updateStock);
+// PATCH & PUT /api/inventory/:id/stock
+router.patch('/:id/stock', updateStock);
+router.put('/:id/stock', updateStock);
 
 // DELETE /api/inventory/:id
 router.delete('/:id', deleteItem);
