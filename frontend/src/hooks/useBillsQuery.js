@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as billsApi from '../api/bills'
+import * as inventoryApi from '../api/inventory'
 import { useAppContext } from '../context/AppContext'
 
 export const BILLS_QUERY_KEY = ['bills']
@@ -121,7 +122,49 @@ export function useBillMutations() {
 
   const updateBillMutation = useMutation({
     mutationFn: async ({ id, data }) => {
+      // Find old bill before edit to compute stock difference if items changed
+      const userBillsKey = [...BILLS_QUERY_KEY, userId]
+      const previousQueries = queryClient.getQueriesData({ queryKey: userBillsKey, exact: false })
+      let oldBill = null
+      for (const [, billsData] of previousQueries) {
+        if (Array.isArray(billsData)) {
+          oldBill = billsData.find((b) => String(b.id) === String(id) || String(b.invoice_number) === String(id) || String(b.invoiceNumber) === String(id))
+          if (oldBill) break
+        }
+      }
+
       const res = await billsApi.updateBill(id, data)
+
+      if (oldBill && Array.isArray(data.items)) {
+        try {
+          const userInventoryKey = ['inventory', userId]
+          const inventoryData = queryClient.getQueryData(userInventoryKey) || []
+          const productInvItems = inventoryData.filter((i) => i.type === 'product')
+          const oldItems = oldBill.items || []
+          const newItems = data.items || []
+          const adjustments = []
+
+          productInvItems.forEach((invItem) => {
+            const oldQty = oldItems
+              .filter((item) => String(item.itemId || item.id) === String(invItem.id) || item.itemName === invItem.name || item.item_name === invItem.name || item.name === invItem.name)
+              .reduce((s, it) => s + Number(it.qty || it.quantity || 0), 0)
+            const newQty = newItems
+              .filter((item) => String(item.itemId || item.id) === String(invItem.id) || item.itemName === invItem.name || item.item_name === invItem.name || item.name === invItem.name)
+              .reduce((s, it) => s + Number(it.qty || it.quantity || 0), 0)
+            const diff = oldQty - newQty
+            if (diff !== 0) {
+              adjustments.push(inventoryApi.adjustStock(invItem.id, diff))
+            }
+          })
+
+          if (adjustments.length > 0) {
+            await Promise.all(adjustments)
+          }
+        } catch (stockErr) {
+          console.warn('Stock adjustment on bill edit notice:', stockErr?.message)
+        }
+      }
+
       return res.data?.data
     },
     onMutate: async ({ id, data }) => {
@@ -155,6 +198,7 @@ export function useBillMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
@@ -163,7 +207,53 @@ export function useBillMutations() {
 
   const deleteBillMutation = useMutation({
     mutationFn: async (id) => {
+      // Find bill before deletion to restore stock
+      let targetBill = null
+      const billQueries = queryClient.getQueriesData({ queryKey: BILLS_QUERY_KEY, exact: false })
+      for (const [, billsData] of billQueries) {
+        if (Array.isArray(billsData)) {
+          targetBill = billsData.find((b) => String(b.id) === String(id) || String(b.invoice_number) === String(id) || String(b.invoiceNumber) === String(id))
+          if (targetBill) break
+        }
+      }
+
       await billsApi.deleteBill(id)
+
+      if (targetBill && Array.isArray(targetBill.items)) {
+        try {
+          let inventoryData = queryClient.getQueryData(['inventory', userId])
+          if (!Array.isArray(inventoryData) || inventoryData.length === 0) {
+            const invQueries = queryClient.getQueriesData({ queryKey: ['inventory'], exact: false })
+            for (const [, invList] of invQueries) {
+              if (Array.isArray(invList) && invList.length > 0) {
+                inventoryData = invList
+                break
+              }
+            }
+          }
+          if (Array.isArray(inventoryData) && inventoryData.length > 0) {
+            const stockMap = new Map()
+            for (const item of targetBill.items) {
+              const qty = Number(item.qty || item.quantity || 0)
+              if (qty <= 0) continue
+              const invItem = inventoryData.find(
+                (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.item_name || item.name)
+              )
+              if (invItem && invItem.type === 'product') {
+                stockMap.set(invItem.id, (stockMap.get(invItem.id) || 0) + qty)
+              }
+            }
+            if (stockMap.size > 0) {
+              await Promise.all(
+                Array.from(stockMap.entries()).map(([itemId, qty]) => inventoryApi.adjustStock(itemId, qty))
+              )
+            }
+          }
+        } catch (stockErr) {
+          console.warn('Stock restore on bill delete notice:', stockErr?.message)
+        }
+      }
+
       return id
     },
     onMutate: async (id) => {
@@ -186,6 +276,7 @@ export function useBillMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
@@ -194,7 +285,52 @@ export function useBillMutations() {
 
   const restoreBillMutation = useMutation({
     mutationFn: async (id) => {
+      let targetBill = null
+      const deletedQueries = queryClient.getQueriesData({ queryKey: [...BILLS_QUERY_KEY, 'deleted'], exact: false })
+      for (const [, billsData] of deletedQueries) {
+        if (Array.isArray(billsData)) {
+          targetBill = billsData.find((b) => String(b.id) === String(id) || String(b.invoice_number) === String(id) || String(b.invoiceNumber) === String(id))
+          if (targetBill) break
+        }
+      }
+
       await billsApi.restoreBill(id)
+
+      if (targetBill && Array.isArray(targetBill.items)) {
+        try {
+          let inventoryData = queryClient.getQueryData(['inventory', userId])
+          if (!Array.isArray(inventoryData) || inventoryData.length === 0) {
+            const invQueries = queryClient.getQueriesData({ queryKey: ['inventory'], exact: false })
+            for (const [, invList] of invQueries) {
+              if (Array.isArray(invList) && invList.length > 0) {
+                inventoryData = invList
+                break
+              }
+            }
+          }
+          if (Array.isArray(inventoryData) && inventoryData.length > 0) {
+            const stockMap = new Map()
+            for (const item of targetBill.items) {
+              const qty = Number(item.qty || item.quantity || 0)
+              if (qty <= 0) continue
+              const invItem = inventoryData.find(
+                (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.item_name || item.name)
+              )
+              if (invItem && invItem.type === 'product') {
+                stockMap.set(invItem.id, (stockMap.get(invItem.id) || 0) + qty)
+              }
+            }
+            if (stockMap.size > 0) {
+              await Promise.all(
+                Array.from(stockMap.entries()).map(([itemId, qty]) => inventoryApi.adjustStock(itemId, -qty))
+              )
+            }
+          }
+        } catch (stockErr) {
+          console.warn('Stock deduction on bill restore notice:', stockErr?.message)
+        }
+      }
+
       return id
     },
     onMutate: async (id) => {
@@ -215,6 +351,7 @@ export function useBillMutations() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
