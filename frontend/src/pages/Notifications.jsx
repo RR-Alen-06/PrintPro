@@ -10,13 +10,11 @@ import EmptyState from '../components/common/EmptyState'
 
 const NotificationsPage = () => {
   const navigate = useNavigate()
-  const { notifications: contextNotifications = [], showToast } = useAppContext()
-  const { notifications: serverNotifications = [], isLoading } = useNotifications()
+  const { showToast } = useAppContext()
+  const { notifications = [], isLoading } = useNotifications()
   const { markRead, markAllRead, deleteNotification, clearAllNotifications } = useNotificationMutations()
 
   const [activeTab, setActiveTab] = useState('all') // 'all' | 'unread' | 'payments' | 'alerts' | 'system'
-
-  const notifications = serverNotifications.length > 0 ? serverNotifications : contextNotifications
 
   const counts = {
     all: notifications.length,

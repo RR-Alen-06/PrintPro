@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { useInventory } from '../hooks/useEntitiesQuery'
+import { useInventory, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { ApiService } from '../services/apiService'
 import { BillingService } from '../services/billingService'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
@@ -36,10 +37,12 @@ const makeInitialRow = (inventory) => {
 }
 
 const Billing = () => {
-  const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const queryClient = useQueryClient()
+  const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
+  const { createPayment, isCreatingPayment } = usePaymentMutations()
   const customers = serverCustomers || contextCustomers || []
   const inventory = (serverInventory && serverInventory.length > 0) ? serverInventory : contextInventory
   const { createBill, updateBill: updateBillMutation } = useBillMutations()
@@ -359,27 +362,54 @@ const Billing = () => {
   }
 
   // ── Follow-up payment ──────────────────────────────────────────────────────
-  const handleRecordFollowUpPayment = () => {
+  const handleRecordFollowUpPayment = async () => {
     if (!liveBill) return
     const cash = Number(followUpCash || 0)
     const upi = Number(followUpUpi || 0)
-    if (cash + upi <= 0) return
+    const total = cash + upi
+    if (total <= 0) return
 
-    recordPayment({
-      billId: liveBill.id,
-      customerId: liveBill.customerId,
-      cashAmount: cash,
-      upiAmount: upi,
-      notes: `Follow-up payment for ${liveBill.id}`,
-      returnChangeUpi: followUpReturnChange ? Math.max(0, (cash + upi) - liveBill.balance) : 0
-    })
+    const bBal = Number(liveBill.balance !== undefined ? liveBill.balance : (liveBill.total || 0))
+    const pType = total >= bBal ? 'full' : 'partial'
+    const custId = liveBill.customerId || liveBill.customer_id
 
-    setFollowUpCash(0)
-    setFollowUpUpi(0)
-    setFollowUpReturnChange(false)
-    setPaymentSuccess(true)
-    // Sync selectedBill so the derived liveBill picks up the change next render
-    setTimeout(() => setPaymentSuccess(false), 3500)
+    try {
+      if (createPayment) {
+        await createPayment({
+          bill_id: liveBill.id,
+          billId: liveBill.id,
+          customer_id: custId,
+          customerId: custId,
+          cash_amount: cash,
+          cashAmount: cash,
+          upi_amount: upi,
+          upiAmount: upi,
+          total_paid: total,
+          totalPaid: total,
+          payment_type: pType,
+          paymentType: pType,
+          paymentMethod: cash > 0 && upi > 0 ? 'split' : (cash > 0 ? 'cash' : 'upi'),
+          notes: `Follow-up payment for ${liveBill.invoiceNumber || liveBill.id}`,
+          date: new Date().toISOString()
+        })
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
+
+      setFollowUpCash(0)
+      setFollowUpUpi(0)
+      setFollowUpReturnChange(false)
+      setPaymentSuccess(true)
+      showToast(`Follow-up payment of ₹${total.toFixed(2)} recorded successfully!`, 'success')
+      setTimeout(() => setPaymentSuccess(false), 3500)
+    } catch (err) {
+      showToast(err?.message || 'Failed to record follow-up payment', 'error')
+    }
   }
 
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────

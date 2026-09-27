@@ -35,17 +35,13 @@ const formatCurrency = (val) => {
 
 const Dashboard = () => {
   const queryClient = useQueryClient()
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill, recordPayment } = useAppContext()
-  const { data: serverBills, isLoading: isLoadingBills } = useBills()
-  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverPayments } = usePayments()
-  const { data: serverExpenses } = useExpenses()
+  const { advancePayments, deletedPayments, showToast, updateBill } = useAppContext()
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
+  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
 
-  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
-  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
-  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
-  const expenses = serverExpenses?.length > 0 ? serverExpenses : (contextExpenses || [])
   const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
   const navigate = useNavigate()
   const today = new Date()
@@ -102,15 +98,7 @@ const Dashboard = () => {
 
     setIsSubmittingPayment(true)
     try {
-      // 1. AppContext FIFO allocation (optimistic & offline-first)
-      recordPayment?.({
-        customerId: paymentCustomerId,
-        cashAmount: cash,
-        upiAmount: upi,
-        notes: paymentNotes || 'Quick Payment via Dashboard',
-      })
-
-      // 2. Cloud mutation
+      // Cloud mutation (optimistic updates and backend persistence)
       try {
         if (createPaymentMutation) {
           await createPaymentMutation({

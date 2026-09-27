@@ -9,15 +9,15 @@ import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {
   const { business, customers: contextCustomers = [], bills: contextBills = [], inventory: contextInventory = [], payments: contextPayments = [], showAlert, showConfirm, settings } = useAppContext()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverInventory = [] } = useInventory()
-  const { data: serverPayments = [] } = usePayments()
+  const { data: serverBills = [], isSuccess: isBillsLoaded } = useBills()
+  const { data: serverCustomers = [], isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverInventory = [], isSuccess: isInventoryLoaded } = useInventory()
+  const { data: serverPayments = [], isSuccess: isPaymentsLoaded } = usePayments()
 
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
-  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
+  const bills = isBillsLoaded ? serverBills : (contextBills || [])
+  const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
+  const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
+  const payments = isPaymentsLoaded ? serverPayments : (contextPayments || [])
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
   const { addAdvancePayment } = useAdvancePaymentMutations()
