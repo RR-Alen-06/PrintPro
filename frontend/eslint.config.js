@@ -14,7 +14,8 @@ export default [
       sourceType: "module",
       globals: {
         ...globals.browser,
-        ...globals.es2020
+        ...globals.es2020,
+        ...globals.node
       },
       parserOptions: {
         ecmaFeatures: {
@@ -39,6 +40,7 @@ export default [
       "react-hooks/purity": "off",
       "react-hooks/exhaustive-deps": "off",
       "no-unused-vars": "off",
+      "no-undef": "error",
       "no-console": "off"
     },
     settings: {

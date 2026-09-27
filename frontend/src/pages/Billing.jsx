@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { useInventory, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { useSettings } from '../hooks/useSettingsQuery'
 import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { ApiService } from '../services/apiService'
@@ -122,6 +122,7 @@ const Billing = () => {
 
   const [isEditing, setIsEditing] = useState(false)
   const [editingBillId, setEditingBillId] = useState(null)
+  const editingBill = useMemo(() => bills.find((b) => b.id === editingBillId), [bills, editingBillId])
   const [customGst, setCustomGst] = useState('')
 
   // Post-bill discount state (inside modal)
@@ -2881,6 +2882,8 @@ const Billing = () => {
                     </div>
                   </div>
                   {(() => {
+                    const payingNow = Number(followUpCash || 0) + Number(followUpUpi || 0)
+                    const excess = Math.max(0, payingNow - Number(liveBill.balance || 0))
                     return excess > 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{

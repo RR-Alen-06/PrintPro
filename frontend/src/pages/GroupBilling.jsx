@@ -575,6 +575,7 @@ const GroupBilling = () => {
   const { createBill } = useBillMutations()
   const { createCustomer, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
+  const { adjustStock } = useInventoryMutations()
   const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
   const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
   const bills = isBillsLoaded ? serverBills : (contextBills || [])
@@ -1894,7 +1895,7 @@ const GroupBilling = () => {
               </button>
             </div>
 
-            <form onSubmit={handleNewCustomerSubmit} autoComplete="off">
+            <form onSubmit={handleSaveNewCustomer} autoComplete="off">
               <div className="modal-body">
                 {newCustomerSuccess && (
                   <div style={{
