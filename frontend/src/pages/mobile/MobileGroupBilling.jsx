@@ -5,6 +5,8 @@ import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useGroupBills, useGroupBillMutations } from '../../hooks/useGroupBillsQuery'
+import { useSettings } from '../../hooks/useSettingsQuery'
+import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { SequenceService } from '../../services/sequenceService'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -29,7 +31,9 @@ const getItemBasePrice = (inventory, itemId, printType, sides) => {
 
 export default function MobileGroupBilling() {
   const navigate = useNavigate()
-  const { showToast, settings, promoCodes } = useAppContext()
+  const { showToast } = useAppContext()
+  const { settings = {} } = useSettings()
+  const { promoCodes = [] } = usePromoCodes()
 
   // Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
