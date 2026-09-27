@@ -6,6 +6,7 @@ import {
   billSchema,
   updateBillSchema,
   paymentSchema,
+  groupSettlementSchema,
   purchaseSchema,
   profileSchema
 } from '../validators/schemas';
@@ -35,6 +36,7 @@ export const validateInventoryItem = validateRequest(inventoryItemSchema);
 export const validateBill = validateRequest(billSchema);
 export const validateUpdateBill = validateRequest(updateBillSchema);
 export const validatePayment = validateRequest(paymentSchema);
+export const validateGroupSettlement = validateRequest(groupSettlementSchema);
 export const validatePurchase = validateRequest(purchaseSchema);
 export const validateProfile = validateRequest(profileSchema);
 
