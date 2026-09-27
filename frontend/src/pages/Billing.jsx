@@ -6,6 +6,8 @@ import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useInventory, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useSettings } from '../hooks/useSettingsQuery'
+import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { ApiService } from '../services/apiService'
 import { BillingService } from '../services/billingService'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
@@ -38,16 +40,45 @@ const makeInitialRow = (inventory) => {
 
 const Billing = () => {
   const queryClient = useQueryClient()
-  const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers: contextCustomers, inventory: contextInventory = [], payments, deleteBill, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { settings = {} } = useSettings()
+  const { promoCodes = [] } = usePromoCodes()
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
   const customers = serverCustomers || contextCustomers || []
   const inventory = (serverInventory && serverInventory.length > 0) ? serverInventory : contextInventory
-  const { createBill, updateBill: updateBillMutation } = useBillMutations()
+  const { createBill, updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
+  const { adjustStock } = useInventoryMutations()
   const { createCustomer } = useCustomerMutations()
   const location = useLocation()
+
+  const deductStockForBillItems = async (itemsList) => {
+    if (!Array.isArray(itemsList) || itemsList.length === 0) return
+    const deductions = new Map()
+    for (const item of itemsList) {
+      const invItem = (inventory || []).find(
+        (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+      )
+      if (invItem && invItem.type === 'product') {
+        const qty = Number(item.qty || item.quantity || 0)
+        if (qty > 0) {
+          deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
+        }
+      }
+    }
+    if (deductions.size > 0) {
+      try {
+        await Promise.all(
+          Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
+        )
+      } catch (stockErr) {
+        console.error('Failed to deduct stock for bill items:', stockErr)
+        showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'warning')
+      }
+    }
+  }
 
   const [customerType, setCustomerType] = useState('regular')
   // For regular: select from dropdown
@@ -1360,6 +1391,7 @@ const Billing = () => {
       }
 
       const createdBill = await createBill(billPayload)
+      await deductStockForBillItems(billPayload.items)
 
       const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
       const paid = Number(billPayload.amountPaid || billPayload.amount_paid || 0)
@@ -1428,6 +1460,7 @@ const Billing = () => {
     } else {
       try {
         const createdBill = await createBill(finalPayload)
+        await deductStockForBillItems(finalPayload.items)
         const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
         const paid = Number(finalPayload.amountPaid || finalPayload.amount_paid || 0)
         const bal = Math.max((finalPayload.total || 0) - paid, 0)
@@ -2685,8 +2718,13 @@ const Billing = () => {
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"
-                      onClick={() => {
+                      onClick={async () => {
                         if (window.confirm(`Delete bill ${bill.id}? It will be moved to Deleted Bills.`)) {
+                          try {
+                            await deleteBillMutation(bill.id)
+                          } catch (err) {
+                            console.error('Failed to delete bill on server:', err)
+                          }
                           deleteBill(bill.id)
                         }
                       }}
