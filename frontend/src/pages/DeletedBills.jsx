@@ -9,10 +9,6 @@ import {
 
 const DeletedBills = () => {
   const {
-    bills: contextBills,
-    restoreBill: contextRestoreBill,
-    permanentDeleteBill: contextPermanentDeleteBill,
-    purgeDeletedBills: contextPurgeDeletedBills,
     showToast
   } = useAppContext()
 
