@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle, FileText } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
-import { useCustomers } from '../hooks/useCustomersQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { jsPDF } from 'jspdf'
@@ -11,6 +11,7 @@ import EmptyState from '../components/common/EmptyState'
 import { TableSkeleton, SkeletonBox } from '../components/common/Skeleton'
 import { LedgerService } from '../services/ledgerService'
 import { ReminderService } from '../services/reminderService'
+import CustomerStatementModal from '../components/CustomerStatementModal'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -96,6 +97,7 @@ const CustomerLedger = () => {
   const [refundCash, setRefundCash] = useState('')
   const [refundUpi, setRefundUpi] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
+  const [showStatementModal, setShowStatementModal] = useState(false)
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -525,14 +527,24 @@ const CustomerLedger = () => {
 
   return (
     <div>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1>Customer Ledger</h1>
           <p>Complete transaction history including bills, payments, and advance deposits.</p>
         </div>
-        <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowStatementModal(true)}
+            disabled={!selectedCustomer}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FileText size={16} /> Consolidated Statement
+          </button>
+          <button className="btn btn-secondary" onClick={handleSync} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={16} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync Data'}
+          </button>
+        </div>
       </div>
 
       <div className="ledger-layout-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '24px', alignItems: 'start' }}>
@@ -1141,6 +1153,19 @@ const CustomerLedger = () => {
           </div>
         </div>
       )}
+
+      {/* ── Consolidated Purchase Statement Modal ── */}
+      <CustomerStatementModal
+        isOpen={showStatementModal}
+        onClose={() => setShowStatementModal(false)}
+        customerId={selectedCustomerId}
+        customers={customers}
+        bills={bills}
+        payments={payments}
+        advancePayments={advancePayments}
+        business={business}
+        settings={settings}
+      />
     </div>
   )
 }
