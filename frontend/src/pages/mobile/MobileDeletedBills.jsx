@@ -37,11 +37,12 @@ export default function MobileDeletedBills() {
   const [isProcessing, setIsProcessing] = useState(false)
 
   const deletedBills = useMemo(() => {
-    return (serverBills || []).filter((b) => b.deleted || b.deleted_at)
+    return (Array.isArray(serverBills) ? serverBills : []).filter((b) => b && (b.deleted || b.deleted_at))
   }, [serverBills])
 
   const filteredBills = useMemo(() => {
     return deletedBills.filter((b) => {
+      if (!b) return false
       if (!searchTerm.trim()) return true
       const q = searchTerm.toLowerCase().trim()
       const inv = String(b.invoiceNumber || b.invoice_number || b.id || '').toLowerCase()

@@ -82,8 +82,8 @@ const ItemSalesReport = () => {
 
   // Filtered bills by time range and customer
   const filteredBills = useMemo(() => {
-    return bills.filter(b => {
-      if (b.deleted || b.isGroupParent) return false
+    return (Array.isArray(bills) ? bills : []).filter(b => {
+      if (!b || b.deleted || b.isGroupParent) return false
 
       // Time Range Filter
       const d = b.date ? new Date(b.date) : null

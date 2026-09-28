@@ -36,14 +36,16 @@ const Customers = () => {
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
   const { updateBill } = useBillMutations()
-  const customers = serverCustomers
-  const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : (contextBills || [])
-  const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : (contextPayments || [])
+  const customers = Array.isArray(serverCustomers) ? serverCustomers : []
+  const rawBills = isBillsLoaded || serverBills !== undefined ? serverBills : contextBills
+  const bills = Array.isArray(rawBills) ? rawBills : []
+  const rawPayments = isPaymentsLoaded || serverPayments !== undefined ? serverPayments : contextPayments
+  const payments = Array.isArray(rawPayments) ? rawPayments : []
 
   const previewCustomerCode = useMemo(() => {
     return SequenceService.peekNextSequence(
       'CUSTOMER',
-      customers,
+      customers || [],
       settings?.cusPrefix || 'CUS',
       settings?.seqPadding || 6
     )
@@ -81,7 +83,7 @@ const Customers = () => {
   const [expandedBillId, setExpandedBillId] = useState(null)
 
   const selectedCustomer = useMemo(
-    () => (selectedCustomerId ? customers.find((c) => String(c.id) === String(selectedCustomerId)) : null),
+    () => (selectedCustomerId ? customers.find((c) => c && String(c.id) === String(selectedCustomerId)) : null),
     [customers, selectedCustomerId]
   )
 
@@ -104,10 +106,12 @@ const Customers = () => {
     if (!selectedCustomer) return []
     const custId = String(selectedCustomer.id)
     const customerBills = bills.filter((b: any) => {
+      if (!b) return false
       const bCustId = String(b.customerId || b.customer_id || '')
       return bCustId === custId && !b.deleted && !b.deleted_at
     })
     const customerPayments = payments.filter((p: any) => {
+      if (!p) return false
       const pCustId = String(p.customerId || p.customer_id || '')
       return pCustId === custId
     })
@@ -155,6 +159,7 @@ const Customers = () => {
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c: any) => {
+      if (!c) return false
       if (filterType === 'deleted') return c.deleted === true
       if (c.deleted) return false  // hide deleted from normal tabs
       const matchesSearch =
@@ -169,21 +174,28 @@ const Customers = () => {
 
   // Reconciled bills applying direct payments and customer-linked FIFO allocations
   const reconciledBills = useMemo(() => {
-    return ReconciliationService.reconcileBillsWithPayments(bills, payments)
+    try {
+      return ReconciliationService.reconcileBillsWithPayments(bills, payments) || []
+    } catch (err) {
+      console.error('Failed to reconcile bills with payments:', err)
+      return bills || []
+    }
   }, [bills, payments])
 
-  // Bills for selected customer (non-deleted, newest first)
-  const customerBills = useMemo(() => {
-    if (!selectedCustomerId) return []
-    const custId = String(selectedCustomerId)
-    return reconciledBills
-      .filter((b: any) => {
-        if (b.deleted || b.deleted_at) return false
-        const bCustId = String(b.customerId || b.customer_id || '')
-        return bCustId === custId
-      })
-      .sort((a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
-  }, [reconciledBills, selectedCustomerId])
+  // Total outstanding for any customer (for list display)
+  const getCustomerOutstanding = (customerId: string) => {
+    if (!customerId) return 0
+    const custId = String(customerId)
+    const cust = customers.find((c: any) => c && String(c.id) === custId)
+    const custOpenBills = (reconciledBills || []).filter((b: any) => {
+      if (!b) return false
+      const bCustId = String(b.customerId || b.customer_id || '')
+      return bCustId === custId && !b.deleted && !b.deleted_at
+    })
+    const billsDue = Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b?.balance || 0), 0).toFixed(2))
+    const adv = Number(cust?.advanceBalance || cust?.advance_balance || cust?.creditBalance || cust?.credit_balance || 0)
+    return Math.max(0, Number((billsDue - adv).toFixed(2)))
+  }
 
   // Outstanding balance for selected customer
   const outstandingBalance = useMemo(() => {
@@ -191,18 +203,18 @@ const Customers = () => {
     return getCustomerOutstanding(selectedCustomer.id)
   }, [selectedCustomer, reconciledBills, customers])
 
-  // Total outstanding for any customer (for list display)
-  const getCustomerOutstanding = (customerId: string) => {
-    const custId = String(customerId)
-    const cust = customers.find((c: any) => String(c.id) === custId)
-    const custOpenBills = reconciledBills.filter((b: any) => {
-      const bCustId = String(b.customerId || b.customer_id || '')
-      return bCustId === custId && !b.deleted && !b.deleted_at
-    })
-    const billsDue = Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0).toFixed(2))
-    const adv = Number(cust?.advanceBalance || cust?.advance_balance || cust?.creditBalance || cust?.credit_balance || 0)
-    return Math.max(0, Number((billsDue - adv).toFixed(2)))
-  }
+  // Bills for selected customer (non-deleted, newest first)
+  const customerBills = useMemo(() => {
+    if (!selectedCustomerId) return []
+    const custId = String(selectedCustomerId)
+    return (reconciledBills || [])
+      .filter((b: any) => {
+        if (!b || b.deleted || b.deleted_at) return false
+        const bCustId = String(b.customerId || b.customer_id || '')
+        return bCustId === custId
+      })
+      .sort((a: any, b: any) => new Date(b?.date || b?.created_at || 0).getTime() - new Date(a?.date || a?.created_at || 0).getTime())
+  }, [reconciledBills, selectedCustomerId])
 
   // Apply payment to oldest unpaid bills first via FIFO
   const handleApplyPayment = async () => {
@@ -480,9 +492,9 @@ const Customers = () => {
     if (errors[field]) setErrors((e) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const regular = customers.filter((c) => c.type === 'regular' && !c.deleted)
-  const random = customers.filter((c) => c.type === 'random' && !c.deleted)
-  const deletedCustomers = customers.filter((c) => c.deleted)
+  const regular = customers.filter((c) => c && c.type === 'regular' && !c.deleted)
+  const random = customers.filter((c) => c && c.type === 'random' && !c.deleted)
+  const deletedCustomers = customers.filter((c) => c && c.deleted)
 
   return (
     <div>
@@ -523,7 +535,7 @@ const Customers = () => {
       {/* Filter tabs */}
       <div className="tabs" style={{ marginBottom: '16px' }}>
         {[
-          { key: 'all', label: 'All', count: customers.filter((c) => !c.deleted).length },
+          { key: 'all', label: 'All', count: customers.filter((c) => c && !c.deleted).length },
           { key: 'regular', label: 'Regular', count: regular.length },
           { key: 'random', label: 'Walk-in', count: random.length },
           { key: 'deleted', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Trash2 size={13} /> Deleted</span>, count: deletedCustomers.length },
@@ -582,6 +594,7 @@ const Customers = () => {
                 />
               ) : (
                 filteredCustomers.map((customer) => {
+                  if (!customer) return null
                   const outstanding = getCustomerOutstanding(customer.id)
                   const isSelected = selectedCustomerId !== null && String(selectedCustomerId) === String(customer.id)
                   return (
@@ -795,6 +808,7 @@ const Customers = () => {
                     </thead>
                     <tbody>
                       {customerBills.map((bill: any) => {
+                        if (!bill) return null
                         const bTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total !== undefined ? bill.grand_total : 0))
                         const bPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paid_total !== undefined ? bill.paid_total : 0)))
                         let bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))

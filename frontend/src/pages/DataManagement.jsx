@@ -591,13 +591,13 @@ const DataManagement = () => {
   }
 
   const exportItems = [
-    { label: 'Invoices & Bills', type: 'bills', count: bills.filter((b) => !b.deleted && !b.deleted_at).length, action: handleExportBills, desc: 'All active bills with line items & paid status' },
-    { label: 'Customers & Ledgers', type: 'customers', count: customers.filter((c) => !c.deleted && !c.deleted_at).length, action: handleExportCustomers, desc: 'All customer contact, type & credit balance info' },
-    { label: 'Payments Register', type: 'payments', count: payments.length, action: handleExportPayments, desc: 'All payment allocations with Cash/UPI split' },
-    { label: 'Expenses & Cashbook', type: 'expenses', count: (expenses || []).length, action: handleExportExpenses, desc: 'All expense vouchers with category breakdown' },
-    { label: 'Advance Deposits', type: 'advances', count: (advances || []).length, action: handleExportAdvances, desc: 'All customer advance receipts and balances' },
-    { label: 'Customer Groups', type: 'groups', count: (groups || []).length, action: handleExportGroups, desc: 'All corporate group billing accounts and members' },
-    { label: 'Inventory & Rates', type: 'inventory', count: inventory.length, action: handleExportInventory, desc: 'Paper pricing catalog (Color & B/W rates)' },
+    { label: 'Invoices & Bills', type: 'bills', count: (bills || []).filter((b) => b && !b.deleted && !b.deleted_at).length, action: handleExportBills, desc: 'All active bills with line items & paid status' },
+    { label: 'Customers & Ledgers', type: 'customers', count: (customers || []).filter((c) => c && !c.deleted && !c.deleted_at).length, action: handleExportCustomers, desc: 'All customer contact, type & credit balance info' },
+    { label: 'Payments Register', type: 'payments', count: (payments || []).filter(Boolean).length, action: handleExportPayments, desc: 'All payment allocations with Cash/UPI split' },
+    { label: 'Expenses & Cashbook', type: 'expenses', count: (expenses || []).filter(Boolean).length, action: handleExportExpenses, desc: 'All expense vouchers with category breakdown' },
+    { label: 'Advance Deposits', type: 'advances', count: (advances || []).filter(Boolean).length, action: handleExportAdvances, desc: 'All customer advance receipts and balances' },
+    { label: 'Customer Groups', type: 'groups', count: (groups || []).filter(Boolean).length, action: handleExportGroups, desc: 'All corporate group billing accounts and members' },
+    { label: 'Inventory & Rates', type: 'inventory', count: (inventory || []).filter(Boolean).length, action: handleExportInventory, desc: 'Paper pricing catalog (Color & B/W rates)' },
   ]
 
   return (

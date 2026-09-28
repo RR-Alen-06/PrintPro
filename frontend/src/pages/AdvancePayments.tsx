@@ -16,9 +16,9 @@ const AdvancePayments = () => {
   const advancePayments = serverAdvancePayments
   const { createCustomer } = useCustomerMutations()
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => (Array.isArray(customers) ? customers.filter((c) => c && !c.deleted) : []), [customers])
 
-  const getUpiLink = (amount, notesText = 'Advance Payment') => {
+  const getUpiLink = (amount: number, notesText = 'Advance Payment') => {
     if (!business?.upiId || amount <= 0) return ''
     const params = new URLSearchParams({
       pa: business.upiId,
@@ -49,7 +49,7 @@ const AdvancePayments = () => {
   const [successRef, setSuccessRef] = useState('')
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
 
-  const copyUpiLink = (link) => {
+  const copyUpiLink = (link: string) => {
     if (!link) return
     navigator.clipboard.writeText(link)
   }
@@ -62,7 +62,7 @@ const AdvancePayments = () => {
 
   // ── Computed ──────────────────────────────────────────────────────────────
   const selectedCustomer = useMemo(
-    () => activeCustomers.find((c) => c.id === selectedCustomerId),
+    () => activeCustomers.find((c) => c && c.id === selectedCustomerId),
     [activeCustomers, selectedCustomerId]
   )
 
@@ -70,12 +70,13 @@ const AdvancePayments = () => {
   const totalSplit = Number(cashAmt || 0) + Number(upiAmt || 0)
 
   const filteredHistory = useMemo(() => {
-    return advancePayments.filter((ap) => {
+    return (Array.isArray(advancePayments) ? advancePayments : []).filter((ap) => {
+      if (!ap) return false
       const matchSearch =
         !searchQuery ||
         (ap.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ap.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ap.customerId.toLowerCase().includes(searchQuery.toLowerCase())
+        String(ap.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(ap.customerId || '').toLowerCase().includes(searchQuery.toLowerCase())
       const matchCustomer = !filterCustomerId || ap.customerId === filterCustomerId
       const matchFrom = !filterDateFrom || ap.date >= filterDateFrom
       const matchTo = !filterDateTo || ap.date <= filterDateTo
@@ -514,7 +515,7 @@ const AdvancePayments = () => {
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{ap.customerName || ap.customerId}</div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {customers.find(c => String(c.id) === String(ap.customerId))?.customerCode || ap.customerId}
+                          {(Array.isArray(customers) ? customers : []).find(c => c && String(c.id) === String(ap.customerId))?.customerCode || ap.customerId}
                         </div>
                       </td>
                       <td>{ap.date}</td>

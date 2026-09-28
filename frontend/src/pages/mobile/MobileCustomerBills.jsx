@@ -26,7 +26,7 @@ export default function MobileCustomerBills() {
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation, isUpdatingBill, isDeletingBill } = useBillMutations()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
 
-  const activeCustomers = useMemo(() => (customers || []).filter(c => !c.deleted && !c.deleted_at), [customers])
+  const activeCustomers = useMemo(() => (Array.isArray(customers) ? customers.filter(c => c && !c.deleted && !c.deleted_at) : []), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(paramCustId || '')
 
   useEffect(() => {
@@ -36,13 +36,13 @@ export default function MobileCustomerBills() {
   }, [activeCustomers, selectedCustomerId, paramCustId])
 
   const selectedCustomer = useMemo(() => {
-    return activeCustomers.find(c => String(c.id) === String(selectedCustomerId))
+    return activeCustomers.find(c => c && String(c.id) === String(selectedCustomerId))
   }, [activeCustomers, selectedCustomerId])
 
   const filteredBills = useMemo(() => {
-    return (bills || [])
-      .filter(b => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(selectedCustomerId))
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
+    return (Array.isArray(bills) ? bills : [])
+      .filter(b => b && !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(selectedCustomerId))
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
   }, [bills, selectedCustomerId])
 
   // Customer Financial Stats

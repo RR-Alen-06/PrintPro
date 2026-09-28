@@ -14,26 +14,26 @@ const CustomerBills = () => {
   const { data: serverInventory = [], isSuccess: isInventoryLoaded } = useInventory()
   const { data: serverPayments = [], isSuccess: isPaymentsLoaded } = usePayments()
 
-  const bills = isBillsLoaded ? serverBills : (contextBills || [])
-  const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
-  const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
-  const payments = isPaymentsLoaded ? serverPayments : (contextPayments || [])
+  const bills = useMemo(() => (Array.isArray(isBillsLoaded ? serverBills : contextBills) ? (isBillsLoaded ? serverBills : contextBills).filter(Boolean) : []), [isBillsLoaded, serverBills, contextBills])
+  const customers = useMemo(() => (Array.isArray(isCustomersLoaded ? serverCustomers : contextCustomers) ? (isCustomersLoaded ? serverCustomers : contextCustomers).filter(Boolean) : []), [isCustomersLoaded, serverCustomers, contextCustomers])
+  const inventory = useMemo(() => (Array.isArray(isInventoryLoaded ? serverInventory : contextInventory) ? (isInventoryLoaded ? serverInventory : contextInventory).filter(Boolean) : []), [isInventoryLoaded, serverInventory, contextInventory])
+  const payments = useMemo(() => (Array.isArray(isPaymentsLoaded ? serverPayments : contextPayments) ? (isPaymentsLoaded ? serverPayments : contextPayments).filter(Boolean) : []), [isPaymentsLoaded, serverPayments, contextPayments])
   const { updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
   const { addAdvancePayment } = useAdvancePaymentMutations()
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => customers.filter((c) => c && !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
 
   const selectedCustomer = useMemo(
-    () => activeCustomers.find((c) => c.id === selectedCustomerId),
+    () => activeCustomers.find((c) => c && c.id === selectedCustomerId),
     [activeCustomers, selectedCustomerId]
   )
 
   const customerBills = useMemo(() => {
     if (!selectedCustomerId) return []
     return bills
-      .filter((b) => !b.deleted && b.customerId === selectedCustomerId)
+      .filter((b) => b && !b.deleted && b.customerId === selectedCustomerId)
       .sort((a, b) => String(a.invoiceNumber || a.id).localeCompare(String(b.invoiceNumber || b.id), undefined, { numeric: true }))
   }, [bills, selectedCustomerId])
 
@@ -99,7 +99,7 @@ const CustomerBills = () => {
     
     // Map items
     setItemRows(
-      bill.items.map((item, idx) => ({
+      (bill.items || []).map((item, idx) => ({
         id: `row-${Date.now()}-${idx}-${Math.random()}`,
         itemId: item.itemId || '',
         itemName: item.itemName || item.name || 'Custom Item',
@@ -125,7 +125,7 @@ const CustomerBills = () => {
 
   // ── Pricing helpers ──
   const getItemBasePrice = (itemId, printType, sides) => {
-    const item = inventory.find((e) => e.id === itemId)
+    const item = (inventory || []).find((e) => e && e.id === itemId)
     if (!item) return 0
     if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
     if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
@@ -356,7 +356,7 @@ const CustomerBills = () => {
       })),
     }
 
-    const oldPayments = payments.filter(p => p.billId === editingBill.id)
+    const oldPayments = (payments || []).filter(p => p && p.billId === editingBill.id)
     const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
     const oldPaidDirect = oldPaidCash + oldPaidUpi
@@ -387,7 +387,7 @@ const CustomerBills = () => {
 
   const handleConfirmRefund = async () => {
     if (!editingBill || !refundInfo) return
-    const cust = selectedCustomer || activeCustomers.find(c => c.id === editingBill.customerId)
+    const cust = selectedCustomer || activeCustomers.find(c => c && c.id === editingBill.customerId)
     
     // 1. Update bill payload (adjusted line items and amounts)
     await updateBillMutation({ id: editingBill.id, data: refundInfo.payload })
@@ -460,7 +460,7 @@ const CustomerBills = () => {
     setCustomGst('')
     setItemRows([])
 
-    const oldPayments = payments.filter(p => p.billId === bill.id)
+    const oldPayments = (payments || []).filter(p => p && p.billId === bill.id)
     const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
     const oldPaidDirect = oldPaidCash + oldPaidUpi
@@ -596,8 +596,8 @@ const CustomerBills = () => {
                         {Number(bill.balance || 0).toFixed(2)}
                       </td>
                       <td>
-                        <span className={`badge badge-${bill.status}`}>
-                          {bill.status.toUpperCase()}
+                        <span className={`badge badge-${bill.status || 'unpaid'}`}>
+                          {String(bill.status || 'unpaid').toUpperCase()}
                         </span>
                       </td>
                       <td>
