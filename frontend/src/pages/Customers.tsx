@@ -8,6 +8,7 @@ import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { LedgerService } from '../services/ledgerService'
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
+import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, MessageSquare } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
@@ -166,40 +167,41 @@ const Customers = () => {
     })
   }, [customers, searchQuery, filterType])
 
+  // Reconciled bills applying direct payments and customer-linked FIFO allocations
+  const reconciledBills = useMemo(() => {
+    return ReconciliationService.reconcileBillsWithPayments(bills, payments)
+  }, [bills, payments])
+
   // Bills for selected customer (non-deleted, newest first)
   const customerBills = useMemo(() => {
     if (!selectedCustomerId) return []
     const custId = String(selectedCustomerId)
-    return bills
+    return reconciledBills
       .filter((b: any) => {
         if (b.deleted || b.deleted_at) return false
         const bCustId = String(b.customerId || b.customer_id || '')
         return bCustId === custId
       })
       .sort((a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
-  }, [bills, selectedCustomerId])
+  }, [reconciledBills, selectedCustomerId])
 
   // Outstanding balance for selected customer
   const outstandingBalance = useMemo(() => {
     if (!selectedCustomer) return 0
-    const summary = LedgerService.computeCustomerSummary({
-      customer: selectedCustomer,
-      bills,
-      payments
-    })
-    return Number(summary?.balance_due || 0)
-  }, [selectedCustomer, bills, payments])
+    return getCustomerOutstanding(selectedCustomer.id)
+  }, [selectedCustomer, reconciledBills, customers])
 
   // Total outstanding for any customer (for list display)
   const getCustomerOutstanding = (customerId: string) => {
-    const cust = customers.find((c: any) => String(c.id) === String(customerId))
-    if (!cust) return 0
-    const summary = LedgerService.computeCustomerSummary({
-      customer: cust,
-      bills,
-      payments
+    const custId = String(customerId)
+    const cust = customers.find((c: any) => String(c.id) === custId)
+    const custOpenBills = reconciledBills.filter((b: any) => {
+      const bCustId = String(b.customerId || b.customer_id || '')
+      return bCustId === custId && !b.deleted && !b.deleted_at
     })
-    return Number(summary?.balance_due || 0)
+    const billsDue = Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0).toFixed(2))
+    const adv = Number(cust?.advanceBalance || cust?.advance_balance || cust?.creditBalance || cust?.credit_balance || 0)
+    return Math.max(0, Number((billsDue - adv).toFixed(2)))
   }
 
   // Apply payment to oldest unpaid bills first via FIFO
@@ -795,8 +797,13 @@ const Customers = () => {
                       {customerBills.map((bill: any) => {
                         const bTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total !== undefined ? bill.grand_total : 0))
                         const bPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paid_total !== undefined ? bill.paid_total : 0)))
-                        const bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
-                        const bStatus = bill.status || (bPaid >= bTotal && bTotal > 0 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid'))
+                        let bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
+                        if (bTotal > 0 && bPaid === 0 && bBalance <= 0.001) {
+                          bBalance = bTotal
+                        } else if (bTotal > 0 && bPaid > 0 && bPaid < bTotal && bBalance <= 0.001) {
+                          bBalance = Number((bTotal - bPaid).toFixed(2))
+                        }
+                        const bStatus = bBalance <= 0.001 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid')
 
                         return (
                           <React.Fragment key={bill.id}>
