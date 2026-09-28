@@ -60,12 +60,21 @@ export class SequenceService {
     if (typeof itemOrId === 'object') {
       const code =
         itemOrId.invoiceNumber ||
+        itemOrId.invoice_number ||
+        itemOrId.billNumber ||
+        itemOrId.bill_number ||
         itemOrId.customerCode ||
+        itemOrId.customer_code ||
         itemOrId.itemCode ||
+        itemOrId.item_code ||
         itemOrId.paymentCode ||
+        itemOrId.payment_code ||
         itemOrId.expenseCode ||
+        itemOrId.expense_code ||
         itemOrId.creditNoteNumber ||
+        itemOrId.credit_note_number ||
         itemOrId.groupInvoiceNumber ||
+        itemOrId.group_invoice_number ||
         itemOrId.code;
 
       if (code && typeof code === 'string' && code.trim()) {
