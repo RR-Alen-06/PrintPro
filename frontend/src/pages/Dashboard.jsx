@@ -302,10 +302,10 @@ const Dashboard = () => {
     }
 
     return {
-      bills: bills.filter(b => checkDate(b.date)),
-      payments: payments.filter(p => checkDate(p.date)),
-      advancePayments: advancePayments.filter(ap => checkDate(ap.date)),
-      expenses: expenses.filter(e => checkDate(e.date))
+      bills: (bills || []).filter(b => b && checkDate(b.date)),
+      payments: (payments || []).filter(p => p && checkDate(p.date)),
+      advancePayments: (advancePayments || []).filter(ap => ap && checkDate(ap.date)),
+      expenses: (expenses || []).filter(e => e && checkDate(e.date))
     }
   }, [bills, payments, advancePayments, expenses, activeDateRange])
 

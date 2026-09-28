@@ -133,17 +133,17 @@ export default function MobileAccounting() {
 
   // Accounting Financial Calculations matching desktop Accounting.jsx
   const financialTotals = useMemo(() => {
-    const periodBills = (bills || []).filter(b => !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent && isDateInPeriod(b.date || b.created_at, period))
-    const periodExpenses = (expenses || []).filter(e => isDateInPeriod(e.date || e.created_at, period))
-    const periodPayments = (payments || []).filter(p => isDateInPeriod(p.date || p.created_at, period))
-    const periodAdvances = (advancePayments || []).filter(ap => isDateInPeriod(ap.date || ap.created_at, period))
-    const periodDeletedPayments = (deletedPayments || []).filter(dp => isDateInPeriod(dp.date || dp.created_at, period))
+    const periodBills = (bills || []).filter(b => b && !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent && isDateInPeriod(b.date || b.created_at, period))
+    const periodExpenses = (expenses || []).filter(e => e && isDateInPeriod(e.date || e.created_at, period))
+    const periodPayments = (payments || []).filter(p => p && isDateInPeriod(p.date || p.created_at, period))
+    const periodAdvances = (advancePayments || []).filter(ap => ap && isDateInPeriod(ap.date || ap.created_at, period))
+    const periodDeletedPayments = (deletedPayments || []).filter(dp => dp && isDateInPeriod(dp.date || dp.created_at, period))
 
     const totalRev = periodBills.reduce((s, b) => s + Number(b.total || 0), 0)
     const totalExp = periodExpenses.reduce((s, e) => s + Number(e.amount || e.total || 0), 0)
 
     // Normal Inflow Payments
-    const deletedBillIds = new Set((bills || []).filter(b => b.deleted || b.deleted_at).map(b => String(b.id)))
+    const deletedBillIds = new Set((bills || []).filter(b => b && (b.deleted || b.deleted_at)).map(b => String(b.id)))
     const normalPayments = periodPayments.filter(p => {
       const isRef = p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0
       const isFifoAdv = p.notes?.includes('from advance deposit') || p.notes?.includes('FIFO payment')

@@ -58,7 +58,7 @@ const CustomerLedger = () => {
 
   const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => (customers || []).filter((c) => c && !c.deleted), [customers])
 
   const handleWriteOff = async (billId, balanceAmt) => {
     if (window.confirm(`Are you sure you want to write off the outstanding balance of ₹${balanceAmt.toFixed(2)} for Invoice #${billId}? This cannot be undone.`)) {
@@ -108,30 +108,30 @@ const CustomerLedger = () => {
   }
 
   const selectedCustomer = useMemo(
-    () => activeCustomers.find((c) => String(c.id) === String(selectedCustomerId)),
+    () => activeCustomers.find((c) => c && String(c.id) === String(selectedCustomerId)),
     [activeCustomers, selectedCustomerId]
   )
 
   const customerBills = useMemo(
-    () => bills.filter((b) => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at),
+    () => (bills || []).filter((b) => b && String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at),
     [bills, selectedCustomerId]
   )
 
   const customerPayments = useMemo(
-    () => payments.filter((p) => String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit')),
+    () => (payments || []).filter((p) => p && String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit')),
     [payments, selectedCustomerId]
   )
 
   const customerAdvances = useMemo(
-    () => (advancePayments || []).filter((a) => String(a.customerId || a.customer_id) === String(selectedCustomerId)),
+    () => (advancePayments || []).filter((a) => a && String(a.customerId || a.customer_id) === String(selectedCustomerId)),
     [advancePayments, selectedCustomerId]
   )
 
   const customerSettlements = useMemo(() => {
-    return payments.filter(p => {
-      if (!p.isGroupPayment) return false
+    return (payments || []).filter(p => {
+      if (!p || !p.isGroupPayment) return false
       if (String(p.customerId || p.customer_id) === String(selectedCustomerId)) return true
-      return (p.groupSettlements || []).some(s => String(s.customerId || s.customer_id) === String(selectedCustomerId))
+      return (p.groupSettlements || []).some(s => s && String(s.customerId || s.customer_id) === String(selectedCustomerId))
     })
   }, [payments, selectedCustomerId])
 

@@ -135,8 +135,8 @@ export default function MobileInventory() {
   }, [])
 
   const filteredItems = useMemo(() => {
-    return (serverInventory || []).filter(item => {
-      if (item.deleted || item.deleted_at) return false
+    return (Array.isArray(serverInventory) ? serverInventory : []).filter(item => {
+      if (!item || item.deleted || item.deleted_at) return false
       if (filterType === 'print' && (item.type || 'print') !== 'print') return false
       if (filterType === 'product' && item.type !== 'product') return false
       if (searchTerm.trim()) {

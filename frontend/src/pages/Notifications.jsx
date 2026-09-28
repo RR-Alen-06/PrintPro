@@ -16,27 +16,29 @@ const NotificationsPage = () => {
 
   const [activeTab, setActiveTab] = useState('all') // 'all' | 'unread' | 'payments' | 'alerts' | 'system'
 
+  const safeNotes = useMemo(() => (Array.isArray(notifications) ? notifications.filter(Boolean) : []), [notifications])
+
   const counts = {
-    all: notifications.length,
-    unread: notifications.filter((n) => !n.read).length,
-    payments: notifications.filter((n) => {
+    all: safeNotes.length,
+    unread: safeNotes.filter((n) => !n.read).length,
+    payments: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       const title = (n.title || '').toLowerCase()
       return t === 'payment' || t === 'success' || title.includes('payment') || title.includes('deposit') || title.includes('paid')
     }).length,
-    alerts: notifications.filter((n) => {
+    alerts: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       const title = (n.title || '').toLowerCase()
       return t === 'warning' || t === 'alert' || title.includes('due') || title.includes('overdue') || title.includes('pending')
     }).length,
-    system: notifications.filter((n) => {
+    system: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       return t === 'info' || t === 'system'
     }).length,
   }
 
   const filteredNotifications = useMemo(() => {
-    return notifications.filter((note) => {
+    return safeNotes.filter((note) => {
       if (activeTab === 'unread') return !note.read
       if (activeTab === 'payments') {
         const t = (note.type || '').toLowerCase()

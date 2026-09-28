@@ -172,8 +172,8 @@ const Inventory = () => {
     }
   }
 
-  const visibleInventory = inventory
-    .filter((item) => !deletedIds.has(item.id))
+  const visibleInventory = (Array.isArray(inventory) ? inventory : [])
+    .filter((item) => item && !deletedIds.has(item.id))
     .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { numeric: true }))
 
   return (

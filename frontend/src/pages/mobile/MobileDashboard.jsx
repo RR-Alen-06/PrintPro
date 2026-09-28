@@ -342,7 +342,7 @@ export default function MobileDashboard() {
   const filteredBills = useMemo(() => {
     const { start, end } = activeDateRange
     return (bills || []).filter((b) => {
-      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+      if (!b || b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
       if (!start || !end) return true
       const d = new Date(b.date)
       return d >= start && d <= end

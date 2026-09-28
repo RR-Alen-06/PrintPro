@@ -71,7 +71,7 @@ export default function MobileAnalytics() {
   const filteredBills = useMemo(() => {
     const { start, end } = activeDateRange
     return (bills || []).filter((b) => {
-      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+      if (!b || b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
       if (!start || !end) return true
       const d = new Date(b.date)
       return d >= start && d <= end
@@ -81,6 +81,7 @@ export default function MobileAnalytics() {
   const filteredPayments = useMemo(() => {
     const { start, end } = activeDateRange
     return (payments || []).filter((p) => {
+      if (!p) return false
       if (!start || !end) return true
       const d = new Date(p.date)
       return d >= start && d <= end
@@ -327,8 +328,8 @@ export default function MobileAnalytics() {
   const promoAnalytics = useMemo(() => {
     const codeMap = {}
     filteredBills.forEach(b => {
-      if (b.promoCode || b.promo_code) {
-        const cUpper = (b.promoCode || b.promo_code).toUpperCase()
+      if (b && (b.promoCode || b.promo_code)) {
+        const cUpper = String(b.promoCode || b.promo_code).toUpperCase()
         if (!codeMap[cUpper]) {
           codeMap[cUpper] = {
             code: cUpper,
