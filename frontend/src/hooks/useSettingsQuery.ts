@@ -82,16 +82,16 @@ export function useSettingsMutations() {
   const userId = currentUser?.id || 'anonymous'
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (settingsData) => {
+    mutationFn: async (settingsData: any) => {
       const res = await settingsApi.updateSettings(settingsData)
       return res.data?.data
     },
-    onMutate: async (newSettings) => {
+    onMutate: async (newSettings: any) => {
       const userSettingsKey = [...SETTINGS_QUERY_KEY, userId]
       await queryClient.cancelQueries({ queryKey: userSettingsKey })
       const previousSettings = queryClient.getQueryData(userSettingsKey) || {}
 
-      queryClient.setQueryData(userSettingsKey, (old = {}) => ({
+      queryClient.setQueryData(userSettingsKey, (old: any = {}) => ({
         ...old,
         ...newSettings,
       }))
@@ -103,7 +103,7 @@ export function useSettingsMutations() {
 
       return { previousSettings, userSettingsKey }
     },
-    onError: (err, variables, context) => {
+    onError: (err: any, variables: any, context: any) => {
       if (context?.previousSettings && context?.userSettingsKey) {
         queryClient.setQueryData(context.userSettingsKey, context.previousSettings)
       }

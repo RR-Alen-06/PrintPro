@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { useBills } from '../hooks/useBillsQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { LedgerService } from '../services/ledgerService'
 import { SequenceService } from '../services/sequenceService'
@@ -34,6 +34,7 @@ const Customers = () => {
   const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
+  const { updateBill } = useBillMutations()
   const customers = serverCustomers
   const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : (contextBills || [])
   const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : (contextPayments || [])
@@ -210,6 +211,59 @@ const Customers = () => {
 
     const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
     try {
+      // Find customer's unpaid active bills sorted chronologically (FIFO)
+      const custBills = (bills || [])
+        .filter(
+          (b: any) =>
+            !b.deleted &&
+            !b.deleted_at &&
+            !b.isGroupParent &&
+            !b.is_group_parent &&
+            String(b.customerId || b.customer_id) === String(selectedCustomer.id) &&
+            Number(b.balance || 0) > 0
+        )
+        .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+      let remaining = totalPaying
+      for (const b of custBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
+        const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+        if (updateBill) {
+          await (updateBill as any)({
+            id: b.id,
+            data: {
+              balance: newBal,
+              status: newStatus,
+              amountPaid: newPaid,
+              amount_paid: newPaid,
+            }
+          })
+        }
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      // If customer overpaid (excess), credit customer advance / credit balance
+      if (remaining > 0) {
+        const currentAdv = Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0)
+        const newAdv = Number((currentAdv + remaining).toFixed(2))
+        if (updateCustomer) {
+          await (updateCustomer as any)({
+            id: selectedCustomer.id,
+            data: {
+              advanceBalance: newAdv,
+              advance_balance: newAdv,
+              creditBalance: newAdv,
+              credit_balance: newAdv,
+            }
+          })
+        }
+      }
+
       if (createPayment) {
         await (createPayment as any)({
           customer_id: selectedCustomer.id,
@@ -221,8 +275,8 @@ const Customers = () => {
           upiAmount: upi,
           total_paid: totalPaying,
           totalPaid: totalPaying,
-          payment_type: 'partial',
-          paymentType: 'partial',
+          payment_type: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+          paymentType: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
           paymentMethod: method,
           notes: `Payment from customer page (${method.toUpperCase()})`,
           date: new Date().toISOString()
