@@ -9,20 +9,10 @@ import Customers from './pages/Customers'
 import Accounting from './pages/Accounting'
 import Inventory from './pages/Inventory'
 import Settings from './pages/Settings'
-import DataManagement from './pages/DataManagement'
-import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
 import AuthCallback from './pages/AuthCallback'
-import Analytics from './pages/Analytics'
-import ItemSalesReport from './pages/ItemSalesReport'
-import CustomerLedger from './pages/CustomerLedger'
-import CustomerBills from './pages/CustomerBills'
-import AdvancePayments from './pages/AdvancePayments'
 import GroupBilling from './pages/GroupBilling'
-import Refunds from './pages/Refunds'
-import NotificationsPage from './pages/Notifications'
-import DeletedBills from './pages/DeletedBills'
 import ErrorBoundary from './components/common/ErrorBoundary'
 
 // Mobile Page Imports
@@ -32,21 +22,11 @@ import MobileBillingList from './pages/mobile/MobileBillingList'
 import MobileBillDetail from './pages/mobile/MobileBillDetail'
 import MobileCreateBill from './pages/mobile/MobileCreateBill'
 import MobileSettings from './pages/mobile/MobileSettings'
-import MobileRefunds from './pages/mobile/MobileRefunds'
 import MobileCustomers from './pages/mobile/MobileCustomers'
-import MobileCustomerLedger from './pages/mobile/MobileCustomerLedger'
 import MobileInventory from './pages/mobile/MobileInventory'
-import MobileAdvancePayments from './pages/mobile/MobileAdvancePayments'
 import MobileAccounting from './pages/mobile/MobileAccounting'
-import MobileAnalytics from './pages/mobile/MobileAnalytics'
 import MobileGroupBilling from './pages/mobile/MobileGroupBilling'
-import MobileCustomerBills from './pages/mobile/MobileCustomerBills'
 import MobileReceipt from './pages/mobile/MobileReceipt'
-import MobileItemSalesReport from './pages/mobile/MobileItemSalesReport'
-import MobileDataManagement from './pages/mobile/MobileDataManagement'
-import MobileNotifications from './pages/mobile/MobileNotifications'
-import MobileDeletedBills from './pages/mobile/MobileDeletedBills'
-import MobileSearch from './pages/mobile/MobileSearch'
 
 import { useMobileDetect } from './hooks/useMobileDetect'
 
@@ -57,20 +37,90 @@ const desktopToMobilePathMap: Record<string, string> = {
   '/customers': '/mobile/customers',
   '/accounting': '/mobile/accounting',
   '/inventory': '/mobile/inventory',
-  '/notifications': '/mobile/notifications',
-  '/deleted-bills': '/mobile/deleted-bills',
+  '/notifications': '/mobile/dashboard?action=notifications',
+  '/deleted-bills': '/mobile/settings?tab=recycle-bin',
   '/settings': '/mobile/settings',
-  '/data-management': '/mobile/data-management',
-  '/search': '/mobile/search',
+  '/data-management': '/mobile/settings?tab=backup',
+  '/search': '/mobile/dashboard?action=search',
   '/receipt': '/mobile/receipt',
   '/auth': '/mobile/auth',
-  '/analytics': '/mobile/analytics',
-  '/item-sales-report': '/mobile/item-sales-report',
-  '/customer-ledger': '/mobile/customer-ledger',
-  '/customer-bills': '/mobile/customer-bills',
-  '/advance-payments': '/mobile/advance-payments',
+  '/analytics': '/mobile/accounting?tab=analytics',
+  '/item-sales-report': '/mobile/accounting?tab=items',
+  '/customer-ledger': '/mobile/customers',
+  '/customer-bills': '/mobile/customers',
+  '/advance-payments': '/mobile/customers',
   '/group-billing': '/mobile/group-billing',
-  '/refunds': '/mobile/refunds',
+  '/refunds': '/mobile/accounting?tab=refunds',
+}
+
+function LegacyCustomerRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/customers?${params.toString()}`} replace />
+}
+
+function LegacyMobileCustomerRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/mobile/customers?${params.toString()}`} replace />
+}
+
+function LegacyAccountingRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/accounting?${params.toString()}`} replace />
+}
+
+function LegacyMobileAccountingRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/mobile/accounting?${params.toString()}`} replace />
+}
+
+function LegacySettingsRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/settings?${params.toString()}`} replace />
+}
+
+function LegacyMobileSettingsRedirect({ defaultTab }: { defaultTab: string }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  if (!params.get('tab')) params.set('tab', defaultTab)
+  return <Navigate to={`/mobile/settings?${params.toString()}`} replace />
+}
+
+function LegacySearchRedirect() {
+  React.useEffect(() => {
+    window.dispatchEvent(new CustomEvent('open-command-palette'))
+  }, [])
+  return <Navigate to="/dashboard" replace />
+}
+
+function LegacyMobileSearchRedirect() {
+  React.useEffect(() => {
+    window.dispatchEvent(new CustomEvent('open-command-palette'))
+  }, [])
+  return <Navigate to="/mobile/dashboard" replace />
+}
+
+function LegacyNotificationsRedirect() {
+  React.useEffect(() => {
+    window.dispatchEvent(new CustomEvent('open-notification-drawer'))
+  }, [])
+  return <Navigate to="/dashboard" replace />
+}
+
+function LegacyMobileNotificationsRedirect() {
+  React.useEffect(() => {
+    window.dispatchEvent(new CustomEvent('open-notification-drawer'))
+  }, [])
+  return <Navigate to="/mobile/dashboard" replace />
 }
 
 function App() {
@@ -148,21 +198,21 @@ function App() {
           <Route path="/mobile/bill/:id" element={<MobileBillDetail />} />
           <Route path="/mobile/create-bill" element={<MobileCreateBill />} />
           <Route path="/mobile/settings" element={<MobileSettings />} />
-          <Route path="/mobile/refunds" element={<MobileRefunds />} />
+          <Route path="/mobile/refunds" element={<LegacyMobileAccountingRedirect defaultTab="refunds" />} />
           <Route path="/mobile/customers" element={<MobileCustomers />} />
-          <Route path="/mobile/customer-ledger" element={<MobileCustomerLedger />} />
+          <Route path="/mobile/customer-ledger" element={<LegacyMobileCustomerRedirect defaultTab="ledger" />} />
           <Route path="/mobile/inventory" element={<MobileInventory />} />
-          <Route path="/mobile/advance-payments" element={<MobileAdvancePayments />} />
+          <Route path="/mobile/advance-payments" element={<LegacyMobileCustomerRedirect defaultTab="advances" />} />
           <Route path="/mobile/accounting" element={<MobileAccounting />} />
-          <Route path="/mobile/analytics" element={<MobileAnalytics />} />
+          <Route path="/mobile/analytics" element={<LegacyMobileAccountingRedirect defaultTab="analytics" />} />
           <Route path="/mobile/group-billing" element={<MobileGroupBilling />} />
-          <Route path="/mobile/customer-bills" element={<MobileCustomerBills />} />
+          <Route path="/mobile/customer-bills" element={<LegacyMobileCustomerRedirect defaultTab="bills" />} />
           <Route path="/mobile/receipt" element={<MobileReceipt />} />
-          <Route path="/mobile/item-sales-report" element={<MobileItemSalesReport />} />
-          <Route path="/mobile/data-management" element={<MobileDataManagement />} />
-          <Route path="/mobile/notifications" element={<MobileNotifications />} />
-          <Route path="/mobile/deleted-bills" element={<MobileDeletedBills />} />
-          <Route path="/mobile/search" element={<MobileSearch />} />
+          <Route path="/mobile/item-sales-report" element={<LegacyMobileAccountingRedirect defaultTab="items" />} />
+          <Route path="/mobile/data-management" element={<LegacyMobileSettingsRedirect defaultTab="backup" />} />
+          <Route path="/mobile/notifications" element={<LegacyMobileNotificationsRedirect />} />
+          <Route path="/mobile/deleted-bills" element={<LegacyMobileSettingsRedirect defaultTab="recycle-bin" />} />
+          <Route path="/mobile/search" element={<LegacyMobileSearchRedirect />} />
           <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />
         </Routes>
       </ErrorBoundary>
@@ -183,21 +233,21 @@ function App() {
               <Route path="/customers" element={<Customers />} />
               <Route path="/accounting" element={<Accounting />} />
               <Route path="/inventory" element={<Inventory />} />
-              <Route path="/notifications" element={<NotificationsPage />} />
-              <Route path="/deleted-bills" element={<DeletedBills />} />
+              <Route path="/notifications" element={<LegacyNotificationsRedirect />} />
+              <Route path="/deleted-bills" element={<LegacySettingsRedirect defaultTab="recycle-bin" />} />
               <Route path="/settings" element={<Settings />} />
-              <Route path="/data-management" element={<DataManagement />} />
-              <Route path="/search" element={<Search />} />
+              <Route path="/data-management" element={<LegacySettingsRedirect defaultTab="backup" />} />
+              <Route path="/search" element={<LegacySearchRedirect />} />
               <Route path="/receipt" element={<Receipt />} />
               <Route path="/auth" element={<Auth />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/item-sales-report" element={<ItemSalesReport />} />
-              <Route path="/customer-ledger" element={<CustomerLedger />} />
-              <Route path="/customer-bills" element={<CustomerBills />} />
-              <Route path="/advance-payments" element={<AdvancePayments />} />
+              <Route path="/analytics" element={<LegacyAccountingRedirect defaultTab="analytics" />} />
+              <Route path="/item-sales-report" element={<LegacyAccountingRedirect defaultTab="items" />} />
+              <Route path="/customer-ledger" element={<LegacyCustomerRedirect defaultTab="ledger" />} />
+              <Route path="/customer-bills" element={<LegacyCustomerRedirect defaultTab="bills" />} />
+              <Route path="/advance-payments" element={<LegacyCustomerRedirect defaultTab="advances" />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/group-billing" element={<GroupBilling />} />
-              <Route path="/refunds" element={<Refunds />} />
+              <Route path="/refunds" element={<LegacyAccountingRedirect defaultTab="refunds" />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </ErrorBoundary>

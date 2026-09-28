@@ -1,17 +1,26 @@
-import React, { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
-import { LedgerService } from '../services/ledgerService'
+import { usePayments, usePaymentMutations, useAdvancePayments, useAdvancePaymentMutations, useInventory } from '../hooks/useEntitiesQuery'
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, MessageSquare } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
+import {
+  Users, UserPlus, Search, X, CheckCircle, AlertCircle, Trash2, RotateCcw,
+  Pencil, Wallet, FileText, BookOpen, Layers, MessageSquare, ExternalLink, ShieldAlert
+} from 'lucide-react'
+
+// Sub-components
+import { CustomerOverviewTab } from '../components/customers/CustomerOverviewTab'
+import { CustomerBillsTab } from '../components/customers/CustomerBillsTab'
+import { CustomerLedgerTab } from '../components/customers/CustomerLedgerTab'
+import { CustomerAdvancesTab } from '../components/customers/CustomerAdvancesTab'
+import { GlobalAdvanceRegister } from '../components/customers/GlobalAdvanceRegister'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -25,669 +34,681 @@ const EMPTY_FORM = {
   openingUpi: '',
 }
 
-const Customers = () => {
-  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
+export default function Customers() {
+  const { business, settings, bills: contextBills, payments: contextPayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
 
+  // Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverBills, isSuccess: isBillsLoaded } = useBills()
   const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
+  const { data: serverAdvancePayments = [] } = useAdvancePayments()
+  const { data: serverInventory = [] } = useInventory()
+
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
-  const { updateBill } = useBillMutations()
+  const { updateBill, deleteBill } = useBillMutations()
+  const { addAdvancePayment, deleteAdvancePayment } = useAdvancePaymentMutations()
+
   const customers = Array.isArray(serverCustomers) ? serverCustomers : []
   const rawBills = isBillsLoaded || serverBills !== undefined ? serverBills : contextBills
   const bills = Array.isArray(rawBills) ? rawBills : []
   const rawPayments = isPaymentsLoaded || serverPayments !== undefined ? serverPayments : contextPayments
   const payments = Array.isArray(rawPayments) ? rawPayments : []
+  const advancePayments = Array.isArray(serverAdvancePayments) ? serverAdvancePayments : []
+  const inventory = Array.isArray(serverInventory) ? serverInventory : []
 
-  const previewCustomerCode = useMemo(() => {
-    return SequenceService.peekNextSequence(
-      'CUSTOMER',
-      customers || [],
-      settings?.cusPrefix || 'CUS',
-      settings?.seqPadding || 6
-    )
-  }, [customers, settings?.cusPrefix, settings?.seqPadding])
+  // Top View State: 'directory' | 'global-advances'
+  const currentView = searchParams.get('view') === 'global-advances' ? 'global-advances' : 'directory'
+  const paramCustomerId = searchParams.get('customerId')
+  const paramTab = (searchParams.get('tab') as 'overview' | 'bills' | 'ledger' | 'advances') || 'overview'
 
-  const copyUpiLink = (link) => {
-    if (!link) return
-    navigator.clipboard.writeText(link)
-  }
+  const [activeTab, setActiveTab] = useState<'overview' | 'bills' | 'ledger' | 'advances'>(paramTab)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(paramCustomerId)
 
-  const getUpiLink = (amount, notesText = 'Opening Balance') => {
-    if (!business?.upiId || amount <= 0) return ''
-    const params = new URLSearchParams({
-      pa: business.upiId,
-      pn: business.shopName || 'PrintPro',
-      am: amount.toFixed(2),
-      cu: 'INR',
-      tn: notesText,
-    })
-    return `upi://pay?${params.toString()}`
-  }
+  // Synchronize state when URL search params change
+  useEffect(() => {
+    if (paramCustomerId) {
+      setSelectedCustomerId(paramCustomerId)
+    }
+    if (paramTab) {
+      setActiveTab(paramTab)
+    }
+  }, [paramCustomerId, paramTab])
 
+  // Customer List Filters & Search
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterType, setFilterType] = useState<'all' | 'regular' | 'random' | 'with-dues' | 'with-adv' | 'deleted'>('all')
+
+  // Customer Add/Edit Modal
   const [showModal, setShowModal] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [editMode, setEditMode] = useState(false) // false = add, true = edit
+  const [editMode, setEditMode] = useState(false)
   const [editingId, setEditingId] = useState<any>(null)
   const [form, setForm] = useState<any>(EMPTY_FORM)
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const [successMsg, setSuccessMsg] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterType, setFilterType] = useState('all')
-  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
-  const [qrGenerated, setQrGenerated] = useState(false)
-  const [selectedCustomerId, setSelectedCustomerId] = useState(null)
-  const [expandedBillId, setExpandedBillId] = useState(null)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false)
 
-  const selectedCustomer = useMemo(
-    () => (selectedCustomerId ? customers.find((c) => c && String(c.id) === String(selectedCustomerId)) : null),
-    [customers, selectedCustomerId]
-  )
-
-  // Payment form state
-  const [payCash, setPayCash] = useState<any>('')
-  const [payUpi, setPayUpi] = useState<any>('')
-  const [paySuccess, setPaySuccess] = useState(false)
-
-  // Targeted bill payment state
-  const [targetBillPayId, setTargetBillPayId] = useState<any>(null) // which bill's pay panel is open
-  const [targetCash, setTargetCash] = useState<any>('')
-  const [targetUpi, setTargetUpi] = useState<any>('')
-  const [targetPaySuccess, setTargetPaySuccess] = useState(false)
-  const [targetBillQrGenerated, setTargetBillQrGenerated] = useState(false)
-  const [targetBillUpiCheckoutAmount, setTargetBillUpiCheckoutAmount] = useState(0)
-
-  const [showLedgerModal, setShowLedgerModal] = useState(false)
-
-  const ledgerData = useMemo(() => {
-    if (!selectedCustomer) return []
-    const custId = String(selectedCustomer.id)
-    const customerBills = bills.filter((b: any) => {
-      if (!b) return false
-      const bCustId = String(b.customerId || b.customer_id || '')
-      return bCustId === custId && !b.deleted && !b.deleted_at
-    })
-    const customerPayments = payments.filter((p: any) => {
-      if (!p) return false
-      const pCustId = String(p.customerId || p.customer_id || '')
-      return pCustId === custId
-    })
-    const res = LedgerService.buildCustomerLedger({
-      bills: customerBills,
-      payments: customerPayments
-    })
-    return (res?.entries || []).map(e => ({
-      date: e.date?.slice(0, 10) || e.date || '',
-      type: e.type === 'BILL' ? `Invoice #${e.reference_no}` : e.description,
-      refId: e.reference_no,
-      debit: Number(e.bill_amount || 0),
-      credit: Number(e.paid_amount || 0),
-      balance: Number(e.running_balance || 0)
-    }))
-  }, [selectedCustomer, bills, payments])
-
-  const handleShareLedgerWhatsApp = () => {
-    if (!selectedCustomer) return
-    let msg = `*STATEMENT OF ACCOUNT*\n`
-    msg += `*Customer*: ${selectedCustomer.name}\n`
-    msg += `*Date*: ${new Date().toLocaleDateString()}\n`
-    msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
-    msg += `Date       | Ref | Debit | Credit\n`
-    
-    ledgerData.forEach((row: any) => {
-      const typeStr = row.refId === 'OB' ? 'OB ' : row.refId
-      msg += `${row.date} | ${typeStr} | ₹${Number(row.debit || 0).toFixed(0)} | ₹${Number(row.credit || 0).toFixed(0)}\n`
-    })
-    
-    msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
-    const outstanding = ledgerData.length > 0 ? Number(ledgerData[ledgerData.length - 1].balance || 0) : 0
-    msg += `*Net Outstanding Balance: ₹${outstanding.toFixed(2)}*\n`
-    
-    if (outstanding > 0 && business?.upiId) {
-      const upiLink = getUpiLink(outstanding, `Settle outstanding for ${selectedCustomer.name}`)
-      if (upiLink) {
-        msg += `\n*Quick Pay via UPI:* ${upiLink}\n`
-      }
-    }
-    
-    const encoded = encodeURIComponent(msg)
-    window.open(`https://api.whatsapp.com/send?phone=${selectedCustomer.phone || ''}&text=${encoded}`, '_blank')
-  }
-
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((c: any) => {
-      if (!c) return false
-      if (filterType === 'deleted') return c.deleted === true
-      if (c.deleted) return false  // hide deleted from normal tabs
-      const matchesSearch =
-        !searchQuery ||
-        (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(c.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.phone || '').includes(searchQuery)
-      const matchesType = filterType === 'all' || c.type === filterType
-      return matchesSearch && matchesType
-    })
-  }, [customers, searchQuery, filterType])
-
-  // Reconciled bills applying direct payments and customer-linked FIFO allocations
+  // Reconciled bills for balance calculations
   const reconciledBills = useMemo(() => {
     try {
       return ReconciliationService.reconcileBillsWithPayments(bills, payments) || []
     } catch (err) {
-      console.error('Failed to reconcile bills with payments:', err)
+      console.error('Failed to reconcile bills:', err)
       return bills || []
     }
   }, [bills, payments])
 
-  // Total outstanding for any customer (for list display)
-  const getCustomerOutstanding = (customerId: string) => {
-    if (!customerId) return 0
-    const custId = String(customerId)
-    const cust = customers.find((c: any) => c && String(c.id) === custId)
+  // Calculate customer outstanding due
+  const getCustomerOutstanding = (custId: string) => {
+    if (!custId) return 0
+    const strId = String(custId)
     const custOpenBills = (reconciledBills || []).filter((b: any) => {
-      if (!b) return false
-      const bCustId = String(b.customerId || b.customer_id || '')
-      return bCustId === custId && !b.deleted && !b.deleted_at
+      if (!b || b.deleted || b.deleted_at) return false
+      return String(b.customerId || b.customer_id || '') === strId
     })
-    const billsDue = Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b?.balance || 0), 0).toFixed(2))
-    const adv = Number(cust?.advanceBalance || cust?.advance_balance || cust?.creditBalance || cust?.credit_balance || 0)
-    return Math.max(0, Number((billsDue - adv).toFixed(2)))
+    return Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b?.balance || 0), 0).toFixed(2))
   }
 
-  // Outstanding balance for selected customer
-  const outstandingBalance = useMemo(() => {
+  // Selected customer object - supports both sequential code (CUS-0001) and internal ID
+  const selectedCustomer = useMemo(() => {
+    if (!selectedCustomerId) return null
+    const target = String(selectedCustomerId).trim().toLowerCase()
+    return customers.find((c: any) => c && (
+      String(c.id).toLowerCase() === target ||
+      String(c.customerCode || '').toLowerCase() === target
+    )) || null
+  }, [customers, selectedCustomerId])
+
+  // Automatically select first customer if none selected on desktop directory view
+  useEffect(() => {
+    if (!selectedCustomerId && customers.length > 0 && currentView === 'directory') {
+      const firstActive = customers.find((c: any) => c && !c.deleted)
+      if (firstActive) {
+        setSelectedCustomerId(String(firstActive.customerCode || firstActive.id))
+      }
+    }
+  }, [selectedCustomerId, customers, currentView])
+
+  // Computed values for selected customer
+  const selectedCustomerOutstanding = useMemo(() => {
     if (!selectedCustomer) return 0
     return getCustomerOutstanding(selectedCustomer.id)
-  }, [selectedCustomer, reconciledBills, customers])
+  }, [selectedCustomer, reconciledBills])
 
-  // Bills for selected customer (non-deleted, newest first)
-  const customerBills = useMemo(() => {
-    if (!selectedCustomerId) return []
-    const custId = String(selectedCustomerId)
+  const selectedCustomerAdvance = useMemo(() => {
+    if (!selectedCustomer) return 0
+    return Number(
+      selectedCustomer.advanceBalance ||
+      selectedCustomer.advance_balance ||
+      selectedCustomer.creditBalance ||
+      selectedCustomer.credit_balance ||
+      0
+    )
+  }, [selectedCustomer])
+
+  const selectedCustomerBills = useMemo(() => {
+    if (!selectedCustomer) return []
+    const strId = String(selectedCustomer.id)
     return (reconciledBills || [])
-      .filter((b: any) => {
-        if (!b || b.deleted || b.deleted_at) return false
-        const bCustId = String(b.customerId || b.customer_id || '')
-        return bCustId === custId
+      .filter((b: any) => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === strId)
+      .sort((a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
+  }, [reconciledBills, selectedCustomer])
+
+  // Filtered customer list
+  const filteredCustomers = useMemo(() => {
+    return customers.filter((c: any) => {
+      if (!c) return false
+      if (filterType === 'deleted') return c.deleted === true
+      if (c.deleted) return false
+
+      const q = searchQuery.toLowerCase()
+      const matchesSearch =
+        !searchQuery ||
+        (c.name || '').toLowerCase().includes(q) ||
+        String(c.id || '').toLowerCase().includes(q) ||
+        (c.customerCode || '').toLowerCase().includes(q) ||
+        (c.phone || '').includes(searchQuery)
+
+      if (!matchesSearch) return false
+
+      if (filterType === 'regular') return c.type === 'regular'
+      if (filterType === 'random') return c.type === 'random'
+      if (filterType === 'with-dues') return getCustomerOutstanding(c.id) > 0
+      if (filterType === 'with-adv') return Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0) > 0
+
+      return true
+    })
+  }, [customers, searchQuery, filterType, reconciledBills])
+
+  // Navigation & URL sync helper - masks UUID by passing clean customerCode
+  const handleSelectCustomer = (custId: string, tab: 'overview' | 'bills' | 'ledger' | 'advances' = 'overview') => {
+    const cust = customers.find((c: any) => c && (String(c.id) === String(custId) || String(c.customerCode) === String(custId)))
+    const targetKey = cust?.customerCode || custId
+    setSelectedCustomerId(targetKey)
+    setActiveTab(tab)
+    setSearchParams({ view: 'directory', customerId: targetKey, tab })
+  }
+
+  const handleTabChange = (tab: 'overview' | 'bills' | 'ledger' | 'advances') => {
+    setActiveTab(tab)
+    if (selectedCustomerId) {
+      setSearchParams({ view: currentView, customerId: selectedCustomerId, tab })
+    }
+  }
+
+  const handleViewChange = (view: 'directory' | 'global-advances') => {
+    if (view === 'global-advances') {
+      setSearchParams({ view: 'global-advances' })
+    } else {
+      setSearchParams({
+        view: 'directory',
+        ...(selectedCustomerId ? { customerId: selectedCustomerId, tab: activeTab } : {}),
       })
-      .sort((a: any, b: any) => new Date(b?.date || b?.created_at || 0).getTime() - new Date(a?.date || a?.created_at || 0).getTime())
-  }, [reconciledBills, selectedCustomerId])
+    }
+  }
 
-  // Apply payment to oldest unpaid bills first via FIFO
-  const handleApplyPayment = async () => {
-    const cash = Number(payCash || 0)
-    const upi = Number(payUpi || 0)
-    const totalPaying = cash + upi
-    if (totalPaying <= 0 || !selectedCustomer) return
+  // ── SETTLEMENT LOGIC (FIFO with Cash, UPI, and Advance Wallet) ─────────────
+  const handleSettleBills = async ({ cash, upi, advance }: { cash: number; upi: number; advance: number }) => {
+    if (!selectedCustomer) return
+    const totalPaying = cash + upi + advance
+    if (totalPaying <= 0) return
 
-    const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
-    try {
-      // Find customer's unpaid active bills sorted chronologically (FIFO)
-      const custBills = (bills || [])
-        .filter(
-          (b: any) =>
-            !b.deleted &&
-            !b.deleted_at &&
-            !b.isGroupParent &&
-            !b.is_group_parent &&
-            String(b.customerId || b.customer_id) === String(selectedCustomer.id) &&
-            Number(b.balance || 0) > 0
-        )
+    // 1. Oldest unpaid bills FIFO
+    const unpaidBills = selectedCustomerBills
+      .filter((b: any) => Number(b.balance || 0) > 0)
+      .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+    let remaining = totalPaying
+    for (const b of unpaidBills) {
+      if (remaining <= 0) break
+      const toPay = Math.min(remaining, Number(b.balance || 0))
+      const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+      const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || b.paid_total || 0))
+      const newPaid = Number((currentPaid + toPay).toFixed(2))
+      const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+      await updateBill({
+        id: b.id,
+        data: {
+          balance: newBal,
+          status: newStatus,
+          amountPaid: newPaid,
+          amount_paid: newPaid,
+        },
+      })
+      remaining = Number((remaining - toPay).toFixed(2))
+    }
+
+    // 2. Adjust Advance Balance
+    let newAdvBalance = selectedCustomerAdvance
+    if (advance > 0) {
+      newAdvBalance = Math.max(0, Number((newAdvBalance - advance).toFixed(2)))
+    }
+    if (remaining > 0) {
+      // Cash/UPI paid beyond all bills goes into advance wallet
+      newAdvBalance = Number((newAdvBalance + remaining).toFixed(2))
+    }
+
+    if (newAdvBalance !== selectedCustomerAdvance) {
+      await updateCustomer({
+        id: selectedCustomer.id,
+        data: {
+          advanceBalance: newAdvBalance,
+          advance_balance: newAdvBalance,
+          creditBalance: newAdvBalance,
+          credit_balance: newAdvBalance,
+        },
+      })
+    }
+
+    // 3. Record Payment
+    await createPayment({
+      customer_id: selectedCustomer.id,
+      cash_amount: cash,
+      upi_amount: upi,
+      total_paid: totalPaying,
+      payment_type: unpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+      notes: `Settlement via Customer Hub (Cash: ₹${cash.toFixed(2)}, UPI: ₹${upi.toFixed(2)}, Advance: ₹${advance.toFixed(2)})`,
+    })
+
+    queryClient.invalidateQueries({ queryKey: ['customers'] })
+    queryClient.invalidateQueries({ queryKey: ['bills'] })
+    queryClient.invalidateQueries({ queryKey: ['payments'] })
+    queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
+    queryClient.invalidateQueries({ queryKey: ['accounting'] })
+
+    showToast(`Settlement of ₹${totalPaying.toFixed(2)} successfully applied!`, 'success')
+  }
+
+  // ── DIRECT BILL PAY (Single Bill with Cash, UPI, Advance) ─────────────────
+  const handlePaySingleBill = async (bill: any, amounts: { cash: number; upi: number; advance: number }) => {
+    if (!selectedCustomer || !bill) return
+    const total = amounts.cash + amounts.upi + amounts.advance
+    if (total <= 0) return
+
+    const currentBal = Number(bill.balance || 0)
+    const newBal = Math.max(0, Number((currentBal - total).toFixed(2)))
+    const currentPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid || bill.paid_total || 0))
+    const newPaid = Number((currentPaid + total).toFixed(2))
+    const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+    const newAdvUsed = Number((Number(bill.advanceUsed || bill.advance_used || 0) + amounts.advance).toFixed(2))
+
+    await updateBill({
+      id: bill.id,
+      data: {
+        balance: newBal,
+        status: newStatus,
+        amountPaid: newPaid,
+        amount_paid: newPaid,
+        advanceUsed: newAdvUsed,
+        advance_used: newAdvUsed,
+      },
+    })
+
+    if (amounts.advance > 0) {
+      const newAdvBalance = Math.max(0, Number((selectedCustomerAdvance - amounts.advance).toFixed(2)))
+      await updateCustomer({
+        id: selectedCustomer.id,
+        data: {
+          advanceBalance: newAdvBalance,
+          advance_balance: newAdvBalance,
+          creditBalance: newAdvBalance,
+          credit_balance: newAdvBalance,
+        },
+      })
+    }
+
+    await createPayment({
+      customer_id: selectedCustomer.id,
+      bill_id: bill.id,
+      cash_amount: amounts.cash,
+      upi_amount: amounts.upi,
+      total_paid: total,
+      payment_type: newStatus === 'paid' ? 'full' : 'partial',
+      notes: `Direct payment on Invoice #${bill.invoiceNumber || bill.id} (Cash: ₹${amounts.cash}, UPI: ₹${amounts.upi}, Advance: ₹${amounts.advance})`,
+    })
+
+    queryClient.invalidateQueries({ queryKey: ['customers'] })
+    queryClient.invalidateQueries({ queryKey: ['bills'] })
+    queryClient.invalidateQueries({ queryKey: ['payments'] })
+    queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
+  }
+
+  // ── RECEIVE NEW ADVANCE (with Auto-apply to pending dues) ──────────────────
+  const handleAddAdvancePayment = async (data: any, autoApplyToBills: boolean) => {
+    if (!selectedCustomer) return
+    const advAmount = Number(data.amount || 0)
+    if (advAmount <= 0) return
+
+    // 1. Record the advance payment log entry
+    await addAdvancePayment({
+      ...data,
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.name,
+    })
+
+    if (autoApplyToBills && selectedCustomerOutstanding > 0) {
+      // Auto-settle oldest dues via FIFO
+      const toKnockoff = Math.min(advAmount, selectedCustomerOutstanding)
+      const surplus = Math.max(0, Number((advAmount - toKnockoff).toFixed(2)))
+
+      const unpaidBills = selectedCustomerBills
+        .filter((b: any) => Number(b.balance || 0) > 0)
         .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
 
-      let remaining = totalPaying
-      for (const b of custBills) {
+      let remaining = toKnockoff
+      for (const b of unpaidBills) {
         if (remaining <= 0) break
         const toPay = Math.min(remaining, Number(b.balance || 0))
         const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
-        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || b.paid_total || 0))
         const newPaid = Number((currentPaid + toPay).toFixed(2))
         const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
 
-        if (updateBill) {
-          await (updateBill as any)({
-            id: b.id,
-            data: {
-              balance: newBal,
-              status: newStatus,
-              amountPaid: newPaid,
-              amount_paid: newPaid,
-            }
-          })
-        }
+        await updateBill({
+          id: b.id,
+          data: {
+            balance: newBal,
+            status: newStatus,
+            amountPaid: newPaid,
+            amount_paid: newPaid,
+          },
+        })
         remaining = Number((remaining - toPay).toFixed(2))
       }
 
-      // If customer overpaid (excess), credit customer advance / credit balance
-      if (remaining > 0) {
-        const currentAdv = Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0)
-        const newAdv = Number((currentAdv + remaining).toFixed(2))
-        if (updateCustomer) {
-          await (updateCustomer as any)({
-            id: selectedCustomer.id,
-            data: {
-              advanceBalance: newAdv,
-              advance_balance: newAdv,
-              creditBalance: newAdv,
-              credit_balance: newAdv,
-            }
-          })
-        }
-      }
+      const newCustomerAdv = Number((selectedCustomerAdvance + surplus).toFixed(2))
+      await updateCustomer({
+        id: selectedCustomer.id,
+        data: {
+          advanceBalance: newCustomerAdv,
+          advance_balance: newCustomerAdv,
+          creditBalance: newCustomerAdv,
+          credit_balance: newCustomerAdv,
+        },
+      })
 
-      if (createPayment) {
-        await (createPayment as any)({
-          customer_id: selectedCustomer.id,
-          customerId: selectedCustomer.id,
-          customerName: selectedCustomer.name,
-          cash_amount: cash,
-          cashAmount: cash,
-          upi_amount: upi,
-          upiAmount: upi,
-          total_paid: totalPaying,
-          totalPaid: totalPaying,
-          payment_type: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
-          paymentType: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
-          paymentMethod: method,
-          notes: `Payment from customer page (${method.toUpperCase()})`,
-          date: new Date().toISOString()
-        })
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bills'] }),
-        queryClient.invalidateQueries({ queryKey: ['payments'] }),
-        queryClient.invalidateQueries({ queryKey: ['customers'] }),
-        queryClient.invalidateQueries({ queryKey: ['accounting'] })
-      ])
-
-      setPayCash('')
-      setPayUpi('')
-      setPaySuccess(true)
-      setTimeout(() => setPaySuccess(false), 3500)
-    } catch (err: any) {
-      showAlert(err.message || 'Failed to record payment', 'error')
+      await createPayment({
+        customer_id: selectedCustomer.id,
+        cash_amount: data.cashAmount || 0,
+        upi_amount: data.upiAmount || 0,
+        total_paid: toKnockoff,
+        payment_type: toKnockoff >= selectedCustomerOutstanding ? 'full' : 'partial',
+        notes: `Advance applied to clear pending bills via FIFO (Deposit: ₹${advAmount.toFixed(2)}, Applied: ₹${toKnockoff.toFixed(2)}, Surplus: ₹${surplus.toFixed(2)})`,
+      })
+    } else {
+      // Add entirely to advance balance
+      const newCustomerAdv = Number((selectedCustomerAdvance + advAmount).toFixed(2))
+      await updateCustomer({
+        id: selectedCustomer.id,
+        data: {
+          advanceBalance: newCustomerAdv,
+          advance_balance: newCustomerAdv,
+          creditBalance: newCustomerAdv,
+          credit_balance: newCustomerAdv,
+        },
+      })
     }
+
+    queryClient.invalidateQueries({ queryKey: ['customers'] })
+    queryClient.invalidateQueries({ queryKey: ['bills'] })
+    queryClient.invalidateQueries({ queryKey: ['payments'] })
+    queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
   }
 
-  const handleTargetBillPayment = async (bill: any) => {
-    const cash = Number(targetCash || 0)
-    const upi = Number(targetUpi || 0)
-    const totalPaying = cash + upi
-    if (totalPaying <= 0) { showAlert('Enter a payment amount.', 'error'); return }
+  // ── RETURN ADVANCE BALANCE ────────────────────────────────────────────────
+  const handleReturnAdvancePayment = async (data: any) => {
+    if (!selectedCustomer) return
+    const returnAmount = Number(data.amount || 0)
+    if (returnAmount <= 0) return
 
-    const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
-    const bBal = Number(bill.balance !== undefined ? bill.balance : (bill.total || bill.grand_total || 0))
-    try {
-      if (createPayment) {
-        await (createPayment as any)({
-          bill_id: bill.id,
-          billId: bill.id,
-          customer_id: bill.customerId || bill.customer_id,
-          customerId: bill.customerId || bill.customer_id,
-          cash_amount: cash,
-          cashAmount: cash,
-          upi_amount: upi,
-          upiAmount: upi,
-          total_paid: totalPaying,
-          totalPaid: totalPaying,
-          payment_type: totalPaying >= bBal ? 'full' : 'partial',
-          paymentType: totalPaying >= bBal ? 'full' : 'partial',
-          paymentMethod: method,
-          notes: `Selective payment for bill ${bill.id} (${method.toUpperCase()})`,
-          date: new Date().toISOString()
-        })
-      }
+    await addAdvancePayment({
+      ...data,
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.name,
+      amount: -returnAmount,
+      isReturn: true,
+      type: 'return',
+    })
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bills'] }),
-        queryClient.invalidateQueries({ queryKey: ['payments'] }),
-        queryClient.invalidateQueries({ queryKey: ['customers'] }),
-        queryClient.invalidateQueries({ queryKey: ['accounting'] })
-      ])
+    const newCustomerAdv = Math.max(0, Number((selectedCustomerAdvance - returnAmount).toFixed(2)))
+    await updateCustomer({
+      id: selectedCustomer.id,
+      data: {
+        advanceBalance: newCustomerAdv,
+        advance_balance: newCustomerAdv,
+        creditBalance: newCustomerAdv,
+        credit_balance: newCustomerAdv,
+      },
+    })
 
-      setTargetBillPayId(null)
-      setTargetCash('')
-      setTargetUpi('')
-      setTargetPaySuccess(true)
-      setTimeout(() => setTargetPaySuccess(false), 3500)
-    } catch (err: any) {
-      showAlert(err.message || 'Failed to record bill payment', 'error')
-    }
+    queryClient.invalidateQueries({ queryKey: ['customers'] })
+    queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
   }
 
-  const openModal = () => {
-    setForm(EMPTY_FORM)
-    setErrors({})
-    setSuccessMsg('')
+  // ── ADD / EDIT CUSTOMER MODAL HANDLERS ─────────────────────────────────────
+  const openAddModal = () => {
     setEditMode(false)
     setEditingId(null)
-    setUpiCheckoutAmount(0)
-    setQrGenerated(false)
+    setForm(EMPTY_FORM)
+    setFormErrors({})
     setShowModal(true)
   }
 
-  const openEditModal = (customer) => {
+  const openEditModal = (cust: any) => {
+    setEditMode(true)
+    setEditingId(cust.id)
     setForm({
-      type: customer.type || 'regular',
-      name: customer.name || '',
-      phone: customer.phone || '',
-      email: customer.email || '',
-      creditBalance: String(customer.creditBalance !== undefined ? customer.creditBalance : (customer.credit_balance !== undefined ? customer.credit_balance : 0)),
-      creditLimit: String(customer.creditLimit !== undefined ? customer.creditLimit : (customer.credit_limit !== undefined ? customer.credit_limit : 0)),
+      type: cust.type || 'regular',
+      name: cust.name || '',
+      phone: cust.phone || '',
+      email: cust.email || '',
+      creditBalance: cust.creditBalance ?? cust.credit_balance ?? '',
+      creditLimit: cust.creditLimit ?? cust.credit_limit ?? '',
       openingBalanceMethod: 'cash',
       openingCash: '',
       openingUpi: '',
     })
-    setErrors({})
-    setSuccessMsg('')
-    setEditMode(true)
-    setEditingId(customer.id)
-    setUpiCheckoutAmount(0)
-    setQrGenerated(false)
+    setFormErrors({})
     setShowModal(true)
   }
 
-  const closeModal = () => {
-    setShowModal(false)
-    setErrors({})
-    setEditMode(false)
-    setEditingId(null)
-    setUpiCheckoutAmount(0)
-    setQrGenerated(false)
-  }
-
-  const validate = () => {
-    const errs: Record<string, string> = {}
-    if (form.phone && !/^\d{7,15}$/.test(form.phone.trim())) {
-      errs.phone = 'Enter a valid phone number.'
-    } else if (form.phone && form.phone.trim()) {
-      const cleanPhone = form.phone.trim()
-      const duplicate = customers.find((c: any) => !c.deleted && (c.phone || '').trim() === cleanPhone && (!editMode || String(c.id) !== String(editingId)))
-      if (duplicate) {
-        errs.phone = `Phone already registered to customer '${duplicate.name}'`
-      }
-    }
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Enter a valid email.'
-    
-    if (form.type === 'regular' && !editMode) {
-      if (form.openingBalanceMethod === 'cash' || form.openingBalanceMethod === 'split') {
-        if (form.openingCash !== '' && isNaN(Number(form.openingCash))) {
-          errs.openingCash = 'Enter a valid cash amount.'
-        }
-      }
-      if (form.openingBalanceMethod === 'upi' || form.openingBalanceMethod === 'split') {
-        if (form.openingUpi !== '' && isNaN(Number(form.openingUpi))) {
-          errs.openingUpi = 'Enter a valid UPI amount.'
-        }
-      }
-    }
-    return errs
-  }
-
-  const handleSubmit = async (e) => {
+  const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (isSubmitting || isCreating || isUpdating) return
-    const errs = validate()
-    if (Object.keys(errs).length > 0) { setErrors(errs); return }
+    const errors: Record<string, string> = {}
+    if (!form.name?.trim()) errors.name = 'Customer name is required'
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors)
+      return
+    }
 
-    setIsSubmitting(true)
+    setIsSubmittingCustomer(true)
     try {
-      if (editMode && editingId) {
-        // Edit mode — preserve ID, update editable fields
-        await (updateCustomer as any)({
-          id: editingId,
-          data: {
-            name: form.name.trim(),
-            phone: form.phone.trim(),
-            email: form.email.trim(),
-            credit_balance: form.type === 'regular' ? Number(form.creditBalance || 0) : undefined,
-            credit_limit: form.type === 'regular' ? Number(form.creditLimit || 0) : undefined,
-          }
-        })
-        setSuccessMsg(`Customer updated successfully!`)
-      } else {
-        const isRegular = form.type === 'regular'
-        const method = form.openingBalanceMethod
-        
-        const opCash = isRegular ? (
-          method === 'cash' ? Number(form.openingCash || 0) :
-          method === 'split' ? Number(form.openingCash || 0) : 0
-        ) : 0
-
-        const opUpi = isRegular ? (
-          method === 'upi' ? Number(form.openingUpi || 0) :
-          method === 'split' ? Number(form.openingUpi || 0) : 0
-        ) : 0
-
-        await (createCustomer as any)({
-          type: form.type,
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-          email: form.email.trim(),
-          credit_balance: opCash + opUpi,
-          openingCash: opCash,
-          openingUpi: opUpi,
-          status: 'active',
-        })
-        setSuccessMsg(`Customer "${form.name.trim()}" added successfully!`)
+      const payload: any = {
+        name: form.name.trim(),
+        phone: form.phone?.trim() || '',
+        email: form.email?.trim() || '',
+        type: form.type || 'regular',
+        creditLimit: form.creditLimit !== '' ? Number(form.creditLimit) : 0,
       }
 
-      setTimeout(() => {
-        setShowModal(false)
-        setSuccessMsg('')
-      }, 1500)
-    } catch (err) {
-      setErrors({ form: err.message || 'Operation failed' })
+      if (editMode && editingId) {
+        await updateCustomer({ id: editingId, data: payload })
+        showToast('Customer profile updated!', 'success')
+      } else {
+        const initialAdv = Number(form.creditBalance || 0)
+        payload.advanceBalance = initialAdv
+        payload.creditBalance = initialAdv
+        const newCust = await createCustomer(payload)
+        showToast('Customer created successfully!', 'success')
+        if (newCust?.id) {
+          handleSelectCustomer(newCust.id, 'overview')
+        }
+      }
+      setShowModal(false)
+    } catch (err: any) {
+      setFormErrors({ submit: err?.message || 'Failed to save customer' })
     } finally {
-      setIsSubmitting(false)
+      setIsSubmittingCustomer(false)
     }
   }
-
-  const handleChange = (field, value) => {
-    setForm((f) => ({ ...f, [field]: value }))
-    if (errors[field]) setErrors((e) => { const n = { ...e }; delete n[field]; return n })
-  }
-
-  const regular = customers.filter((c) => c && c.type === 'regular' && !c.deleted)
-  const random = customers.filter((c) => c && c.type === 'random' && !c.deleted)
-  const deletedCustomers = customers.filter((c) => c && c.deleted)
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ paddingBottom: '30px' }}>
+      {/* 1. Header with Top Navigation View Switcher */}
+      <div className="page-header" style={{ marginBottom: '18px' }}>
         <div>
-          <h1>Customers</h1>
-          <p>View and manage regular and walk-in customers, credit balances, and billing history.</p>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+            <Users size={26} color="var(--aurora-cyan, #00f0ff)" />
+            Customer Hub & Accounts
+          </h1>
+          <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+            Unified workspace for customer directory, billing invoices, running ledgers, and advance payments.
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={openModal}>
-          <UserPlus size={16} /> Add Customer
-        </button>
-      </div>
 
-      {/* Stats */}
-      <div className="grid-2" style={{ marginBottom: '24px' }}>
-        <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon indigo"><Users /></div>
-            <div>
-              <div className="stat-card-label">Regular Customers</div>
-              <div className="stat-card-value">{regular.length}</div>
-            </div>
-          </div>
-          <div className="stat-card-sub">Tracked billing &amp; credit history.</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon cyan"><UserPlus /></div>
-            <div>
-              <div className="stat-card-label">Walk-in / Random</div>
-              <div className="stat-card-value">{random.length}</div>
-            </div>
-          </div>
-          <div className="stat-card-sub">One-time &amp; walk-in customers.</div>
-        </div>
-      </div>
-
-      {/* Filter tabs */}
-      <div className="tabs" style={{ marginBottom: '16px' }}>
-        {[
-          { key: 'all', label: 'All', count: customers.filter((c) => c && !c.deleted).length },
-          { key: 'regular', label: 'Regular', count: regular.length },
-          { key: 'random', label: 'Walk-in', count: random.length },
-          { key: 'deleted', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Trash2 size={13} /> Deleted</span>, count: deletedCustomers.length },
-        ].map((t) => (
-          <button
-            key={t.key}
-            className={`tab ${filterType === t.key ? 'active' : ''}`}
-            onClick={() => { setFilterType(t.key); setSelectedCustomerId(null) }}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Top View Toggle: Customer Directory vs Global Advance Register */}
+          <div
+            style={{
+              display: 'inline-flex',
+              background: 'rgba(15, 23, 42, 0.6)',
+              borderRadius: '8px',
+              padding: '3px',
+              border: '1px solid var(--border)',
+            }}
           >
-            {t.label}
-            <span style={{ fontSize: '0.75rem', opacity: 0.75, marginLeft: '4px' }}>
-              ({t.count})
-            </span>
+            <button
+              type="button"
+              onClick={() => handleViewChange('directory')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: currentView === 'directory' ? 700 : 500,
+                color: currentView === 'directory' ? '#ffffff' : 'var(--text-secondary)',
+                backgroundColor: currentView === 'directory' ? 'rgba(0, 240, 255, 0.18)' : 'transparent',
+                border: currentView === 'directory' ? '1px solid rgba(0, 240, 255, 0.35)' : '1px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+            >
+              <Users size={14} /> Customer Directory
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewChange('global-advances')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: currentView === 'global-advances' ? 700 : 500,
+                color: currentView === 'global-advances' ? '#ffffff' : 'var(--text-secondary)',
+                backgroundColor: currentView === 'global-advances' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                border: currentView === 'global-advances' ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+            >
+              <Wallet size={14} color="#10b981" /> Global Advance Register
+            </button>
+          </div>
+
+          <button className="btn btn-primary" onClick={openAddModal}>
+            <UserPlus size={16} /> Add Customer
           </button>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="filters-bar" style={{ marginBottom: '16px' }}>
-        <div className="search-input-wrapper" style={{ flex: 1, maxWidth: '360px' }}>
-          <Search size={16} />
-          <input
-            className="form-input"
-            type="text"
-            placeholder="Search by name, ID or phone…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '38px' }}
-          />
         </div>
-        {searchQuery && (
-          <button className="btn btn-ghost btn-sm" onClick={() => setSearchQuery('')}><X size={14} /></button>
-        )}
       </div>
 
-      {filterType !== 'deleted' && (
-        <div className="grid-2" style={{ gap: '24px', alignItems: 'flex-start' }}>
-          {/* Customer List */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-              <h2 style={{ margin: 0 }}>
-                Customer List{' '}
-                <span style={{ fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                  ({filteredCustomers.length})
-                </span>
-              </h2>
-            </div>
-            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-              {isLoadingCustomers && filteredCustomers.length === 0 ? (
-                <ListSkeleton rows={5} />
-              ) : filteredCustomers.length === 0 ? (
-                <EmptyState
-                  Icon={Users as any}
-                  title="No customers found"
-                  description="Try adjusting your search query or switching filters."
+      {/* 2. MAIN VIEW SWITCHER: GLOBAL ADVANCE REGISTER OR MASTER-DETAIL DIRECTORY */}
+      {currentView === 'global-advances' ? (
+        <GlobalAdvanceRegister
+          customers={customers}
+          advancePayments={advancePayments}
+          onSelectCustomer={handleSelectCustomer}
+        />
+      ) : (
+        /* MASTER-DETAIL WORKSPACE */
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', alignItems: 'flex-start' }}>
+          {/* ── LEFT PANE: CUSTOMER DIRECTORY LIST ── */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 170px)' }}>
+            {/* Search & Filter Header */}
+            <div style={{ padding: '14px', borderBottom: '1px solid var(--border)', background: 'rgba(15, 23, 42, 0.3)' }}>
+              <div className="search-input-wrapper" style={{ width: '100%', marginBottom: '10px' }}>
+                <Search size={14} />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search customer, phone, code..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ paddingLeft: '32px', height: '34px', fontSize: '0.82rem' }}
                 />
+              </div>
+
+              {/* Filter Chips */}
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                {[
+                  { key: 'all', label: 'All' },
+                  { key: 'regular', label: 'Regular' },
+                  { key: 'with-dues', label: 'Dues' },
+                  { key: 'with-adv', label: 'Advance' },
+                  { key: 'deleted', label: 'Deleted' },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setFilterType(f.key as any)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: filterType === f.key ? 700 : 500,
+                      backgroundColor: filterType === f.key ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                      color: filterType === f.key ? 'var(--aurora-cyan, #00f0ff)' : 'var(--text-secondary)',
+                      border: filterType === f.key ? '1px solid rgba(0, 240, 255, 0.4)' : '1px solid transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Customer List Items */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '8px' }}>
+              {isLoadingCustomers && customers.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading customers...</div>
+              ) : filteredCustomers.length === 0 ? (
+                <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  No customers found.
+                </div>
               ) : (
-                filteredCustomers.map((customer) => {
-                  if (!customer) return null
-                  const outstanding = getCustomerOutstanding(customer.id)
-                  const isSelected = selectedCustomerId !== null && String(selectedCustomerId) === String(customer.id)
+                filteredCustomers.map((cust: any, idx: number) => {
+                  const isSelected = selectedCustomer?.id === cust.id
+                  const outDue = getCustomerOutstanding(cust.id)
+                  const advBal = Number(cust.advanceBalance || cust.advance_balance || cust.creditBalance || cust.credit_balance || 0)
+                  const displayCode = cust.customerCode || SequenceService.formatDisplayCode('customer', cust, 'CUS')
+
                   return (
                     <div
-                      key={customer.id}
-                      onClick={() => {
-                        if (customer.deleted) return
-                        setSelectedCustomerId(isSelected ? null : customer.id)
-                        setPayCash('')
-                        setPayUpi('')
-                        setPaySuccess(false)
-                      }}
+                      key={cust.id}
+                      onClick={() => handleSelectCustomer(cust.customerCode || cust.id, activeTab)}
                       style={{
-                        padding: '14px 20px',
-                        cursor: customer.deleted ? 'default' : 'pointer',
-                        borderBottom: '1px solid var(--border)',
-                        background: isSelected ? 'var(--accent-light)' : 'transparent',
-                        borderLeft: isSelected ? '3px solid var(--accent)' : '3px solid transparent',
-                        transition: 'var(--transition)',
-                        opacity: customer.deleted ? 0.6 : 1,
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        marginBottom: '6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        backgroundColor: isSelected ? 'rgba(0, 240, 255, 0.12)' : 'transparent',
+                        border: isSelected ? '1px solid rgba(0, 240, 255, 0.35)' : '1px solid transparent',
                       }}
                     >
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'start' }}>
-                        {/* Left Side: Identity Info */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                            <span 
-                              style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1, minWidth: 0 }} 
-                              title={customer.name}
-                            >
-                              {customer.name}
-                            </span>
-                            <span className={`badge ${customer.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.62rem', padding: '2px 6px', flexShrink: 0 }}>
-                              {customer.type === 'regular' ? 'Regular' : 'Walk-in'}
-                            </span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                            #{idx + 1}
+                          </span>
+                          <div style={{ fontWeight: 600, fontSize: '0.88rem', color: isSelected ? '#ffffff' : 'var(--text-primary)' }}>
+                            {cust.name}
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                            {customer.customerCode || customer.id}
-                          </div>
-                          {customer.phone && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                              {customer.phone}
-                            </div>
-                          )}
-                          {Number(customer.advanceBalance || customer.creditBalance || 0) > 0 && (
-                            <div style={{ display: 'flex', marginTop: '2px' }}>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 600,
-                                background: 'rgba(16, 185, 129, 0.1)',
-                                color: 'var(--success)',
-                                border: '1px solid rgba(16, 185, 129, 0.2)',
-                                padding: '2px 8px',
-                                borderRadius: 'var(--radius-sm)'
-                              }}>
-                                Adv: ₹{Number(customer.advanceBalance || customer.creditBalance || 0).toFixed(2)}
-                              </span>
-                            </div>
+                        </div>
+                        <span className={`badge ${cust.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
+                          {cust.type === 'regular' ? 'REG' : 'WALK'}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontFamily: 'monospace', color: 'var(--aurora-cyan, #00f0ff)' }}>{displayCode}</span>
+                        {cust.phone && <span>• {cust.phone}</span>}
+                      </div>
+
+                      {/* Balances Line */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', fontSize: '0.74rem' }}>
+                        <div>
+                          {outDue > 0 ? (
+                            <span style={{ color: 'var(--aurora-pink, #ff2fb0)', fontWeight: 700 }}>
+                              Due: ₹{outDue.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>Due: ₹0.00</span>
                           )}
                         </div>
-
-                        {/* Right Side: Balances & Actions */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0, minWidth: '80px' }}>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                              ₹{outstanding.toFixed(2)}
-                            </div>
-                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
-                              {outstanding > 0 ? 'outstanding' : 'settled'}
-                            </div>
-                          </div>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            style={{ flexShrink: 0, color: 'var(--error)', padding: '4px', minHeight: 'unset', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (outstanding > 0) {
-                                showAlert(`Cannot delete "${customer.name}" — ₹${outstanding.toFixed(2)} outstanding. Settle all bills first.`, 'error')
-                                return
-                              }
-                              showConfirm(
-                                'Delete Customer',
-                                `Move "${customer.name}" to deleted? Can be restored anytime.`,
-                                () => {
-                                  deleteCustomer(customer.id)
-                                  if (selectedCustomerId === customer.id) setSelectedCustomerId(null)
-                                }
-                              )
-                            }}
-                            title="Delete customer"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                        <div>
+                          {advBal > 0 && (
+                            <span style={{ color: '#10b981', fontWeight: 700 }}>
+                              Adv: ₹{advBal.toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -697,948 +718,325 @@ const Customers = () => {
             </div>
           </div>
 
-          {/* Customer Detail Panel */}
+          {/* ── RIGHT PANE: SELECTED CUSTOMER 360 WORKSPACE ── */}
           {selectedCustomer ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Header card */}
-            <div className="card">
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2 style={{ margin: 0 }}>{selectedCustomer.name}</h2>
-                    <span className={`badge ${selectedCustomer.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
-                      {selectedCustomer.type === 'regular' ? 'Regular' : 'Walk-in'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Code: <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.customerCode || selectedCustomer.id}</strong>
-                    {selectedCustomer.phone && ` · ${selectedCustomer.phone}`}
-                    {selectedCustomer.email && ` · ${selectedCustomer.email}`}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={(e) => { e.stopPropagation(); openEditModal(selectedCustomer) }}
-                    title="Edit customer"
-                  >
-                    <Pencil size={13} /> Edit
-                  </button>
-                  {selectedCustomer.phone && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const text = ReminderService.buildLedgerReminderMessage(selectedCustomer, outstandingBalance, business, settings)
-                        const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
-                        window.open(url, '_blank')
-                      }}
-                      title="Send WhatsApp Payment Reminder"
-                      style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#25D366' }}
-                    >
-                      <MessageSquare size={13} /> WhatsApp
-                    </button>
-                  )}
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={(e) => { e.stopPropagation(); setShowLedgerModal(true) }}
-                    title="View Customer Ledger"
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <ClipboardList size={13} /> Ledger
-                  </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedCustomerId(null)}>
-                    <X size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Balance pills */}
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '8px',
-                  padding: '8px 16px', borderRadius: 'var(--radius-md)',
-                  background: outstandingBalance > 0 ? 'var(--warning-bg)' : 'var(--success-bg)',
-                  border: `1px solid ${outstandingBalance > 0 ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'}`,
-                }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Outstanding</span>
-                  <span style={{ fontWeight: 700, fontSize: '1.1rem', color: outstandingBalance > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                    ₹{outstandingBalance.toFixed(2)}
-                  </span>
-                </div>
-                {Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0) > 0 && (
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '8px',
-                    padding: '8px 16px', borderRadius: 'var(--radius-md)',
-                    background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.25)',
-                  }}>
-                    <Wallet size={13} style={{ color: 'var(--info)' }} />
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Advance</span>
-                    <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--info)' }}>
-                      ₹{Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Billing History */}
-            <div className="card">
-              <h3 style={{ marginBottom: '12px' }}>Billing History ({customerBills.length})</h3>
-              {customerBills.length === 0 ? (
-                <EmptyState
-                  Icon={ClipboardList as any}
-                  title="No bills found"
-                  description="This customer does not have any billing records yet."
-                />
-              ) : (
-                <div className="table-container">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>Bill ID</th>
-                        <th>Date</th>
-                        <th>Total</th>
-                        <th>Paid</th>
-                        <th>Balance</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {customerBills.map((bill: any) => {
-                        if (!bill) return null
-                        const bTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total !== undefined ? bill.grand_total : 0))
-                        const bPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paid_total !== undefined ? bill.paid_total : 0)))
-                        let bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
-                        if (bTotal > 0 && bPaid === 0 && bBalance <= 0.001) {
-                          bBalance = bTotal
-                        } else if (bTotal > 0 && bPaid > 0 && bPaid < bTotal && bBalance <= 0.001) {
-                          bBalance = Number((bTotal - bPaid).toFixed(2))
-                        }
-                        const bStatus = bBalance <= 0.001 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid')
-
-                        return (
-                          <React.Fragment key={bill.id}>
-                            <tr>
-                              <td>
-                                <button
-                                  className="btn btn-ghost btn-sm"
-                                  style={{ padding: '4px' }}
-                                  onClick={() => setExpandedBillId(expandedBillId === bill.id ? null : bill.id)}
-                                >
-                                  {expandedBillId === bill.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                </button>
-                              </td>
-                              <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.invoiceNumber || bill.bill_number || bill.id}</td>
-                              <td>{bill.date?.slice(0, 10) || bill.created_at?.slice(0, 10) || 'N/A'}</td>
-                              <td>₹{bTotal.toFixed(2)}</td>
-                              <td>₹{bPaid.toFixed(2)}</td>
-                              <td style={{ color: bBalance > 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 600 }}>
-                                ₹{bBalance.toFixed(2)}
-                              </td>
-                              <td>
-                                <span className={`badge badge-${bStatus === 'paid' ? 'paid' : bStatus === 'partial' ? 'partial' : 'unpaid'}`}>
-                                  {bStatus}
-                                </span>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-sm"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: 'var(--warning)' }}
-                                    onClick={() => navigate(`/billing?edit=${bill.id}`)}
-                                    title="Edit Bill"
-                                  >
-                                    <Pencil size={14} /> Edit
-                                  </button>
-                                  {bStatus !== 'paid' && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-ghost btn-sm"
-                                      style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', color: '#10b981', fontSize: '12px' }}
-                                      onClick={() => {
-                                        setTargetBillPayId(targetBillPayId === bill.id ? null : bill.id)
-                                        setTargetCash('')
-                                        setTargetUpi('')
-                                        setTargetBillQrGenerated(false)
-                                        setTargetBillUpiCheckoutAmount(0)
-                                      }}
-                                      title="Pay This Bill"
-                                    >
-                                      <Wallet size={13} /> Pay
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                            {expandedBillId === bill.id && (
-                              <tr>
-                                <td colSpan={8} style={{ padding: '0 16px 12px', background: 'var(--bg-elevated)' }}>
-                                  <div style={{ padding: '12px 0' }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Line Items</div>
-                                    <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
-                                      <thead>
-                                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Item</th>
-                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Type</th>
-                                          <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)' }}>Sides</th>
-                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Qty</th>
-                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Unit</th>
-                                          <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)' }}>Amount</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {(bill.items || []).map((item: any, i: number) => {
-                                          const unitPrice = Number(item.unitPrice !== undefined ? item.unitPrice : (item.rate !== undefined ? item.rate : (item.price || 0)))
-                                          const itemAmount = Number(item.amount !== undefined ? item.amount : (item.total !== undefined ? item.total : (unitPrice * Number(item.qty || 1))))
-                                          return (
-                                            <tr key={i}>
-                                              <td style={{ padding: '4px 8px', color: 'var(--text-primary)' }}>{item.itemName || item.name || 'Item'}</td>
-                                              <td style={{ padding: '4px 8px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
-                                              <td style={{ padding: '4px 8px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
-                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>{item.qty || 1}</td>
-                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{unitPrice.toFixed(2)}</td>
-                                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>₹{itemAmount.toFixed(2)}</td>
-                                            </tr>
-                                          )
-                                        })}
-                                      </tbody>
-                                    </table>
-
-                                    {/* Post-Bill Discount Form */}
-                                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
-                                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Post-Bill Discount</div>
-                                      <form autoComplete="off" onSubmit={(e) => {
-                                        e.preventDefault()
-                                        const formEl = e.target as any
-                                        const type = formEl.discountType.value
-                                        const val = Number(formEl.discountValue.value || 0)
-                                        if (val < 0) {
-                                          showAlert('Discount value cannot be negative.', 'error')
-                                          return
-                                        }
-                                        applyPostDiscount(bill.id, type, val)
-                                        showAlert('Post-bill discount applied successfully.', 'success')
-                                      }} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <select name="discountType" className="form-select" style={{ width: '120px', padding: '6px', height: '32px', fontSize: '0.8rem' }} defaultValue={bill.discountType || 'flat'}>
-                                          <option value="flat">Flat (₹)</option>
-                                          <option value="percent">Percent (%)</option>
-                                        </select>
-                                        <input
-                                          type="number"
-                                          name="discountValue"
-                                          step="any"
-                                          className="form-input"
-                                          style={{ width: '100px', padding: '6px', height: '32px', fontSize: '0.8rem' }}
-                                          placeholder="Value"
-                                          defaultValue={bill.discountValue || 0}
-                                          min="0"
-                                        />
-                                        <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '6px 12px', height: '32px', fontSize: '0.8rem' }}>
-                                          Apply Discount
-                                        </button>
-                                      </form>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                            {/* Pay This Bill Panel */}
-                            {targetBillPayId === bill.id && bStatus !== 'paid' && (
-                              <tr>
-                                <td colSpan={8} style={{ padding: '0 16px 12px', background: 'rgba(16,185,129,0.05)' }}>
-                                  <div style={{ padding: '12px', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', marginTop: '4px' }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <Wallet size={13} /> Pay This Bill Only — {bill.invoiceNumber || bill.id}
-                                      <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{bBalance.toFixed(2)})</span>
-                                    </div>
-                                    {(() => {
-                                      const groupMembers = bills.filter(b => b.groupBillId === bill.groupBillId && !b.deleted && !b.isGroupParent)
-                                      const isSplit = bill.groupBillId && groupMembers.length > 1
-                                      if (!isSplit) return null
-                                      const groupBal = groupMembers.reduce((s, b) => s + Number(b.balance || 0), 0)
-                                      return (
-                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                                          <button
-                                            type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={() => {
-                                              setTargetCash(String(bBalance))
-                                              setTargetUpi('0')
-                                            }}
-                                          >
-                                            Pay My Share (₹{bBalance.toFixed(2)})
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={() => {
-                                              setTargetCash(String(groupBal))
-                                              setTargetUpi('0')
-                                            }}
-                                          >
-                                            Pay Full Group (₹{Number(groupBal).toFixed(2)})
-                                          </button>
-                                        </div>
-                                      )
-                                    })()}
-                                    {targetPaySuccess && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', marginBottom: '8px' }}>
-                                        <CheckCircle size={14} /> Payment recorded!
-                                      </div>
-                                    )}
-                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                                      <div>
-                                        <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>Cash (₹)</label>
-                                        <input className="form-input" type="number" min="0" step="0.01" value={targetCash}
-                                          style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
-                                          onChange={(e) => setTargetCash(e.target.value)} />
-                                      </div>
-                                      <div>
-                                        <label style={{ fontSize: '12px', color: '#71717a', display: 'block', marginBottom: '4px' }}>UPI (₹)</label>
-                                        <input className="form-input" type="number" min="0" step="0.01" value={targetUpi}
-                                          style={{ width: '110px', padding: '6px 8px', fontSize: '13px' }}
-                                          onChange={(e) => {
-                                            setTargetUpi(e.target.value)
-                                            setTargetBillQrGenerated(false)
-                                            setTargetBillUpiCheckoutAmount(0)
-                                          }} />
-                                      </div>
-                                      <button
-                                        type="button" className="btn btn-primary"
-                                        style={{ padding: '7px 16px', fontSize: '13px', background: '#10b981', border: 'none' }}
-                                        onClick={() => handleTargetBillPayment(bill)}
-                                      >
-                                        Record Payment
-                                      </button>
-                                      <button
-                                        type="button" className="btn btn-ghost btn-sm"
-                                        onClick={() => setTargetBillPayId(null)}
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-
-                                    {/* Inline UPI Checkout Option */}
-                                    <div style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
-                                      <label className="form-label" style={{ fontSize: '0.78rem', color: '#71717a' }}>UPI Checkout</label>
-                                      <div style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                                        <button
-                                          type="button"
-                                          className="btn btn-secondary btn-sm"
-                                          disabled={!Number(targetUpi || 0)}
-                                          onClick={() => {
-                                            setTargetBillUpiCheckoutAmount(Number(targetUpi || 0))
-                                            setTargetBillQrGenerated(true)
-                                          }}
-                                          style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        >
-                                          <Link2 size={14} /> Generate QR
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn btn-ghost btn-sm"
-                                          disabled={!Number(targetUpi || 0) || !business?.upiId}
-                                          onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${bill.invoiceNumber || bill.id}`))}
-                                          style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        >
-                                          <Copy size={14} /> Copy Link
-                                        </button>
-                                      </div>
-                                      {business?.upiId ? (
-                                        <>
-                                          {targetBillQrGenerated && targetBillUpiCheckoutAmount > 0 && (
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: 'fit-content' }}>
-                                              <img
-                                                src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${bill.invoiceNumber || bill.id}`))}`}
-                                                alt="UPI QR Code"
-                                                style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
-                                                width={110} height={110}
-                                              />
-                                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{targetBillUpiCheckoutAmount.toFixed(2)}</span>
-                                            </div>
-                                          )}
-                                        </>
-                                      ) : (
-                                        <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
-                                      )}
-                                    </div>
-                                    <div style={{ fontSize: '11px', color: '#71717a', marginTop: '8px' }}>
-                                      ⚠ This payment applies only to {bill.invoiceNumber || bill.id}, no FIFO reordering.
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Promotions Used section */}
-            {(() => {
-              const custId = String(selectedCustomer.id)
-              const customerPromos = bills
-                .filter((b: any) => {
-                  if (b.deleted || b.deleted_at) return false
-                  const bCustId = String(b.customerId || b.customer_id || '')
-                  return bCustId === custId && b.promoCode
-                })
-                .map((b: any) => ({
-                  code: b.promoCode,
-                  usedOn: b.date?.slice(0, 10) || b.created_at?.slice(0, 10) || 'N/A',
-                  invoice: b.invoiceNumber || b.bill_number || b.id,
-                  discount: Number(b.promoDiscount || b.discountAmount || b.discount_amount || 0),
-                  status: 'Redeemed',
-                }))
-
-              return (
-                <div className="card">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <Tag size={16} style={{ color: 'var(--accent)' }} />
-                    <h3 style={{ margin: 0 }}>Promotions Used ({customerPromos.length})</h3>
-                  </div>
-                  {customerPromos.length === 0 ? (
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No promotions used by this customer yet.</p>
-                  ) : (
-                    <div className="table-container">
-                      <table className="table" style={{ fontSize: '0.82rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Promo Code</th>
-                            <th>Used On</th>
-                            <th>Invoice</th>
-                            <th style={{ textAlign: 'right' }}>Discount</th>
-                            <th style={{ textAlign: 'center' }}>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {customerPromos.map((cp: any, idx: number) => (
-                            <tr key={idx}>
-                              <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{cp.code}</td>
-                              <td>{cp.usedOn}</td>
-                              <td style={{ fontFamily: 'monospace' }}>{cp.invoice}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>₹{Number(cp.discount || 0).toFixed(2)}</td>
-                              <td style={{ textAlign: 'center' }}>
-                                <span className="badge badge-paid" style={{ textTransform: 'none', fontSize: '0.7rem', padding: '2px 6px' }}>
-                                  {cp.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-
-            {/* Payment form — always show if customer is selected */}
-            <div className="card">
-              <h3 style={{ marginBottom: '12px' }}>Record Payment</h3>
-              {outstandingBalance > 0 ? (
-                <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-                  Payment applied to oldest unpaid bills first (FIFO). Total outstanding: <strong style={{ color: 'var(--warning)' }}>₹{outstandingBalance.toFixed(2)}</strong>
-                </p>
-              ) : (
-                <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-                  No outstanding bills. Any payment received will be added to the customer's advance credit balance.
-                </p>
-              )}
-
-              {paySuccess && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '10px 14px', marginBottom: '12px',
-                  background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-                  borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-                }}>
-                  <CheckCircle size={16} /> Payment recorded successfully!
-                </div>
-              )}
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Cash Amount (₹)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={payCash}
-                    onChange={(e) => setPayCash(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">UPI Amount (₹)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={payUpi}
-                    onChange={(e) => setPayUpi(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Live payment summary */}
-              {(() => {
-                const totalPaying = Number(payCash || 0) + Number(payUpi || 0)
-                const balanceAfter = Math.max(outstandingBalance - totalPaying, 0)
-                const excessToAdvance = Math.max(totalPaying - outstandingBalance, 0)
-                return (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      Paying Now: <strong style={{ color: 'var(--text-primary)' }}>₹{totalPaying.toFixed(2)}</strong>
-                    </span>
-                    {outstandingBalance > 0 && (
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        Balance After: <strong style={{ color: balanceAfter > 0 ? 'var(--warning)' : 'var(--success)' }}>₹{balanceAfter.toFixed(2)}</strong>
-                      </span>
-                    )}
-                    {excessToAdvance > 0 && (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '5px',
-                        fontSize: '0.85rem', fontWeight: 600, color: 'var(--info)',
-                        background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)',
-                        borderRadius: 'var(--radius-sm)', padding: '2px 10px'
-                      }}>
-                        <Wallet size={13} /> ₹{excessToAdvance.toFixed(2)} will be added to Advance Credit
-                      </span>
-                    )}
-                  </div>
-                )
-              })()}
-
-              <button
-                className="btn btn-primary"
-                onClick={handleApplyPayment}
-                disabled={Number(payCash || 0) + Number(payUpi || 0) <= 0}
-              >
-                <CheckCircle size={16} /> Apply Payment
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', padding: '24px' }}>
-            <EmptyState
-              Icon={Users as any}
-              title="Select a customer"
-              description="Click a customer from the list to view their billing history and record payments."
-            />
-          </div>
-        )}
-        </div>
-      )}
-
-      {/* Deleted customers tab */}
-      {filterType === 'deleted' && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h2 style={{ margin: 0 }}>
-              Deleted Customers{' '}
-              <span style={{ fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                ({filteredCustomers.length})
-              </span>
-            </h2>
-          </div>
-          {filteredCustomers.length === 0 ? (
-            <EmptyState
-              Icon={Users as any}
-              title="No deleted customers"
-              description="Customers you delete will appear here and can be restored."
-            />
-          ) : (
-            <div>
-              {filteredCustomers.map((customer) => (
-                <div key={customer.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.7 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Customer Header Banner */}
+              <div className="card" style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{customer.name}</span>
-                      <span className={`badge ${customer.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
-                        {customer.type === 'regular' ? 'Regular' : 'Walk-in'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h2 style={{ margin: 0, fontSize: '1.3rem' }}>{selectedCustomer.name}</h2>
+                      <span className={`badge ${selectedCustomer.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
+                        {selectedCustomer.type === 'regular' ? 'Regular Customer' : 'Walk-in / Random'}
                       </span>
+                      {selectedCustomer.deleted && (
+                        <span className="badge badge-danger">DELETED</span>
+                      )}
                     </div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {customer.id}{customer.phone ? ` · ${customer.phone}` : ''}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Code: <strong style={{ fontFamily: 'monospace', color: 'var(--aurora-cyan, #00f0ff)' }}>
+                        {selectedCustomer.customerCode || SequenceService.formatDisplayCode('customer', selectedCustomer, 'CUS')}
+                      </strong>
+                      {selectedCustomer.phone && ` • Phone: ${selectedCustomer.phone}`}
+                      {selectedCustomer.email && ` • Email: ${selectedCustomer.email}`}
                     </div>
                   </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => restoreCustomer(customer.id)}
-                  >
-                    <RotateCcw size={13} /> Restore
-                  </button>
+
+                  {/* Top Action Buttons */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => openEditModal(selectedCustomer)}
+                    >
+                      <Pencil size={13} /> Edit Profile
+                    </button>
+                    {selectedCustomer.phone && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          const text = ReminderService.buildLedgerReminderMessage(selectedCustomer, selectedCustomerOutstanding, business, settings)
+                          const url = ReminderService.getWhatsAppUrl(selectedCustomer.phone, text)
+                          window.open(url, '_blank')
+                        }}
+                        style={{ color: '#25D366' }}
+                        title="WhatsApp Reminder"
+                      >
+                        <MessageSquare size={13} /> WhatsApp
+                      </button>
+                    )}
+                    {selectedCustomer.deleted ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => restoreCustomer && restoreCustomer(selectedCustomer.id)}
+                      >
+                        <RotateCcw size={13} /> Restore
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          showConfirm(`Move "${selectedCustomer.name}" to deleted? Can be restored anytime.`, () => {
+                            deleteCustomer(selectedCustomer.id)
+                          })
+                        }}
+                        style={{ color: 'var(--error)' }}
+                        title="Delete customer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              ))}
+
+                {/* Sub-Tab Navigation Bar */}
+                <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'overview', label: 'Overview & Settle', icon: Layers },
+                    { key: 'bills', label: `Invoices & Bills (${selectedCustomerBills.length})`, icon: FileText },
+                    { key: 'ledger', label: 'Ledger Statement', icon: BookOpen },
+                    { key: 'advances', label: `Advance Wallet (₹${selectedCustomerAdvance.toFixed(2)})`, icon: Wallet },
+                  ].map((tab) => {
+                    const Icon = tab.icon
+                    const isActive = activeTab === tab.key
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => handleTabChange(tab.key as any)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: '7px',
+                          fontSize: '0.82rem',
+                          fontWeight: isActive ? 700 : 500,
+                          backgroundColor: isActive ? 'rgba(0, 240, 255, 0.15)' : 'transparent',
+                          color: isActive ? 'var(--aurora-cyan, #00f0ff)' : 'var(--text-secondary)',
+                          border: isActive ? '1px solid rgba(0, 240, 255, 0.35)' : '1px solid transparent',
+                          boxShadow: isActive ? '0 0 12px rgba(0, 240, 255, 0.2)' : 'none',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.18s ease',
+                        }}
+                      >
+                        <Icon size={14} /> {tab.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Sub-Tab Content Rendering */}
+              {activeTab === 'overview' && (
+                <CustomerOverviewTab
+                  customer={selectedCustomer}
+                  outstandingDue={selectedCustomerOutstanding}
+                  advanceBalance={selectedCustomerAdvance}
+                  bills={selectedCustomerBills}
+                  payments={payments}
+                  business={business}
+                  settings={settings}
+                  onSettleBills={handleSettleBills}
+                  onSwitchTab={handleTabChange}
+                  onEditCustomer={() => openEditModal(selectedCustomer)}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'bills' && (
+                <CustomerBillsTab
+                  customer={selectedCustomer}
+                  bills={selectedCustomerBills}
+                  inventory={inventory}
+                  advanceBalance={selectedCustomerAdvance}
+                  business={business}
+                  settings={settings}
+                  onUpdateBill={async (id, data) => updateBill({ id, data })}
+                  onDeleteBill={async (id) => deleteBill(id)}
+                  onPayBill={handlePaySingleBill}
+                  onApplyPostDiscount={async (billId, amt) => applyPostDiscount && applyPostDiscount(billId, amt)}
+                  showToast={showToast}
+                  showConfirm={showConfirm}
+                />
+              )}
+
+              {activeTab === 'ledger' && (
+                <CustomerLedgerTab
+                  customer={selectedCustomer}
+                  bills={bills}
+                  payments={payments}
+                  advancePayments={advancePayments}
+                  business={business}
+                  settings={settings}
+                  onWriteOff={async (billId, balAmt) => {
+                    const targetBill = bills.find((b: any) => b && (String(b.id) === String(billId) || String(b.invoiceNumber) === String(billId)))
+                    const invLabel = targetBill?.invoiceNumber || targetBill?.bill_number || SequenceService.formatDisplayCode('bill', billId, 'INV')
+                    showConfirm(`Write off unpaid balance of ₹${balAmt.toFixed(2)} for ${invLabel}?`, async () => {
+                      await updateBill({ id: billId, data: { status: 'paid', balance: 0, notes: `Written off ₹${balAmt.toFixed(2)}` } })
+                      showToast(`Written off ₹${balAmt.toFixed(2)} for ${invLabel}`, 'info')
+                    })
+                  }}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'advances' && (
+                <CustomerAdvancesTab
+                  customer={selectedCustomer}
+                  advanceBalance={selectedCustomerAdvance}
+                  outstandingDue={selectedCustomerOutstanding}
+                  advancePayments={advancePayments}
+                  business={business}
+                  onAddAdvancePayment={handleAddAdvancePayment}
+                  onReturnAdvancePayment={handleReturnAdvancePayment}
+                  onDeleteAdvancePayment={async (id) => deleteAdvancePayment(id)}
+                  showToast={showToast}
+                  showConfirm={showConfirm}
+                />
+              )}
+            </div>
+          ) : (
+            /* No customer selected empty state */
+            <div className="card" style={{ padding: '60px 20px', textAlign: 'center' }}>
+              <Users size={48} color="var(--text-muted)" style={{ margin: '0 auto 16px' }} />
+              <h3>Select a customer</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '360px', margin: '8px auto 20px' }}>
+                Choose a customer from the directory on the left or add a new customer to access their 360° workspace.
+              </p>
+              <button className="btn btn-primary" onClick={openAddModal}>
+                <UserPlus size={16} /> Add New Customer
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Add Customer Modal */}
+      {/* ── ADD / EDIT CUSTOMER MODAL ── */}
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h3 style={{ margin: 0 }}>{editMode ? 'Edit Customer' : 'Add Customer'}</h3>
-                {!editMode && (
-                  <span className="badge badge-info" style={{ fontFamily: 'monospace', fontSize: '0.75rem', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
-                    Auto-ID: {previewCustomerCode}
-                  </span>
-                )}
-              </div>
-              <button className="modal-close btn-icon" onClick={closeModal} type="button">
-                <X size={20} />
+              <h3>{editMode ? 'Edit Customer' : 'Add New Customer'}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowModal(false)}>
+                <X size={16} />
               </button>
             </div>
+            <form onSubmit={handleSaveCustomer} style={{ padding: '20px' }}>
+              {formErrors.submit && (
+                <div style={{ color: 'var(--error)', fontSize: '0.82rem', marginBottom: '12px' }}>
+                  {formErrors.submit}
+                </div>
+              )}
 
-            <form onSubmit={handleSubmit} autoComplete="off">
-              <div className="modal-body">
-                {successMsg && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '10px 14px', marginBottom: '16px',
-                    background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-                    borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-                  }}>
-                    <CheckCircle size={16} /> {successMsg}
+              <div className="form-group">
+                <label className="form-label">Customer Type</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input
+                      type="radio"
+                      name="custType"
+                      checked={form.type === 'regular'}
+                      onChange={() => setForm({ ...form, type: 'regular' })}
+                    />
+                    Regular
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input
+                      type="radio"
+                      name="custType"
+                      checked={form.type === 'random'}
+                      onChange={() => setForm({ ...form, type: 'random' })}
+                    />
+                    Walk-in / One-time
+                  </label>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. John Doe / Apex Prints"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+                {formErrors.name && (
+                  <div style={{ color: 'var(--error)', fontSize: '0.75rem', marginTop: '4px' }}>
+                    {formErrors.name}
                   </div>
                 )}
+              </div>
 
-                {/* In edit mode, type is read-only */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label className="form-label">Customer Type</label>
-                  {editMode ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className={`badge ${form.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
-                        {form.type === 'regular' ? 'Regular' : 'Walk-in / Random'}
-                      </span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>(cannot change type after creation)</span>
-                    </div>
-                  ) : (
-                    <div className="radio-group">
-                      <label className={`radio-option ${form.type === 'regular' ? 'selected' : ''}`}>
-                        <input type="radio" name="type" value="regular" checked={form.type === 'regular'} onChange={() => handleChange('type', 'regular')} />
-                        Regular
-                      </label>
-                      <label className={`radio-option ${form.type === 'random' ? 'selected' : ''}`}>
-                        <input type="radio" name="type" value="random" checked={form.type === 'random'} onChange={() => handleChange('type', 'random')} />
-                        Walk-in / Random
-                      </label>
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Name <span style={{ color: 'var(--error)' }}>*</span></label>
+                  <label className="form-label">Phone Number</label>
                   <input
-                    className={`form-input${errors.name ? ' form-input-error' : ''}`}
-                    type="text"
-                    placeholder="Full name or business name"
-                    value={form.name}
-                    onChange={(e) => handleChange('name', e.target.value)}
-                  />
-                  {errors.name && (
-                    <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <AlertCircle size={12} /> {errors.name}
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Phone</label>
-                  <input
-                    className={`form-input${errors.phone ? ' form-input-error' : ''}`}
                     type="tel"
-                    placeholder="e.g. 9876543210"
+                    className="form-input"
+                    placeholder="10-digit mobile"
                     value={form.phone}
-                    onChange={(e) => handleChange('phone', e.target.value)}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   />
-                  {errors.phone && (
-                    <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <AlertCircle size={12} /> {errors.phone}
-                    </div>
-                  )}
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Email</label>
                   <input
-                    className={`form-input${errors.email ? ' form-input-error' : ''}`}
                     type="email"
-                    placeholder="e.g. customer@email.com"
+                    className="form-input"
+                    placeholder="name@example.com"
                     value={form.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
                   />
-                  {errors.email && (
-                    <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <AlertCircle size={12} /> {errors.email}
-                    </div>
-                  )}
                 </div>
+              </div>
 
-                {form.type === 'regular' && !editMode && (
-                  <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                    <h4 style={{ marginBottom: '12px', fontSize: '0.95rem' }}>Opening Credit Balance</h4>
-                    
-                    <div className="form-group">
-                      <label className="form-label">Receiving Method</label>
-                      <select
-                        className="form-select"
-                        value={form.openingBalanceMethod}
-                        onChange={(e) => handleChange('openingBalanceMethod', e.target.value)}
-                      >
-                        <option value="cash">Cash Only</option>
-                        <option value="upi">UPI Only</option>
-                        <option value="split">Split (Cash + UPI)</option>
-                      </select>
-                    </div>
-
-                    {(form.openingBalanceMethod === 'cash' || form.openingBalanceMethod === 'split') && (
-                      <div className="form-group">
-                        <label className="form-label">Cash Amount (₹)</label>
-                        <input
-                          className={`form-input${errors.openingCash ? ' form-input-error' : ''}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={form.openingCash}
-                          onChange={(e) => handleChange('openingCash', e.target.value)}
-                        />
-                        {errors.openingCash && (
-                          <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <AlertCircle size={12} /> {errors.openingCash}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {(form.openingBalanceMethod === 'upi' || form.openingBalanceMethod === 'split') && (
-                      <div className="form-group">
-                        <label className="form-label">UPI Amount (₹)</label>
-                        <input
-                          className={`form-input${errors.openingUpi ? ' form-input-error' : ''}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={form.openingUpi}
-                          onChange={(e) => {
-                            handleChange('openingUpi', e.target.value)
-                            setUpiCheckoutAmount(0)
-                            setQrGenerated(false)
-                          }}
-                        />
-                        {errors.openingUpi && (
-                          <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <AlertCircle size={12} /> {errors.openingUpi}
-                          </div>
-                        )}
-                        
-                        <div style={{ marginTop: '12px' }}>
-                          <label className="form-label" style={{ fontSize: '0.78rem' }}>UPI Checkout</label>
-                          <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              disabled={!Number(form.openingUpi || 0)}
-                              onClick={() => {
-                                setUpiCheckoutAmount(Number(form.openingUpi || 0))
-                                setQrGenerated(true)
-                              }}
-                              style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <Link2 size={14} /> Generate QR
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              disabled={!Number(form.openingUpi || 0) || !business?.upiId}
-                              onClick={() => copyUpiLink(getUpiLink(Number(form.openingUpi || 0), 'Opening Balance'))}
-                              style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <Copy size={14} /> Copy Link
-                            </button>
-                          </div>
-                          {business?.upiId ? (
-                            <>
-                              {qrGenerated && upiCheckoutAmount > 0 && (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                                  <img
-                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, 'Opening Balance'))}`}
-                                    alt="UPI QR Code"
-                                    style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
-                                    width={110} height={110}
-                                  />
-                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to receive ₹{upiCheckoutAmount.toFixed(2)}</span>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {(() => {
-                      const cashVal = Number(form.openingCash || 0)
-                      const upiVal = Number(form.openingUpi || 0)
-                      const totalVal = (form.openingBalanceMethod === 'cash' ? cashVal :
-                                        form.openingBalanceMethod === 'upi' ? upiVal :
-                                        (cashVal + upiVal))
-                      if (totalVal > 0) {
-                        return (
-                          <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600 }}>
-                              <span className="text-muted">Total Opening Balance:</span>
-                              <span style={{ color: 'var(--accent)' }}>₹{totalVal.toFixed(2)}</span>
-                            </div>
-                          </div>
-                        )
-                      }
-                      return null
-                    })()}
-                  </div>
-                )}
-
-                {form.type === 'regular' && editMode && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group">
+                  <label className="form-label">Credit Limit (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="form-input"
+                    placeholder="0 for unlimited"
+                    value={form.creditLimit}
+                    onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
+                  />
+                </div>
+                {!editMode && (
                   <div className="form-group">
-                    <label className="form-label">Credit Balance (₹)</label>
+                    <label className="form-label">Opening Advance (₹)</label>
                     <input
-                      className={`form-input${errors.creditBalance ? ' form-input-error' : ''}`}
                       type="number"
-                      min="0"
                       step="0.01"
+                      min="0"
+                      className="form-input"
                       placeholder="0.00"
                       value={form.creditBalance}
-                      onChange={(e) => handleChange('creditBalance', e.target.value)}
+                      onChange={(e) => setForm({ ...form, creditBalance: e.target.value })}
                     />
-                    {errors.creditBalance && (
-                      <div className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <AlertCircle size={12} /> {errors.creditBalance}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {form.type === 'regular' && (
-                  <div className="form-group">
-                    <label className="form-label">Credit Limit (₹)</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0 = unlimited"
-                      value={form.creditLimit}
-                      onChange={(e) => handleChange('creditLimit', e.target.value)}
-                    />
-                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Maximum outstanding balance allowed. 0 = no limit.
-                    </p>
                   </div>
                 )}
               </div>
 
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={closeModal} disabled={isSubmitting || isCreating || isUpdating}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={isSubmitting || isCreating || isUpdating} style={{ minWidth: '130px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  {isSubmitting || isCreating || isUpdating ? (
-                    <>
-                      <span style={{ width: '14px', height: '14px', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.75s linear infinite' }}></span>
-                      <span>{editMode ? 'Saving...' : 'Adding...'}</span>
-                    </>
-                  ) : (
-                    editMode ? <><Pencil size={16} /> Save Changes</> : <><UserPlus size={16} /> Add Customer</>
-                  )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmittingCustomer}>
+                  {isSubmittingCustomer ? 'Saving...' : editMode ? 'Save Changes' : 'Create Customer'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {showLedgerModal && selectedCustomer && (
-        <div className="modal-overlay" onClick={() => setShowLedgerModal(false)}>
-          <div className="modal" style={{ maxWidth: '800px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Customer Ledger: {selectedCustomer.name}</h3>
-              <button className="modal-close btn-icon" onClick={() => setShowLedgerModal(false)} type="button">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Running Outstanding Balance:</span>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--warning)', marginTop: '4px' }}>
-                    ₹{(ledgerData.length > 0 ? ledgerData[ledgerData.length - 1].balance : 0).toFixed(2)}
-                  </div>
-                </div>
-                <button className="btn btn-primary" onClick={handleShareLedgerWhatsApp} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  Share Statement on WhatsApp
-                </button>
-              </div>
-
-              <div style={{ overflowY: 'auto', maxHeight: '400px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
-                <table className="table" style={{ margin: 0 }}>
-                  <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
-                    <tr>
-                      <th>Date</th>
-                      <th>Transaction Type</th>
-                      <th>Ref ID</th>
-                      <th>Debit (Charges)</th>
-                      <th>Credit (Payments)</th>
-                      <th>Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledgerData.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No ledger history found.</td>
-                      </tr>
-                    ) : (
-                      ledgerData.map((row, idx) => (
-                        <tr key={idx}>
-                          <td>{row.date}</td>
-                          <td>{row.type}</td>
-                          <td style={{ fontFamily: 'monospace' }}>{row.refId}</td>
-                          <td style={{ color: row.debit > 0 ? 'var(--error)' : 'inherit' }}>
-                            {row.debit > 0 ? `₹${row.debit.toFixed(2)}` : '—'}
-                          </td>
-                          <td style={{ color: row.credit > 0 ? 'var(--success)' : 'inherit' }}>
-                            {row.credit > 0 ? `₹${row.credit.toFixed(2)}` : '—'}
-                          </td>
-                          <td style={{ fontWeight: 600, color: row.balance > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                            ₹{row.balance.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
-
-export default Customers

@@ -1,6 +1,5 @@
 -- ============================================================================
 -- PrintPro Unified Master PostgreSQL Schema
--- Canonical location: backend/database/unified_schema.sql
 -- All monetary values are in Indian Rupees (INR)
 -- Multi-tenant Row-Level Security (RLS) enabled for all tables
 -- Safe & Idempotent: Can be executed on fresh installs and existing databases
