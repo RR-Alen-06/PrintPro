@@ -50,7 +50,7 @@ const Accounting = () => {
   const [activeTab, setActiveTab] = useState('general') // 'general' | 'gst'
 
   const gstReport = useMemo(() => {
-    const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
+    const activeBills = (Array.isArray(bills) ? bills : []).filter((b) => b && !b.deleted && !b.isGroupParent)
     
     let totalTaxable = 0
     let totalCGST = 0
@@ -63,7 +63,7 @@ const Accounting = () => {
     const b2cList = []
 
     activeBills.forEach(b => {
-      const cust = customers.find(c => String(c.id) === String(b.customerId))
+      const cust = (Array.isArray(customers) ? customers : []).find(c => c && String(c.id) === String(b.customerId))
       const gstin = cust?.gstin || ''
       
       let billTaxable = 0
@@ -92,7 +92,7 @@ const Accounting = () => {
           ratesMap[rate].sgst += halfGst
           ratesMap[rate].total += totalAmt
 
-          const invItem = inventory?.find(i => String(i.id) === String(item.itemId))
+          const invItem = (Array.isArray(inventory) ? inventory : []).find(i => i && String(i.id) === String(item.itemId))
           const hsn = invItem?.hsnCode || '9989'
           if (!hsnMap[hsn]) hsnMap[hsn] = { hsn, taxable: 0, cgst: 0, sgst: 0, total: 0, qty: 0 }
           hsnMap[hsn].taxable += taxable
@@ -187,11 +187,11 @@ const Accounting = () => {
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
+    const activeBills = (Array.isArray(bills) ? bills : []).filter((b) => b && !b.deleted && !b.isGroupParent)
 
     // Separate normal payments from refund payments
-    const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
-    const refundPaymentsList = (payments || []).filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+    const normalPayments = (payments || []).filter(p => p && !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
+    const refundPaymentsList = (payments || []).filter(p => p && (p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0))
 
     // Net Revenue = sum of total on active bills
     // (We use b.total so it represents invoiced revenue, matching Dashboard logic)
@@ -205,12 +205,12 @@ const Accounting = () => {
     // Net Profit = Net Revenue - Total Expenses
     const netProfit = realizedRevenue - totalExpenses
     
-    const totalCustomerAdvance = customers
-      .filter((c) => !c.deleted)
+    const totalCustomerAdvance = (Array.isArray(customers) ? customers : [])
+      .filter((c) => c && !c.deleted)
       .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
 
     // Cash inflow from payments (exclude FIFO advance transfers)
-    const deletedBillIds = new Set((bills || []).filter(b => b.deleted).map(b => String(b.id)))
+    const deletedBillIds = new Set((Array.isArray(bills) ? bills : []).filter(b => b && b.deleted).map(b => String(b.id)))
     const pInflow = (payments || [])
       .filter((p) => !p.isRefund && p.paymentType !== 'refund' 
         && !p.notes?.includes('from advance deposit') 
@@ -263,7 +263,7 @@ const Accounting = () => {
 
   const refundStats = useMemo(() => {
     // 1. Bill Refunds (negative payments)
-    const billRefundsList = payments.filter((p) => p.totalPaid < 0 || p.isRefund)
+    const billRefundsList = (payments || []).filter((p) => p && (p.totalPaid < 0 || p.isRefund))
     const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
     const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
@@ -275,7 +275,7 @@ const Accounting = () => {
     const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
 
     // 3. Advance Returns (negative advance payments)
-    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
+    const advReturnsList = (advancePayments || []).filter((ap) => ap && (ap.amount < 0 || ap.isReturn))
     const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
     const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
     const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)

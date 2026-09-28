@@ -19,7 +19,7 @@ export default function MobileAdvancePayments() {
   const [showAddModal, setShowAddModal] = useState(false)
 
   // Form State
-  const activeCustomers = useMemo(() => (serverCustomers || []).filter(c => !c.deleted), [serverCustomers])
+  const activeCustomers = useMemo(() => (Array.isArray(serverCustomers) ? serverCustomers.filter(c => c && !c.deleted) : []), [serverCustomers])
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [cashAmount, setCashAmount] = useState('')
   const [upiAmount, setUpiAmount] = useState('')
@@ -32,19 +32,20 @@ export default function MobileAdvancePayments() {
   }, [activeCustomers, selectedCustomerId])
 
   const getCustomerName = useCallback(
-    (id) => (serverCustomers || []).find(c => String(c.id) === String(id))?.name || 'Unknown',
+    (id) => (Array.isArray(serverCustomers) ? serverCustomers : []).find(c => c && String(c.id) === String(id))?.name || 'Unknown',
     [serverCustomers]
   )
 
   const filteredAdvances = useMemo(() => {
-    return (advancePayments || []).filter(ap => {
+    return (Array.isArray(advancePayments) ? advancePayments : []).filter(ap => {
+      if (!ap) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
         const custName = getCustomerName(ap.customerId).toLowerCase()
-        return custName.includes(q) || (ap.notes || '').toLowerCase().includes(q)
+        return custName.includes(q) || String(ap.notes || '').toLowerCase().includes(q)
       }
       return true
-    }).sort((a, b) => new Date(b.date) - new Date(a.date))
+    }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
   }, [advancePayments, getCustomerName, searchTerm])
 
   const handleAddSubmit = async (e) => {

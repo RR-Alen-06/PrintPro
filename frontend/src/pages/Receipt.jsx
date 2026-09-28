@@ -72,12 +72,12 @@ const Receipt = () => {
     }
   }
 
-  const filteredBills = bills
-    .filter((b) => !b.deleted)
+  const filteredBills = (bills || [])
+    .filter((b) => b && !b.deleted)
     .filter((b) =>
-      (b.invoiceNumber && b.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (b.id && b.id.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (b.customerName && b.customerName.toLowerCase().includes(searchQuery.toLowerCase()))
+      (b.invoiceNumber && String(b.invoiceNumber).toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.id && String(b.id).toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.customerName && String(b.customerName).toLowerCase().includes(searchQuery.toLowerCase()))
     )
 
   const getQrCodeBase64 = (upiLink) => {
