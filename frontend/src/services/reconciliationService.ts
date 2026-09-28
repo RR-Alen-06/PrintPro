@@ -236,4 +236,95 @@ export class ReconciliationService {
       monthly_collection_trend: [],
     };
   }
+
+  /**
+   * Reconciles bills with payment records by applying direct bill-linked payments
+   * and distributing unlinked customer payments chronologically across open bills (FIFO).
+   */
+  static reconcileBillsWithPayments(
+    bills: any[] = [],
+    payments: any[] = []
+  ): any[] {
+    const activeBills = (bills || []).filter(
+      (b: any) => !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent
+    );
+    const billPaymentsMap = new Map<string, number>();
+    const custUnlinkedPaymentsMap = new Map<string, number>();
+
+    (payments || []).forEach((p: any) => {
+      const isRefund =
+        p.isRefund ||
+        p.payment_type === 'refund' ||
+        p.paymentType === 'refund' ||
+        Number(p.totalPaid !== undefined ? p.totalPaid : (p.amount || 0)) < 0;
+      if (isRefund) return;
+
+      const bId = p.bill_id || p.billId;
+      const cId = p.customer_id || p.customerId;
+      const cash = Number(p.cash_amount !== undefined ? p.cash_amount : (p.cashAmount || 0));
+      const upi = Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0));
+      const total = Number(
+        p.total_paid !== undefined
+          ? p.total_paid
+          : p.totalPaid !== undefined
+          ? p.totalPaid
+          : p.amount !== undefined
+          ? p.amount
+          : cash + upi
+      );
+
+      if (bId) {
+        const key = String(bId);
+        billPaymentsMap.set(key, Number(((billPaymentsMap.get(key) || 0) + total).toFixed(2)));
+      } else if (cId) {
+        const key = String(cId);
+        custUnlinkedPaymentsMap.set(key, Number(((custUnlinkedPaymentsMap.get(key) || 0) + total).toFixed(2)));
+      }
+    });
+
+    // Map each active bill with direct payments
+    const reconciledBills = activeBills.map((b: any) => {
+      const bId = String(b.id);
+      const bTotal = Number(b.total !== undefined ? b.total : (b.grand_total || 0));
+      const directPaid = billPaymentsMap.get(bId) || 0;
+      const recordedPaid = Number(
+        b.amountPaid !== undefined
+          ? b.amountPaid
+          : b.amount_paid !== undefined
+          ? b.amount_paid
+          : b.paid_total || 0
+      );
+      const effectivePaid = Math.min(bTotal, Math.max(recordedPaid, directPaid));
+      const effectiveBalance = Math.max(0, Number((bTotal - effectivePaid).toFixed(2)));
+      const effectiveStatus = effectiveBalance <= 0.001 ? 'paid' : effectivePaid > 0 ? 'partial' : 'unpaid';
+      return {
+        ...b,
+        amountPaid: effectivePaid,
+        amount_paid: effectivePaid,
+        balance: effectiveBalance,
+        status: effectiveStatus,
+      };
+    });
+
+    // Distribute unlinked customer payments FIFO (oldest date/id first)
+    custUnlinkedPaymentsMap.forEach((unlinkedTotal, cId) => {
+      let remaining = unlinkedTotal;
+      const customerUnpaidBills = reconciledBills
+        .filter((b: any) => String(b.customerId || b.customer_id) === cId && b.balance > 0)
+        .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+
+      for (const bill of customerUnpaidBills) {
+        if (remaining <= 0) break;
+        const toApply = Math.min(remaining, bill.balance);
+        bill.amountPaid = Number((bill.amountPaid + toApply).toFixed(2));
+        bill.amount_paid = bill.amountPaid;
+        const bTot = Number(bill.total !== undefined ? bill.total : (bill.grand_total || 0));
+        bill.balance = Number(Math.max(0, bTot - bill.amountPaid).toFixed(2));
+        bill.status = bill.balance <= 0.001 ? 'paid' : 'partial';
+        remaining = Number((remaining - toApply).toFixed(2));
+      }
+    });
+
+    return reconciledBills;
+  }
 }

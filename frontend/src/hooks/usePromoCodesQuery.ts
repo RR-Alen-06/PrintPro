@@ -37,7 +37,7 @@ export function usePromoCodeMutations() {
   }
 
   const createPromoMutation = useMutation({
-    mutationFn: async (promoData) => {
+    mutationFn: async (promoData: any) => {
       const res = await promoApi.createPromoCode(promoData)
       return res.data?.data
     },
@@ -52,14 +52,14 @@ export function usePromoCodeMutations() {
   })
 
   const updatePromoMutation = useMutation({
-    mutationFn: async ({ id, data }) => {
+    mutationFn: async ({ id, data }: { id: any; data: any }) => {
       const res = await promoApi.updatePromoCode(id, data)
       return res.data?.data
     },
     onSuccess: (updated) => {
       const userPromoKey = [...PROMO_CODES_QUERY_KEY, userId]
       queryClient.setQueryData(userPromoKey, (old = []) =>
-        Array.isArray(old) ? old.map((p) => (p.id === updated.id || p.code === updated.code ? updated : p)) : [updated]
+        Array.isArray(old) ? old.map((p: any) => (p.id === updated.id || p.code === updated.code ? updated : p)) : [updated]
       )
       syncLocal()
     },
@@ -69,14 +69,14 @@ export function usePromoCodeMutations() {
   })
 
   const deletePromoMutation = useMutation({
-    mutationFn: async (id) => {
+    mutationFn: async (id: any) => {
       const res = await promoApi.deletePromoCode(id)
       return { id, res }
     },
     onSuccess: ({ id }) => {
       const userPromoKey = [...PROMO_CODES_QUERY_KEY, userId]
       queryClient.setQueryData(userPromoKey, (old = []) =>
-        Array.isArray(old) ? old.filter((p) => p.id !== id && p.code !== id) : []
+        Array.isArray(old) ? old.filter((p: any) => p.id !== id && p.code !== id) : []
       )
       syncLocal()
     },

@@ -1,3 +1,5 @@
+import { ReconciliationService } from './reconciliationService';
+
 export class DashboardService {
   /**
    * Aggregates key summary widget metrics from live collection datasets.
@@ -16,13 +18,13 @@ export class DashboardService {
     inventory?: any[];
   }) {
     const activeBills = bills.filter((b: any) => !b.deleted && !b.isGroupParent);
-    const pendingAmount = activeBills.reduce(
-      (sum: number, b: any) => sum + Number(b.balance || 0),
-      0
+    const reconciledBills = ReconciliationService.reconcileBillsWithPayments(bills, payments);
+
+    const pendingAmount = Number(
+      reconciledBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0).toFixed(2)
     );
-    const grossRevenue = activeBills.reduce(
-      (sum: number, b: any) => sum + Number(b.total || 0),
-      0
+    const grossRevenue = Number(
+      activeBills.reduce((sum: number, b: any) => sum + Number(b.total || 0), 0).toFixed(2)
     );
     const invoiceRefunds = payments
       .filter((p: any) => p.totalPaid < 0 || p.isRefund)
@@ -30,21 +32,22 @@ export class DashboardService {
     const advanceRefunds = (advancePayments || [])
       .filter((a: any) => a.amount < 0 || a.isReturn)
       .reduce((sum: number, a: any) => sum + Math.abs(Number(a.amount || 0)), 0);
-    const totalRefunds = invoiceRefunds + advanceRefunds;
-    const totalCustomerAdvance = customers
-      .filter((c: any) => !c.deleted)
-      .reduce(
-        (sum: number, c: any) => sum + Number(c.advanceBalance || c.creditBalance || 0),
-        0
-      );
-    const totalCollected = activeBills.reduce(
-      (sum: number, b: any) => sum + Number(b.amountPaid || 0),
-      0
+    const totalRefunds = Number((invoiceRefunds + advanceRefunds).toFixed(2));
+    const totalCustomerAdvance = Number(
+      customers
+        .filter((c: any) => !c.deleted)
+        .reduce(
+          (sum: number, c: any) => sum + Number(c.advanceBalance || c.creditBalance || 0),
+          0
+        ).toFixed(2)
+    );
+    const totalCollected = Number(
+      reconciledBills.reduce((sum: number, b: any) => sum + Number(b.amountPaid || 0), 0).toFixed(2)
     );
 
     return {
       grossRevenue,
-      netRevenue: grossRevenue - totalRefunds,
+      netRevenue: Number((grossRevenue - totalRefunds).toFixed(2)),
       pendingAmount,
       totalRefunds,
       totalCustomerAdvance,
@@ -57,14 +60,17 @@ export class DashboardService {
   /**
    * Calculates outstanding receivables aged buckets (0-30 days, 31-60 days, 61+ days).
    */
-  static calculateAgingReport(bills: any[] = []) {
+  static calculateAgingReport(bills: any[] = [], payments: any[] = []) {
     let bucketCurrent = 0; // 0-30 days
     let bucketMedium = 0; // 31-60 days
     let bucketAged = 0; // 61+ days
 
     const now = new Date();
+    const reconciledBills = payments && payments.length > 0 
+      ? ReconciliationService.reconcileBillsWithPayments(bills, payments)
+      : bills.filter((b: any) => !b.deleted && !b.isGroupParent);
 
-    bills
+    reconciledBills
       .filter(
         (b: any) => !b.deleted && b.status !== 'paid' && !b.isGroupParent && Number(b.balance || 0) > 0
       )
