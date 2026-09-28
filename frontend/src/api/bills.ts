@@ -13,34 +13,93 @@ export interface BillFilters {
 export const mapBillFromApi = (b: any) => {
   if (!b) return b;
   const invoiceNumber = b.invoice_number || b.invoiceNumber || b.bill_number || SequenceService.formatDisplayCode('bill', b.id, 'INV');
+
+  const items = (b.items || []).map((item: any) => {
+    const q = Number(item.qty || 1);
+    const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
+    const amt = Number(item.amount !== undefined ? item.amount : q * uPrice);
+    return {
+      ...item,
+      itemId: item.item_id || item.itemId || item.id,
+      name: item.item_name || item.itemName || item.name,
+      printType: item.print_type || item.printType,
+      sides: item.sides,
+      qty: q,
+      unitPrice: uPrice,
+      amount: amt,
+    };
+  });
+
+  const itemsSum = items.reduce((sum: number, it: any) => sum + Number(it.amount || 0), 0);
+  const rawSubtotal = Number(b.subtotal !== undefined && b.subtotal !== null ? b.subtotal : (itemsSum || 0));
+  const discVal = Number(b.discount_value !== undefined ? b.discount_value : (b.discountValue || 0));
+  const discType = b.discount_type || b.discountType || 'flat';
+  const discAmt = discType === 'percent' ? (rawSubtotal * discVal) / 100 : discVal;
+  const afterDisc = Math.max(0, rawSubtotal - discAmt);
+  const gstPct = Number(b.gst_percent !== undefined ? b.gst_percent : (b.gstPercent || 0));
+  const gstAmt = Number(b.gst_amount !== undefined ? b.gst_amount : ((afterDisc * gstPct) / 100));
+  const calcTotal = Number((afterDisc + gstAmt).toFixed(2));
+
+  const total = Number(
+    b.total !== undefined && b.total !== null && Number(b.total) > 0
+      ? b.total
+      : b.grand_total !== undefined && b.grand_total !== null && Number(b.grand_total) > 0
+      ? b.grand_total
+      : calcTotal > 0
+      ? calcTotal
+      : (b.total || b.grand_total || 0)
+  );
+
+  const amountPaid = Number(
+    b.amount_paid !== undefined && b.amount_paid !== null
+      ? b.amount_paid
+      : b.paid_total !== undefined && b.paid_total !== null
+      ? b.paid_total
+      : (b.amountPaid || 0)
+  );
+
+  let balance = Number(
+    b.balance !== undefined && b.balance !== null
+      ? b.balance
+      : b.balance_due !== undefined && b.balance_due !== null
+      ? b.balance_due
+      : Math.max(0, total - amountPaid)
+  );
+
+  // If a bill has positive total and 0 paid, balance cannot be 0 (recovers erroneous zeroed balance)
+  if (total > 0 && amountPaid === 0 && balance === 0) {
+    balance = total;
+  } else if (total > 0 && amountPaid > 0 && amountPaid < total && balance === 0) {
+    balance = Number((total - amountPaid).toFixed(2));
+  }
+
+  const status = b.status && b.status !== 'paid'
+    ? b.status
+    : balance <= 0.001
+    ? 'paid'
+    : amountPaid > 0
+    ? 'partial'
+    : 'unpaid';
+
   return {
     ...b,
     id: b.id,
     invoiceNumber,
     customerId: b.customer_id || b.customerId,
     customerName: b.customer_name || b.customerName || 'Walk-in Customer',
-  date: b.date ? new Date(b.date).toISOString().slice(0, 10) : b.date,
-  dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : (b.dueDate || null),
-  subtotal: Number(b.subtotal || 0),
-  discountType: b.discount_type || b.discountType || 'flat',
-  discountValue: Number(b.discount_value !== undefined ? b.discount_value : (b.discountValue || 0)),
-  gstPercent: Number(b.gst_percent !== undefined ? b.gst_percent : (b.gstPercent || 0)),
-  gstAmount: Number(b.gst_amount !== undefined ? b.gst_amount : (b.gstAmount || 0)),
-  total: Number(b.total || 0),
-  amountPaid: Number(b.amount_paid !== undefined ? b.amount_paid : (b.amountPaid || 0)),
-  balance: Number(b.balance !== undefined ? b.balance : (b.balance || 0)),
-  status: b.status || 'unpaid',
-  deleted: !!b.deleted_at,
-  items: (b.items || []).map((item: any) => ({
-    ...item,
-    itemId: item.item_id || item.itemId || item.id,
-    name: item.item_name || item.itemName || item.name,
-    printType: item.print_type || item.printType,
-    sides: item.sides,
-    qty: Number(item.qty || 0),
-    unitPrice: Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0)),
-    amount: Number(item.amount || 0),
-  }))
+    date: b.date ? new Date(b.date).toISOString().slice(0, 10) : b.date,
+    dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : (b.dueDate || null),
+    subtotal: rawSubtotal,
+    discountType: discType,
+    discountValue: discVal,
+    gstPercent: gstPct,
+    gstAmount: gstAmt,
+    total,
+    amountPaid,
+    balance,
+    status,
+    deleted: !!b.deleted_at,
+    items,
   };
 };
 

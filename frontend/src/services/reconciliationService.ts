@@ -276,8 +276,8 @@ export class ReconciliationService {
       if (bId) {
         const key = String(bId);
         billPaymentsMap.set(key, Number(((billPaymentsMap.get(key) || 0) + total).toFixed(2)));
-      } else if (cId) {
-        const key = String(cId);
+      } else if (cId && cId !== 'null' && cId !== 'undefined' && cId !== 'Customer' && String(cId).trim() !== '') {
+        const key = String(cId).trim();
         custUnlinkedPaymentsMap.set(key, Number(((custUnlinkedPaymentsMap.get(key) || 0) + total).toFixed(2)));
       }
     });
@@ -285,7 +285,24 @@ export class ReconciliationService {
     // Map each active bill with direct payments
     const reconciledBills = activeBills.map((b: any) => {
       const bId = String(b.id);
-      const bTotal = Number(b.total !== undefined ? b.total : (b.grand_total || 0));
+      let bTotal = Number(
+        b.total !== undefined && b.total !== null && Number(b.total) > 0
+          ? b.total
+          : b.grand_total !== undefined && b.grand_total !== null && Number(b.grand_total) > 0
+          ? b.grand_total
+          : 0
+      );
+      if (bTotal === 0 && Array.isArray(b.items) && b.items.length > 0) {
+        bTotal = b.items.reduce(
+          (s: number, it: any) =>
+            s + Number(it.amount !== undefined ? it.amount : Number(it.qty || 1) * Number(it.unit_price || it.unitPrice || 0)),
+          0
+        );
+      }
+      if (bTotal === 0) {
+        bTotal = Number(b.total || b.grand_total || 0);
+      }
+
       const directPaid = billPaymentsMap.get(bId) || 0;
       const recordedPaid = Number(
         b.amountPaid !== undefined
@@ -299,6 +316,7 @@ export class ReconciliationService {
       const effectiveStatus = effectiveBalance <= 0.001 ? 'paid' : effectivePaid > 0 ? 'partial' : 'unpaid';
       return {
         ...b,
+        total: bTotal,
         amountPaid: effectivePaid,
         amount_paid: effectivePaid,
         balance: effectiveBalance,
@@ -310,7 +328,10 @@ export class ReconciliationService {
     custUnlinkedPaymentsMap.forEach((unlinkedTotal, cId) => {
       let remaining = unlinkedTotal;
       const customerUnpaidBills = reconciledBills
-        .filter((b: any) => String(b.customerId || b.customer_id) === cId && b.balance > 0)
+        .filter((b: any) => {
+          const billCust = String(b.customerId || b.customer_id || '').trim();
+          return billCust && billCust === cId && b.balance > 0;
+        })
         .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
       for (const bill of customerUnpaidBills) {

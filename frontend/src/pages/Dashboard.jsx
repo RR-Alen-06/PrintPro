@@ -440,43 +440,13 @@ const Dashboard = () => {
     return DashboardService.calculateAgingReport(bills, payments)
   }, [bills, payments])
 
-  // Background persistence of reconciled historical bills to database/cache
-  React.useEffect(() => {
-    if (!bills || bills.length === 0 || !payments || payments.length === 0) return
-    const reconciled = ReconciliationService.reconcileBillsWithPayments(bills, payments)
-    const outOfSyncBills = reconciled.filter((rb) => {
-      const original = bills.find((b) => String(b.id) === String(rb.id))
-      if (!original) return false
-      const origBal = Number(original.balance !== undefined ? original.balance : (original.total || 0))
-      return Math.abs(origBal - rb.balance) > 0.01
-    })
-
-    if (outOfSyncBills.length > 0 && updateBillMutation) {
-      outOfSyncBills.forEach(async (b) => {
-        try {
-          await updateBillMutation({
-            id: b.id,
-            data: {
-              balance: b.balance,
-              amountPaid: b.amountPaid,
-              amount_paid: b.amountPaid,
-              status: b.status,
-            }
-          })
-        } catch (e) {
-          console.warn('Auto-reconciliation background sync:', e)
-        }
-      })
-    }
-  }, [bills, payments])
-
   const refundPayments = useMemo(() => {
     return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
   }, [filteredData.payments])
 
   const totalCashInflow = useMemo(() => {
     const deletedBillIds = new Set((filteredData.bills || []).filter(b => b.deleted).map(b => String(b.id)))
-    const billMap = new Map((filteredData.bills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    const billMap = new Map((filteredData.bills || []).map(b => [String(b.id), Number(b.total !== undefined ? b.total : (b.grand_total || 0))]))
     
     const billPaymentsMap = new Map()
     let unlinkedCashTotal = 0

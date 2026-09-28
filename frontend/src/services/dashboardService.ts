@@ -24,7 +24,7 @@ export class DashboardService {
       reconciledBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0).toFixed(2)
     );
     const grossRevenue = Number(
-      activeBills.reduce((sum: number, b: any) => sum + Number(b.total || 0), 0).toFixed(2)
+      reconciledBills.reduce((sum: number, b: any) => sum + Number(b.total !== undefined ? b.total : (b.grand_total || 0)), 0).toFixed(2)
     );
     const invoiceRefunds = payments
       .filter((p: any) => p.totalPaid < 0 || p.isRefund)
