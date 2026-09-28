@@ -87,6 +87,36 @@ export function usePaymentMutations() {
             return b
           })
         })
+      } else if (customerId) {
+        // Optimistically apply FIFO knockoff to customer's open bills
+        const userBillsKey = ['bills', userId]
+        queryClient.setQueriesData({ queryKey: userBillsKey, exact: false }, (oldBills = []) => {
+          if (!Array.isArray(oldBills)) return oldBills
+          let rem = total
+          const cloned = oldBills.map((b) => ({ ...b }))
+          const unpaid = cloned
+            .filter(
+              (b) =>
+                String(b.customerId || b.customer_id) === String(customerId) &&
+                !b.deleted &&
+                !b.isGroupParent &&
+                Number(b.balance || 0) > 0
+            )
+            .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+          for (const b of unpaid) {
+            if (rem <= 0) break
+            const toPay = Math.min(rem, Number(b.balance || 0))
+            const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+            const prevPaid = Number(b.amount_paid !== undefined ? b.amount_paid : (b.amountPaid || 0))
+            b.balance = newBal
+            b.status = newBal <= 0.001 ? 'paid' : 'partial'
+            b.amount_paid = Number((prevPaid + toPay).toFixed(2))
+            b.amountPaid = b.amount_paid
+            rem = Number((rem - toPay).toFixed(2))
+          }
+          return cloned
+        })
       }
 
       // Optimistically update matching customer balance

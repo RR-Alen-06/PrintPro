@@ -85,4 +85,41 @@ describe('ReconciliationService', () => {
     const fy = ReconciliationService.getDateRangeBounds('financial_year')
     expect(fy.startDate?.getMonth()).toBe(3) // April (0-indexed 3)
   })
+
+  it('reconciles unlinked customer payments across open bills via FIFO and fixes pending dues', () => {
+    const bills = [
+      { id: 'b1', customerId: 'c_arun', date: '2026-09-27T10:00:00Z', total: 5, amountPaid: 0, balance: 5, status: 'unpaid' },
+      { id: 'b2', customerId: 'c_arun', date: '2026-09-27T11:00:00Z', total: 7, amountPaid: 0, balance: 7, status: 'unpaid' },
+      { id: 'b3', customerId: 'c_akku', date: '2026-09-27T10:00:00Z', total: 5, amountPaid: 5, balance: 0, status: 'paid' },
+      { id: 'b4', customerId: 'c_akku', date: '2026-09-27T11:00:00Z', total: 7, amountPaid: 7, balance: 0, status: 'paid' },
+    ]
+
+    const payments = [
+      { id: 'p1', billId: 'b3', totalPaid: 5, date: '2026-09-27T16:35:48.552Z' },
+      { id: 'p2', billId: 'b4', totalPaid: 7, date: '2026-09-27T16:37:13.770Z' },
+      { id: 'p3', customerId: 'c_arun', totalPaid: 5, date: '2026-09-27T16:35:29.233Z' }, // unlinked ₹5 payment for Arun
+    ]
+
+    const reconciled = ReconciliationService.reconcileBillsWithPayments(bills, payments)
+
+    // b1 (INV-999523 equivalent) should be fully settled by Arun's ₹5 payment
+    const b1Reconciled = reconciled.find(b => b.id === 'b1')
+    expect(b1Reconciled?.amountPaid).toBe(5)
+    expect(b1Reconciled?.balance).toBe(0)
+    expect(b1Reconciled?.status).toBe('paid')
+
+    // b2 (BILL0002 equivalent) should remain unpaid with ₹7 balance
+    const b2Reconciled = reconciled.find(b => b.id === 'b2')
+    expect(b2Reconciled?.amountPaid).toBe(0)
+    expect(b2Reconciled?.balance).toBe(7)
+    expect(b2Reconciled?.status).toBe('unpaid')
+
+    // Total pending dues across reconciled bills must be exactly ₹7.00 (not ₹12.00)
+    const totalPending = reconciled.reduce((sum, b) => sum + Number(b.balance || 0), 0)
+    expect(totalPending).toBe(7)
+
+    // Total collected across reconciled bills must be exactly ₹17.00
+    const totalCollected = reconciled.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0)
+    expect(totalCollected).toBe(17)
+  })
 })

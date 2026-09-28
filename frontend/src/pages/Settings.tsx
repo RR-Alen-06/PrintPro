@@ -155,7 +155,7 @@ const Settings = () => {
       }))
       setLoyalty(prev => ({
         loyaltyEnabled: settings.loyaltyEnabled !== undefined ? settings.loyaltyEnabled : prev.loyaltyEnabled,
-        loyaltyForRandomCustomers: settings.loyaltyForRandomCustomers !== undefined ? serverSettings.loyaltyForRandomCustomers : prev.loyaltyForRandomCustomers,
+        loyaltyForRandomCustomers: settings.loyaltyForRandomCustomers !== undefined ? settings.loyaltyForRandomCustomers : prev.loyaltyForRandomCustomers,
         loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== undefined ? settings.loyaltyRedeemEnabled : prev.loyaltyRedeemEnabled,
         loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? prev.loyaltyRedeemRatioPoints,
         loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? prev.loyaltyRedeemRatioRupees,
@@ -1332,7 +1332,7 @@ const Settings = () => {
                     className="form-select"
                     style={{ fontSize: '0.82rem', padding: '6px 8px' }}
                     value={newPromo.type}
-                    onChange={(e) => setNewPromo(prev => ({ ...prev, type: e.target.value }))}
+                    onChange={(e) => setNewPromo(prev => ({ ...prev, type: e.target.value as 'percent' | 'flat' }))}
                   >
                     <option value="percent">% Percent</option>
                     <option value="flat">₹ Flat Amount</option>
