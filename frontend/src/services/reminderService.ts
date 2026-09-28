@@ -1,3 +1,5 @@
+import { SequenceService } from './sequenceService'
+
 export interface ReminderBusinessInfo {
   shopName?: string;
   phone?: string;
@@ -228,7 +230,7 @@ export class ReminderService {
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
     const custName = customer?.name || 'Valued Customer';
-    const custCode = customer?.customerCode || customer?.id || '';
+    const custCode = customer?.customerCode || (customer?.id ? SequenceService.formatDisplayCode('customer', customer, 'CUS') : '');
     const dateStr = new Date().toLocaleDateString('en-IN');
     const isDue = summary.finalBalance > 0;
     const isCredit = summary.finalBalance < 0;
