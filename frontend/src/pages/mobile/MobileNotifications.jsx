@@ -21,7 +21,7 @@ export default function MobileNotifications() {
 
   const [filter, setFilter] = useState('all') // 'all' | 'unread' | 'read'
 
-  const allNotifications = useMemo(() => notifications || [], [notifications])
+  const allNotifications = useMemo(() => (Array.isArray(notifications) ? notifications.filter(Boolean) : []), [notifications])
   const unreadCount = useMemo(
     () => allNotifications.filter((n) => !n.read).length,
     [allNotifications]

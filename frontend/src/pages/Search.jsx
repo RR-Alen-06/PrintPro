@@ -81,19 +81,19 @@ const Search = () => {
     let filtered = []
 
     if (searchType === 'bills') {
-      filtered = searchBills(serverBills, query, billFilters)
+      filtered = searchBills(Array.isArray(serverBills) ? serverBills : [], query, billFilters)
       filtered = sortResults(filtered, sortBy || 'date', sortOrder)
     } else if (searchType === 'customers') {
-      filtered = searchCustomers(serverCustomers, query, customerFilters)
+      filtered = searchCustomers(Array.isArray(serverCustomers) ? serverCustomers : [], query, customerFilters)
       filtered = sortResults(filtered, sortBy || 'name', sortOrder)
     } else if (searchType === 'inventory') {
-      filtered = searchInventory(serverInventory, query, inventoryFilters)
+      filtered = searchInventory(Array.isArray(serverInventory) ? serverInventory : [], query, inventoryFilters)
       filtered = sortResults(filtered, sortBy || 'name', sortOrder)
     } else if (searchType === 'expenses') {
-      filtered = searchExpenses(serverExpenses, query, expenseFilters)
+      filtered = searchExpenses(Array.isArray(serverExpenses) ? serverExpenses : [], query, expenseFilters)
       filtered = sortResults(filtered, sortBy || 'date', sortOrder)
     } else if (searchType === 'advances') {
-      filtered = searchAdvances(serverAdvances, query, advanceFilters)
+      filtered = searchAdvances(Array.isArray(serverAdvances) ? serverAdvances : [], query, advanceFilters)
       filtered = sortResults(filtered, sortBy || 'date', sortOrder)
     }
 

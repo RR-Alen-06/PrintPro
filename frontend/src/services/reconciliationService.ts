@@ -246,12 +246,13 @@ export class ReconciliationService {
     payments: any[] = []
   ): any[] {
     const activeBills = (bills || []).filter(
-      (b: any) => !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent
+      (b: any) => b && !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent
     );
     const billPaymentsMap = new Map<string, number>();
     const custUnlinkedPaymentsMap = new Map<string, number>();
 
     (payments || []).forEach((p: any) => {
+      if (!p) return;
       const isRefund =
         p.isRefund ||
         p.payment_type === 'refund' ||
@@ -284,7 +285,8 @@ export class ReconciliationService {
 
     // Map each active bill with direct payments
     const reconciledBills = activeBills.map((b: any) => {
-      const bId = String(b.id);
+      if (!b) return b;
+      const bId = String(b.id || '');
       let bTotal = Number(
         b.total !== undefined && b.total !== null && Number(b.total) > 0
           ? b.total
@@ -295,7 +297,7 @@ export class ReconciliationService {
       if (bTotal === 0 && Array.isArray(b.items) && b.items.length > 0) {
         bTotal = b.items.reduce(
           (s: number, it: any) =>
-            s + Number(it.amount !== undefined ? it.amount : Number(it.qty || 1) * Number(it.unit_price || it.unitPrice || 0)),
+            s + Number(it?.amount !== undefined ? it.amount : Number(it?.qty || 1) * Number(it?.unit_price || it?.unitPrice || 0)),
           0
         );
       }
@@ -329,15 +331,17 @@ export class ReconciliationService {
       let remaining = unlinkedTotal;
       const customerUnpaidBills = reconciledBills
         .filter((b: any) => {
+          if (!b) return false;
           const billCust = String(b.customerId || b.customer_id || '').trim();
           return billCust && billCust === cId && b.balance > 0;
         })
-        .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+        .sort((a: any, b: any) => new Date(a?.date || 0).getTime() - new Date(b?.date || 0).getTime());
 
       for (const bill of customerUnpaidBills) {
+        if (!bill) continue;
         if (remaining <= 0) break;
-        const toApply = Math.min(remaining, bill.balance);
-        bill.amountPaid = Number((bill.amountPaid + toApply).toFixed(2));
+        const toApply = Math.min(remaining, bill.balance || 0);
+        bill.amountPaid = Number(((Number(bill.amountPaid) || 0) + toApply).toFixed(2));
         bill.amount_paid = bill.amountPaid;
         const bTot = Number(bill.total !== undefined ? bill.total : (bill.grand_total || 0));
         bill.balance = Number(Math.max(0, bTot - bill.amountPaid).toFixed(2));

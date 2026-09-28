@@ -21,8 +21,8 @@ import { LoyaltyService } from '../services/loyaltyService'
 import { SequenceService } from '../services/sequenceService'
 
 
-const makeInitialRow = (inventory) => {
-  const firstItem = inventory[0]
+const makeInitialRow = (inventory = []) => {
+  const firstItem = (inventory || [])[0]
   const defaultPrice = Number(firstItem?.colorSingle !== undefined ? firstItem.colorSingle : (firstItem?.color_single ?? 10.0)) || 10.0
   return {
     id: `row-${Date.now()}`,
@@ -82,7 +82,7 @@ const Billing = () => {
 
   const [customerType, setCustomerType] = useState('regular')
   // For regular: select from dropdown
-  const [customerId, setCustomerId] = useState(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
+  const [customerId, setCustomerId] = useState((customers || []).find((c) => c && c.type === 'regular' && !c.deleted)?.id || '')
   // For random: 'existing' = pick from walk-in list, 'new' = create new
   const [randomMode, setRandomMode] = useState('existing')
   const [randomCustomerId, setRandomCustomerId] = useState('')
@@ -161,7 +161,7 @@ const Billing = () => {
   // Auto-select regular customer if unselected when customers load
   useEffect(() => {
     if (!customerId && customerType === 'regular') {
-      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'regular' && !c.deleted)
       if (first) setCustomerId(first.id)
     }
   }, [customers, customerId, customerType])
@@ -169,7 +169,7 @@ const Billing = () => {
   // Auto-select walk-in customer if unselected when mode is existing
   useEffect(() => {
     if (!randomCustomerId && customerType === 'random' && randomMode === 'existing') {
-      const first = customers.find((c) => c.type === 'random' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'random' && !c.deleted)
       if (first) setRandomCustomerId(first.id)
     }
   }, [customers, randomCustomerId, customerType, randomMode])
@@ -1080,13 +1080,13 @@ const Billing = () => {
     setCustomerType(type)
     setAdvanceUsed(0)
     if (type === 'regular') {
-      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'regular' && !c.deleted)
       setCustomerId(first?.id || '')
       setRandomCustomerId('')
       setRandomMode('existing')
     } else {
       setCustomerId('')
-      setRandomCustomerId(customers.find((c) => c.type === 'random' && !c.deleted)?.id || '')
+      setRandomCustomerId((customers || []).find((c) => c && c.type === 'random' && !c.deleted)?.id || '')
       setRandomMode('existing')
     }
     setCustomerName('')
@@ -1422,7 +1422,7 @@ const Billing = () => {
     setIsEditing(false)
     setEditingBillId(null)
     setCustomerType('regular')
-    setCustomerId(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
+    setCustomerId((customers || []).find((c) => c && c.type === 'regular' && !c.deleted)?.id || '')
     setRandomCustomerId('')
     setRandomMode('existing')
     setCustomerName('')

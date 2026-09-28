@@ -11,18 +11,21 @@ import { useSettings } from '../hooks/useSettingsQuery'
 import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { SequenceService } from '../services/sequenceService'
 
-const makeItemRow = (inventory) => ({
-  id: `row-${Date.now()}-${Math.random()}`,
-  itemId: inventory[0]?.id || '',
-  itemName: inventory[0]?.name || 'Custom Item',
-  isCustom: false,
-  printType: 'color',
-  sides: 'single',
-  qty: 1,
-  unitPrice: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
-  amount: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
-  gstRate: 0,
-})
+const makeItemRow = (inventory) => {
+  const first = (inventory || [])[0]
+  return {
+    id: `row-${Date.now()}-${Math.random()}`,
+    itemId: first?.id || '',
+    itemName: first?.name || 'Custom Item',
+    isCustom: false,
+    printType: 'color',
+    sides: 'single',
+    qty: 1,
+    unitPrice: Number(first?.colorSingle !== undefined ? first?.colorSingle : (first?.color_single ?? 10)) || 10,
+    amount: Number(first?.colorSingle !== undefined ? first?.colorSingle : (first?.color_single ?? 10)) || 10,
+    gstRate: 0,
+  }
+}
 
 const makeCustomRow = () => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -38,7 +41,7 @@ const makeCustomRow = () => ({
 })
 
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
-  const item = inventory.find((e) => e.id === itemId)
+  const item = (inventory || []).find((e) => e && e.id === itemId)
   if (!item) return 0
   if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
   if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
@@ -277,14 +280,14 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
 const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount, payerCustomerId, payerAdvance }) => {
-  const customer = customers.find((c) => c.id === member.customerId)
+  const customer = (customers || []).find((c) => c && c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
   const loyaltyRedeemEnabled = settings?.loyaltyRedeemEnabled !== false
   const hasLoyalty = customer && customer.type === 'regular' && loyaltyEnabled && loyaltyRedeemEnabled
 
   const sharedGst = (sharedRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-  const addonGst = member.hasAddons ? (member.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
+  const addonGst = member.hasAddons ? ((member.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)) : 0
   const autoGst = sharedGst + addonGst
 
   return (
@@ -296,7 +299,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
+              {(customers || []).filter((c) => c && !c.deleted && !(members || []).some(m => m && m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
             </select>
             <button
               type="button"
@@ -403,7 +406,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
                 onClick={() => {
                   const code = (member.promoCodeInput || '').trim().toUpperCase()
                   if (!code) return
-                  const promo = promoCodes?.find(p => p.code === code)
+                  const promo = (promoCodes || []).find(p => p && p.code === code)
                   if (!promo) {
                     onChange(member.id, { promoError: 'Invalid promo code' })
                     return
@@ -631,7 +634,7 @@ const GroupBilling = () => {
   const [splitDiscountMode, setSplitDiscountMode] = useState('individual') // 'individual' | 'group'
   const [splitGroupDiscount, setSplitGroupDiscount] = useState({ type: 'flat', value: 0 })
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => (Array.isArray(customers) ? customers.filter((c) => c && !c.deleted) : []), [customers])
 
   // Sync initial rows when inventory loads if default item IDs are missing
   useEffect(() => {
@@ -670,10 +673,10 @@ const GroupBilling = () => {
 
   const memberTotals = useMemo(() =>
     members.map((m) => {
-      const addonSubtotal = m.hasAddons ? m.addonRows.reduce((s, r) => s + Number(r.amount || 0), 0) : 0
+      const addonSubtotal = m.hasAddons ? (m.addonRows || []).reduce((s, r) => s + Number(r.amount || 0), 0) : 0
       const baseTotal = sharedSubtotal + addonSubtotal
       const sharedGst = sharedRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-      const addonGst = m.hasAddons ? m.addonRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
+      const addonGst = m.hasAddons ? (m.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
       const autoGst = sharedGst + addonGst
       const gstAmount = m.customGst !== undefined && m.customGst !== '' ? Number(m.customGst) : autoGst
       const cgst = gstAmount / 2
