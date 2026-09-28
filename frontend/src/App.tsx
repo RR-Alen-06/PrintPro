@@ -140,7 +140,7 @@ function App() {
   // Render Mobile App Routes in standalone mobile layout wrapped in ErrorBoundary
   if (isMobileRoute) {
     return (
-      <ErrorBoundary>
+      <ErrorBoundary key={location.pathname} resetKey={location.pathname}>
         <Routes>
           <Route path="/mobile/auth" element={<MobileAuth />} />
           <Route path="/mobile/dashboard" element={<MobileDashboard />} />
@@ -175,7 +175,7 @@ function App() {
       <div className="main-wrapper">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="main-content">
-          <ErrorBoundary>
+          <ErrorBoundary key={location.pathname} resetKey={location.pathname}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />

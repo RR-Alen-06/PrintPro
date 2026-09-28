@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useBills } from '../hooks/useBillsQuery'
-import { useCustomers } from '../hooks/useCustomersQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
@@ -42,6 +42,8 @@ const Dashboard = () => {
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
+  const { updateBill: updateBillMutation } = useBillMutations()
+  const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
   const advancePayments = serverAdvancePayments
   const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
@@ -100,14 +102,74 @@ const Dashboard = () => {
 
     setIsSubmittingPayment(true)
     try {
+      // Find customer's unpaid active bills sorted chronologically (FIFO)
+      const custUnpaidBills = (bills || [])
+        .filter(
+          (b) =>
+            !b.deleted &&
+            !b.deleted_at &&
+            !b.isGroupParent &&
+            !b.is_group_parent &&
+            String(b.customerId || b.customer_id) === String(paymentCustomerId) &&
+            Number(b.balance || 0) > 0
+        )
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+      let remaining = total
+      for (const b of custUnpaidBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
+        const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+        if (updateBillMutation) {
+          await updateBillMutation({
+            id: b.id,
+            data: {
+              balance: newBal,
+              status: newStatus,
+              amountPaid: newPaid,
+              amount_paid: newPaid,
+            }
+          })
+        }
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      // If customer overpaid (excess), credit customer advance / credit balance
+      if (remaining > 0) {
+        const custObj = (customers || []).find((c) => String(c.id) === String(paymentCustomerId))
+        if (custObj && updateCustomerMutation) {
+          const currentAdv = Number(custObj.advanceBalance || custObj.advance_balance || custObj.creditBalance || custObj.credit_balance || 0)
+          const newAdv = Number((currentAdv + remaining).toFixed(2))
+          await updateCustomerMutation({
+            id: custObj.id,
+            data: {
+              advanceBalance: newAdv,
+              advance_balance: newAdv,
+              creditBalance: newAdv,
+              credit_balance: newAdv,
+            }
+          })
+        }
+      }
+
       // Cloud mutation (optimistic updates and backend persistence)
       try {
         if (createPaymentMutation) {
           await createPaymentMutation({
             customer_id: paymentCustomerId,
+            customerId: paymentCustomerId,
             cash_amount: cash,
+            cashAmount: cash,
             upi_amount: upi,
+            upiAmount: upi,
             total_paid: total,
+            totalPaid: total,
+            payment_type: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+            paymentType: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
             notes: paymentNotes || 'Quick Payment via Dashboard',
             date: new Date().toISOString(),
           })
@@ -340,7 +402,10 @@ const Dashboard = () => {
     }
   }, [bills, payments, advancePayments, expenses, selectedFY])
 
-  const activeBills = useMemo(() => filteredData.bills.filter((b) => !b.deleted && !b.isGroupParent), [filteredData.bills])
+  const activeBills = useMemo(() => {
+    return ReconciliationService.reconcileBillsWithPayments(filteredData.bills, filteredData.payments)
+  }, [filteredData.bills, filteredData.payments])
+
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
@@ -372,8 +437,38 @@ const Dashboard = () => {
   }, [filteredData, totalCustomerAdvance])
 
   const agingReport = useMemo(() => {
-    return DashboardService.calculateAgingReport(bills)
-  }, [bills])
+    return DashboardService.calculateAgingReport(bills, payments)
+  }, [bills, payments])
+
+  // Background persistence of reconciled historical bills to database/cache
+  React.useEffect(() => {
+    if (!bills || bills.length === 0 || !payments || payments.length === 0) return
+    const reconciled = ReconciliationService.reconcileBillsWithPayments(bills, payments)
+    const outOfSyncBills = reconciled.filter((rb) => {
+      const original = bills.find((b) => String(b.id) === String(rb.id))
+      if (!original) return false
+      const origBal = Number(original.balance !== undefined ? original.balance : (original.total || 0))
+      return Math.abs(origBal - rb.balance) > 0.01
+    })
+
+    if (outOfSyncBills.length > 0 && updateBillMutation) {
+      outOfSyncBills.forEach(async (b) => {
+        try {
+          await updateBillMutation({
+            id: b.id,
+            data: {
+              balance: b.balance,
+              amountPaid: b.amountPaid,
+              amount_paid: b.amountPaid,
+              status: b.status,
+            }
+          })
+        } catch (e) {
+          console.warn('Auto-reconciliation background sync:', e)
+        }
+      })
+    }
+  }, [bills, payments])
 
   const refundPayments = useMemo(() => {
     return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
