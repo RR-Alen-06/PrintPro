@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { useInventory } from '../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useSettings } from '../hooks/useSettingsQuery'
+import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { ApiService } from '../services/apiService'
 import { BillingService } from '../services/billingService'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, RotateCcw } from 'lucide-react'
@@ -18,8 +21,8 @@ import { LoyaltyService } from '../services/loyaltyService'
 import { SequenceService } from '../services/sequenceService'
 
 
-const makeInitialRow = (inventory) => {
-  const firstItem = inventory[0]
+const makeInitialRow = (inventory = []) => {
+  const firstItem = (inventory || [])[0]
   const defaultPrice = Number(firstItem?.colorSingle !== undefined ? firstItem.colorSingle : (firstItem?.color_single ?? 10.0)) || 10.0
   return {
     id: `row-${Date.now()}`,
@@ -36,19 +39,50 @@ const makeInitialRow = (inventory) => {
 }
 
 const Billing = () => {
-  const { business, customers: contextCustomers, settings, inventory: contextInventory = [], payments, promoCodes, deleteBill, recordPayment, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const queryClient = useQueryClient()
+  const { business, customers: contextCustomers, inventory: contextInventory = [], payments, deleteBill, updateBill, editBill, createCreditNote, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { settings = {} } = useSettings()
+  const { promoCodes = [] } = usePromoCodes()
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
+  const { createPayment, isCreatingPayment } = usePaymentMutations()
   const customers = serverCustomers || contextCustomers || []
   const inventory = (serverInventory && serverInventory.length > 0) ? serverInventory : contextInventory
-  const { createBill, updateBill: updateBillMutation } = useBillMutations()
+  const { createBill, updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
+  const { adjustStock } = useInventoryMutations()
   const { createCustomer } = useCustomerMutations()
   const location = useLocation()
 
+  const deductStockForBillItems = async (itemsList) => {
+    if (!Array.isArray(itemsList) || itemsList.length === 0) return
+    const deductions = new Map()
+    for (const item of itemsList) {
+      const invItem = (inventory || []).find(
+        (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+      )
+      if (invItem && invItem.type === 'product') {
+        const qty = Number(item.qty || item.quantity || 0)
+        if (qty > 0) {
+          deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
+        }
+      }
+    }
+    if (deductions.size > 0) {
+      try {
+        await Promise.all(
+          Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
+        )
+      } catch (stockErr) {
+        console.error('Failed to deduct stock for bill items:', stockErr)
+        showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'warning')
+      }
+    }
+  }
+
   const [customerType, setCustomerType] = useState('regular')
   // For regular: select from dropdown
-  const [customerId, setCustomerId] = useState(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
+  const [customerId, setCustomerId] = useState((customers || []).find((c) => c && c.type === 'regular' && !c.deleted)?.id || '')
   // For random: 'existing' = pick from walk-in list, 'new' = create new
   const [randomMode, setRandomMode] = useState('existing')
   const [randomCustomerId, setRandomCustomerId] = useState('')
@@ -88,6 +122,7 @@ const Billing = () => {
 
   const [isEditing, setIsEditing] = useState(false)
   const [editingBillId, setEditingBillId] = useState(null)
+  const editingBill = useMemo(() => bills.find((b) => b.id === editingBillId), [bills, editingBillId])
   const [customGst, setCustomGst] = useState('')
 
   // Post-bill discount state (inside modal)
@@ -126,7 +161,7 @@ const Billing = () => {
   // Auto-select regular customer if unselected when customers load
   useEffect(() => {
     if (!customerId && customerType === 'regular') {
-      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'regular' && !c.deleted)
       if (first) setCustomerId(first.id)
     }
   }, [customers, customerId, customerType])
@@ -134,7 +169,7 @@ const Billing = () => {
   // Auto-select walk-in customer if unselected when mode is existing
   useEffect(() => {
     if (!randomCustomerId && customerType === 'random' && randomMode === 'existing') {
-      const first = customers.find((c) => c.type === 'random' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'random' && !c.deleted)
       if (first) setRandomCustomerId(first.id)
     }
   }, [customers, randomCustomerId, customerType, randomMode])
@@ -359,27 +394,54 @@ const Billing = () => {
   }
 
   // ── Follow-up payment ──────────────────────────────────────────────────────
-  const handleRecordFollowUpPayment = () => {
+  const handleRecordFollowUpPayment = async () => {
     if (!liveBill) return
     const cash = Number(followUpCash || 0)
     const upi = Number(followUpUpi || 0)
-    if (cash + upi <= 0) return
+    const total = cash + upi
+    if (total <= 0) return
 
-    recordPayment({
-      billId: liveBill.id,
-      customerId: liveBill.customerId,
-      cashAmount: cash,
-      upiAmount: upi,
-      notes: `Follow-up payment for ${liveBill.id}`,
-      returnChangeUpi: followUpReturnChange ? Math.max(0, (cash + upi) - liveBill.balance) : 0
-    })
+    const bBal = Number(liveBill.balance !== undefined ? liveBill.balance : (liveBill.total || 0))
+    const pType = total >= bBal ? 'full' : 'partial'
+    const custId = liveBill.customerId || liveBill.customer_id
 
-    setFollowUpCash(0)
-    setFollowUpUpi(0)
-    setFollowUpReturnChange(false)
-    setPaymentSuccess(true)
-    // Sync selectedBill so the derived liveBill picks up the change next render
-    setTimeout(() => setPaymentSuccess(false), 3500)
+    try {
+      if (createPayment) {
+        await createPayment({
+          bill_id: liveBill.id,
+          billId: liveBill.id,
+          customer_id: custId,
+          customerId: custId,
+          cash_amount: cash,
+          cashAmount: cash,
+          upi_amount: upi,
+          upiAmount: upi,
+          total_paid: total,
+          totalPaid: total,
+          payment_type: pType,
+          paymentType: pType,
+          paymentMethod: cash > 0 && upi > 0 ? 'split' : (cash > 0 ? 'cash' : 'upi'),
+          notes: `Follow-up payment for ${liveBill.invoiceNumber || liveBill.id}`,
+          date: new Date().toISOString()
+        })
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      ])
+
+      setFollowUpCash(0)
+      setFollowUpUpi(0)
+      setFollowUpReturnChange(false)
+      setPaymentSuccess(true)
+      showToast(`Follow-up payment of ₹${total.toFixed(2)} recorded successfully!`, 'success')
+      setTimeout(() => setPaymentSuccess(false), 3500)
+    } catch (err) {
+      showToast(err?.message || 'Failed to record follow-up payment', 'error')
+    }
   }
 
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
@@ -1018,13 +1080,13 @@ const Billing = () => {
     setCustomerType(type)
     setAdvanceUsed(0)
     if (type === 'regular') {
-      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
+      const first = (customers || []).find((c) => c && c.type === 'regular' && !c.deleted)
       setCustomerId(first?.id || '')
       setRandomCustomerId('')
       setRandomMode('existing')
     } else {
       setCustomerId('')
-      setRandomCustomerId(customers.find((c) => c.type === 'random' && !c.deleted)?.id || '')
+      setRandomCustomerId((customers || []).find((c) => c && c.type === 'random' && !c.deleted)?.id || '')
       setRandomMode('existing')
     }
     setCustomerName('')
@@ -1330,6 +1392,7 @@ const Billing = () => {
       }
 
       const createdBill = await createBill(billPayload)
+      await deductStockForBillItems(billPayload.items)
 
       const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
       const paid = Number(billPayload.amountPaid || billPayload.amount_paid || 0)
@@ -1359,7 +1422,7 @@ const Billing = () => {
     setIsEditing(false)
     setEditingBillId(null)
     setCustomerType('regular')
-    setCustomerId(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
+    setCustomerId((customers || []).find((c) => c && c.type === 'regular' && !c.deleted)?.id || '')
     setRandomCustomerId('')
     setRandomMode('existing')
     setCustomerName('')
@@ -1398,6 +1461,7 @@ const Billing = () => {
     } else {
       try {
         const createdBill = await createBill(finalPayload)
+        await deductStockForBillItems(finalPayload.items)
         const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
         const paid = Number(finalPayload.amountPaid || finalPayload.amount_paid || 0)
         const bal = Math.max((finalPayload.total || 0) - paid, 0)
@@ -2655,8 +2719,13 @@ const Billing = () => {
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"
-                      onClick={() => {
+                      onClick={async () => {
                         if (window.confirm(`Delete bill ${bill.id}? It will be moved to Deleted Bills.`)) {
+                          try {
+                            await deleteBillMutation(bill.id)
+                          } catch (err) {
+                            console.error('Failed to delete bill on server:', err)
+                          }
                           deleteBill(bill.id)
                         }
                       }}
@@ -2813,6 +2882,8 @@ const Billing = () => {
                     </div>
                   </div>
                   {(() => {
+                    const payingNow = Number(followUpCash || 0) + Number(followUpUpi || 0)
+                    const excess = Math.max(0, payingNow - Number(liveBill.balance || 0))
                     return excess > 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{

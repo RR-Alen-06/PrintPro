@@ -19,7 +19,9 @@ export class LedgerService {
       total?: number;
       paid_total?: number;
       amount_paid?: number;
+      amountPaid?: number;
       advance_used?: number;
+      advanceUsed?: number;
       payment_method?: string;
       loyalty_points_earned?: number;
       deleted?: boolean;
@@ -71,8 +73,8 @@ export class LedgerService {
     nonDeletedBills.forEach((b) => {
       const grandTotal = Number(b.grand_total !== undefined ? b.grand_total : (b.total || 0));
       const hasPaymentRecord = paymentBillIds.has(String(b.id));
-      const paidTotal = Number(b.paid_total !== undefined ? b.paid_total : (b.amount_paid || 0));
-      const advUsed = Number(b.advance_used || 0);
+      const paidTotal = Number(b.paid_total !== undefined ? b.paid_total : (b.amount_paid !== undefined ? b.amount_paid : (b.amountPaid || 0)));
+      const advUsed = Number(b.advance_used !== undefined ? b.advance_used : (b.advanceUsed || 0));
       const directPaid = hasPaymentRecord ? 0 : Math.max(0, paidTotal - advUsed);
       const effectivePaidOnBill = advUsed + directPaid;
 

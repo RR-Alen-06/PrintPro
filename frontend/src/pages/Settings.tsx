@@ -1,20 +1,152 @@
 import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import { useProfile, useProfileMutations } from '../hooks/useProfileQuery'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2, Hash, MessageSquare, Printer, RotateCcw } from 'lucide-react'
-import { clearAllCloudData, clearTransactionRecords } from '../lib/syncService'
-import { useQueryClient } from '@tanstack/react-query'
+import { useSettings, useSettingsMutations } from '../hooks/useSettingsQuery'
+import { usePromoCodes, usePromoCodeMutations } from '../hooks/usePromoCodesQuery'
 import { SequenceService } from '../services/sequenceService'
-import { ReminderService } from '../services/reminderService'
 
-const Settings = () => {
-  const queryClient = useQueryClient()
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, currentUser } = useAppContext()
+import {
+  Building2,
+  BarChart3,
+  Hash,
+  MessageSquare,
+  Gift,
+  Tag,
+  Palette,
+  Sliders,
+} from 'lucide-react'
+
+import { BusinessProfileTab, BusinessProfileData } from '../components/settings/BusinessProfileTab'
+import { AccountingTab, AccountingData } from '../components/settings/AccountingTab'
+import { SequencesTab, SequenceConfigData } from '../components/settings/SequencesTab'
+import { WhatsAppTab, WhatsAppTemplateData } from '../components/settings/WhatsAppTab'
+import { LoyaltyTab, LoyaltyData } from '../components/settings/LoyaltyTab'
+import { PromoCodesTab, NewPromoState } from '../components/settings/PromoCodesTab'
+import { BrandingTab, BrandingData } from '../components/settings/BrandingTab'
+import { MaintenanceTab } from '../components/settings/MaintenanceTab'
+
+interface TabDefinition {
+  id: string
+  label: string
+  sublabel: string
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>
+  color: string
+}
+
+const TABS: TabDefinition[] = [
+  {
+    id: 'profile',
+    label: 'Business Profile',
+    sublabel: 'Shop name, contact & UPI',
+    icon: Building2,
+    color: 'var(--accent)',
+  },
+  {
+    id: 'accounting',
+    label: 'Accounting',
+    sublabel: 'GST rate & reporting mode',
+    icon: BarChart3,
+    color: 'var(--warning)',
+  },
+  {
+    id: 'sequences',
+    label: 'Sequences & IDs',
+    sublabel: 'Prefixes & zero-padding',
+    icon: Hash,
+    color: '#3b82f6',
+  },
+  {
+    id: 'whatsapp',
+    label: 'WhatsApp & Reminders',
+    sublabel: 'Templates & live preview',
+    icon: MessageSquare,
+    color: '#25D366',
+  },
+  {
+    id: 'loyalty',
+    label: 'Loyalty Program',
+    sublabel: 'Points, tiers & redemption',
+    icon: Gift,
+    color: '#a855f7',
+  },
+  {
+    id: 'promos',
+    label: 'Coupons & Promo Codes',
+    sublabel: 'Discount rules & validity',
+    icon: Tag,
+    color: '#06b6d4',
+  },
+  {
+    id: 'branding',
+    label: 'Invoice Branding',
+    sublabel: 'Colors, logo, seal & print',
+    icon: Palette,
+    color: '#ec4899',
+  },
+  {
+    id: 'maintenance',
+    label: 'System & Maintenance',
+    sublabel: 'Storage & reset options',
+    icon: Sliders,
+    color: 'var(--error)',
+  },
+]
+
+const Settings: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const currentTabParam = searchParams.get('tab') || 'profile'
+  const activeTab = TABS.some((t) => t.id === currentTabParam) ? currentTabParam : 'profile'
+
+  const handleSelectTab = (tabId: string) => {
+    setSearchParams({ tab: tabId })
+  }
+
+  const { business, showToast } = useAppContext()
   const { data: serverProfile = {} } = useProfile()
   const { updateProfile } = useProfileMutations()
 
-  // Sequence configuration local state
-  const [seqConfigs, setSeqConfigs] = useState({
+  const { settings = {} } = useSettings()
+  const { updateSettings } = useSettingsMutations()
+  const { promoCodes = [] } = usePromoCodes()
+  const { createPromoCode, updatePromoCode, deletePromoCode } = usePromoCodeMutations()
+
+  // 1. Business profile local state
+  const [biz, setBiz] = useState<BusinessProfileData>({
+    shopName: business.shopName || '',
+    ownerName: business.ownerName || '',
+    phone: business.phone || '',
+    address: business.address || '',
+    gstin: business.gstin || '',
+    upiId: business.upiId || '',
+  })
+  const [bizSaved, setBizSaved] = useState(false)
+
+  // Sync serverProfile with local form state
+  useEffect(() => {
+    if (serverProfile && Object.keys(serverProfile).length > 0) {
+      setBiz((prev) => ({
+        shopName: prev.shopName || (serverProfile as any).shop_name || '',
+        ownerName: prev.ownerName || (serverProfile as any).owner_name || '',
+        phone: prev.phone || (serverProfile as any).phone || '',
+        address: prev.address || (serverProfile as any).address || '',
+        gstin: prev.gstin || (serverProfile as any).gstin || '',
+        upiId: prev.upiId || (serverProfile as any).upi_id || '',
+      }))
+    }
+  }, [serverProfile])
+
+  // 2. Accounting settings local state
+  const [acct, setAcct] = useState<AccountingData>({
+    gstRate: settings.gstRate ?? 0,
+    viewMode: settings.viewMode || 'monthly',
+    refundsEnabled: settings.refundsEnabled !== false,
+    fyInvoicePrefixing: settings.fyInvoicePrefixing === true,
+  })
+  const [acctSaved, setAcctSaved] = useState(false)
+
+  // 3. Sequence configuration local state
+  const [seqConfigs, setSeqConfigs] = useState<SequenceConfigData>({
     invPrefix: settings.invPrefix || 'INV',
     cusPrefix: settings.cusPrefix || 'CUS',
     itmPrefix: settings.itmPrefix || 'ITM',
@@ -26,60 +158,32 @@ const Settings = () => {
   })
   const [seqSaved, setSeqSaved] = useState(false)
 
-  // WhatsApp Notification Templates local state
-  const [waTemplates, setWaTemplates] = useState({
+  // 4. WhatsApp Notification Templates local state
+  const [waTemplates, setWaTemplates] = useState<WhatsAppTemplateData>({
     whatsappGreeting: settings.whatsappGreeting || 'Dear *{customer_name}*,',
-    whatsappFooter: settings.whatsappFooter || 'Thank you for choosing *{shop_name}*! For any queries, contact us at {phone}.',
+    whatsappFooter:
+      settings.whatsappFooter ||
+      'Thank you for choosing *{shop_name}*! For any queries, contact us at {phone}.',
     includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== false,
   })
   const [waSaved, setWaSaved] = useState(false)
   const [waPreviewTab, setWaPreviewTab] = useState<'invoice' | 'reminder'>('invoice')
 
-  // Business profile local state
-  const [biz, setBiz] = useState({
-    shopName: business.shopName || '',
-    ownerName: business.ownerName || '',
-    phone: business.phone || '',
-    address: business.address || '',
-    gstin: business.gstin || '',
-    upiId: business.upiId || '',
-  })
-  const [bizSaved, setBizSaved] = useState(false)
-
-  // Sync serverProfile with local form state when loaded from cloud
-  useEffect(() => {
-    if (serverProfile && Object.keys(serverProfile).length > 0) {
-      setBiz((prev) => ({
-        shopName: prev.shopName || serverProfile.shop_name || '',
-        ownerName: prev.ownerName || serverProfile.owner_name || '',
-        phone: prev.phone || serverProfile.phone || '',
-        address: prev.address || serverProfile.address || '',
-        gstin: prev.gstin || serverProfile.gstin || '',
-        upiId: prev.upiId || serverProfile.upi_id || '',
-      }))
-    }
-  }, [serverProfile])
-
-  // Accounting settings local state
-  const [acct, setAcct] = useState({
-    gstRate: settings.gstRate ?? 0,
-    viewMode: settings.viewMode || 'monthly',
-    refundsEnabled: settings.refundsEnabled !== false,
-    fyInvoicePrefixing: settings.fyInvoicePrefixing === true,
-  })
-  const [acctSaved, setAcctSaved] = useState(false)
-
-  const [loyalty, setLoyalty] = useState({
+  // 5. Loyalty local state
+  const [loyalty, setLoyalty] = useState<LoyaltyData>({
     loyaltyEnabled: settings.loyaltyEnabled !== false,
     loyaltyForRandomCustomers: settings.loyaltyForRandomCustomers === true,
     loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== false,
     loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? 150,
     loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? 5,
     loyaltyTiers: settings.loyaltyTiers?.length
-      ? settings.loyaltyTiers.map(t => ({ ...t }))
-      : [{ from: 1, to: 40, points: 1 }, { from: 41, to: 100, points: 2 }],
+      ? settings.loyaltyTiers.map((t: any) => ({ ...t }))
+      : [
+          { from: 1, to: 40, points: 1 },
+          { from: 41, to: 100, points: 2 },
+        ],
     loyaltyRedeemOptions: settings.loyaltyRedeemOptions?.length
-      ? settings.loyaltyRedeemOptions.map(o => ({ ...o }))
+      ? settings.loyaltyRedeemOptions.map((o: any) => ({ ...o }))
       : [
           { points: 100, rupees: 2.5 },
           { points: 120, rupees: 3 },
@@ -88,8 +192,8 @@ const Settings = () => {
   })
   const [loyaltySaved, setLoyaltySaved] = useState(false)
 
-  // Promo / Coupon Codes local state
-  const [newPromo, setNewPromo] = useState({
+  // 6. Promo local state
+  const [newPromo, setNewPromo] = useState<NewPromoState>({
     code: '',
     type: 'percent',
     value: '',
@@ -99,68 +203,8 @@ const Settings = () => {
     enabled: true,
   })
 
-  const handleAddPromo = (e) => {
-    e.preventDefault()
-    const codeUpper = newPromo.code.trim().toUpperCase()
-    if (!codeUpper) {
-      alert("Please enter a coupon code.")
-      return
-    }
-    const val = Number(newPromo.value)
-    if (isNaN(val) || val <= 0) {
-      alert("Please enter a valid discount value.")
-      return
-    }
-    if (newPromo.type === 'percent' && val > 100) {
-      alert("Percentage discount cannot exceed 100%.")
-      return
-    }
-    const minAmt = Number(newPromo.minAmount || 0)
-    
-    // Check if code already exists
-    if (promoCodes?.some(p => p.code === codeUpper)) {
-      alert("A coupon with this code already exists.")
-      return
-    }
-
-    const updated = [
-      ...(promoCodes || []),
-      {
-        code: codeUpper,
-        type: newPromo.type,
-        value: val,
-        minAmount: minAmt,
-        startDate: newPromo.startDate || null,
-        endDate: newPromo.endDate || null,
-        enabled: newPromo.enabled,
-      }
-    ]
-    setPromoCodes(updated)
-    setNewPromo({
-      code: '',
-      type: 'percent',
-      value: '',
-      minAmount: '',
-      startDate: '',
-      endDate: '',
-      enabled: true,
-    })
-  }
-
-  const handleDeletePromo = (codeToDelete) => {
-    const updated = (promoCodes || []).filter(p => p.code !== codeToDelete)
-    setPromoCodes(updated)
-  }
-
-  const handleTogglePromoEnabled = (codeToToggle) => {
-    const updated = (promoCodes || []).map(p => 
-      p.code === codeToToggle ? { ...p, enabled: p.enabled !== false ? false : true } : p
-    )
-    setPromoCodes(updated)
-  }
-
-  // Invoice Branding local state
-  const [branding, setBranding] = useState({
+  // 7. Branding local state
+  const [branding, setBranding] = useState<BrandingData>({
     primaryColor: settings.primaryColor || '#0f172a',
     logoUrl: settings.logoUrl || '',
     headerNotes: settings.headerNotes || '',
@@ -181,76 +225,99 @@ const Settings = () => {
   })
   const [brandingSaved, setBrandingSaved] = useState(false)
 
-  const handleLoyaltySave = (e) => {
-    e.preventDefault()
-    updateSettings({
-      loyaltyEnabled: loyalty.loyaltyEnabled,
-      loyaltyForRandomCustomers: loyalty.loyaltyForRandomCustomers,
-      loyaltyRedeemEnabled: loyalty.loyaltyRedeemEnabled,
-      loyaltyRedeemRatioPoints: Number(loyalty.loyaltyRedeemRatioPoints),
-      loyaltyRedeemRatioRupees: Number(loyalty.loyaltyRedeemRatioRupees),
-      loyaltyTiers: loyalty.loyaltyTiers.map(t => ({
-        from: Number(t.from),
-        to: Number(t.to),
-        points: Number(t.points),
-      })).filter(t => t.from >= 0 && t.to >= t.from && t.points > 0),
-      loyaltyRedeemOptions: loyalty.loyaltyRedeemOptions.map(o => ({
-        points: Number(o.points),
-        rupees: Number(o.rupees),
-      })).filter(o => o.points > 0 && o.rupees > 0).sort((a, b) => a.points - b.points),
-    })
-    setLoyaltySaved(true)
-    setTimeout(() => setLoyaltySaved(false), 3000)
-  }
-
-  const handleBrandingSave = (e) => {
-    e.preventDefault()
-    updateSettings(branding)
-    setBrandingSaved(true)
-    setTimeout(() => setBrandingSaved(false), 3000)
-  }
-
-  const handleLogoUpload = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 200000) {
-      alert("Logo size should be under 200KB to fit browser storage.")
-      return
+  // Sync server settings with local form state
+  useEffect(() => {
+    if (settings && Object.keys(settings).length > 0) {
+      setSeqConfigs((prev) => ({
+        invPrefix: settings.invPrefix || prev.invPrefix,
+        cusPrefix: settings.cusPrefix || prev.cusPrefix,
+        itmPrefix: settings.itmPrefix || prev.itmPrefix,
+        payPrefix: settings.payPrefix || prev.payPrefix,
+        expPrefix: settings.expPrefix || prev.expPrefix,
+        grpPrefix: settings.grpPrefix || prev.grpPrefix,
+        cnPrefix: settings.cnPrefix || prev.cnPrefix,
+        seqPadding: settings.seqPadding || prev.seqPadding,
+      }))
+      setWaTemplates((prev) => ({
+        whatsappGreeting: settings.whatsappGreeting || prev.whatsappGreeting,
+        whatsappFooter: settings.whatsappFooter || prev.whatsappFooter,
+        includeUpiInWhatsApp:
+          settings.includeUpiInWhatsApp !== undefined
+            ? settings.includeUpiInWhatsApp
+            : prev.includeUpiInWhatsApp,
+      }))
+      setAcct((prev) => ({
+        gstRate: settings.gstRate !== undefined ? settings.gstRate : prev.gstRate,
+        viewMode: settings.viewMode || prev.viewMode,
+        refundsEnabled:
+          settings.refundsEnabled !== undefined ? settings.refundsEnabled : prev.refundsEnabled,
+        fyInvoicePrefixing:
+          settings.fyInvoicePrefixing !== undefined
+            ? settings.fyInvoicePrefixing
+            : prev.fyInvoicePrefixing,
+      }))
+      setLoyalty((prev) => ({
+        loyaltyEnabled:
+          settings.loyaltyEnabled !== undefined ? settings.loyaltyEnabled : prev.loyaltyEnabled,
+        loyaltyForRandomCustomers:
+          settings.loyaltyForRandomCustomers !== undefined
+            ? settings.loyaltyForRandomCustomers
+            : prev.loyaltyForRandomCustomers,
+        loyaltyRedeemEnabled:
+          settings.loyaltyRedeemEnabled !== undefined
+            ? settings.loyaltyRedeemEnabled
+            : prev.loyaltyRedeemEnabled,
+        loyaltyRedeemRatioPoints:
+          settings.loyaltyRedeemRatioPoints ?? prev.loyaltyRedeemRatioPoints,
+        loyaltyRedeemRatioRupees:
+          settings.loyaltyRedeemRatioRupees ?? prev.loyaltyRedeemRatioRupees,
+        loyaltyTiers:
+          Array.isArray(settings.loyaltyTiers) && settings.loyaltyTiers.length
+            ? settings.loyaltyTiers
+            : prev.loyaltyTiers,
+        loyaltyRedeemOptions:
+          Array.isArray(settings.loyaltyRedeemOptions) && settings.loyaltyRedeemOptions.length
+            ? settings.loyaltyRedeemOptions
+            : prev.loyaltyRedeemOptions,
+      }))
+      setBranding((prev) => ({
+        primaryColor: settings.primaryColor || prev.primaryColor,
+        logoUrl: settings.logoUrl || prev.logoUrl,
+        headerNotes: settings.headerNotes || prev.headerNotes,
+        footerNotes: settings.footerNotes || prev.footerNotes,
+        showGstBreakdown:
+          settings.showGstBreakdown !== undefined
+            ? settings.showGstBreakdown
+            : prev.showGstBreakdown,
+        showUpiQrCode:
+          settings.showUpiQrCode !== undefined ? settings.showUpiQrCode : prev.showUpiQrCode,
+        silentThermalPrint:
+          settings.silentThermalPrint !== undefined
+            ? settings.silentThermalPrint
+            : prev.silentThermalPrint,
+        printPaperSize: settings.printPaperSize || prev.printPaperSize,
+        autoPrintOnSave:
+          settings.autoPrintOnSave !== undefined ? settings.autoPrintOnSave : prev.autoPrintOnSave,
+        shopSealUrl: settings.shopSealUrl || prev.shopSealUrl,
+        signatorySignatureUrl: settings.signatorySignatureUrl || prev.signatorySignatureUrl,
+        pdfShowType: settings.pdfShowType !== undefined ? settings.pdfShowType : prev.pdfShowType,
+        pdfShowSides:
+          settings.pdfShowSides !== undefined ? settings.pdfShowSides : prev.pdfShowSides,
+        pdfShowUnitPrice:
+          settings.pdfShowUnitPrice !== undefined
+            ? settings.pdfShowUnitPrice
+            : prev.pdfShowUnitPrice,
+        pdfShowGstRate:
+          settings.pdfShowGstRate !== undefined ? settings.pdfShowGstRate : prev.pdfShowGstRate,
+        pdfColorTheme: settings.pdfColorTheme || prev.pdfColorTheme,
+        pdfLegalFooter: settings.pdfLegalFooter || prev.pdfLegalFooter,
+      }))
     }
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setBranding(prev => ({ ...prev, logoUrl: reader.result }))
-    }
-    reader.readAsDataURL(file)
-  }
+  }, [settings])
 
-  const handleClearLogo = () => {
-    setBranding(prev => ({ ...prev, logoUrl: '' }))
-  }
-
-  const handleSealUpload = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 200000) { alert('Seal image should be under 200KB.'); return }
-    const reader = new FileReader()
-    reader.onloadend = () => { setBranding(prev => ({ ...prev, shopSealUrl: reader.result })) }
-    reader.readAsDataURL(file)
-  }
-
-  const handleSignatureUpload = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 200000) { alert('Signature image should be under 200KB.'); return }
-    const reader = new FileReader()
-    reader.onloadend = () => { setBranding(prev => ({ ...prev, signatorySignatureUrl: reader.result })) }
-    reader.readAsDataURL(file)
-  }
-
-  const [clearConfirm, setClearConfirm] = useState(false)
-
+  // Profile save
   const handleSaveBiz = async (e: any) => {
     e.preventDefault()
-    updateBusiness(biz)
     try {
       await updateProfile({
         shop_name: biz.shopName,
@@ -262,24 +329,33 @@ const Settings = () => {
       } as any)
       setBizSaved(true)
       setTimeout(() => setBizSaved(false), 3000)
+      showToast?.('Business profile saved to cloud!', 'success')
     } catch (err) {
       console.error('Failed to save profile via query mutation:', err)
+      showToast?.('Failed to save profile', 'error')
     }
   }
 
-  const handleAcctSave = (e) => {
+  // Accounting save
+  const handleAcctSave = async (e: any) => {
     e.preventDefault()
-    updateSettings({
-      gstRate: Number(acct.gstRate),
-      viewMode: acct.viewMode,
-      refundsEnabled: acct.refundsEnabled,
-      fyInvoicePrefixing: acct.fyInvoicePrefixing,
-    })
-    setAcctSaved(true)
-    setTimeout(() => setAcctSaved(false), 3000)
+    try {
+      await updateSettings({
+        gstRate: Number(acct.gstRate),
+        viewMode: acct.viewMode,
+        refundsEnabled: acct.refundsEnabled,
+        fyInvoicePrefixing: acct.fyInvoicePrefixing,
+      })
+      setAcctSaved(true)
+      setTimeout(() => setAcctSaved(false), 3000)
+      showToast?.('Accounting settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save accounting settings', 'error')
+    }
   }
 
-  const handleSeqSave = async (e) => {
+  // Sequence save
+  const handleSeqSave = async (e: any) => {
     e.preventDefault()
     const cleanPadding = Math.min(10, Math.max(3, Number(seqConfigs.seqPadding) || 6))
     const updated = {
@@ -292,9 +368,8 @@ const Settings = () => {
       cnPrefix: seqConfigs.cnPrefix.trim().toUpperCase() || 'CN',
       seqPadding: cleanPadding,
     }
-    updateSettings(updated)
-
     try {
+      await updateSettings(updated)
       await SequenceService.updateSequenceConfig('BILL', updated.invPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('CUSTOMER', updated.cusPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('INVENTORY', updated.itmPrefix, cleanPadding)
@@ -302,1428 +377,411 @@ const Settings = () => {
       await SequenceService.updateSequenceConfig('EXPENSE', updated.expPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('GROUP', updated.grpPrefix, cleanPadding)
       await SequenceService.updateSequenceConfig('CREDITNOTE', updated.cnPrefix, cleanPadding)
-    } catch (err) {
-      console.warn('Sync sequence config to server failed, stored locally:', err)
+      setSeqSaved(true)
+      setTimeout(() => setSeqSaved(false), 3000)
+      showToast?.('Sequence and ID format settings saved!', 'success')
+    } catch (err: any) {
+      console.warn('Sync sequence config to server failed:', err)
+      showToast?.(err?.message || 'Failed to save sequence settings', 'error')
     }
-
-    setSeqSaved(true)
-    setTimeout(() => setSeqSaved(false), 3000)
-    showToast('Sequence and ID format settings saved!', 'success')
   }
 
-  const handleWaSave = (e: React.FormEvent) => {
+  // WhatsApp save
+  const handleWaSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    updateSettings({
-      whatsappGreeting: waTemplates.whatsappGreeting.trim(),
-      whatsappFooter: waTemplates.whatsappFooter.trim(),
-      includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
-    })
-    setWaSaved(true)
-    setTimeout(() => setWaSaved(false), 3000)
-    showToast('WhatsApp notification templates saved!', 'success')
+    try {
+      await updateSettings({
+        whatsappGreeting: waTemplates.whatsappGreeting.trim(),
+        whatsappFooter: waTemplates.whatsappFooter.trim(),
+        includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
+      })
+      setWaSaved(true)
+      setTimeout(() => setWaSaved(false), 3000)
+      showToast?.('WhatsApp notification templates saved!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save WhatsApp notification templates', 'error')
+    }
   }
 
-  // Clear / Reset Modals state
-  const [showResetModal, setShowResetModal] = useState(false)
-  const [resetConfirmationText, setResetConfirmationText] = useState('')
-  const [isResetting, setIsResetting] = useState(false)
+  // Loyalty save
+  const handleLoyaltySave = async (e: any) => {
+    e.preventDefault()
+    try {
+      await updateSettings({
+        loyaltyEnabled: loyalty.loyaltyEnabled,
+        loyaltyForRandomCustomers: loyalty.loyaltyForRandomCustomers,
+        loyaltyRedeemEnabled: loyalty.loyaltyRedeemEnabled,
+        loyaltyRedeemRatioPoints: Number(loyalty.loyaltyRedeemRatioPoints),
+        loyaltyRedeemRatioRupees: Number(loyalty.loyaltyRedeemRatioRupees),
+        loyaltyTiers: loyalty.loyaltyTiers
+          .map((t) => ({
+            from: Number(t.from),
+            to: Number(t.to),
+            points: Number(t.points),
+          }))
+          .filter((t) => t.from >= 0 && t.to >= t.from && t.points > 0),
+        loyaltyRedeemOptions: loyalty.loyaltyRedeemOptions
+          .map((o) => ({
+            points: Number(o.points),
+            rupees: Number(o.rupees),
+          }))
+          .filter((o) => o.points > 0 && o.rupees > 0)
+          .sort((a, b) => a.points - b.points),
+      })
+      setLoyaltySaved(true)
+      setTimeout(() => setLoyaltySaved(false), 3000)
+      showToast?.('Loyalty program settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save loyalty settings', 'error')
+    }
+  }
 
-  const [showFactoryResetModal, setShowFactoryResetModal] = useState(false)
-  const [factoryResetConfirmationText, setFactoryResetConfirmationText] = useState('')
-  const [isFactoryResetting, setIsFactoryResetting] = useState(false)
+  // Promo code handlers
+  const handleAddPromo = async (e: any) => {
+    e.preventDefault()
+    const codeUpper = newPromo.code.trim().toUpperCase()
+    if (!codeUpper) {
+      alert('Please enter a coupon code.')
+      return
+    }
+    const val = Number(newPromo.value)
+    if (isNaN(val) || val <= 0) {
+      alert('Please enter a valid discount value.')
+      return
+    }
+    if (newPromo.type === 'percent' && val > 100) {
+      alert('Percentage discount cannot exceed 100%.')
+      return
+    }
+    const minAmt = Number(newPromo.minAmount || 0)
 
-  const handleResetTransactions = async () => {
-    if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
-      showToast('Type RESET in capital letters to confirm', 'error')
+    if (promoCodes?.some((p) => p.code === codeUpper)) {
+      alert('A coupon with this code already exists.')
       return
     }
 
     try {
-      setIsResetting(true)
-      showToast('Clearing transaction records from database...', 'info')
-      await clearTransactionRecords()
-
-      const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
-      const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
-
-      const cleanState = {
-        ...currentState,
-        bills: [],
-        payments: [],
-        expenses: [],
-        advancePayments: [],
-        advances: [],
-      }
-
-      localStorage.setItem(userKey, JSON.stringify(cleanState))
-      queryClient.clear()
-      setShowResetModal(false)
-      setResetConfirmationText('')
-      showToast('Transactions wiped! Reloading application...', 'success')
-      setTimeout(() => window.location.reload(), 1000)
+      await createPromoCode({
+        code: codeUpper,
+        type: newPromo.type,
+        value: val,
+        minAmount: minAmt,
+        startDate: newPromo.startDate || null,
+        endDate: newPromo.endDate || null,
+        enabled: newPromo.enabled,
+      })
+      setNewPromo({
+        code: '',
+        type: 'percent',
+        value: '',
+        minAmount: '',
+        startDate: '',
+        endDate: '',
+        enabled: true,
+      })
+      showToast?.(`Promo code ${codeUpper} created successfully!`, 'success')
     } catch (err: any) {
-      console.error(err)
-      showToast(`Failed to reset transactions: ${err.message || err}`, 'error')
-    } finally {
-      setIsResetting(false)
+      showToast?.(err?.message || 'Failed to create promo code', 'error')
     }
   }
 
-  const handleFactoryReset = async () => {
-    if (factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET') {
-      showToast('Type FACTORY RESET in capital letters to confirm', 'error')
+  const handleDeletePromo = async (codeToDelete: string) => {
+    const target = (promoCodes || []).find((p) => p.code === codeToDelete || p.id === codeToDelete)
+    if (!target) return
+    try {
+      await deletePromoCode(target.id || target.code)
+      showToast?.(`Promo code ${target.code} deleted`, 'info')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to delete promo code', 'error')
+    }
+  }
+
+  const handleTogglePromoEnabled = async (codeToToggle: string) => {
+    const target = (promoCodes || []).find((p) => p.code === codeToToggle || p.id === codeToToggle)
+    if (!target) return
+    const newEnabled = target.enabled === false
+    try {
+      await updatePromoCode({
+        id: target.id || target.code,
+        data: { enabled: newEnabled },
+      })
+      showToast?.(`Promo code ${target.code} ${newEnabled ? 'enabled' : 'disabled'}`, 'info')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to update promo code', 'error')
+    }
+  }
+
+  // Branding handlers
+  const handleBrandingSave = async (e: any) => {
+    e.preventDefault()
+    try {
+      await updateSettings(branding)
+      setBrandingSaved(true)
+      setTimeout(() => setBrandingSaved(false), 3000)
+      showToast?.('Branding settings saved to cloud!', 'success')
+    } catch (err: any) {
+      showToast?.(err?.message || 'Failed to save branding settings', 'error')
+    }
+  }
+
+  const handleLogoUpload = (e: any) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 200000) {
+      alert('Logo size should be under 200KB to fit browser storage.')
       return
     }
-
-    try {
-      setIsFactoryResetting(true)
-      showToast('Performing full factory reset on database...', 'info')
-      await clearAllCloudData()
-
-      if (currentUser?.id) {
-        localStorage.removeItem(`printpro-state:${currentUser.id}`)
-      }
-      localStorage.removeItem('printpro-state')
-      queryClient.clear()
-      setShowFactoryResetModal(false)
-      setFactoryResetConfirmationText('')
-      showToast('All system data factory reset! Reloading...', 'success')
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
-    } catch (err: any) {
-      console.error(err)
-      showToast(`Failed to factory reset: ${err.message || err}`, 'error')
-    } finally {
-      setIsFactoryResetting(false)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setBranding((prev) => ({ ...prev, logoUrl: reader.result as string }))
     }
+    reader.readAsDataURL(file)
+  }
+
+  const handleClearLogo = () => {
+    setBranding((prev) => ({ ...prev, logoUrl: '' }))
+  }
+
+  const handleSealUpload = (e: any) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 200000) {
+      alert('Seal image should be under 200KB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setBranding((prev) => ({ ...prev, shopSealUrl: reader.result as string }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSignatureUpload = (e: any) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 200000) {
+      alert('Signature image should be under 200KB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setBranding((prev) => ({ ...prev, signatorySignatureUrl: reader.result as string }))
+    }
+    reader.readAsDataURL(file)
   }
 
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: '20px' }}>
         <h1>Settings</h1>
-        <p>Configure your business profile, accounting preferences, and app settings.</p>
+        <p>Configure business details, accounting preferences, templates, and system behavior.</p>
       </div>
 
-      {/* Section 1: Business Profile */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
-            <Building2 size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Business Profile</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Shown on receipts and invoices.</p>
-          </div>
-        </div>
+      <div
+        className="settings-layout"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(240px, 280px) 1fr',
+          gap: '24px',
+          alignItems: 'start',
+        }}
+      >
+        {/* Left Sidebar Navigation */}
+        <aside
+          className="settings-sidebar"
+          style={{
+            background: 'var(--bg-card, #1e293b)',
+            borderRadius: 'var(--radius-lg, 12px)',
+            border: '1px solid var(--border, rgba(255,255,255,0.08))',
+            padding: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          }}
+        >
+          {TABS.map((tab) => {
+            const Icon = tab.icon
+            const isSelected = activeTab === tab.id
 
-        <form onSubmit={handleSaveBiz} autoComplete="off">
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Shop Name</label>
-              <input
-                className="form-input"
-                type="text"
-                value={biz.shopName}
-                onChange={(e) => setBiz((b) => ({ ...b, shopName: e.target.value }))}
-                placeholder="e.g. PrintPro"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Owner Name</label>
-              <input
-                className="form-input"
-                type="text"
-                value={biz.ownerName}
-                onChange={(e) => setBiz((b) => ({ ...b, ownerName: e.target.value }))}
-                placeholder="Full name"
-              />
-            </div>
-          </div>
-          <div className="form-row" style={{ marginTop: '4px' }}>
-            <div className="form-group">
-              <label className="form-label">Phone</label>
-              <input
-                className="form-input"
-                type="tel"
-                value={biz.phone}
-                onChange={(e) => setBiz((b) => ({ ...b, phone: e.target.value }))}
-                placeholder="Contact number"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">UPI ID</label>
-              <input
-                className="form-input"
-                type="text"
-                value={biz.upiId}
-                onChange={(e) => setBiz((b) => ({ ...b, upiId: e.target.value }))}
-                placeholder="e.g. yourshop@upi"
-              />
-            </div>
-          </div>
-          <div className="form-row" style={{ marginTop: '4px' }}>
-            <div className="form-group">
-              <label className="form-label">GSTIN</label>
-              <input
-                className="form-input"
-                type="text"
-                value={biz.gstin}
-                onChange={(e) => setBiz((b) => ({ ...b, gstin: e.target.value }))}
-                placeholder="GST Number"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Address</label>
-              <textarea
-                className="form-textarea"
-                value={biz.address}
-                onChange={(e) => setBiz((b) => ({ ...b, address: e.target.value }))}
-                placeholder="Shop address"
-                style={{ minHeight: '60px' }}
-              />
-            </div>
-          </div>
-
-          {bizSaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> Business profile saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>
-            <Save size={16} /> Save Profile
-          </button>
-        </form>
-      </div>
-
-      {/* Section 2: Accounting Settings */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--warning)' }}>
-            <BarChart3 size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Accounting Settings</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>GST rate and reporting preferences.</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleAcctSave} autoComplete="off">
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">GST Rate (%)</label>
-              <input
-                className="form-input"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={acct.gstRate}
-                onChange={(e) => setAcct((a) => ({ ...a, gstRate: e.target.value }))}
-                placeholder="0"
-              />
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Set to 0 to disable GST calculation.
-              </p>
-            </div>
-            <div className="form-group">
-              <label className="form-label">View Mode</label>
-              <select
-                className="form-select"
-                value={acct.viewMode}
-                onChange={(e) => setAcct((a) => ({ ...a, viewMode: e.target.value }))}
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleSelectTab(tab.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  border: isSelected
+                    ? '1px solid rgba(59, 130, 246, 0.4)'
+                    : '1px solid transparent',
+                  background: isSelected
+                    ? 'rgba(59, 130, 246, 0.12)'
+                    : 'transparent',
+                  color: isSelected ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                  width: '100%',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'
+                    e.currentTarget.style.color = '#ffffff'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.color = 'var(--text-secondary, #94a3b8)'
+                  }
+                }}
               >
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Default date range for reports.
-              </p>
-            </div>
-          </div>
-          <div className="form-row" style={{ marginTop: '12px' }}>
-            <div className="form-group" style={{ marginBottom: '0' }}>
-              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={acct.refundsEnabled}
-                  onChange={(e) => setAcct((a) => ({ ...a, refundsEnabled: e.target.checked }))}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <span style={{ fontWeight: 600 }}>Enable Refunds Module</span>
-              </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                Show the Refunds module for managing cash/UPI reversals.
-              </p>
-            </div>
-          </div>
-          <div className="form-row" style={{ marginTop: '12px', marginBottom: '16px' }}>
-            <div className="form-group" style={{ marginBottom: '0' }}>
-              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={acct.fyInvoicePrefixing}
-                  onChange={(e) => setAcct((a) => ({ ...a, fyInvoicePrefixing: e.target.checked }))}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <span style={{ fontWeight: 600 }}>Enable Financial Year (FY) Invoice Prefixing & Reset</span>
-              </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                Generate tax invoices prefixed with the current FY (e.g. INV/26-27/0001) and reset sequence back to 1 every April 1st.
-              </p>
-            </div>
-          </div>
-
-          {acctSaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> Accounting settings saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary">
-            <Save size={16} /> Save Settings
-          </button>
-        </form>
-      </div>
-
-      {/* Section 2B: Sequence & Human-Readable ID Configuration */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'rgba(59, 130, 246, 0.15)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
-            <Hash size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Sequence &amp; Human-Readable ID Format</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Customize code prefixes and zero-padding across all ERP registers.</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSeqSave} autoComplete="off">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            <div className="form-group">
-              <label className="form-label">Invoice / Bill Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.invPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, invPrefix: e.target.value.toUpperCase() }))}
-                placeholder="INV"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.invPrefix || 'INV'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Customer Code Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.cusPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, cusPrefix: e.target.value.toUpperCase() }))}
-                placeholder="CUS"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.cusPrefix || 'CUS'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Inventory Item Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.itmPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, itmPrefix: e.target.value.toUpperCase() }))}
-                placeholder="ITM"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.itmPrefix || 'ITM'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Payment Receipt Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.payPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, payPrefix: e.target.value.toUpperCase() }))}
-                placeholder="PAY"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.payPrefix || 'PAY'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Expense Entry Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.expPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, expPrefix: e.target.value.toUpperCase() }))}
-                placeholder="EXP"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.expPrefix || 'EXP'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Group Invoice Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.grpPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, grpPrefix: e.target.value.toUpperCase() }))}
-                placeholder="GRP"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.grpPrefix || 'GRP'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Credit Note / Return Prefix</label>
-              <input
-                className="form-input"
-                type="text"
-                value={seqConfigs.cnPrefix}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, cnPrefix: e.target.value.toUpperCase() }))}
-                placeholder="CN"
-                maxLength={8}
-              />
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Preview: <code style={{ color: 'var(--accent)' }}>{`${seqConfigs.cnPrefix || 'CN'}-${'1'.padStart(Number(seqConfigs.seqPadding) || 6, '0')}`}</code>
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Zero-Padding Digits</label>
-              <select
-                className="form-select"
-                value={seqConfigs.seqPadding}
-                onChange={(e) => setSeqConfigs(c => ({ ...c, seqPadding: Number(e.target.value) }))}
-              >
-                <option value={4}>4 digits (e.g. 0001)</option>
-                <option value={5}>5 digits (e.g. 00001)</option>
-                <option value={6}>6 digits (e.g. 000001)</option>
-                <option value={8}>8 digits (e.g. 00000001)</option>
-              </select>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Zero-padding width applied to newly generated codes.
-              </p>
-            </div>
-          </div>
-
-          {seqSaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px', marginTop: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> Sequence format settings saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary" style={{ marginTop: '14px' }}>
-            <Save size={16} /> Save Sequence Settings
-          </button>
-        </form>
-      </div>
-
-      {/* Section: WhatsApp & Notification Templates */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'rgba(37, 211, 102, 0.15)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#25D366' }}>
-            <MessageSquare size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>WhatsApp & Reminder Templates</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Customize automated invoice receipts, overdue payment reminders, and UPI collection links.</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleWaSave} autoComplete="off">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '16px' }}>
-            <div>
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <label className="form-label">Greeting Header Template</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={waTemplates.whatsappGreeting}
-                  onChange={(e) => setWaTemplates(c => ({ ...c, whatsappGreeting: e.target.value }))}
-                  placeholder="Dear *{customer_name}*,"
-                />
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Tag <code>{'{customer_name}'}</code> will be auto-replaced with the customer's name.
-                </p>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <label className="form-label">Closing Footer Template</label>
-                <textarea
-                  className="form-input"
-                  rows={3}
-                  value={waTemplates.whatsappFooter}
-                  onChange={(e) => setWaTemplates(c => ({ ...c, whatsappFooter: e.target.value }))}
-                  placeholder="Thank you for choosing *{shop_name}*! For queries, contact us at {phone}."
-                  style={{ resize: 'vertical' }}
-                />
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Tag <code>{'{shop_name}'}</code> will be auto-replaced with your shop name.
-                </p>
-              </div>
-
-              <div className="form-group">
-                <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={waTemplates.includeUpiInWhatsApp}
-                    onChange={(e) => setWaTemplates(c => ({ ...c, includeUpiInWhatsApp: e.target.checked }))}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <span style={{ fontWeight: 600 }}>Include 1-Click UPI Pay Link for Balances</span>
-                </label>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                  Automatically attaches your UPI VPA (<code>{business.upiId || 'Not configured'}</code>) to messages when an invoice or ledger balance is due.
-                </p>
-              </div>
-            </div>
-
-            {/* Live Preview Box */}
-            <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#25D366', letterSpacing: '0.05em' }}>LIVE WHATSAPP PREVIEW</span>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setWaPreviewTab('invoice')}
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '6px',
+                    background: isSelected ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.05)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: isSelected ? '#60a5fa' : tab.color,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon size={17} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
                     style={{
-                      background: waPreviewTab === 'invoice' ? '#25D366' : 'transparent',
-                      color: waPreviewTab === 'invoice' ? '#000' : 'var(--text-muted)',
-                      border: '1px solid var(--border)',
-                      padding: '3px 10px',
-                      borderRadius: '4px',
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      cursor: 'pointer'
+                      fontSize: '0.88rem',
+                      fontWeight: isSelected ? 700 : 500,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
                     }}
                   >
-                    Invoice Receipt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWaPreviewTab('reminder')}
+                    {tab.label}
+                  </div>
+                  <div
                     style={{
-                      background: waPreviewTab === 'reminder' ? '#25D366' : 'transparent',
-                      color: waPreviewTab === 'reminder' ? '#000' : 'var(--text-muted)',
-                      border: '1px solid var(--border)',
-                      padding: '3px 10px',
-                      borderRadius: '4px',
                       fontSize: '0.72rem',
-                      fontWeight: 600,
-                      cursor: 'pointer'
+                      color: isSelected ? '#93c5fd' : 'var(--text-muted, #64748b)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      marginTop: '1px',
                     }}
                   >
-                    Ledger Reminder
-                  </button>
-                </div>
-              </div>
-
-              <div style={{
-                background: '#0b141a',
-                border: '1px solid #1f2c34',
-                borderRadius: '8px',
-                padding: '12px 14px',
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-                lineHeight: '1.45',
-                color: '#e9edef',
-                whiteSpace: 'pre-wrap',
-                maxHeight: '260px',
-                overflowY: 'auto'
-              }}>
-                {waPreviewTab === 'invoice' ? (
-                  ReminderService.buildInvoiceMessage(
-                    {
-                      invoiceNumber: `${seqConfigs.invPrefix || 'INV'}-000042`,
-                      date: new Date().toISOString(),
-                      customerName: 'Rahul Sharma',
-                      items: [
-                        { name: 'A4 Color Print', qty: 10, rate: 10, amount: 100 },
-                        { name: 'Spiral Binding', qty: 1, rate: 40, amount: 40 },
-                      ],
-                      total: 140,
-                      paidTotal: 40,
-                      balance: 100,
-                    },
-                    business,
-                    waTemplates
-                  )
-                ) : (
-                  ReminderService.buildLedgerReminderMessage(
-                    { name: 'Rahul Sharma', phone: '9876543210' },
-                    -350,
-                    business,
-                    waTemplates
-                  )
-                )}
-              </div>
-            </div>
-          </div>
-
-          {waSaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px', marginTop: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> WhatsApp reminder templates saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary" style={{ marginTop: '10px' }}>
-            <Save size={16} /> Save WhatsApp Templates
-          </button>
-        </form>
-      </div>
-
-      {/* Section 3: Loyalty Program Settings */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
-            <Gift size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Customer Loyalty Program</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Manage reward points earning and redemption ratios.</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleLoyaltySave} autoComplete="off">
-          <div className="form-group" style={{ marginBottom: '16px' }}>
-            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={loyalty.loyaltyEnabled}
-                onChange={(e) => setLoyalty((prev) => ({ ...prev, loyaltyEnabled: e.target.checked }))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span style={{ fontWeight: 600 }}>Enable Customer Loyalty Program</span>
-            </label>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-              Enable to reward points to regular customers and allow point redemptions.
-            </p>
-          </div>
-
-          {loyalty.loyaltyEnabled && (
-            <div className="form-group" style={{ marginBottom: '16px', marginLeft: '26px' }}>
-              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={loyalty.loyaltyForRandomCustomers}
-                  onChange={(e) => setLoyalty((prev) => ({ ...prev, loyaltyForRandomCustomers: e.target.checked }))}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <span style={{ fontWeight: 600 }}>Earn Points for Random / Walk-in Customers</span>
-              </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                Allow non-registered (walk-in) guests to earn loyalty points on their invoices.
-              </p>
-            </div>
-          )}
-
-          {loyalty.loyaltyEnabled && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={loyalty.loyaltyRedeemEnabled}
-                    onChange={(e) => setLoyalty((prev) => ({ ...prev, loyaltyRedeemEnabled: e.target.checked }))}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <span style={{ fontWeight: 600 }}>Enable Points Redemption</span>
-                </label>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '26px' }}>
-                  Toggle whether customers can redeem accumulated points at checkout.
-                </p>
-              </div>
-
-              {/* Tiered Points Earning Table */}
-              <div className="form-group">
-                <label className="form-label" style={{ marginBottom: '8px', display: 'block' }}>Points Earning Tiers</label>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                  Define how many points a customer earns for spending within each range. Points are credited only after full bill payment.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {/* Header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 36px', gap: '8px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                    <span>From ₹ (≥)</span>
-                    <span>To ₹ (≤)</span>
-                    <span>Points Earned</span>
-                    <span></span>
+                    {tab.sublabel}
                   </div>
-                  {loyalty.loyaltyTiers.map((tier, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 36px', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        className="form-input"
-                        type="number" min="0" step="1"
-                        value={tier.from}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], from: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <input
-                        className="form-input"
-                        type="number" min="0" step="1"
-                        value={tier.to}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], to: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <input
-                        className="form-input"
-                        type="number" min="1" step="1"
-                        value={tier.points}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], points: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLoyalty(prev => ({ ...prev, loyaltyTiers: prev.loyaltyTiers.filter((_, j) => j !== i) }))}
-                        style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
-                        title="Remove tier"
-                      >×</button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setLoyalty(prev => ({
-                      ...prev,
-                      loyaltyTiers: [
-                        ...prev.loyaltyTiers,
-                        {
-                          from: prev.loyaltyTiers.length ? Number(prev.loyaltyTiers[prev.loyaltyTiers.length - 1].to) + 1 : 1,
-                          to: prev.loyaltyTiers.length ? Number(prev.loyaltyTiers[prev.loyaltyTiers.length - 1].to) + 50 : 50,
-                          points: prev.loyaltyTiers.length ? Number(prev.loyaltyTiers[prev.loyaltyTiers.length - 1].points) + 1 : 1,
-                        }
-                      ]
-                    }))}
-                    style={{ alignSelf: 'flex-start', padding: '5px 14px', fontSize: '0.8rem', borderRadius: '6px', border: '1px dashed var(--border)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
-                  >+ Add Tier</button>
-                  {loyalty.loyaltyTiers.length > 0 && (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 12px', marginTop: '4px' }}>
-                      Preview: {loyalty.loyaltyTiers.map((t, i) => `₹${t.from}–₹${t.to} = ${t.points} pt${Number(t.points) !== 1 ? 's' : ''}`).join(' · ')}
-                    </div>
-                  )}
                 </div>
-              </div>
-
-              {/* Redemption Options */}
-              {loyalty.loyaltyRedeemEnabled && (
-                <div className="form-group">
-                  <label className="form-label" style={{ display: 'block', marginBottom: '8px' }}>Redemption Points Ratio Options</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {loyalty.loyaltyRedeemOptions.map((opt, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          className="form-input"
-                          type="number"
-                          min="1"
-                          placeholder="Points"
-                          value={opt.points}
-                          onChange={(e) => setLoyalty(prev => {
-                            const options = [...prev.loyaltyRedeemOptions]
-                            options[i] = { ...options[i], points: e.target.value }
-                            return { ...prev, loyaltyRedeemOptions: options }
-                          })}
-                          required
-                          style={{ flex: 1 }}
-                        />
-                        <span>Points =</span>
-                        <input
-                          className="form-input"
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          placeholder="Discount (₹)"
-                          value={opt.rupees}
-                          onChange={(e) => setLoyalty(prev => {
-                            const options = [...prev.loyaltyRedeemOptions]
-                            options[i] = { ...options[i], rupees: e.target.value }
-                            return { ...prev, loyaltyRedeemOptions: options }
-                          })}
-                          required
-                          style={{ flex: 1 }}
-                        />
-                        <span>Rs.</span>
-                        <button
-                          type="button"
-                          onClick={() => setLoyalty(prev => ({
-                            ...prev,
-                            loyaltyRedeemOptions: prev.loyaltyRedeemOptions.filter((_, j) => j !== i)
-                          }))}
-                          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
-                          title="Remove option"
-                        >×</button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setLoyalty(prev => ({
-                        ...prev,
-                        loyaltyRedeemOptions: [
-                          ...prev.loyaltyRedeemOptions,
-                          { points: '', rupees: '' }
-                        ]
-                      }))}
-                      style={{ alignSelf: 'flex-start', padding: '5px 14px', fontSize: '0.8rem', borderRadius: '6px', border: '1px dashed var(--border)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
-                    >+ Add Option</button>
-                  </div>
-                  <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Define redemption options such as: 100 points = ₹2.5 discount, 120 points = ₹3 discount, etc.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {loyaltySaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> Loyalty program settings saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary">
-            <Save size={16} /> Save Loyalty Settings
-          </button>
-        </form>
-      </div>
-
-      {/* Section 3.5: Coupon & Promo Codes */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'rgba(59,130,246,0.15)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
-            <Tag size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Coupon & Promo Codes</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Configure discount coupons for your shop checkout.</p>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px' }}>
-          {/* List of Coupon Codes */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h3 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', fontWeight: 600 }}>Active Coupons</h3>
-            {!promoCodes || promoCodes.length === 0 ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No coupon codes configured.</p>
-            ) : (
-              <div style={{ overflowX: 'auto', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '8px 10px' }}>Code</th>
-                      <th style={{ padding: '8px 10px' }}>Discount</th>
-                      <th style={{ padding: '8px 10px' }}>Min Bill</th>
-                      <th style={{ padding: '8px 10px' }}>Validity</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center' }}>Enabled</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center' }}>Delete</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {promoCodes.map((p) => {
-                      const isValidToday = (!p.startDate || new Date().toISOString().slice(0,10) >= p.startDate) && (!p.endDate || new Date().toISOString().slice(0,10) <= p.endDate)
-                      return (
-                        <tr key={p.code} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 700, color: '#3b82f6' }}>{p.code}</td>
-                          <td style={{ padding: '8px 10px' }}>{p.type === 'percent' ? `${p.value}% Off` : `₹${p.value} Flat`}</td>
-                          <td style={{ padding: '8px 10px' }}>₹{p.minAmount || 0}</td>
-                          <td style={{ padding: '8px 10px', fontSize: '0.75rem', color: isValidToday ? 'var(--text-secondary)' : '#ef4444' }}>
-                            {p.startDate || p.endDate ? (
-                              <>
-                                <div>From: {p.startDate || '—'}</div>
-                                <div>To: {p.endDate || '—'}</div>
-                              </>
-                            ) : (
-                              'Always valid'
-                            )}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                            <input
-                              type="checkbox"
-                              checked={p.enabled !== false}
-                              onChange={() => handleTogglePromoEnabled(p.code)}
-                              style={{ cursor: 'pointer' }}
-                            />
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePromo(p.code)}
-                              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Add New Coupon Form */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '16px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 600 }}>Create New Coupon</h3>
-            <form onSubmit={handleAddPromo} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.78rem' }}>Coupon Code (e.g. STU10)</label>
-                <input
-                  className="form-input"
-                  style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                  type="text"
-                  placeholder="e.g. STU10"
-                  value={newPromo.code}
-                  onChange={(e) => setNewPromo(prev => ({ ...prev, code: e.target.value }))}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Discount Type</label>
-                  <select
-                    className="form-select"
-                    style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                    value={newPromo.type}
-                    onChange={(e) => setNewPromo(prev => ({ ...prev, type: e.target.value }))}
-                  >
-                    <option value="percent">% Percent</option>
-                    <option value="flat">₹ Flat Amount</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Discount Value</label>
-                  <input
-                    className="form-input"
-                    style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    placeholder="e.g. 10"
-                    value={newPromo.value}
-                    onChange={(e) => setNewPromo(prev => ({ ...prev, value: e.target.value }))}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.78rem' }}>Min Bill Amount (₹)</label>
-                <input
-                  className="form-input"
-                  style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                  type="number"
-                  min="0"
-                  placeholder="e.g. 150"
-                  value={newPromo.minAmount}
-                  onChange={(e) => setNewPromo(prev => ({ ...prev, minAmount: e.target.value }))}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Valid From</label>
-                  <input
-                    className="form-input"
-                    style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                    type="date"
-                    value={newPromo.startDate}
-                    onChange={(e) => setNewPromo(prev => ({ ...prev, startDate: e.target.value }))}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Valid To</label>
-                  <input
-                    className="form-input"
-                    style={{ fontSize: '0.82rem', padding: '6px 8px' }}
-                    type="date"
-                    value={newPromo.endDate}
-                    onChange={(e) => setNewPromo(prev => ({ ...prev, endDate: e.target.value }))}
-                  />
-                </div>
-              </div>
-
-              <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8rem', marginTop: '4px' }}>
-                <input
-                  type="checkbox"
-                  checked={newPromo.enabled}
-                  onChange={(e) => setNewPromo(prev => ({ ...prev, enabled: e.target.checked }))}
-                />
-                <span>Enable Coupon Code</span>
-              </label>
-
-              <button type="submit" className="btn btn-secondary" style={{ fontSize: '0.82rem', padding: '8px 16px', marginTop: '4px', background: '#3b82f6', color: '#fff', border: 'none' }}>
-                Add Coupon Code
               </button>
-            </form>
-          </div>
-        </div>
-      </div>
+            )
+          })}
+        </aside>
 
-      {/* Section 4: Invoice Branding & Theme Settings */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
-            <Palette size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>Invoice & Receipt Customizer</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Choose colors, upload a logo, and define custom receipt texts.</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleBrandingSave} autoComplete="off">
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Primary Color Theme</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="color"
-                  value={branding.primaryColor}
-                  onChange={(e) => setBranding((prev) => ({ ...prev, primaryColor: e.target.value }))}
-                  style={{ width: '48px', height: '38px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px', background: 'none' }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  value={branding.primaryColor}
-                  onChange={(e) => setBranding((prev) => ({ ...prev, primaryColor: e.target.value }))}
-                  placeholder="#0f172a"
-                  style={{ flex: 1 }}
-                />
-              </div>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Used for borders, headers, and accents in the receipt and PDF formats.
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Shop Logo</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {branding.logoUrl ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <img src={branding.logoUrl} alt="Logo" style={{ maxHeight: '42px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }} />
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={handleClearLogo} style={{ color: 'var(--error)' }}>
-                      Clear
-                    </button>
-                  </div>
-                ) : (
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    style={{ fontSize: '0.82rem' }}
-                  />
-                )}
-              </div>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Max size: 200KB. Displayed at the top of A4 Invoice and Receipt PDFs.
-              </p>
-            </div>
-          </div>
-
-          <div className="form-row" style={{ marginTop: '8px' }}>
-            <div className="form-group">
-              <label className="form-label">Custom Header Notes</label>
-              <textarea
-                className="form-textarea"
-                value={branding.headerNotes}
-                onChange={(e) => setBranding((prev) => ({ ...prev, headerNotes: e.target.value }))}
-                placeholder="e.g. GST registration details, welcome message..."
-                style={{ minHeight: '60px' }}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Custom Footer Notes</label>
-              <textarea
-                className="form-textarea"
-                value={branding.footerNotes}
-                onChange={(e) => setBranding((prev) => ({ ...prev, footerNotes: e.target.value }))}
-                placeholder="e.g. Terms & conditions, thank you notes, return policy..."
-                style={{ minHeight: '60px' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', margin: '8px 0 16px' }}>
-            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={branding.showGstBreakdown}
-                onChange={(e) => setBranding((prev) => ({ ...prev, showGstBreakdown: e.target.checked }))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span style={{ fontWeight: 600 }}>Show GST Breakdown on Invoice</span>
-            </label>
-            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={branding.showUpiQrCode}
-                onChange={(e) => setBranding((prev) => ({ ...prev, showUpiQrCode: e.target.checked }))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span style={{ fontWeight: 600 }}>Generate UPI QR Code for Due Amounts</span>
-            </label>
-            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={branding.silentThermalPrint}
-                onChange={(e) => setBranding((prev) => ({ ...prev, silentThermalPrint: e.target.checked }))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span style={{ fontWeight: 600 }}>Enable Silent Thermal Printing on Bill Creation</span>
-            </label>
-            <label className="checkbox-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={branding.autoPrintOnSave}
-                onChange={(e) => setBranding((prev) => ({ ...prev, autoPrintOnSave: e.target.checked }))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span style={{ fontWeight: 600 }}>Auto-Trigger Print Dialog on Bill Save</span>
-            </label>
-          </div>
-
-          {/* Thermal Printer Paper Format */}
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
-            <h4 style={{ marginBottom: '10px', fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Printer size={16} /> Default Print Format & Thermal Roll Size
-            </h4>
-            <div className="form-row" style={{ alignItems: 'center' }}>
-              <div className="form-group" style={{ flex: '1 1 240px' }}>
-                <label className="form-label">Receipt Output Format</label>
-                <select
-                  className="form-control"
-                  value={branding.printPaperSize}
-                  onChange={(e) => setBranding((prev) => ({ ...prev, printPaperSize: e.target.value }))}
-                >
-                  <option value="58mm">58mm POS Thermal Roll (Compact)</option>
-                  <option value="80mm">80mm POS Thermal Roll (Standard / Wide)</option>
-                  <option value="A4">A4 Full Page Document (Standard PDF / Invoice)</option>
-                </select>
-              </div>
-              <div style={{ flex: '1 1 300px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Configures default receipt width and formatting for 1-click printing across POS Billing and Customer Bills.
-              </div>
-            </div>
-          </div>
-
-          {/* Shop Seal & Authorized Signature */}
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
-            <h4 style={{ marginBottom: '12px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>Shop Seal & Authorized Signature</h4>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Shop Seal Image</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  {branding.shopSealUrl ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <img src={branding.shopSealUrl} alt="Seal" style={{ maxHeight: '50px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }} />
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setBranding(prev => ({ ...prev, shopSealUrl: '' }))} style={{ color: 'var(--error)' }}>Clear</button>
-                    </div>
-                  ) : (
-                    <input type="file" accept="image/*" onChange={handleSealUpload} style={{ fontSize: '0.82rem' }} />
-                  )}
-                </div>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Appears at the bottom of PDF tax invoices. Max 200KB.
-                </p>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Authorized Signatory</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  {branding.signatorySignatureUrl ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <img src={branding.signatorySignatureUrl} alt="Signature" style={{ maxHeight: '50px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }} />
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setBranding(prev => ({ ...prev, signatorySignatureUrl: '' }))} style={{ color: 'var(--error)' }}>Clear</button>
-                    </div>
-                  ) : (
-                    <input type="file" accept="image/*" onChange={handleSignatureUpload} style={{ fontSize: '0.82rem' }} />
-                  )}
-                </div>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Manager/owner signature stamp. Max 200KB.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Advanced PDF Invoice Designer */}
-          <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '16px' }}>
-            <h4 style={{ marginBottom: '12px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>Advanced PDF Invoice Designer</h4>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={branding.pdfShowType} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowType: e.target.checked }))} />
-                Show "Type" Column
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={branding.pdfShowSides} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowSides: e.target.checked }))} />
-                Show "Sides" Column
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={branding.pdfShowUnitPrice} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowUnitPrice: e.target.checked }))} />
-                Show "Unit Price" Column
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={branding.pdfShowGstRate} onChange={(e) => setBranding(prev => ({ ...prev, pdfShowGstRate: e.target.checked }))} />
-                Show "GST Rate" Column
-              </label>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">PDF Color Theme</label>
-                <select
-                  className="form-select"
-                  value={branding.pdfColorTheme}
-                  onChange={(e) => setBranding(prev => ({ ...prev, pdfColorTheme: e.target.value }))}
-                >
-                  <option value="dark">Professional Dark Navy</option>
-                  <option value="blue">Royal Blue</option>
-                  <option value="green">Emerald Green</option>
-                  <option value="maroon">Classic Maroon</option>
-                  <option value="purple">Regal Purple</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Legal Declaration / Footer Note</label>
-                <textarea
-                  className="form-textarea"
-                  value={branding.pdfLegalFooter}
-                  onChange={(e) => setBranding(prev => ({ ...prev, pdfLegalFooter: e.target.value }))}
-                  placeholder="e.g. Subject to jurisdiction of local courts. E&OE."
-                  style={{ minHeight: '50px' }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {brandingSaved && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
-              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-            }}>
-              <CheckCircle size={16} /> Theme branding settings saved!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary">
-            <Save size={16} /> Save Theme Settings
-          </button>
-        </form>
-      </div>
-
-      {/* Section 5: App Preferences */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--error)' }}>
-            <Sliders size={18} />
-          </div>
-          <div>
-            <h2 style={{ margin: 0 }}>App Preferences</h2>
-            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Theme, storage, and data management.</p>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gap: '16px' }}>
-          <div style={{ padding: '14px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Theme</div>
-            <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-              PrintPro uses a fixed premium dark theme optimized for long work sessions.
-            </p>
-          </div>
-
-          <div style={{ padding: '14px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Data Storage</div>
-            <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-              All data is automatically synchronized and securely stored in your Supabase cloud backend.
-            </p>
-          </div>
-
-          <div style={{ padding: '16px', background: 'rgba(234, 179, 8, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <RotateCcw size={20} style={{ color: '#eab308', flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, color: '#eab308', marginBottom: '4px' }}>Reset Transaction History</div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
-                  Purges all bills, payments, expenses, and resets customer balance accounts to ₹0. Your customer directory, item catalog, and business settings are preserved.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ borderColor: 'rgba(234, 179, 8, 0.5)', color: '#eab308' }}
-                  onClick={() => setShowResetModal(true)}
-                >
-                  <RotateCcw size={14} style={{ marginRight: '6px' }} />
-                  Reset Transactions
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ padding: '16px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <AlertTriangle size={20} style={{ color: 'var(--error)', flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, color: 'var(--error)', marginBottom: '4px' }}>Full Factory Reset</div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
-                  Permanently wipes all transactions, customers, and inventory items. Basic business profile credentials (shop name, phone, GSTIN) are retained.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={() => setShowFactoryResetModal(true)}
-                >
-                  <Trash2 size={14} style={{ marginRight: '6px' }} />
-                  Full Factory Reset
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Confirmation Modal: Reset Transactions */}
-      {showResetModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
-          <div className="card" style={{ maxWidth: '440px', width: '100%', border: '1px solid rgba(234, 179, 8, 0.4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#eab308', marginBottom: '12px' }}>
-              <RotateCcw size={22} />
-              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Confirm Transaction Reset</h3>
-            </div>
-            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '16px' }}>
-              This will erase all Bills, Payments, Expenses, and customer ledger balances. Customer contact details, paper/item catalog, and business settings will be kept.
-            </p>
-            <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ffffff', marginBottom: '8px' }}>
-              Type <strong>RESET</strong> in capital letters to confirm:
-            </p>
-            <input
-              type="text"
-              className="form-input"
-              value={resetConfirmationText}
-              onChange={(e) => setResetConfirmationText(e.target.value)}
-              placeholder="RESET"
-              style={{ marginBottom: '16px' }}
-              autoFocus
+        {/* Right Active Tab Content */}
+        <main className="settings-content" style={{ minWidth: 0 }}>
+          {activeTab === 'profile' && (
+            <BusinessProfileTab
+              biz={biz}
+              setBiz={setBiz}
+              handleSaveBiz={handleSaveBiz}
+              bizSaved={bizSaved}
             />
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => { setShowResetModal(false); setResetConfirmationText('') }}
-                disabled={isResetting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleResetTransactions}
-                disabled={resetConfirmationText.trim().toUpperCase() !== 'RESET' || isResetting}
-                style={{ backgroundColor: '#eab308', borderColor: '#eab308', color: '#000000', fontWeight: 700 }}
-              >
-                {isResetting ? 'Resetting...' : 'Confirm Reset'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Confirmation Modal: Full Factory Reset */}
-      {showFactoryResetModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
-          <div className="card" style={{ maxWidth: '440px', width: '100%', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', marginBottom: '12px' }}>
-              <AlertTriangle size={24} />
-              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>Confirm Full Factory Reset</h3>
-            </div>
-            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '16px' }}>
-              This permanently wipes <strong>ALL bills, payments, expenses, customer accounts, and inventory items</strong> from the database. This action is irreversible.
-            </p>
-            <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ffffff', marginBottom: '8px' }}>
-              Type <strong>FACTORY RESET</strong> in capital letters to confirm:
-            </p>
-            <input
-              type="text"
-              className="form-input"
-              value={factoryResetConfirmationText}
-              onChange={(e) => setFactoryResetConfirmationText(e.target.value)}
-              placeholder="FACTORY RESET"
-              style={{ marginBottom: '16px' }}
-              autoFocus
+          {activeTab === 'accounting' && (
+            <AccountingTab
+              acct={acct}
+              setAcct={setAcct}
+              handleAcctSave={handleAcctSave}
+              acctSaved={acctSaved}
             />
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => { setShowFactoryResetModal(false); setFactoryResetConfirmationText('') }}
-                disabled={isFactoryResetting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={handleFactoryReset}
-                disabled={factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET' || isFactoryResetting}
-                style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', fontWeight: 700 }}
-              >
-                {isFactoryResetting ? 'Resetting All Data...' : 'Confirm Factory Reset'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+
+          {activeTab === 'sequences' && (
+            <SequencesTab
+              seqConfigs={seqConfigs}
+              setSeqConfigs={setSeqConfigs}
+              handleSeqSave={handleSeqSave}
+              seqSaved={seqSaved}
+            />
+          )}
+
+          {activeTab === 'whatsapp' && (
+            <WhatsAppTab
+              waTemplates={waTemplates}
+              setWaTemplates={setWaTemplates}
+              handleWaSave={handleWaSave}
+              waSaved={waSaved}
+              waPreviewTab={waPreviewTab}
+              setWaPreviewTab={setWaPreviewTab}
+              invPrefix={seqConfigs.invPrefix}
+              business={business}
+            />
+          )}
+
+          {activeTab === 'loyalty' && (
+            <LoyaltyTab
+              loyalty={loyalty}
+              setLoyalty={setLoyalty}
+              handleLoyaltySave={handleLoyaltySave}
+              loyaltySaved={loyaltySaved}
+            />
+          )}
+
+          {activeTab === 'promos' && (
+            <PromoCodesTab
+              promoCodes={promoCodes}
+              newPromo={newPromo}
+              setNewPromo={setNewPromo}
+              handleAddPromo={handleAddPromo}
+              handleDeletePromo={handleDeletePromo}
+              handleTogglePromoEnabled={handleTogglePromoEnabled}
+            />
+          )}
+
+          {activeTab === 'branding' && (
+            <BrandingTab
+              branding={branding}
+              setBranding={setBranding}
+              handleBrandingSave={handleBrandingSave}
+              brandingSaved={brandingSaved}
+              handleLogoUpload={handleLogoUpload}
+              handleClearLogo={handleClearLogo}
+              handleSealUpload={handleSealUpload}
+              handleSignatureUpload={handleSignatureUpload}
+            />
+          )}
+
+          {activeTab === 'maintenance' && <MaintenanceTab />}
+        </main>
+      </div>
+
+      <style>{`
+        @media (max-width: 900px) {
+          .settings-layout {
+            grid-template-columns: 1fr !important;
+          }
+          .settings-sidebar {
+            flex-direction: row !important;
+            overflow-x: auto !important;
+            padding: 8px !important;
+            gap: 8px !important;
+          }
+          .settings-sidebar button {
+            flex: 0 0 auto !important;
+            width: auto !important;
+            padding: 8px 12px !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

@@ -1,24 +1,31 @@
 import React, { useState, useMemo, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
-import { useInventory, usePayments } from '../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations, usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { useGroupBills, useGroupBillMutations } from '../hooks/useGroupBillsQuery'
+import { useGroupSettlements, useGroupSettlementMutations } from '../hooks/useGroupSettlementsQuery'
+import { useSettings } from '../hooks/useSettingsQuery'
+import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { SequenceService } from '../services/sequenceService'
 
-const makeItemRow = (inventory) => ({
-  id: `row-${Date.now()}-${Math.random()}`,
-  itemId: inventory[0]?.id || '',
-  itemName: inventory[0]?.name || 'Custom Item',
-  isCustom: false,
-  printType: 'color',
-  sides: 'single',
-  qty: 1,
-  unitPrice: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
-  amount: Number(inventory[0]?.colorSingle !== undefined ? inventory[0]?.colorSingle : (inventory[0]?.color_single ?? 10)) || 10,
-  gstRate: 0,
-})
+const makeItemRow = (inventory) => {
+  const first = (inventory || [])[0]
+  return {
+    id: `row-${Date.now()}-${Math.random()}`,
+    itemId: first?.id || '',
+    itemName: first?.name || 'Custom Item',
+    isCustom: false,
+    printType: 'color',
+    sides: 'single',
+    qty: 1,
+    unitPrice: Number(first?.colorSingle !== undefined ? first?.colorSingle : (first?.color_single ?? 10)) || 10,
+    amount: Number(first?.colorSingle !== undefined ? first?.colorSingle : (first?.color_single ?? 10)) || 10,
+    gstRate: 0,
+  }
+}
 
 const makeCustomRow = () => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -34,7 +41,7 @@ const makeCustomRow = () => ({
 })
 
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
-  const item = inventory.find((e) => e.id === itemId)
+  const item = (inventory || []).find((e) => e && e.id === itemId)
   if (!item) return 0
   if (item.type === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)) || 0
   if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
@@ -273,14 +280,14 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
 const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount, payerCustomerId, payerAdvance }) => {
-  const customer = customers.find((c) => c.id === member.customerId)
+  const customer = (customers || []).find((c) => c && c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
   const loyaltyRedeemEnabled = settings?.loyaltyRedeemEnabled !== false
   const hasLoyalty = customer && customer.type === 'regular' && loyaltyEnabled && loyaltyRedeemEnabled
 
   const sharedGst = (sharedRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-  const addonGst = member.hasAddons ? (member.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
+  const addonGst = member.hasAddons ? ((member.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)) : 0
   const autoGst = sharedGst + addonGst
 
   return (
@@ -292,7 +299,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
+              {(customers || []).filter((c) => c && !c.deleted && !(members || []).some(m => m && m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
             </select>
             <button
               type="button"
@@ -399,7 +406,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
                 onClick={() => {
                   const code = (member.promoCodeInput || '').trim().toUpperCase()
                   if (!code) return
-                  const promo = promoCodes?.find(p => p.code === code)
+                  const promo = (promoCodes || []).find(p => p && p.code === code)
                   if (!promo) {
                     onChange(member.id, { promoError: 'Invalid promo code' })
                     return
@@ -565,15 +572,16 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
   const { customers: contextCustomers = [], inventory: contextInventory = [], bills: contextBills = [], showAlert, showToast, settings, promoCodes } = useAppContext()
-  const { data: serverInventory = [] } = useInventory()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverBills = [] } = useBills()
+  const { data: serverInventory = [], isSuccess: isInventoryLoaded } = useInventory()
+  const { data: serverCustomers = [], isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverBills = [], isSuccess: isBillsLoaded } = useBills()
   const { createBill } = useBillMutations()
   const { createCustomer, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
-  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const bills = serverBills.length > 0 ? serverBills : contextBills
+  const { adjustStock } = useInventoryMutations()
+  const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
+  const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
+  const bills = isBillsLoaded ? serverBills : (contextBills || [])
 
   // ── Inline Add Customer modal state ─────────────────────────────────────────
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
@@ -626,7 +634,7 @@ const GroupBilling = () => {
   const [splitDiscountMode, setSplitDiscountMode] = useState('individual') // 'individual' | 'group'
   const [splitGroupDiscount, setSplitGroupDiscount] = useState({ type: 'flat', value: 0 })
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => (Array.isArray(customers) ? customers.filter((c) => c && !c.deleted) : []), [customers])
 
   // Sync initial rows when inventory loads if default item IDs are missing
   useEffect(() => {
@@ -665,10 +673,10 @@ const GroupBilling = () => {
 
   const memberTotals = useMemo(() =>
     members.map((m) => {
-      const addonSubtotal = m.hasAddons ? m.addonRows.reduce((s, r) => s + Number(r.amount || 0), 0) : 0
+      const addonSubtotal = m.hasAddons ? (m.addonRows || []).reduce((s, r) => s + Number(r.amount || 0), 0) : 0
       const baseTotal = sharedSubtotal + addonSubtotal
       const sharedGst = sharedRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-      const addonGst = m.hasAddons ? m.addonRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
+      const addonGst = m.hasAddons ? (m.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
       const autoGst = sharedGst + addonGst
       const gstAmount = m.customGst !== undefined && m.customGst !== '' ? Number(m.customGst) : autoGst
       const cgst = gstAmount / 2
@@ -1045,6 +1053,35 @@ const GroupBilling = () => {
       })
       const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
+
+      // Deduct stock for shared items + addon items
+      const deductions = new Map()
+      const allPhysicalItems = [
+        ...sharedRows,
+        ...members.flatMap((m) => (m.hasAddons ? m.addonRows || [] : [])),
+      ]
+      for (const item of allPhysicalItems) {
+        const invItem = (inventory || []).find(
+          (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+        )
+        if (invItem && invItem.type === 'product') {
+          const qty = Number(item.qty || item.quantity || 0)
+          if (qty > 0) {
+            deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
+          }
+        }
+      }
+      if (deductions.size > 0) {
+        try {
+          await Promise.all(
+            Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
+          )
+        } catch (stockErr) {
+          console.error('Failed to deduct stock for shared group bill:', stockErr)
+          showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'warning')
+        }
+      }
+
       showToast(`Group bill created with ${members.length} member(s)!`, 'success')
       resetAll()
     } catch (err) {
@@ -1187,6 +1224,31 @@ const GroupBilling = () => {
       })
       const grpId = created?.id || created?.data?.id || `GRP-${Date.now()}`
       setLastGroupId(grpId)
+
+      // Deduct stock for split items
+      const deductions = new Map()
+      for (const item of splitRows) {
+        const invItem = (inventory || []).find(
+          (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+        )
+        if (invItem && invItem.type === 'product') {
+          const qty = Number(item.qty || item.quantity || 0)
+          if (qty > 0) {
+            deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
+          }
+        }
+      }
+      if (deductions.size > 0) {
+        try {
+          await Promise.all(
+            Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
+          )
+        } catch (stockErr) {
+          console.error('Failed to deduct stock for split group bill:', stockErr)
+          showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'warning')
+        }
+      }
+
       showToast(`Split group bill created — ₹${splitAmount} × ${splitCount} members!`, 'success')
       resetAll()
     } catch (err) {
@@ -1836,7 +1898,7 @@ const GroupBilling = () => {
               </button>
             </div>
 
-            <form onSubmit={handleNewCustomerSubmit} autoComplete="off">
+            <form onSubmit={handleSaveNewCustomer} autoComplete="off">
               <div className="modal-body">
                 {newCustomerSuccess && (
                   <div style={{
@@ -1940,10 +2002,15 @@ const GroupBilling = () => {
 }
 
 const GroupBillsHistory = () => {
+  const queryClient = useQueryClient()
+  const { showAlert, showToast } = useAppContext()
   const { groupBills = [] } = useGroupBills()
   const { data: bills = [] } = useBills()
   const { data: customers = [] } = useCustomers()
   const { data: payments = [] } = usePayments()
+  const { createPayment } = usePaymentMutations()
+  const { groupSettlements = [] } = useGroupSettlements()
+  const { settleGroupBill } = useGroupSettlementMutations()
 
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
@@ -1952,6 +2019,7 @@ const GroupBillsHistory = () => {
   const [payUpi, setPayUpi] = useState('')
   const [payMode, setPayMode] = useState('share')
   const [showConfirmScreen, setShowConfirmScreen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   if (!groupBills.length) {
     return <div style={{ color: '#52525b', fontSize: '14px', padding: '24px', textAlign: 'center', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '8px' }}>No group bills created yet.</div>
@@ -1979,7 +2047,15 @@ const GroupBillsHistory = () => {
     setShowConfirmScreen(false)
   }
 
-  const closeModal = () => { setPayModalBill(null); setPayModalGroup(null); setShowConfirmScreen(false) }
+  const closeModal = () => {
+    if (isSubmitting) return
+    setPayModalBill(null)
+    setPayModalGroup(null)
+    setShowConfirmScreen(false)
+    setPayCash('')
+    setPayUpi('')
+    setPayMode('share')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1998,7 +2074,9 @@ const GroupBillsHistory = () => {
         const balanceAmount = Math.max(0, totalAmount - paidAmount)
         const memberCount = memberBills.length > 0 ? memberBills.length : (Array.isArray(grp.members) ? grp.members.length : 0)
         const isExpanded = expanded === grp.id
-        const groupPayment = payments.find(p => p.groupBillId === grp.id && p.isGroupPayment)
+        const groupSettlement = groupSettlements.find(gs => String(gs.groupBillId) === String(grp.id))
+        const legacyGroupPayment = payments.find(p => p.groupBillId === grp.id && p.isGroupPayment)
+        const activeSettlement = groupSettlement || legacyGroupPayment
 
         return (
           <div key={grp.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', overflow: 'hidden' }}>
@@ -2056,13 +2134,7 @@ const GroupBillsHistory = () => {
                               <button
                                 type="button"
                                 className="btn btn-primary btn-sm"
-                                onClick={() => {
-                                  if (grp.type === 'split') {
-                                    openPayModal(b, grp)
-                                  } else {
-                                    recordSpecificBillPayment({ billId: b.id, customerId: b.customerId, cashAmount: b.balance > 0 ? b.balance : b.total, upiAmount: 0, notes: `Payment for group member bill ${b.id}` })
-                                  }
-                                }}
+                                onClick={() => openPayModal(b, grp)}
                               >Pay</button>
                             )}
                           </td>
@@ -2072,25 +2144,34 @@ const GroupBillsHistory = () => {
                   </table>
                 </div>
 
-                {grp.type === 'split' && groupPayment && (
+                {grp.type === 'split' && activeSettlement && (
                   <div style={{ padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.2)' }}>
                     <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <CheckCircle size={14} /> Split Settlement View
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '10px', fontSize: '12px' }}>
                       <div><span style={{ color: '#a1a1aa' }}>Group ID:</span> <strong>{grp.id}</strong></div>
-                      <div><span style={{ color: '#a1a1aa' }}>Total:</span> <strong>₹{totalAmount.toFixed(2)}</strong></div>
-                      <div><span style={{ color: '#a1a1aa' }}>Actual Payer:</span> <strong>{customers.find(c => c.id === groupPayment.customerId)?.name || 'Unknown'}</strong></div>
-                      <div><span style={{ color: '#a1a1aa' }}>Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{groupPayment.id}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Total Settled:</span> <strong>₹{Number(activeSettlement.totalPaid || activeSettlement.total_paid || totalAmount).toFixed(2)}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Actual Payer:</span> <strong>{activeSettlement.payerName || customers.find(c => c.id === (activeSettlement.payerCustomerId || activeSettlement.customerId))?.name || 'Unknown'}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{activeSettlement.id}</strong></div>
                     </div>
                     <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
                       <div style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', marginBottom: '4px' }}>Members Settled:</div>
-                      {memberBills.map(b => (
-                        <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: b.customerId === groupPayment.customerId ? '#fff' : '#a1a1aa' }}>
-                          <span>{b.customerName} {b.customerId === groupPayment.customerId ? '(Payer)' : '(Settled)'}</span>
-                          <span>₹{Number(b.total).toFixed(2)}</span>
-                        </div>
-                      ))}
+                      {Array.isArray(activeSettlement.settlements) && activeSettlement.settlements.length > 0 ? (
+                        activeSettlement.settlements.map((s, idx) => (
+                          <div key={s.bill_id || idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: s.customer_id === (activeSettlement.payerCustomerId || activeSettlement.customerId) ? '#fff' : '#a1a1aa' }}>
+                            <span>{s.customer_name || 'Member'} {s.customer_id === (activeSettlement.payerCustomerId || activeSettlement.customerId) ? '(Payer)' : '(Settled)'}</span>
+                            <span>₹{Number(s.apply || 0).toFixed(2)} {s.apply_cash !== undefined ? `(Cash: ₹${Number(s.apply_cash).toFixed(2)}, UPI: ₹${Number(s.apply_upi).toFixed(2)})` : ''}</span>
+                          </div>
+                        ))
+                      ) : (
+                        memberBills.map(b => (
+                          <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: b.customerId === activeSettlement.customerId ? '#fff' : '#a1a1aa' }}>
+                            <span>{b.customerName} {b.customerId === activeSettlement.customerId ? '(Payer)' : '(Settled)'}</span>
+                            <span>₹{Number(b.total).toFixed(2)}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
@@ -2100,45 +2181,188 @@ const GroupBillsHistory = () => {
         )
       })}
 
-      {/* Split Payment Modal */}
+      {/* Payment Modal for Split and Shared Groups */}
       {payModalBill && payModalGroup && (() => {
+        const isSplit = payModalGroup.type === 'split'
         const groupBal = getGroupBal(payModalGroup)
+        const billBal = Number(payModalBill.balance || 0)
+
+        // Split distribution calculation
         const allUnpaidBills = (payModalGroup.memberBillIds || [])
           .map(id => bills.find(b => b.id === id && !b.deleted))
           .filter(Boolean)
-          .filter(b => b.balance > 0)
-          .sort((a, b) => a.id.localeCompare(b.id))
-        const totalPaying = Number(payCash || 0) + Number(payUpi || 0)
-        const remaining = Math.max(0, groupBal - totalPaying)
+          .filter(b => (b.balance || 0) > 0)
+        const otherUnpaidBills = allUnpaidBills
+          .filter(b => b.id !== payModalBill.id)
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        const orderedBills = [
+          ...(allUnpaidBills.find(b => b.id === payModalBill.id) ? [allUnpaidBills.find(b => b.id === payModalBill.id)] : [payModalBill]),
+          ...otherUnpaidBills
+        ]
 
-        const previewSettlements = (() => {
-          let rem = totalPaying
-          return allUnpaidBills.map(b => {
-            const apply = Math.min(rem, b.balance)
-            rem -= apply
-            return { bill: b, apply }
+        const cashNum = Number(payCash || 0)
+        const upiNum = Number(payUpi || 0)
+        const totalPaying = parseFloat((cashNum + upiNum).toFixed(2))
+        const remainingGroup = parseFloat(Math.max(0, groupBal - totalPaying).toFixed(2))
+        const remainingBill = parseFloat(Math.max(0, billBal - totalPaying).toFixed(2))
+
+        let remTotal = totalPaying
+        let remCash = cashNum
+        let remUpi = upiNum
+        const ratio = totalPaying > 0 ? cashNum / totalPaying : 1
+
+        const settlements = []
+        for (let i = 0; i < orderedBills.length; i++) {
+          const b = orderedBills[i]
+          if (remTotal <= 0.001) break
+          const bBalance = Number(b.balance || 0)
+          if (bBalance <= 0) continue
+
+          const apply = parseFloat(Math.min(remTotal, bBalance).toFixed(2))
+          const isLast = (i === orderedBills.length - 1) || (apply >= remTotal - 0.001)
+
+          let applyCash = 0
+          let applyUpi = 0
+          if (isLast) {
+            applyCash = parseFloat(Math.min(remCash, apply).toFixed(2))
+            applyUpi = parseFloat(Math.max(0, apply - applyCash).toFixed(2))
+          } else {
+            applyCash = parseFloat(Math.min(remCash, apply * ratio).toFixed(2))
+            applyUpi = parseFloat(Math.max(0, apply - applyCash).toFixed(2))
+          }
+
+          remCash = parseFloat(Math.max(0, remCash - applyCash).toFixed(2))
+          remUpi = parseFloat(Math.max(0, remUpi - applyUpi).toFixed(2))
+          remTotal = parseFloat(Math.max(0, remTotal - apply).toFixed(2))
+
+          settlements.push({
+            bill: b,
+            apply,
+            applyCash,
+            applyUpi,
           })
-        })()
+        }
+
+        const handleSharedSubmit = async () => {
+          if (totalPaying <= 0) {
+            if (showAlert) showAlert('Enter a payment amount greater than zero.', 'error')
+            return
+          }
+          if (totalPaying > billBal + 0.01) {
+            if (showAlert) showAlert(`Cannot exceed bill balance of ₹${billBal.toFixed(2)}`, 'error')
+            return
+          }
+
+          setIsSubmitting(true)
+          try {
+            const method = cashNum > 0 && upiNum > 0 ? 'split' : (upiNum > 0 ? 'upi' : 'cash')
+            await createPayment({
+              bill_id: payModalBill.id,
+              billId: payModalBill.id,
+              customer_id: payModalBill.customerId || payModalBill.customer_id,
+              customerId: payModalBill.customerId || payModalBill.customer_id,
+              cash_amount: cashNum,
+              cashAmount: cashNum,
+              upi_amount: upiNum,
+              upiAmount: upiNum,
+              total_paid: totalPaying,
+              totalPaid: totalPaying,
+              payment_type: totalPaying >= billBal ? 'full' : 'partial',
+              paymentType: totalPaying >= billBal ? 'full' : 'partial',
+              paymentMethod: method,
+              notes: `Payment for shared group member bill ${payModalBill.id} (${method.toUpperCase()})`,
+              date: new Date().toISOString()
+            })
+
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['bills'] }),
+              queryClient.invalidateQueries({ queryKey: ['payments'] }),
+              queryClient.invalidateQueries({ queryKey: ['customers'] }),
+              queryClient.invalidateQueries({ queryKey: ['group-bills'] }),
+              queryClient.invalidateQueries({ queryKey: ['groupBills'] }),
+              queryClient.invalidateQueries({ queryKey: ['accounting'] })
+            ])
+
+            if (showToast) showToast(`Payment of ₹${totalPaying.toFixed(2)} recorded successfully for bill ${payModalBill.id}`)
+            closeModal()
+          } catch (err) {
+            console.error('Failed to record shared group payment:', err)
+            if (showAlert) showAlert(err?.response?.data?.error || err.message || 'Failed to record payment', 'error')
+          } finally {
+            setIsSubmitting(false)
+          }
+        }
+
+        const handleSplitSubmit = async () => {
+          if (totalPaying <= 0) {
+            if (showAlert) showAlert('Enter a payment amount greater than zero.', 'error')
+            return
+          }
+          if (totalPaying > groupBal + 0.01) {
+            if (showAlert) showAlert(`Cannot exceed group balance of ₹${groupBal.toFixed(2)}`, 'error')
+            return
+          }
+
+          if (!showConfirmScreen && totalPaying > billBal + 0.01) {
+            setShowConfirmScreen(true)
+            return
+          }
+
+          setIsSubmitting(true)
+          try {
+            await settleGroupBill({
+              group_bill_id: payModalGroup.id,
+              payer_customer_id: payModalBill.customerId || payModalBill.customer_id,
+              payer_bill_id: payModalBill.id,
+              cash_amount: cashNum,
+              upi_amount: upiNum,
+              total_paid: totalPaying,
+              notes: `Split group settlement for ${payModalGroup.id} (Payer: ${payModalBill.customerName})`,
+            })
+
+            if (showToast) showToast(`Successfully settled ₹${totalPaying.toFixed(2)} for group ${payModalGroup.id}`)
+            closeModal()
+          } catch (err) {
+            console.error('Failed to record split group payments:', err)
+            if (showAlert) showAlert(err?.response?.data?.error || err.message || 'Failed to record group settlement', 'error')
+          } finally {
+            setIsSubmitting(false)
+          }
+        }
 
         return (
           <div className="modal-overlay" onClick={closeModal}>
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
               <div className="modal-header">
-                <h3>{showConfirmScreen ? 'Confirm Full Group Payment' : 'Record Split Payment'}</h3>
-                <button type="button" className="btn-close" onClick={closeModal}>&times;</button>
+                <h3>
+                  {showConfirmScreen
+                    ? 'Confirm Split Group Settlement'
+                    : (isSplit ? 'Record Split Payment' : 'Record Member Payment')}
+                </h3>
+                <button type="button" className="btn-close" disabled={isSubmitting} onClick={closeModal}>&times;</button>
               </div>
               <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payer</div>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent)', marginTop: '2px' }}>{payModalBill.customerName}</div>
+                  <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {isSplit ? 'Payer' : 'Member / Customer'}
+                  </div>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent)', marginTop: '2px' }}>
+                    {payModalBill.customerName}
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '10px' }}>
                     <div>
-                      <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase' }}>My Share Balance</div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>₹{Number(payModalBill.balance || 0).toFixed(2)}</div>
+                      <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase' }}>
+                        {isSplit ? 'My Share Balance' : 'Bill Balance'}
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>
+                        ₹{billBal.toFixed(2)}
+                      </div>
                     </div>
                     <div>
                       <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase' }}>Group Balance</div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635', marginTop: '2px' }}>₹{groupBal.toFixed(2)}</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635', marginTop: '2px' }}>
+                        ₹{groupBal.toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2146,70 +2370,131 @@ const GroupBillsHistory = () => {
                 {!showConfirmScreen ? (
                   <>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      <button type="button" className={`btn btn-sm ${payMode === 'share' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => { setPayMode('share'); setPayCash(String(payModalBill.balance || 0)); setPayUpi('0') }}>
-                        Pay My Share (₹{Number(payModalBill.balance || 0).toFixed(2)})
-                      </button>
-                      <button type="button" className={`btn btn-sm ${payMode === 'full' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => { setPayMode('full'); setPayCash(String(groupBal)); setPayUpi('0') }}>
-                        Pay Full Group (₹{groupBal.toFixed(2)})
-                      </button>
-                      <button type="button" className={`btn btn-sm ${payMode === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setPayMode('custom')}>
-                        Custom
-                      </button>
+                      {isSplit ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${payMode === 'share' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => { setPayMode('share'); setPayCash(String(billBal)); setPayUpi('0') }}
+                          >
+                            Pay My Share (₹{billBal.toFixed(2)})
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${payMode === 'full' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => { setPayMode('full'); setPayCash(String(groupBal.toFixed(2))); setPayUpi('0') }}
+                          >
+                            Pay Full Group (₹{groupBal.toFixed(2)})
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${payMode === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setPayMode('custom')}
+                          >
+                            Custom
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${payMode === 'share' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => { setPayMode('share'); setPayCash(String(billBal)); setPayUpi('0') }}
+                          >
+                            Full Balance (₹{billBal.toFixed(2)})
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${payMode === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setPayMode('custom')}
+                          >
+                            Custom
+                          </button>
+                        </>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '4px', display: 'block' }}>Cash (₹)</label>
-                        <input type="number" className="form-input" style={{ width: '100%' }} value={payCash}
-                          onChange={(e) => { setPayCash(e.target.value); setPayMode('custom') }} />
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          className="form-input"
+                          style={{ width: '100%' }}
+                          value={payCash}
+                          onChange={(e) => { setPayCash(e.target.value); setPayMode('custom') }}
+                        />
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '12px', color: '#a1a1aa', marginBottom: '4px', display: 'block' }}>UPI (₹)</label>
-                        <input type="number" className="form-input" style={{ width: '100%' }} value={payUpi}
-                          onChange={(e) => { setPayUpi(e.target.value); setPayMode('custom') }} />
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          className="form-input"
+                          style={{ width: '100%' }}
+                          value={payUpi}
+                          onChange={(e) => { setPayUpi(e.target.value); setPayMode('custom') }}
+                        />
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '10px' }}>
                       <span style={{ color: '#a1a1aa' }}>Paying: <strong>₹{totalPaying.toFixed(2)}</strong></span>
-                      <span style={{ color: '#a1a1aa' }}>Remaining: <strong style={{ color: remaining > 0 ? '#f59e0b' : '#10b981' }}>₹{remaining.toFixed(2)}</strong></span>
+                      <span style={{ color: '#a1a1aa' }}>
+                        {isSplit ? 'Group Remaining: ' : 'Remaining: '}
+                        <strong style={{ color: (isSplit ? remainingGroup : remainingBill) > 0 ? '#f59e0b' : '#10b981' }}>
+                          ₹{(isSplit ? remainingGroup : remainingBill).toFixed(2)}
+                        </strong>
+                      </span>
                     </div>
                   </>
                 ) : (
                   <div style={{ padding: '12px', background: 'rgba(99,102,241,0.07)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.2)', fontSize: '13px' }}>
                     <strong style={{ color: '#818cf8' }}>{payModalBill.customerName}</strong> is paying <strong>₹{totalPaying.toFixed(2)}</strong>
                     <div style={{ marginTop: '8px', fontSize: '12px', color: '#a1a1aa' }}>This will automatically settle:</div>
-                    {previewSettlements.map(({ bill, apply }) => (
-                      <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
+                    {settlements.map(({ bill, apply, applyCash, applyUpi }) => (
+                      <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', marginTop: '6px' }}>
                         <span>✓ {bill.customerName} ({bill.invoiceNumber || bill.id})</span>
-                        <strong style={{ color: '#10b981' }}>₹{apply.toFixed(2)}</strong>
+                        <div style={{ textAlign: 'right' }}>
+                          <strong style={{ color: '#10b981' }}>₹{apply.toFixed(2)}</strong>
+                          <span style={{ fontSize: '10px', color: '#71717a', marginLeft: '6px' }}>(Cash: ₹{applyCash.toFixed(2)}, UPI: ₹{applyUpi.toFixed(2)})</span>
+                        </div>
                       </div>
                     ))}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
                       <span style={{ color: '#a1a1aa' }}>Group Balance after:</span>
-                      <strong style={{ color: remaining > 0 ? '#f59e0b' : '#10b981' }}>₹{remaining.toFixed(2)}</strong>
+                      <strong style={{ color: remainingGroup > 0 ? '#f59e0b' : '#10b981' }}>₹{remainingGroup.toFixed(2)}</strong>
                     </div>
                   </div>
                 )}
               </div>
               <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" className="btn btn-secondary" onClick={showConfirmScreen ? () => setShowConfirmScreen(false) : closeModal}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={isSubmitting}
+                  onClick={showConfirmScreen ? () => setShowConfirmScreen(false) : closeModal}
+                >
                   {showConfirmScreen ? 'Back' : 'Cancel'}
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => {
-                  const cash = Number(payCash || 0)
-                  const upi = Number(payUpi || 0)
-                  const total = cash + upi
-                  if (total <= 0) return
-                  if (total > groupBal + 0.01) { alert(`Cannot exceed group balance of ₹${groupBal.toFixed(2)}`); return }
-                  if (!showConfirmScreen && total > (payModalBill.balance || 0) + 0.01) {
-                    setShowConfirmScreen(true); return
-                  }
-                  recordSplitGroupPayment({ payerBillId: payModalBill.id, payerCustomerId: payModalBill.customerId, cashAmount: cash, upiAmount: upi, groupBillId: payModalGroup.id })
-                  closeModal()
-                }}>
-                  {showConfirmScreen ? 'Confirm & Settle' : 'Confirm Payment'}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={isSubmitting || totalPaying <= 0}
+                  onClick={isSplit ? handleSplitSubmit : handleSharedSubmit}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  {isSubmitting && (
+                    <span style={{ width: '14px', height: '14px', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.75s linear infinite' }}></span>
+                  )}
+                  <span>
+                    {isSubmitting
+                      ? 'Processing...'
+                      : (showConfirmScreen
+                        ? 'Confirm & Settle'
+                        : (isSplit && totalPaying > billBal + 0.01 ? 'Next: Review Settlement' : 'Confirm Payment'))}
+                  </span>
                 </button>
               </div>
             </div>

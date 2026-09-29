@@ -4,6 +4,7 @@ import { logger } from '../../lib/logger'
 
 interface ErrorBoundaryProps {
   children: React.ReactNode
+  resetKey?: any
 }
 
 interface ErrorBoundaryState {
@@ -23,6 +24,12 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     logger.error('Unhandled UI Render Crash:', error, errorInfo)
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null })
+    }
   }
 
   handleReload = () => {

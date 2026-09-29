@@ -71,12 +71,12 @@ const Refunds = () => {
     
     // Helper to resolve customer
     const getCustomer = (cId) => {
-      return (customers || []).find(cust => String(cust.id) === String(cId))
+      return (customers || []).find(cust => cust && String(cust.id) === String(cId))
     }
 
     // Add bill refunds
     refundStats.billRefundsList.forEach(r => {
-      const targetBill = (bills || []).find(b => String(b.id) === String(r.billId))
+      const targetBill = (bills || []).find(b => b && String(b.id) === String(r.billId))
       const targetCust = getCustomer(r.customerId || targetBill?.customerId)
       const invoiceCode = r.invoiceNumber || targetBill?.invoiceNumber || r.billId || r.id
       const custCode = targetCust?.customerCode || targetCust?.code || r.customerId

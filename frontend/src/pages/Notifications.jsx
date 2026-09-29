@@ -10,35 +10,35 @@ import EmptyState from '../components/common/EmptyState'
 
 const NotificationsPage = () => {
   const navigate = useNavigate()
-  const { notifications: contextNotifications = [], showToast } = useAppContext()
-  const { notifications: serverNotifications = [], isLoading } = useNotifications()
+  const { showToast } = useAppContext()
+  const { notifications = [], isLoading } = useNotifications()
   const { markRead, markAllRead, deleteNotification, clearAllNotifications } = useNotificationMutations()
 
   const [activeTab, setActiveTab] = useState('all') // 'all' | 'unread' | 'payments' | 'alerts' | 'system'
 
-  const notifications = serverNotifications.length > 0 ? serverNotifications : contextNotifications
+  const safeNotes = useMemo(() => (Array.isArray(notifications) ? notifications.filter(Boolean) : []), [notifications])
 
   const counts = {
-    all: notifications.length,
-    unread: notifications.filter((n) => !n.read).length,
-    payments: notifications.filter((n) => {
+    all: safeNotes.length,
+    unread: safeNotes.filter((n) => !n.read).length,
+    payments: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       const title = (n.title || '').toLowerCase()
       return t === 'payment' || t === 'success' || title.includes('payment') || title.includes('deposit') || title.includes('paid')
     }).length,
-    alerts: notifications.filter((n) => {
+    alerts: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       const title = (n.title || '').toLowerCase()
       return t === 'warning' || t === 'alert' || title.includes('due') || title.includes('overdue') || title.includes('pending')
     }).length,
-    system: notifications.filter((n) => {
+    system: safeNotes.filter((n) => {
       const t = (n.type || '').toLowerCase()
       return t === 'info' || t === 'system'
     }).length,
   }
 
   const filteredNotifications = useMemo(() => {
-    return notifications.filter((note) => {
+    return safeNotes.filter((note) => {
       if (activeTab === 'unread') return !note.read
       if (activeTab === 'payments') {
         const t = (note.type || '').toLowerCase()
@@ -197,7 +197,12 @@ const NotificationsPage = () => {
 
       {/* Notifications List */}
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        {filteredNotifications.length === 0 ? (
+        {isLoading && notifications.length === 0 ? (
+          <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            <Bell size={40} className="spin" style={{ opacity: 0.3, marginBottom: '12px', display: 'inline-block' }} />
+            <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-primary)' }}>Loading notifications...</div>
+          </div>
+        ) : filteredNotifications.length === 0 ? (
           <div style={{ padding: '48px 24px' }}>
             <EmptyState
               Icon={Bell}

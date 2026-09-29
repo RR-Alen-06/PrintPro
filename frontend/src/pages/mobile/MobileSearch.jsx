@@ -65,7 +65,7 @@ export default function MobileSearch() {
     if (customerTypeFilter !== 'all') {
       filters.type = customerTypeFilter
     }
-    return searchCustomers((customers || []).filter(c => !c.deleted && !c.deleted_at), query, filters)
+    return searchCustomers((Array.isArray(customers) ? customers : []).filter(c => c && !c.deleted && !c.deleted_at), query, filters)
   }, [customers, query, customerTypeFilter])
 
   // Filtered inventory
@@ -402,7 +402,7 @@ export default function MobileSearch() {
                         </div>
                       </div>
                       <span className={`mobile-badge ${c.type === 'regular' ? 'mobile-badge-info' : 'mobile-badge-warning'}`} style={{ fontSize: '0.65rem' }}>
-                        {(c.type || 'WALK-IN').toUpperCase()}
+                        {String(c.type || 'WALK-IN').toUpperCase()}
                       </span>
                     </div>
 

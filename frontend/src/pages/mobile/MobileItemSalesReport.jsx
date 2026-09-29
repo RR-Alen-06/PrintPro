@@ -90,8 +90,8 @@ export default function MobileItemSalesReport() {
 
   // Filtered bills
   const filteredBills = useMemo(() => {
-    return (bills || []).filter((b) => {
-      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+    return (Array.isArray(bills) ? bills : []).filter((b) => {
+      if (!b || b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
 
       const d = b.date ? new Date(b.date) : null
       if (range) {

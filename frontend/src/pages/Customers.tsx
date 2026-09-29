@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
-import { useBills } from '../hooks/useBillsQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
 import { LedgerService } from '../services/ledgerService'
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
+import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, MessageSquare } from 'lucide-react'
 import { ListSkeleton } from '../components/common/Skeleton'
@@ -25,23 +26,26 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast, recordPayment } = useAppContext()
+  const { business, settings, bills: contextBills, payments: contextPayments, advancePayments, restoreCustomer, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverBills } = useBills()
-  const { data: serverPayments } = usePayments()
+  const { data: serverBills, isSuccess: isBillsLoaded } = useBills()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
   const { createCustomer, updateCustomer, deleteCustomer, isCreating, isUpdating } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
-  const customers = serverCustomers
-  const bills = serverBills || contextBills || []
-  const payments = serverPayments || contextPayments || []
+  const { updateBill } = useBillMutations()
+  const customers = Array.isArray(serverCustomers) ? serverCustomers : []
+  const rawBills = isBillsLoaded || serverBills !== undefined ? serverBills : contextBills
+  const bills = Array.isArray(rawBills) ? rawBills : []
+  const rawPayments = isPaymentsLoaded || serverPayments !== undefined ? serverPayments : contextPayments
+  const payments = Array.isArray(rawPayments) ? rawPayments : []
 
   const previewCustomerCode = useMemo(() => {
     return SequenceService.peekNextSequence(
       'CUSTOMER',
-      customers,
+      customers || [],
       settings?.cusPrefix || 'CUS',
       settings?.seqPadding || 6
     )
@@ -79,7 +83,7 @@ const Customers = () => {
   const [expandedBillId, setExpandedBillId] = useState(null)
 
   const selectedCustomer = useMemo(
-    () => (selectedCustomerId ? customers.find((c) => String(c.id) === String(selectedCustomerId)) : null),
+    () => (selectedCustomerId ? customers.find((c) => c && String(c.id) === String(selectedCustomerId)) : null),
     [customers, selectedCustomerId]
   )
 
@@ -102,10 +106,12 @@ const Customers = () => {
     if (!selectedCustomer) return []
     const custId = String(selectedCustomer.id)
     const customerBills = bills.filter((b: any) => {
+      if (!b) return false
       const bCustId = String(b.customerId || b.customer_id || '')
       return bCustId === custId && !b.deleted && !b.deleted_at
     })
     const customerPayments = payments.filter((p: any) => {
+      if (!p) return false
       const pCustId = String(p.customerId || p.customer_id || '')
       return pCustId === custId
     })
@@ -153,6 +159,7 @@ const Customers = () => {
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c: any) => {
+      if (!c) return false
       if (filterType === 'deleted') return c.deleted === true
       if (c.deleted) return false  // hide deleted from normal tabs
       const matchesSearch =
@@ -165,41 +172,49 @@ const Customers = () => {
     })
   }, [customers, searchQuery, filterType])
 
-  // Bills for selected customer (non-deleted, newest first)
-  const customerBills = useMemo(() => {
-    if (!selectedCustomerId) return []
-    const custId = String(selectedCustomerId)
-    return bills
-      .filter((b: any) => {
-        if (b.deleted || b.deleted_at) return false
-        const bCustId = String(b.customerId || b.customer_id || '')
-        return bCustId === custId
-      })
-      .sort((a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
-  }, [bills, selectedCustomerId])
+  // Reconciled bills applying direct payments and customer-linked FIFO allocations
+  const reconciledBills = useMemo(() => {
+    try {
+      return ReconciliationService.reconcileBillsWithPayments(bills, payments) || []
+    } catch (err) {
+      console.error('Failed to reconcile bills with payments:', err)
+      return bills || []
+    }
+  }, [bills, payments])
+
+  // Total outstanding for any customer (for list display)
+  const getCustomerOutstanding = (customerId: string) => {
+    if (!customerId) return 0
+    const custId = String(customerId)
+    const cust = customers.find((c: any) => c && String(c.id) === custId)
+    const custOpenBills = (reconciledBills || []).filter((b: any) => {
+      if (!b) return false
+      const bCustId = String(b.customerId || b.customer_id || '')
+      return bCustId === custId && !b.deleted && !b.deleted_at
+    })
+    const billsDue = Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b?.balance || 0), 0).toFixed(2))
+    const adv = Number(cust?.advanceBalance || cust?.advance_balance || cust?.creditBalance || cust?.credit_balance || 0)
+    return Math.max(0, Number((billsDue - adv).toFixed(2)))
+  }
 
   // Outstanding balance for selected customer
   const outstandingBalance = useMemo(() => {
     if (!selectedCustomer) return 0
-    const summary = LedgerService.computeCustomerSummary({
-      customer: selectedCustomer,
-      bills,
-      payments
-    })
-    return Number(summary?.balance_due || 0)
-  }, [selectedCustomer, bills, payments])
+    return getCustomerOutstanding(selectedCustomer.id)
+  }, [selectedCustomer, reconciledBills, customers])
 
-  // Total outstanding for any customer (for list display)
-  const getCustomerOutstanding = (customerId: string) => {
-    const cust = customers.find((c: any) => String(c.id) === String(customerId))
-    if (!cust) return 0
-    const summary = LedgerService.computeCustomerSummary({
-      customer: cust,
-      bills,
-      payments
-    })
-    return Number(summary?.balance_due || 0)
-  }
+  // Bills for selected customer (non-deleted, newest first)
+  const customerBills = useMemo(() => {
+    if (!selectedCustomerId) return []
+    const custId = String(selectedCustomerId)
+    return (reconciledBills || [])
+      .filter((b: any) => {
+        if (!b || b.deleted || b.deleted_at) return false
+        const bCustId = String(b.customerId || b.customer_id || '')
+        return bCustId === custId
+      })
+      .sort((a: any, b: any) => new Date(b?.date || b?.created_at || 0).getTime() - new Date(a?.date || a?.created_at || 0).getTime())
+  }, [reconciledBills, selectedCustomerId])
 
   // Apply payment to oldest unpaid bills first via FIFO
   const handleApplyPayment = async () => {
@@ -210,15 +225,57 @@ const Customers = () => {
 
     const method = cash > 0 && upi > 0 ? 'split' : (upi > 0 ? 'upi' : 'cash')
     try {
-      if (recordPayment) {
-        await recordPayment({
-          customerId: selectedCustomer.id,
-          amount: totalPaying,
-          paymentMethod: method,
-          cashAmount: cash,
-          upiAmount: upi,
-          notes: `Payment from customer page (${method.toUpperCase()})`,
-        })
+      // Find customer's unpaid active bills sorted chronologically (FIFO)
+      const custBills = (bills || [])
+        .filter(
+          (b: any) =>
+            !b.deleted &&
+            !b.deleted_at &&
+            !b.isGroupParent &&
+            !b.is_group_parent &&
+            String(b.customerId || b.customer_id) === String(selectedCustomer.id) &&
+            Number(b.balance || 0) > 0
+        )
+        .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+      let remaining = totalPaying
+      for (const b of custBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
+        const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+        if (updateBill) {
+          await (updateBill as any)({
+            id: b.id,
+            data: {
+              balance: newBal,
+              status: newStatus,
+              amountPaid: newPaid,
+              amount_paid: newPaid,
+            }
+          })
+        }
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      // If customer overpaid (excess), credit customer advance / credit balance
+      if (remaining > 0) {
+        const currentAdv = Number(selectedCustomer.advanceBalance || selectedCustomer.advance_balance || selectedCustomer.creditBalance || selectedCustomer.credit_balance || 0)
+        const newAdv = Number((currentAdv + remaining).toFixed(2))
+        if (updateCustomer) {
+          await (updateCustomer as any)({
+            id: selectedCustomer.id,
+            data: {
+              advanceBalance: newAdv,
+              advance_balance: newAdv,
+              creditBalance: newAdv,
+              credit_balance: newAdv,
+            }
+          })
+        }
       }
 
       if (createPayment) {
@@ -232,8 +289,8 @@ const Customers = () => {
           upiAmount: upi,
           total_paid: totalPaying,
           totalPaid: totalPaying,
-          payment_type: 'partial',
-          paymentType: 'partial',
+          payment_type: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+          paymentType: custBills.length > 0 && remaining === 0 ? 'full' : 'partial',
           paymentMethod: method,
           notes: `Payment from customer page (${method.toUpperCase()})`,
           date: new Date().toISOString()
@@ -435,9 +492,9 @@ const Customers = () => {
     if (errors[field]) setErrors((e) => { const n = { ...e }; delete n[field]; return n })
   }
 
-  const regular = customers.filter((c) => c.type === 'regular' && !c.deleted)
-  const random = customers.filter((c) => c.type === 'random' && !c.deleted)
-  const deletedCustomers = customers.filter((c) => c.deleted)
+  const regular = customers.filter((c) => c && c.type === 'regular' && !c.deleted)
+  const random = customers.filter((c) => c && c.type === 'random' && !c.deleted)
+  const deletedCustomers = customers.filter((c) => c && c.deleted)
 
   return (
     <div>
@@ -478,7 +535,7 @@ const Customers = () => {
       {/* Filter tabs */}
       <div className="tabs" style={{ marginBottom: '16px' }}>
         {[
-          { key: 'all', label: 'All', count: customers.filter((c) => !c.deleted).length },
+          { key: 'all', label: 'All', count: customers.filter((c) => c && !c.deleted).length },
           { key: 'regular', label: 'Regular', count: regular.length },
           { key: 'random', label: 'Walk-in', count: random.length },
           { key: 'deleted', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Trash2 size={13} /> Deleted</span>, count: deletedCustomers.length },
@@ -537,6 +594,7 @@ const Customers = () => {
                 />
               ) : (
                 filteredCustomers.map((customer) => {
+                  if (!customer) return null
                   const outstanding = getCustomerOutstanding(customer.id)
                   const isSelected = selectedCustomerId !== null && String(selectedCustomerId) === String(customer.id)
                   return (
@@ -750,10 +808,16 @@ const Customers = () => {
                     </thead>
                     <tbody>
                       {customerBills.map((bill: any) => {
+                        if (!bill) return null
                         const bTotal = Number(bill.total !== undefined ? bill.total : (bill.grand_total !== undefined ? bill.grand_total : 0))
                         const bPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paid_total !== undefined ? bill.paid_total : 0)))
-                        const bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
-                        const bStatus = bill.status || (bPaid >= bTotal && bTotal > 0 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid'))
+                        let bBalance = Number(bill.balance !== undefined ? bill.balance : Math.max(0, bTotal - bPaid))
+                        if (bTotal > 0 && bPaid === 0 && bBalance <= 0.001) {
+                          bBalance = bTotal
+                        } else if (bTotal > 0 && bPaid > 0 && bPaid < bTotal && bBalance <= 0.001) {
+                          bBalance = Number((bTotal - bPaid).toFixed(2))
+                        }
+                        const bStatus = bBalance <= 0.001 ? 'paid' : (bPaid > 0 ? 'partial' : 'unpaid')
 
                         return (
                           <React.Fragment key={bill.id}>

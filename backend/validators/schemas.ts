@@ -63,6 +63,16 @@ export const paymentSchema = z.object({
   notes: z.string().optional().default('')
 });
 
+export const groupSettlementSchema = z.object({
+  group_bill_id: z.string().min(1, 'Group Bill ID is required'),
+  payer_customer_id: z.string().min(1, 'Payer Customer ID is required'),
+  payer_bill_id: z.string().optional().nullable(),
+  cash_amount: z.number().nonnegative().default(0),
+  upi_amount: z.number().nonnegative().default(0),
+  total_paid: z.number().positive('Total paid must be greater than 0'),
+  notes: z.string().optional().default('')
+});
+
 export const purchaseSchema = z.object({
   date: z.string().min(1, 'Date is required'),
   item_name: z.string().min(1, 'Item name is required'),
