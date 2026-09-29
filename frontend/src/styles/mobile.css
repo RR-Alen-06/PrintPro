@@ -77,7 +77,7 @@
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   position: relative;
   overflow-x: hidden;
-  padding-bottom: calc(var(--bottom-nav-height) + 20px);
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 24px);
 }
 
 .mobile-content {
@@ -120,7 +120,8 @@
   position: sticky;
   top: 0;
   z-index: 90;
-  height: 58px;
+  min-height: 58px;
+  padding-top: env(safe-area-inset-top, 0px);
   background: linear-gradient(180deg, rgba(5, 4, 10, 0.95) 0%, rgba(5, 4, 10, 0.85) 100%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -129,8 +130,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  position: relative;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .mobile-header::after {
