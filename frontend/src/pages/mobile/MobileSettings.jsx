@@ -79,7 +79,7 @@ export default function MobileSettings() {
     sequences = {},
   } = useAppContext()
 
-  const { data: serverProfile = {} } = useProfile()
+  const { data: serverProfile } = useProfile()
   const { updateProfile } = useProfileMutations()
   const { settings = {} } = useSettings()
   const { updateSettings } = useSettingsMutations()

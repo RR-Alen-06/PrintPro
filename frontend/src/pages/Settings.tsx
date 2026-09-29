@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   Trash2,
   Search,
+  LucideIcon,
 } from 'lucide-react'
 
 import { BusinessProfileTab, BusinessProfileData } from '../components/settings/BusinessProfileTab'
@@ -37,7 +38,7 @@ interface TabDefinition {
   id: string
   label: string
   sublabel: string
-  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>
+  icon: LucideIcon
   color: string
 }
 
@@ -139,7 +140,7 @@ const Settings: React.FC = () => {
   }
 
   const { business, showToast } = useAppContext()
-  const { data: serverProfile = {} } = useProfile()
+  const { data: serverProfile } = useProfile()
   const { updateProfile } = useProfileMutations()
 
   const { settings = {} } = useSettings()
