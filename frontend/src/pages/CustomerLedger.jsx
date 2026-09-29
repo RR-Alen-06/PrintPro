@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, RefreshCw, MessageCircle, FileText } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
 import EmptyState from '../components/common/EmptyState'
@@ -39,23 +40,26 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const paramCustId = searchParams.get('customerId')
 
-  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, advancePayments, showToast, syncFromCloud, processRefund } = useAppContext()
-  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverBills, isLoading: isLoadingBills } = useBills()
-  const { data: serverPayments } = usePayments()
-  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
-  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
-  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
+  const { business, customers: contextCustomers, settings, bills: contextBills, payments: contextPayments, showToast, syncFromCloud, processRefund } = useAppContext()
+  const { data: serverCustomers, isLoading: isLoadingCustomers, isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverBills, isLoading: isLoadingBills, isSuccess: isBillsLoaded } = useBills()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
+  const { data: serverAdvancePayments, isLoading: isLoadingAdvances, isSuccess: isAdvancesLoaded } = useAdvancePayments()
+  const customers = isCustomersLoaded ? (serverCustomers || []) : (contextCustomers || [])
+  const bills = isBillsLoaded ? (serverBills || []) : (contextBills || [])
+  const payments = isPaymentsLoaded ? (serverPayments || []) : (contextPayments || [])
+  const advancePayments = isAdvancesLoaded ? (serverAdvancePayments || []) : []
   const { createPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
   const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
-  const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0)
+  const isDataLoading = (isLoadingCustomers && customers.length === 0) || (isLoadingBills && bills.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
 
-  const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
+  const activeCustomers = useMemo(() => (customers || []).filter((c) => c && !c.deleted), [customers])
 
   const handleWriteOff = async (billId, balanceAmt) => {
     if (window.confirm(`Are you sure you want to write off the outstanding balance of ₹${balanceAmt.toFixed(2)} for Invoice #${billId}? This cannot be undone.`)) {
@@ -98,6 +102,7 @@ const CustomerLedger = () => {
   const [refundUpi, setRefundUpi] = useState('')
   const [refundNotes, setRefundNotes] = useState('')
   const [showStatementModal, setShowStatementModal] = useState(false)
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false)
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -105,30 +110,30 @@ const CustomerLedger = () => {
   }
 
   const selectedCustomer = useMemo(
-    () => activeCustomers.find((c) => String(c.id) === String(selectedCustomerId)),
+    () => activeCustomers.find((c) => c && String(c.id) === String(selectedCustomerId)),
     [activeCustomers, selectedCustomerId]
   )
 
   const customerBills = useMemo(
-    () => bills.filter((b) => String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at),
+    () => (bills || []).filter((b) => b && String(b.customerId || b.customer_id) === String(selectedCustomerId) && !b.deleted && !b.deleted_at),
     [bills, selectedCustomerId]
   )
 
   const customerPayments = useMemo(
-    () => payments.filter((p) => String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit')),
+    () => (payments || []).filter((p) => p && String(p.customerId || p.customer_id) === String(selectedCustomerId) && !p.notes?.includes('advance deposit')),
     [payments, selectedCustomerId]
   )
 
   const customerAdvances = useMemo(
-    () => (advancePayments || []).filter((a) => String(a.customerId || a.customer_id) === String(selectedCustomerId)),
+    () => (advancePayments || []).filter((a) => a && String(a.customerId || a.customer_id) === String(selectedCustomerId)),
     [advancePayments, selectedCustomerId]
   )
 
   const customerSettlements = useMemo(() => {
-    return payments.filter(p => {
-      if (!p.isGroupPayment) return false
+    return (payments || []).filter(p => {
+      if (!p || !p.isGroupPayment) return false
       if (String(p.customerId || p.customer_id) === String(selectedCustomerId)) return true
-      return (p.groupSettlements || []).some(s => String(s.customerId || s.customer_id) === String(selectedCustomerId))
+      return (p.groupSettlements || []).some(s => s && String(s.customerId || s.customer_id) === String(selectedCustomerId))
     })
   }, [payments, selectedCustomerId])
 
@@ -210,7 +215,7 @@ const CustomerLedger = () => {
     setTimeout(() => setPaySuccess(false), 3500)
   }
 
-  const handleProcessRefund = () => {
+  const handleProcessRefund = async () => {
     const rCash = Number(refundCash || 0)
     const rUpi = Number(refundUpi || 0)
     const totalRefund = rCash + rUpi
@@ -224,19 +229,49 @@ const CustomerLedger = () => {
       return
     }
 
-    processRefund({
-      customerId: selectedCustomer.id,
-      amount: totalRefund,
-      cashAmount: rCash,
-      upiAmount: rUpi,
-      notes: refundNotes || 'Refund from credit balance'
-    })
+    try {
+      setIsProcessingRefund(true)
+      await createPayment({
+        customer_id: selectedCustomer.id,
+        date: new Date().toISOString().slice(0, 10),
+        cash_amount: -rCash,
+        upi_amount: -rUpi,
+        total_paid: -totalRefund,
+        payment_type: 'refund',
+        notes: refundNotes || 'Refund from credit balance'
+      })
 
-    setRefundCash('')
-    setRefundUpi('')
-    setRefundNotes('')
-    setShowRefundModal(false)
-    showToast('Refund processed successfully', 'success')
+      // Adjust customer credit/advance balance if present
+      const currentCredit = Number(selectedCustomer.credit_balance || selectedCustomer.creditBalance || selectedCustomer.advance_balance || selectedCustomer.advanceBalance || 0)
+      if (currentCredit > 0) {
+        const newCredit = Math.max(0, currentCredit - totalRefund)
+        await updateCustomerMutation({
+          id: selectedCustomer.id,
+          data: {
+            credit_balance: newCredit,
+            creditBalance: newCredit,
+            advance_balance: newCredit,
+            advanceBalance: newCredit,
+          }
+        })
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+
+      setRefundCash('')
+      setRefundUpi('')
+      setRefundNotes('')
+      setShowRefundModal(false)
+      showToast('Refund processed successfully', 'success')
+    } catch (err) {
+      showToast(err?.message || 'Failed to process refund', 'error')
+    } finally {
+      setIsProcessingRefund(false)
+    }
   }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
@@ -904,10 +939,10 @@ const CustomerLedger = () => {
                 <button
                   className="btn btn-primary"
                   onClick={handleProcessRefund}
-                  disabled={Number(refundCash || 0) + Number(refundUpi || 0) <= 0 || (Number(refundCash || 0) + Number(refundUpi || 0)) > Math.abs(finalBalance)}
+                  disabled={isProcessingRefund || Number(refundCash || 0) + Number(refundUpi || 0) <= 0 || (Number(refundCash || 0) + Number(refundUpi || 0)) > Math.abs(finalBalance)}
                   style={{ flex: 2, background: 'var(--warning)', borderColor: 'var(--warning)', color: '#000' }}
                 >
-                  Confirm Refund
+                  {isProcessingRefund ? 'Processing...' : 'Confirm Refund'}
                 </button>
               </div>
             </div>

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { LedgerService } from '../../services/ledgerService'
 import { ReminderService } from '../../services/reminderService'
@@ -19,19 +19,21 @@ export default function MobileCustomerLedger() {
   const [searchParams] = useSearchParams()
   const paramCustId = searchParams.get('customerId')
 
-  const { business, settings, advancePayments, contextCustomers, contextBills, contextPayments, showToast } = useAppContext()
+  const { business, settings, showToast } = useAppContext()
 
   // TanStack Queries & Mutations
-  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverPayments = [], isLoading: isLoadingPayments } = usePayments()
-  const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
+  const { data: serverCustomers, isSuccess: isCustomersLoaded, isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded, isLoading: isLoadingPayments } = usePayments()
+  const { data: serverBills, isSuccess: isBillsLoaded, isLoading: isLoadingBills } = useBills()
+  const { data: serverAdvancePayments, isSuccess: isAdvancesLoaded } = useAdvancePayments()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
   const { updateBill: updateBillMutation, isUpdatingBill } = useBillMutations()
   const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
-  const customers = serverCustomers.length > 0 ? serverCustomers : (contextCustomers || [])
-  const bills = serverBills.length > 0 ? serverBills : (contextBills || [])
-  const payments = serverPayments.length > 0 ? serverPayments : (contextPayments || [])
+  const customers = isCustomersLoaded || serverCustomers !== undefined ? (serverCustomers || []) : []
+  const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : []
+  const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : []
+  const advancePayments = isAdvancesLoaded || serverAdvancePayments !== undefined ? (serverAdvancePayments || []) : []
 
   const activeCustomers = useMemo(() => (customers || []).filter(c => !c.deleted), [customers])
   const [selectedCustomerId, setSelectedCustomerId] = useState(paramCustId || activeCustomers[0]?.id || '')
@@ -415,7 +417,7 @@ export default function MobileCustomerLedger() {
 
       {/* Record Payment Bottom Sheet */}
       <BottomSheet isOpen={showPayModal} onClose={() => setShowPayModal(false)} title="Record Customer Payment">
-        <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form onSubmit={handleRecordPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CLIENT</label>
             <input type="text" className="mobile-input" value={selectedCustomer?.name || ''} readOnly style={{ opacity: 0.8 }} />

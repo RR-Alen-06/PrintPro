@@ -4,6 +4,7 @@ import { useBills } from '../hooks/useBillsQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import { usePayments, useInventory, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
+import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import PeriodReport from '../components/PeriodReport'
 import { Banknote, Smartphone, Tag, ShieldAlert, RefreshCw, Box, Users } from 'lucide-react'
@@ -24,7 +25,8 @@ const filterByDate = (items, dateKey, range) => {
 }
 
 const Analytics = () => {
-  const { promoCodes, auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { auditLogs, syncFromCloud, showToast } = useAppContext()
+  const { promoCodes = [] } = usePromoCodes()
   const { data: bills = [] } = useBills()
   const { data: customers = [] } = useCustomers()
   const { data: payments = [] } = usePayments()
@@ -46,10 +48,10 @@ const Analytics = () => {
     return { start: bounds.startDate, end: bounds.endDate }
   }, [period, customStartDate, customEndDate])
 
-  const filteredBills = useMemo(() => filterByDate(bills.filter(b => !b.deleted && !b.isGroupParent), 'date', range), [bills, range])
-  const filteredPayments = useMemo(() => filterByDate(payments || [], 'date', range), [payments, range])
-  const filteredExpenses = useMemo(() => filterByDate(expenses || [], 'date', range), [expenses, range])
-  const filteredAdvPayments = useMemo(() => filterByDate(advancePayments || [], 'date', range), [advancePayments, range])
+  const filteredBills = useMemo(() => filterByDate((Array.isArray(bills) ? bills : []).filter(b => b && !b.deleted && !b.isGroupParent), 'date', range), [bills, range])
+  const filteredPayments = useMemo(() => filterByDate(Array.isArray(payments) ? payments.filter(Boolean) : [], 'date', range), [payments, range])
+  const filteredExpenses = useMemo(() => filterByDate(Array.isArray(expenses) ? expenses.filter(Boolean) : [], 'date', range), [expenses, range])
+  const filteredAdvPayments = useMemo(() => filterByDate(Array.isArray(advancePayments) ? advancePayments.filter(Boolean) : [], 'date', range), [advancePayments, range])
 
   const expenseCategoryBreakdown = useMemo(() => {
     const categories = {}
@@ -70,7 +72,7 @@ const Analytics = () => {
   }, [filteredAdvPayments])
 
   const totalCustomerAdvance = useMemo(() => {
-    return customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
+    return (Array.isArray(customers) ? customers : []).filter((c) => c && !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
   }, [customers])
 
   const totalCashInflow = useMemo(() => {

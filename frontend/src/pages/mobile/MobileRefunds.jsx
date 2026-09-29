@@ -67,7 +67,7 @@ export default function MobileRefunds() {
   const refundLogs = useMemo(() => {
     const logs = []
     const getCustomer = (cId) => {
-      return (serverCustomers || []).find(cust => cust.id === cId)
+      return (serverCustomers || []).find(cust => cust && String(cust.id) === String(cId))
     }
 
     refundStats.billRefundsList.forEach(r => {
@@ -250,13 +250,13 @@ export default function MobileRefunds() {
                     -₹{item.total.toLocaleString('en-IN')}
                   </div>
                   <span className="mobile-badge mobile-badge-error" style={{ fontSize: '0.65rem', marginTop: '2px' }}>
-                    {item.type.toUpperCase()}
+                    {String(item.type || 'REFUND').toUpperCase()}
                   </span>
                 </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                <span>Method: <strong>{item.method.toUpperCase()}</strong></span>
+                <span>Method: <strong>{String(item.method || 'CASH').toUpperCase()}</strong></span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>{item.notes ? item.notes : 'System Logged'}</span>
                   {item.customerPhone && (

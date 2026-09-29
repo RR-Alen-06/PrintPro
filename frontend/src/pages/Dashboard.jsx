@@ -3,9 +3,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useBills } from '../hooks/useBillsQuery'
-import { useCustomers } from '../hooks/useCustomersQuery'
-import { usePayments, usePaymentMutations } from '../hooks/useEntitiesQuery'
+import { useBills, useBillMutations } from '../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../hooks/useCustomersQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../hooks/useEntitiesQuery'
 import { useExpenses } from '../hooks/useExpensesQuery'
 import { ReconciliationService } from '../services/reconciliationService'
 import EmptyState from '../components/common/EmptyState'
@@ -35,18 +35,18 @@ const formatCurrency = (val) => {
 
 const Dashboard = () => {
   const queryClient = useQueryClient()
-  const { bills: contextBills, customers: contextCustomers, advancePayments, payments: contextPayments = [], deletedPayments, expenses: contextExpenses = [], showToast, updateBill, recordPayment } = useAppContext()
-  const { data: serverBills, isLoading: isLoadingBills } = useBills()
-  const { data: serverCustomers, isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverPayments } = usePayments()
-  const { data: serverExpenses } = useExpenses()
+  const { deletedPayments, showToast, updateBill } = useAppContext()
+  const { data: bills = [], isLoading: isLoadingBills } = useBills()
+  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
+  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { data: serverAdvancePayments = [], isLoading: isLoadingAdvances } = useAdvancePayments()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
+  const { updateBill: updateBillMutation } = useBillMutations()
+  const { updateCustomer: updateCustomerMutation } = useCustomerMutations()
 
-  const bills = serverBills?.length > 0 ? serverBills : (contextBills || [])
-  const customers = serverCustomers?.length > 0 ? serverCustomers : (contextCustomers || [])
-  const payments = serverPayments?.length > 0 ? serverPayments : (contextPayments || [])
-  const expenses = serverExpenses?.length > 0 ? serverExpenses : (contextExpenses || [])
-  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0)
+  const advancePayments = serverAdvancePayments
+  const isDataLoading = (isLoadingBills && bills.length === 0) || (isLoadingCustomers && customers.length === 0) || (isLoadingAdvances && !serverAdvancePayments)
   const navigate = useNavigate()
   const today = new Date()
 
@@ -102,22 +102,74 @@ const Dashboard = () => {
 
     setIsSubmittingPayment(true)
     try {
-      // 1. AppContext FIFO allocation (optimistic & offline-first)
-      recordPayment?.({
-        customerId: paymentCustomerId,
-        cashAmount: cash,
-        upiAmount: upi,
-        notes: paymentNotes || 'Quick Payment via Dashboard',
-      })
+      // Find customer's unpaid active bills sorted chronologically (FIFO)
+      const custUnpaidBills = (bills || [])
+        .filter(
+          (b) =>
+            !b.deleted &&
+            !b.deleted_at &&
+            !b.isGroupParent &&
+            !b.is_group_parent &&
+            String(b.customerId || b.customer_id) === String(paymentCustomerId) &&
+            Number(b.balance || 0) > 0
+        )
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
 
-      // 2. Cloud mutation
+      let remaining = total
+      for (const b of custUnpaidBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
+        const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+        if (updateBillMutation) {
+          await updateBillMutation({
+            id: b.id,
+            data: {
+              balance: newBal,
+              status: newStatus,
+              amountPaid: newPaid,
+              amount_paid: newPaid,
+            }
+          })
+        }
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      // If customer overpaid (excess), credit customer advance / credit balance
+      if (remaining > 0) {
+        const custObj = (customers || []).find((c) => String(c.id) === String(paymentCustomerId))
+        if (custObj && updateCustomerMutation) {
+          const currentAdv = Number(custObj.advanceBalance || custObj.advance_balance || custObj.creditBalance || custObj.credit_balance || 0)
+          const newAdv = Number((currentAdv + remaining).toFixed(2))
+          await updateCustomerMutation({
+            id: custObj.id,
+            data: {
+              advanceBalance: newAdv,
+              advance_balance: newAdv,
+              creditBalance: newAdv,
+              credit_balance: newAdv,
+            }
+          })
+        }
+      }
+
+      // Cloud mutation (optimistic updates and backend persistence)
       try {
         if (createPaymentMutation) {
           await createPaymentMutation({
             customer_id: paymentCustomerId,
+            customerId: paymentCustomerId,
             cash_amount: cash,
+            cashAmount: cash,
             upi_amount: upi,
+            upiAmount: upi,
             total_paid: total,
+            totalPaid: total,
+            payment_type: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+            paymentType: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
             notes: paymentNotes || 'Quick Payment via Dashboard',
             date: new Date().toISOString(),
           })
@@ -250,10 +302,10 @@ const Dashboard = () => {
     }
 
     return {
-      bills: bills.filter(b => checkDate(b.date)),
-      payments: payments.filter(p => checkDate(p.date)),
-      advancePayments: advancePayments.filter(ap => checkDate(ap.date)),
-      expenses: expenses.filter(e => checkDate(e.date))
+      bills: (bills || []).filter(b => b && checkDate(b.date)),
+      payments: (payments || []).filter(p => p && checkDate(p.date)),
+      advancePayments: (advancePayments || []).filter(ap => ap && checkDate(ap.date)),
+      expenses: (expenses || []).filter(e => e && checkDate(e.date))
     }
   }, [bills, payments, advancePayments, expenses, activeDateRange])
 
@@ -350,7 +402,10 @@ const Dashboard = () => {
     }
   }, [bills, payments, advancePayments, expenses, selectedFY])
 
-  const activeBills = useMemo(() => filteredData.bills.filter((b) => !b.deleted && !b.isGroupParent), [filteredData.bills])
+  const activeBills = useMemo(() => {
+    return ReconciliationService.reconcileBillsWithPayments(filteredData.bills, filteredData.payments)
+  }, [filteredData.bills, filteredData.payments])
+
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
@@ -382,8 +437,8 @@ const Dashboard = () => {
   }, [filteredData, totalCustomerAdvance])
 
   const agingReport = useMemo(() => {
-    return DashboardService.calculateAgingReport(bills)
-  }, [bills])
+    return DashboardService.calculateAgingReport(bills, payments)
+  }, [bills, payments])
 
   const refundPayments = useMemo(() => {
     return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
@@ -391,7 +446,7 @@ const Dashboard = () => {
 
   const totalCashInflow = useMemo(() => {
     const deletedBillIds = new Set((filteredData.bills || []).filter(b => b.deleted).map(b => String(b.id)))
-    const billMap = new Map((filteredData.bills || []).map(b => [String(b.id), Number(b.total || 0)]))
+    const billMap = new Map((filteredData.bills || []).map(b => [String(b.id), Number(b.total !== undefined ? b.total : (b.grand_total || 0))]))
     
     const billPaymentsMap = new Map()
     let unlinkedCashTotal = 0

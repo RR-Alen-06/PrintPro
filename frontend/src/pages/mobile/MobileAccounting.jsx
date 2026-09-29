@@ -24,34 +24,26 @@ export default function MobileAccounting() {
     showToast,
     syncFromCloud,
     settings,
-    bills: contextBills = [],
-    payments: contextPayments = [],
-    customers: contextCustomers = [],
-    inventory: contextInventory = [],
-    advancePayments: contextAdvances = [],
-    deletedPayments: contextDeletedPayments = [],
-    addExpense: contextAddExpense,
-    deleteExpense: contextDeleteExpense
   } = useAppContext()
 
   // TanStack Query & Mutation hooks
   const { data: serverExpenses = [], isLoading: isLoadingExpenses, isError, error } = useExpenses()
   const { createExpense, deleteExpense, isCreatingExpense, isDeletingExpense } = useExpenseMutations()
-  const { data: serverBills = [] } = useBills()
-  const { data: serverPayments = [] } = usePayments()
-  const { data: serverCustomers = [] } = useCustomers()
-  const { data: serverInventory = [] } = useInventory()
-  const { data: serverAdvances = [] } = useAdvancePayments()
-  const { data: serverDeletedPayments = [] } = useDeletedPayments()
+  const { data: serverBills, isSuccess: isBillsLoaded } = useBills()
+  const { data: serverPayments, isSuccess: isPaymentsLoaded } = usePayments()
+  const { data: serverCustomers, isSuccess: isCustomersLoaded } = useCustomers()
+  const { data: serverInventory, isSuccess: isInventoryLoaded } = useInventory()
+  const { data: serverAdvances, isSuccess: isAdvancesLoaded } = useAdvancePayments()
+  const { data: serverDeletedPayments, isSuccess: isDeletedPaymentsLoaded } = useDeletedPayments()
 
-  // Unified Reactive Data Sources
-  const bills = serverBills.length > 0 ? serverBills : contextBills
-  const customers = serverCustomers.length > 0 ? serverCustomers : contextCustomers
-  const payments = serverPayments.length > 0 ? serverPayments : contextPayments
-  const inventory = serverInventory.length > 0 ? serverInventory : contextInventory
-  const advancePayments = serverAdvances.length > 0 ? serverAdvances : (contextAdvances || [])
-  const deletedPayments = serverDeletedPayments.length > 0 ? serverDeletedPayments : (contextDeletedPayments || [])
-  const expenses = serverExpenses
+  // Unified Reactive Data Sources — single source of truth once loaded
+  const bills = isBillsLoaded || serverBills !== undefined ? (serverBills || []) : []
+  const customers = isCustomersLoaded || serverCustomers !== undefined ? (serverCustomers || []) : []
+  const payments = isPaymentsLoaded || serverPayments !== undefined ? (serverPayments || []) : []
+  const inventory = isInventoryLoaded || serverInventory !== undefined ? (serverInventory || []) : []
+  const advancePayments = isAdvancesLoaded || serverAdvances !== undefined ? (serverAdvances || []) : []
+  const deletedPayments = isDeletedPaymentsLoaded || serverDeletedPayments !== undefined ? (serverDeletedPayments || []) : []
+  const expenses = serverExpenses || []
 
   const previewExpenseCode = useMemo(() => {
     return SequenceService.peekNextSequence(
@@ -141,17 +133,17 @@ export default function MobileAccounting() {
 
   // Accounting Financial Calculations matching desktop Accounting.jsx
   const financialTotals = useMemo(() => {
-    const periodBills = (bills || []).filter(b => !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent && isDateInPeriod(b.date || b.created_at, period))
-    const periodExpenses = (expenses || []).filter(e => isDateInPeriod(e.date || e.created_at, period))
-    const periodPayments = (payments || []).filter(p => isDateInPeriod(p.date || p.created_at, period))
-    const periodAdvances = (advancePayments || []).filter(ap => isDateInPeriod(ap.date || ap.created_at, period))
-    const periodDeletedPayments = (deletedPayments || []).filter(dp => isDateInPeriod(dp.date || dp.created_at, period))
+    const periodBills = (bills || []).filter(b => b && !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent && isDateInPeriod(b.date || b.created_at, period))
+    const periodExpenses = (expenses || []).filter(e => e && isDateInPeriod(e.date || e.created_at, period))
+    const periodPayments = (payments || []).filter(p => p && isDateInPeriod(p.date || p.created_at, period))
+    const periodAdvances = (advancePayments || []).filter(ap => ap && isDateInPeriod(ap.date || ap.created_at, period))
+    const periodDeletedPayments = (deletedPayments || []).filter(dp => dp && isDateInPeriod(dp.date || dp.created_at, period))
 
     const totalRev = periodBills.reduce((s, b) => s + Number(b.total || 0), 0)
     const totalExp = periodExpenses.reduce((s, e) => s + Number(e.amount || e.total || 0), 0)
 
     // Normal Inflow Payments
-    const deletedBillIds = new Set((bills || []).filter(b => b.deleted || b.deleted_at).map(b => String(b.id)))
+    const deletedBillIds = new Set((bills || []).filter(b => b && (b.deleted || b.deleted_at)).map(b => String(b.id)))
     const normalPayments = periodPayments.filter(p => {
       const isRef = p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0
       const isFifoAdv = p.notes?.includes('from advance deposit') || p.notes?.includes('FIFO payment')
@@ -453,17 +445,10 @@ export default function MobileAccounting() {
         date,
       }
 
-      // 1. Optimistic update local AppContext if available
-      if (contextAddExpense) {
-        try {
-          contextAddExpense(payload)
-        } catch (_) {}
-      }
-
-      // 2. TanStack Cloud Mutation
+      // 1. TanStack Cloud Mutation
       await createExpense(payload)
 
-      // 3. Invalidate query keys for 0ms reactive UI refresh
+      // 2. Invalidate query keys for 0ms reactive UI refresh
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['expenses'] }),
         queryClient.invalidateQueries({ queryKey: ['accounting'] }),
@@ -484,11 +469,6 @@ export default function MobileAccounting() {
   const handleDeleteExpense = async (id) => {
     if (window.confirm('Remove this expense entry?')) {
       try {
-        if (contextDeleteExpense) {
-          try {
-            contextDeleteExpense(id)
-          } catch (_) {}
-        }
         await deleteExpense(id)
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['expenses'] }),

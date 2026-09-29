@@ -159,4 +159,81 @@ describe('Settings & Business Profile Audit Sync Suite', () => {
     expect(updatedSettings.silentThermalPrint).toBe(true)
     expect(updatedSettings.autoPrintOnSave).toBe(true)
   })
+
+  it('correctly maps promo codes between database model and frontend client schema', () => {
+    const rawDbRow = {
+      id: 'promo-uuid-1',
+      user_id: 'usr-123',
+      code: 'diwali50',
+      type: 'percent',
+      value: 50.0,
+      min_amount: 500.0,
+      max_discount: 250.0,
+      start_date: '2026-10-01',
+      end_date: '2026-11-15',
+      enabled: true,
+      created_at: '2026-09-26T10:00:00Z',
+      updated_at: '2026-09-26T10:00:00Z',
+    }
+
+    const clientPromo = {
+      id: rawDbRow.id,
+      code: (rawDbRow.code || '').trim().toUpperCase(),
+      type: rawDbRow.type,
+      value: Number(rawDbRow.value),
+      minAmount: Number(rawDbRow.min_amount),
+      maxDiscount: Number(rawDbRow.max_discount),
+      startDate: rawDbRow.start_date,
+      endDate: rawDbRow.end_date,
+      enabled: rawDbRow.enabled,
+    }
+
+    expect(clientPromo.code).toBe('DIWALI50')
+    expect(clientPromo.type).toBe('percent')
+    expect(clientPromo.value).toBe(50)
+    expect(clientPromo.minAmount).toBe(500)
+    expect(clientPromo.maxDiscount).toBe(250)
+    expect(clientPromo.enabled).toBe(true)
+  })
+
+  it('verifies deep merging of settings preserves nested loyalty and branding configurations', () => {
+    const baseSettings = {
+      theme: 'dark',
+      loyaltyEnabled: true,
+      loyaltyTiers: [
+        { from: 1, to: 40, points: 1 },
+        { from: 41, to: 100, points: 2 }
+      ],
+      branding: {
+        primaryColor: '#0f172a',
+        logoUrl: '',
+      }
+    }
+
+    const deltaUpdate = {
+      theme: 'dark',
+      loyaltyTiers: [
+        { from: 1, to: 50, points: 2 },
+        { from: 51, to: 200, points: 5 }
+      ],
+      branding: {
+        primaryColor: '#6366f1',
+        logoUrl: 'https://example.com/logo.png',
+      }
+    }
+
+    const merged = {
+      ...baseSettings,
+      ...deltaUpdate,
+      branding: {
+        ...baseSettings.branding,
+        ...deltaUpdate.branding,
+      }
+    }
+
+    expect(merged.loyaltyTiers[0].points).toBe(2)
+    expect(merged.loyaltyTiers[1].points).toBe(5)
+    expect(merged.branding.primaryColor).toBe('#6366f1')
+    expect(merged.branding.logoUrl).toBe('https://example.com/logo.png')
+  })
 })

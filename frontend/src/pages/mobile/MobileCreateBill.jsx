@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { useSettings } from '../../hooks/useSettingsQuery'
+import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { SequenceService } from '../../services/sequenceService'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { CreditService } from '../../services/creditService'
@@ -22,7 +24,9 @@ export default function MobileCreateBill() {
   const [searchParams] = useSearchParams()
   const editBillId = searchParams.get('edit')
 
-  const { promoCodes, settings, showToast, addBill, editBill, addCustomer } = useAppContext()
+  const { showToast, editBill } = useAppContext()
+  const { settings = {} } = useSettings()
+  const { promoCodes = [] } = usePromoCodes()
 
   // TanStack Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
@@ -31,6 +35,7 @@ export default function MobileCreateBill() {
   const { createBill: createBillMutation, updateBill: updateBillMutation, isCreatingBill, isUpdatingBill } = useBillMutations()
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createPayment } = usePaymentMutations()
+  const { adjustStock } = useInventoryMutations()
 
   // Wizard Step State (1: Customer -> 2: Items -> 3: Payment)
   const [step, setStep] = useState(1)
@@ -215,16 +220,6 @@ export default function MobileCreateBill() {
     try {
       createCustomerMutation(newCustPayload)
         .then((created) => {
-          if (addCustomer) {
-            addCustomer({
-              id: created?.id || tempId,
-              name: trimmedName,
-              phone: newCustPayload.phone,
-              type: 'regular',
-              totalSpent: 0,
-              balanceDue: 0
-            })
-          }
           if (created?.id) {
             setSelectedCustomerId((curr) => (curr === tempId ? created.id : curr))
           }
@@ -393,10 +388,35 @@ export default function MobileCreateBill() {
 
         mutationPromise
           .then(async (created) => {
-            if (addBill) addBill(created || billPayload)
             const savedResultId = created?.id || billPayload.id
             if (created?.id && created.id !== billPayload.id) {
               navigate(`/mobile/bill/${created.id}`, { replace: true })
+            }
+
+            // Deduct stock for product-type items
+            const deductions = new Map()
+            const billItemsList = billPayload.items || []
+            for (const item of billItemsList) {
+              const invItem = (serverInventory || []).find(
+                (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+              )
+              if (invItem && invItem.type === 'product') {
+                const qty = Number(item.qty || item.quantity || 0)
+                if (qty > 0) {
+                  deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
+                }
+              }
+            }
+
+            if (deductions.size > 0) {
+              try {
+                await Promise.all(
+                  Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
+                )
+              } catch (stockErr) {
+                console.error('Failed to deduct stock:', stockErr)
+                showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'error')
+              }
             }
             if (finalCash + finalUpi > 0) {
               try {

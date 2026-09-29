@@ -2,10 +2,11 @@ import React, { useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
-import { useBills } from '../../hooks/useBillsQuery'
+import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
+import { ReconciliationService } from '../../services/reconciliationService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
@@ -97,7 +98,7 @@ export default function MobileDashboard() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
-    business, syncFromCloud, showToast, addCustomer: contextAddCustomer, recordPayment
+    business, syncFromCloud, showToast
   } = useAppContext()
 
   // TanStack Queries & Mutations
@@ -105,8 +106,9 @@ export default function MobileDashboard() {
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
-  const { createCustomer: createCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { createCustomer: createCustomerMutation, updateCustomer: updateCustomerMutation, isCreatingCustomer } = useCustomerMutations()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
+  const { updateBill: updateBillMutation } = useBillMutations()
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('today') // 'today' | 'week' | 'month' | 'fy' | 'custom' | 'all'
@@ -186,19 +188,58 @@ export default function MobileDashboard() {
       const selectedCust = (customers || []).find(c => String(c.id) === String(paymentCustomerId))
       const custName = selectedCust?.name || 'Customer'
 
-      // 1. Instant local optimistic FIFO payment recording via AppContext
-      if (recordPayment) {
-        await recordPayment({
-          customerId: paymentCustomerId,
-          amount: total,
-          paymentMethod: paymentMode === 'split' ? 'split' : paymentMode,
-          cashAmount: cash,
-          upiAmount: upi,
-          notes: paymentNotes || 'Mobile Dashboard Quick Payment'
+      // Find customer's unpaid active bills sorted chronologically (FIFO)
+      const custUnpaidBills = (bills || [])
+        .filter(
+          (b) =>
+            !b.deleted &&
+            !b.deleted_at &&
+            !b.isGroupParent &&
+            !b.is_group_parent &&
+            String(b.customerId || b.customer_id) === String(paymentCustomerId) &&
+            Number(b.balance || 0) > 0
+        )
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+
+      let remaining = total
+      for (const b of custUnpaidBills) {
+        if (remaining <= 0) break
+        const toPay = Math.min(remaining, Number(b.balance || 0))
+        const newBal = Number(Math.max(0, Number(b.balance || 0) - toPay).toFixed(2))
+        const currentPaid = Number(b.amountPaid !== undefined ? b.amountPaid : (b.amount_paid || 0))
+        const newPaid = Number((currentPaid + toPay).toFixed(2))
+        const newStatus = newBal <= 0.001 ? 'paid' : 'partial'
+
+        if (updateBillMutation) {
+          await updateBillMutation({
+            id: b.id,
+            data: {
+              balance: newBal,
+              status: newStatus,
+              amountPaid: newPaid,
+              amount_paid: newPaid,
+            }
+          })
+        }
+        remaining = Number((remaining - toPay).toFixed(2))
+      }
+
+      // If customer overpaid (excess), credit customer advance / credit balance
+      if (remaining > 0 && selectedCust && updateCustomerMutation) {
+        const currentAdv = Number(selectedCust.advanceBalance || selectedCust.advance_balance || selectedCust.creditBalance || selectedCust.credit_balance || 0)
+        const newAdv = Number((currentAdv + remaining).toFixed(2))
+        await updateCustomerMutation({
+          id: selectedCust.id,
+          data: {
+            advanceBalance: newAdv,
+            advance_balance: newAdv,
+            creditBalance: newAdv,
+            credit_balance: newAdv,
+          }
         })
       }
 
-      // 2. Cloud mutation for remote sync
+      // Cloud mutation for durable persistence and optimistic React Query update
       if (createPaymentMutation) {
         await createPaymentMutation({
           customerId: paymentCustomerId,
@@ -207,12 +248,14 @@ export default function MobileDashboard() {
           cashAmount: cash,
           upiAmount: upi,
           paymentMethod: paymentMode === 'split' ? 'split' : paymentMode,
+          payment_type: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
+          paymentType: custUnpaidBills.length > 0 && remaining === 0 ? 'full' : 'partial',
           notes: paymentNotes || 'Mobile Dashboard Quick Payment',
           date: new Date().toISOString()
         })
       }
 
-      // 3. React Query multi-entity cache invalidation
+      // React Query multi-entity cache invalidation
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bills'] }),
         queryClient.invalidateQueries({ queryKey: ['payments'] }),
@@ -241,8 +284,10 @@ export default function MobileDashboard() {
     paymentUpi,
     paymentNotes,
     customers,
-    recordPayment,
+    bills,
     createPaymentMutation,
+    updateBillMutation,
+    updateCustomerMutation,
     queryClient,
     showToast
   ])
@@ -297,18 +342,23 @@ export default function MobileDashboard() {
   const filteredBills = useMemo(() => {
     const { start, end } = activeDateRange
     return (bills || []).filter((b) => {
-      if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+      if (!b || b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
       if (!start || !end) return true
       const d = new Date(b.date)
       return d >= start && d <= end
     })
   }, [bills, activeDateRange])
 
+  const reconciledBills = useMemo(() => {
+    return ReconciliationService.reconcileBillsWithPayments(filteredBills, payments)
+  }, [filteredBills, payments])
+
   // Financial Metric Calculations matching desktop logic
   const stats = useMemo(() => {
     const totalRevenue = filteredBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
-    const unpaidBills = filteredBills.filter(b => Number(b.balance || 0) > 0)
-    const pendingAmount = unpaidBills.reduce((sum, b) => sum + Number(b.balance || 0), 0)
+    const unpaidBills = reconciledBills.filter((b) => Number(b.balance || 0) > 0)
+    const pendingAmount = Number(unpaidBills.reduce((sum, b) => sum + Number(b.balance || 0), 0).toFixed(2))
+    const totalCollected = Number(reconciledBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0).toFixed(2))
 
     const periodPayments = (payments || []).filter((p) => {
       if (p.isRefund || p.is_refund) return false
@@ -320,26 +370,39 @@ export default function MobileDashboard() {
 
     let cashTotal = 0
     let upiTotal = 0
-    periodPayments.forEach(p => {
+    periodPayments.forEach((p) => {
       cashTotal += Number(p.cashAmount || p.cash_amount || 0)
       upiTotal += Number(p.upiAmount || p.upi_amount || 0)
     })
     const cashInflow = cashTotal + upiTotal
 
-    const periodExpenses = (expenses || []).filter(e => {
-      const d = new Date(e.date)
-      if (activeDateRange.start && d < activeDateRange.start) return false
-      if (activeDateRange.end && d > activeDateRange.end) return false
-      return true
-    }).reduce((sum, e) => sum + Number(e.amount || 0), 0)
+    const periodExpenses = (expenses || [])
+      .filter((e) => {
+        const d = new Date(e.date)
+        if (activeDateRange.start && d < activeDateRange.start) return false
+        if (activeDateRange.end && d > activeDateRange.end) return false
+        return true
+      })
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0)
 
-    const refundPayments = (payments || []).filter(p => (p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0))
-    const totalRefunds = refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || p.total_paid || 0)), 0)
+    const refundPayments = (payments || []).filter(
+      (p) =>
+        p.isRefund ||
+        p.is_refund ||
+        p.paymentType === 'refund' ||
+        Number(p.totalPaid || p.total_paid || 0) < 0
+    )
+    const totalRefunds = refundPayments.reduce(
+      (sum, p) => sum + Math.abs(Number(p.totalPaid || p.total_paid || 0)),
+      0
+    )
 
     const netCashFlow = cashInflow - periodExpenses - totalRefunds
 
     return {
       totalRevenue,
+      totalCollected,
+      billCount: filteredBills.length,
       pendingAmount,
       unpaidCount: unpaidBills.length,
       cashInflow,
@@ -349,7 +412,7 @@ export default function MobileDashboard() {
       totalRefunds,
       netCashFlow,
     }
-  }, [filteredBills, payments, expenses, activeDateRange])
+  }, [filteredBills, reconciledBills, payments, expenses, activeDateRange])
 
   // Handle Add Customer Form
   const handleAddCustomerSubmit = useCallback(async (e) => {
@@ -369,12 +432,6 @@ export default function MobileDashboard() {
         creditBalance: 0
       }
       const created = await createCustomerMutation(payload)
-      if (contextAddCustomer) {
-        contextAddCustomer({
-          id: created?.id || `cust-${Date.now()}`,
-          ...payload
-        })
-      }
       showToast(`Customer '${payload.name}' added successfully!`, 'success')
       setNewCustName('')
       setNewCustPhone('')
@@ -383,7 +440,7 @@ export default function MobileDashboard() {
     } catch (err) {
       showToast(err.message || 'Failed to add customer', 'error')
     }
-  }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, contextAddCustomer, showToast])
+  }, [newCustName, newCustPhone, newCustEmail, newCustType, createCustomerMutation, showToast])
 
   // Financial CSV Export Trigger
   const handleExportCSV = useCallback(() => {

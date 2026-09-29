@@ -23,6 +23,7 @@ export const mapPaymentFromApi = (p: any) => {
     upiAmount: Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0)),
     totalPaid: Number(p.total_paid !== undefined ? p.total_paid : (p.totalPaid || 0)),
     paymentType: p.payment_type || p.paymentType || 'partial',
+    isRefund: Boolean(p.is_refund || p.isRefund || p.payment_type === 'refund' || p.paymentType === 'refund' || Number(p.total_paid !== undefined ? p.total_paid : (p.totalPaid || 0)) < 0),
     notes: p.notes || ''
   };
 };
@@ -77,10 +78,13 @@ export const createPayment = async (data: any) => {
     upi_amount: Number(data.upi_amount !== undefined ? data.upi_amount : (data.upiAmount || 0)),
     total_paid: Number(data.total_paid !== undefined ? data.total_paid : (data.totalPaid || 0)),
     payment_type: data.payment_type || data.paymentType || 'partial',
+    date: data.date || new Date().toISOString(),
     notes: data.notes || ''
   };
 
-  if (isBackendAvailable()) {
+  const isRefund = payload.payment_type === 'refund' || payload.total_paid < 0;
+
+  if (isBackendAvailable() && !isRefund) {
     try {
       const res = await api.post('/payments', {
         ...payload,

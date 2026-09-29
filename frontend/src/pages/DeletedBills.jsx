@@ -9,14 +9,14 @@ import {
 
 const DeletedBills = () => {
   const {
-    bills: contextBills,
+    bills: contextBills = [],
     restoreBill: contextRestoreBill,
     permanentDeleteBill: contextPermanentDeleteBill,
     purgeDeletedBills: contextPurgeDeletedBills,
     showToast
   } = useAppContext()
 
-  const { data: serverDeletedBills = [], isLoading, refetch } = useDeletedBills()
+  const { data: serverDeletedBills = [], isLoading, isSuccess, refetch } = useDeletedBills()
   const {
     restoreBill,
     permanentDeleteBill,
@@ -26,11 +26,11 @@ const DeletedBills = () => {
   } = useBillMutations()
 
   // Data union fallback
-  const contextDeleted = (contextBills || []).filter((b) => b.deleted || b.deleted_at)
+  const contextDeleted = (Array.isArray(contextBills) ? contextBills : []).filter((b) => b && (b.deleted || b.deleted_at))
   const deletedBills = useMemo(() => {
-    if (serverDeletedBills && serverDeletedBills.length > 0) return serverDeletedBills
+    if (isSuccess) return Array.isArray(serverDeletedBills) ? serverDeletedBills : []
     return contextDeleted
-  }, [serverDeletedBills, contextDeleted])
+  }, [isSuccess, serverDeletedBills, contextDeleted])
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('')
@@ -42,7 +42,8 @@ const DeletedBills = () => {
 
   // Filtered Bills
   const filteredBills = useMemo(() => {
-    return (deletedBills || []).filter((b) => {
+    return (Array.isArray(deletedBills) ? deletedBills : []).filter((b) => {
+      if (!b) return false
       // Text Search
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
@@ -79,11 +80,12 @@ const DeletedBills = () => {
 
   // Summary Metrics
   const metrics = useMemo(() => {
-    const count = deletedBills.length
-    const totalAmount = deletedBills.reduce((s, b) => s + Number(b.total || 0), 0)
-    const advanceLocked = deletedBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
-    const oldest = deletedBills.length > 0
-      ? [...deletedBills].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))[0]?.date || '—'
+    const list = Array.isArray(deletedBills) ? deletedBills.filter(Boolean) : []
+    const count = list.length
+    const totalAmount = list.reduce((s, b) => s + Number(b?.total || 0), 0)
+    const advanceLocked = list.reduce((s, b) => s + Number(b?.advanceUsed || 0), 0)
+    const oldest = list.length > 0
+      ? [...list].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))[0]?.date || '—'
       : '—'
     return { count, totalAmount, advanceLocked, oldest }
   }, [deletedBills])
