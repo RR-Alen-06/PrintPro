@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as settingsApi from '../api/settings'
 import { useAppContext } from '../context/AppContext'
@@ -57,17 +58,20 @@ export function useSettings() {
     enabled: !!userId,
   })
 
-  const rawData = query.data || {}
-  const mergedSettings = {
-    ...DEFAULT_SETTINGS,
-    ...(contextSettings || {}),
-    ...rawData,
-    staffPermissions: {
-      ...DEFAULT_SETTINGS.staffPermissions,
-      ...(contextSettings?.staffPermissions || {}),
-      ...(rawData.staffPermissions || {}),
-    },
-  }
+  const rawData = query.data
+  const mergedSettings = useMemo(() => {
+    const raw = rawData || {}
+    return {
+      ...DEFAULT_SETTINGS,
+      ...(contextSettings || {}),
+      ...raw,
+      staffPermissions: {
+        ...DEFAULT_SETTINGS.staffPermissions,
+        ...(contextSettings?.staffPermissions || {}),
+        ...(raw.staffPermissions || {}),
+      },
+    }
+  }, [contextSettings, rawData])
 
   return {
     ...query,
