@@ -15,6 +15,10 @@ import {
   Tag,
   Palette,
   Sliders,
+  Database,
+  FileSpreadsheet,
+  Trash2,
+  Search,
 } from 'lucide-react'
 
 import { BusinessProfileTab, BusinessProfileData } from '../components/settings/BusinessProfileTab'
@@ -25,6 +29,9 @@ import { LoyaltyTab, LoyaltyData } from '../components/settings/LoyaltyTab'
 import { PromoCodesTab, NewPromoState } from '../components/settings/PromoCodesTab'
 import { BrandingTab, BrandingData } from '../components/settings/BrandingTab'
 import { MaintenanceTab } from '../components/settings/MaintenanceTab'
+import { BackupSnapshotTab } from '../components/settings/BackupSnapshotTab'
+import { DataImportExportTab } from '../components/settings/DataImportExportTab'
+import { RecycleBinTab } from '../components/settings/RecycleBinTab'
 
 interface TabDefinition {
   id: string
@@ -43,8 +50,15 @@ const TABS: TabDefinition[] = [
     color: 'var(--accent)',
   },
   {
+    id: 'branding',
+    label: 'Invoice Branding',
+    sublabel: 'Colors, logo, seal & print',
+    icon: Palette,
+    color: '#ec4899',
+  },
+  {
     id: 'accounting',
-    label: 'Accounting',
+    label: 'Accounting & GST',
     sublabel: 'GST rate & reporting mode',
     icon: BarChart3,
     color: 'var(--warning)',
@@ -78,16 +92,30 @@ const TABS: TabDefinition[] = [
     color: '#06b6d4',
   },
   {
-    id: 'branding',
-    label: 'Invoice Branding',
-    sublabel: 'Colors, logo, seal & print',
-    icon: Palette,
-    color: '#ec4899',
+    id: 'backup',
+    label: 'Cloud & Local Backup',
+    sublabel: 'Snapshots & storage gauge',
+    icon: Database,
+    color: '#00f0ff',
+  },
+  {
+    id: 'import-export',
+    label: 'Import & Export Hub',
+    sublabel: '7-entity CSV & bulk uploads',
+    icon: FileSpreadsheet,
+    color: '#10b981',
+  },
+  {
+    id: 'recycle-bin',
+    label: 'Recycle Bin',
+    sublabel: 'Recover or purge deleted bills',
+    icon: Trash2,
+    color: '#ef4444',
   },
   {
     id: 'maintenance',
-    label: 'System & Maintenance',
-    sublabel: 'Storage & reset options',
+    label: 'System Maintenance',
+    sublabel: 'Storage & factory reset',
     icon: Sliders,
     color: 'var(--error)',
   },
@@ -95,8 +123,16 @@ const TABS: TabDefinition[] = [
 
 const Settings: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [tabSearch, setTabSearch] = useState('')
   const currentTabParam = searchParams.get('tab') || 'profile'
   const activeTab = TABS.some((t) => t.id === currentTabParam) ? currentTabParam : 'profile'
+
+  const filteredTabs = TABS.filter(
+    (t) =>
+      t.label.toLowerCase().includes(tabSearch.toLowerCase()) ||
+      t.sublabel.toLowerCase().includes(tabSearch.toLowerCase()) ||
+      t.id.toLowerCase().includes(tabSearch.toLowerCase())
+  )
 
   const handleSelectTab = (tabId: string) => {
     setSearchParams({ tab: tabId })
@@ -573,15 +609,17 @@ const Settings: React.FC = () => {
   return (
     <div>
       <div className="page-header" style={{ marginBottom: '20px' }}>
-        <h1>Settings</h1>
-        <p>Configure business details, accounting preferences, templates, and system behavior.</p>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span>Settings & System Hub</span>
+        </h1>
+        <p>Enterprise configuration, data backups, CSV migrations & audit management.</p>
       </div>
 
       <div
         className="settings-layout"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(240px, 280px) 1fr',
+          gridTemplateColumns: 'minmax(250px, 300px) 1fr',
           gap: '24px',
           alignItems: 'start',
         }}
@@ -593,22 +631,46 @@ const Settings: React.FC = () => {
             background: 'var(--bg-card, #1e293b)',
             borderRadius: 'var(--radius-lg, 12px)',
             border: '1px solid var(--border, rgba(255,255,255,0.08))',
-            padding: '10px',
+            padding: '12px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '4px',
+            gap: '8px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           }}
         >
-          {TABS.map((tab) => {
-            const Icon = tab.icon
-            const isSelected = activeTab === tab.id
+          {/* Tab Search Filter */}
+          <div style={{ position: 'relative', marginBottom: '4px' }}>
+            <Search
+              size={14}
+              style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}
+            />
+            <input
+              type="text"
+              placeholder="Search settings..."
+              value={tabSearch}
+              onChange={(e) => setTabSearch(e.target.value)}
+              className="aurora-input"
+              style={{
+                width: '100%',
+                paddingLeft: '32px',
+                height: '34px',
+                fontSize: '0.8rem',
+                borderRadius: '8px',
+                background: 'rgba(0,0,0,0.25)',
+              }}
+            />
+          </div>
 
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => handleSelectTab(tab.id)}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {filteredTabs.map((tab) => {
+              const Icon = tab.icon
+              const isSelected = activeTab === tab.id
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleSelectTab(tab.id)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -683,6 +745,7 @@ const Settings: React.FC = () => {
               </button>
             )
           })}
+          </div>
         </aside>
 
         {/* Right Active Tab Content */}
@@ -760,6 +823,9 @@ const Settings: React.FC = () => {
             />
           )}
 
+          {activeTab === 'backup' && <BackupSnapshotTab />}
+          {activeTab === 'import-export' && <DataImportExportTab />}
+          {activeTab === 'recycle-bin' && <RecycleBinTab />}
           {activeTab === 'maintenance' && <MaintenanceTab />}
         </main>
       </div>

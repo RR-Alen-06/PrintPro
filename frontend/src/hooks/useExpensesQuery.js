@@ -2,25 +2,34 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as purchasesApi from '../api/purchases'
 import { useAppContext } from '../context/AppContext'
 
+import { SequenceService } from '../services/sequenceService'
+
 export const EXPENSES_QUERY_KEY = ['expenses']
 
-export const mapPurchaseFromApi = (p) => ({
-  ...p,
-  id: p.id,
-  date: p.date,
-  description: p.item_name || p.description || p.notes || p.category || 'Expense',
-  itemName: p.item_name || p.description || '',
-  category: p.category || 'Supplies',
-  amount: Number(p.total !== undefined ? p.total : (p.amount || 0)),
-  total: Number(p.total !== undefined ? p.total : (p.amount || 0)),
-  cashAmount: Number(p.cash_amount !== undefined ? p.cash_amount : (p.cashAmount !== undefined ? p.cashAmount : (p.total || p.amount || 0))),
-  upiAmount: Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0)),
-  qty: Number(p.qty || 1),
-  unitCost: Number(p.unit_cost !== undefined ? p.unit_cost : (p.unitCost || 0)),
-  notes: p.notes || '',
-  receiptUrl: p.receipt_url || p.receiptUrl || '',
-  createdAt: p.created_at || p.createdAt || p.date,
-})
+export const mapPurchaseFromApi = (p) => {
+  const rawCode = p.expense_code || p.expenseCode || p.code;
+  const isValidCode = rawCode && typeof rawCode === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCode.trim());
+  const expenseCode = isValidCode ? rawCode.trim() : SequenceService.formatDisplayCode('expense', p.id || p, 'EXP');
+
+  return {
+    ...p,
+    id: p.id,
+    expenseCode,
+    date: p.date,
+    description: p.item_name || p.description || p.notes || p.category || 'Expense',
+    itemName: p.item_name || p.description || '',
+    category: p.category || 'Supplies',
+    amount: Number(p.total !== undefined ? p.total : (p.amount || 0)),
+    total: Number(p.total !== undefined ? p.total : (p.amount || 0)),
+    cashAmount: Number(p.cash_amount !== undefined ? p.cash_amount : (p.cashAmount !== undefined ? p.cashAmount : (p.total || p.amount || 0))),
+    upiAmount: Number(p.upi_amount !== undefined ? p.upi_amount : (p.upiAmount || 0)),
+    qty: Number(p.qty || 1),
+    unitCost: Number(p.unit_cost !== undefined ? p.unit_cost : (p.unitCost || 0)),
+    notes: p.notes || '',
+    receiptUrl: p.receipt_url || p.receiptUrl || '',
+    createdAt: p.created_at || p.createdAt || p.date,
+  };
+};
 
 export function useExpenses(filters = {}) {
   const { currentUser } = useAppContext()

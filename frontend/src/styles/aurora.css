@@ -332,3 +332,62 @@
   display: inline-block;
 }
 
+/* ==========================================================================
+   Cyber-Aurora Micro-Animations & Dynamic Physics
+   ========================================================================== */
+
+/* Card micro-interactions */
+.card, .stat-card, .mobile-card {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.card:hover, .stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.6), 0 0 18px -3px rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.25);
+}
+
+/* Button & interactive press physics */
+.btn:active, .mobile-btn:active, button:active:not(:disabled) {
+  transform: scale(0.975);
+  transition: transform 0.08s ease;
+}
+
+/* Input neon focus glow */
+.form-input:focus, .mobile-input:focus, input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--aurora-cyan, #00f0ff) !important;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25) !important;
+}
+
+/* Modal and bottom-sheet entrance keyframes */
+@keyframes slideUpFade {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes scaleFadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-slideUp {
+  animation: slideUpFade 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scaleFadeIn {
+  animation: scaleFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

@@ -17,6 +17,7 @@ export const exportToCSV = (data, filename = 'printpro-export.csv') => {
 }
 
 const downloadFile = (blob, filename) => {
+  if (typeof document === 'undefined') return
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = filename
@@ -179,5 +180,6 @@ export const createFullBackup = (appState) => {
     },
   }
   exportToJSON(backup, `printpro-full-backup-${new Date().toISOString().slice(0, 10)}.json`)
+  return backup
 }
 

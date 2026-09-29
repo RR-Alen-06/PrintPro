@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { CustomerStatementData, StatementInvoice, StatementLineItem } from '../types/billing';
+import { SequenceService } from './sequenceService';
 
 export interface StatementFilterRange {
   startDate?: string | null;
@@ -335,7 +336,7 @@ export class StatementService {
       },
       customer: {
         id: String(customerId),
-        customer_code: customer?.customerCode || customer?.code || `CUST-${String(customerId).slice(0, 5)}`,
+        customer_code: customer?.customerCode || customer?.code || SequenceService.formatDisplayCode('customer', customer || customerId, 'CUS'),
         name: customer?.name || 'Walk-in Customer',
         mobile: customer?.mobile || customer?.phone || '',
         email: customer?.email || '',

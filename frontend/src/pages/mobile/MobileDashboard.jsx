@@ -12,8 +12,11 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   TrendingUp, Clock, Wallet, CheckCircle, RefreshCw,
   PlusCircle, UserPlus, Download,
-  Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight, DollarSign
+  Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight, DollarSign,
+  MessageSquare, ExternalLink, CreditCard, ChevronRight
 } from 'lucide-react'
+import { SequenceService } from '../../services/sequenceService'
+import { ReminderService } from '../../services/reminderService'
 import '../../styles/mobile.css'
 
 const MetricsRow = React.memo(({ stats }) => {
@@ -353,11 +356,64 @@ export default function MobileDashboard() {
     return ReconciliationService.reconcileBillsWithPayments(filteredBills, payments)
   }, [filteredBills, payments])
 
+  // All-time reconciled bills (never clipped by period filter - store lifetime source of truth)
+  const allTimeReconciledBills = useMemo(() => {
+    return ReconciliationService.reconcileBillsWithPayments(bills, payments)
+  }, [bills, payments])
+
+  const allTimeTotalCustomers = useMemo(() => {
+    return (customers || []).filter(c => !c.deleted).length
+  }, [customers])
+
+  const allTimePendingAmount = useMemo(() => {
+    const unpaids = allTimeReconciledBills.filter(b => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0)
+    return Number(unpaids.reduce((sum, b) => sum + Number(b.balance || 0), 0).toFixed(2))
+  }, [allTimeReconciledBills])
+
+  const allTimeAdvancePool = useMemo(() => {
+    return (customers || []).filter(c => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.advance_balance || 0), 0)
+  }, [customers])
+
+  const allTimeNetDue = Math.max(0, allTimePendingAmount - allTimeAdvancePool)
+
+  // Top Debtors (All-Time) with Net Due & CUS-XXXX code
+  const topDebtors = useMemo(() => {
+    const map = {}
+    allTimeReconciledBills
+      .filter((b) => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0)
+      .forEach((b) => {
+        const custId = String(b.customerId || b.customer_id)
+        if (!map[custId]) {
+          const custObj = (customers || []).find(c => String(c.id) === custId)
+          const advBal = Number(custObj?.advanceBalance || custObj?.advance_balance || 0)
+          map[custId] = {
+            customerId: custId,
+            customerName: b.customerName || custObj?.name || 'Customer',
+            customerCode: custObj?.customerCode || SequenceService.formatDisplayCode(custId, 'CUS'),
+            phone: custObj?.phone || '',
+            advanceBalance: advBal,
+            grossDue: 0,
+            billCount: 0,
+          }
+        }
+        const entry = map[custId]
+        entry.grossDue += Number(b.balance || 0)
+        entry.billCount += 1
+      })
+    return Object.values(map)
+      .map(e => ({
+        ...e,
+        netDue: Math.max(0, e.grossDue - e.advanceBalance)
+      }))
+      .sort((a, b) => b.netDue - a.netDue || b.grossDue - a.grossDue)
+      .slice(0, 5)
+  }, [allTimeReconciledBills, customers])
+
   // Financial Metric Calculations matching desktop logic
   const stats = useMemo(() => {
     const totalRevenue = filteredBills.reduce((sum, b) => sum + Number(b.total || 0), 0)
-    const unpaidBills = reconciledBills.filter((b) => Number(b.balance || 0) > 0)
-    const pendingAmount = Number(unpaidBills.reduce((sum, b) => sum + Number(b.balance || 0), 0).toFixed(2))
+    const unpaidBills = allTimeReconciledBills.filter((b) => Number(b.balance || 0) > 0)
+    const pendingAmount = allTimePendingAmount
     const totalCollected = Number(reconciledBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0).toFixed(2))
 
     const periodPayments = (payments || []).filter((p) => {
@@ -412,7 +468,7 @@ export default function MobileDashboard() {
       totalRefunds,
       netCashFlow,
     }
-  }, [filteredBills, reconciledBills, payments, expenses, activeDateRange])
+  }, [filteredBills, reconciledBills, allTimeReconciledBills, allTimePendingAmount, payments, expenses, activeDateRange])
 
   // Handle Add Customer Form
   const handleAddCustomerSubmit = useCallback(async (e) => {
@@ -523,6 +579,35 @@ export default function MobileDashboard() {
         </div>
       </div>
 
+      {/* ── PERMANENT UNFILTERED SUMMARY CARDS ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+        <div className="mobile-card" style={{ padding: '12px', borderColor: 'rgba(0, 240, 255, 0.3)', background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)' }}>TOTAL CLIENTS</span>
+            <Users size={16} style={{ color: 'var(--accent-secondary)' }} />
+          </div>
+          <div className="currency-num" style={{ fontSize: '1.4rem', fontWeight: 900, color: '#ffffff' }}>
+            {allTimeTotalCustomers}
+          </div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+            Permanent Directory
+          </div>
+        </div>
+
+        <div className="mobile-card" style={{ padding: '12px', borderColor: 'rgba(255, 56, 96, 0.35)', background: 'linear-gradient(135deg, rgba(255, 56, 96, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--error)' }}>TOTAL DUE (ALL-TIME)</span>
+            <CreditCard size={16} style={{ color: 'var(--error)' }} />
+          </div>
+          <div className="currency-num" style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--error)' }}>
+            ₹{allTimePendingAmount.toLocaleString('en-IN')}
+          </div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+            Net: ₹{allTimeNetDue.toLocaleString('en-IN')}
+          </div>
+        </div>
+      </div>
+
       {/* Date Period Filter Pills */}
       <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '12px' }}>
         {[
@@ -630,6 +715,105 @@ export default function MobileDashboard() {
         </button>
       </div>
 
+      {/* Top Debtors & Customer Balances Section */}
+      {topDebtors.length > 0 && (
+        <div className="mobile-card" style={{ marginBottom: '20px', borderColor: 'rgba(255, 56, 96, 0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '0.85rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                OUTSTANDING CUSTOMER DUES
+              </h3>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Top debtors (all-time cumulative)</span>
+            </div>
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => navigate('/mobile/customers')}
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+            >
+              All <ChevronRight size={12} />
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {topDebtors.map((d, idx) => (
+              <div
+                key={d.customerId}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '10px 12px',
+                  background: 'var(--bg-input)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>#{idx + 1}</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {d.customerName}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '0.68rem', fontFamily: 'monospace', color: 'var(--accent-secondary)' }}>
+                      {d.customerCode}
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                      • {d.billCount} bill{d.billCount > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--error)' }}>
+                      ₹{d.netDue.toFixed(2)}
+                    </div>
+                    {d.advanceBalance > 0 && (
+                      <div style={{ fontSize: '0.66rem', color: 'var(--success)' }}>
+                        Adv: ₹{d.advanceBalance.toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => {
+                        setPaymentCustomerId(d.customerId)
+                        setPaymentAmount(String(d.netDue > 0 ? d.netDue : d.grossDue))
+                        setShowRecordPaymentModal(true)
+                      }}
+                      style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                      title="Record Payment"
+                    >
+                      Pay
+                    </button>
+                    {d.phone && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => {
+                          const shop = business?.shopName || 'PrintPro Studio'
+                          const msg = `Hello ${d.customerName},\n\nPayment reminder from *${shop}* regarding pending balance ₹${d.netDue.toFixed(2)} (Ref: ${d.customerCode}). Kindly settle soon. Thanks!`
+                          window.open(ReminderService.getWhatsAppUrl(d.phone, msg), '_blank')
+                        }}
+                        style={{ padding: '4px 6px', color: '#25D366' }}
+                        title="Send WhatsApp Reminder"
+                      >
+                        <MessageSquare size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick Navigation Grid (2x3) */}
       <div className="mobile-card" style={{ marginBottom: '20px' }}>
         <h3 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 12px 0', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
@@ -640,15 +824,20 @@ export default function MobileDashboard() {
             { label: 'View Bills', path: '/mobile/billing', icon: Receipt, color: 'var(--accent-primary)' },
             { label: 'Customers', path: '/mobile/customers', icon: Users, color: 'var(--accent-secondary)' },
             { label: 'Accounting', path: '/mobile/accounting', icon: Wallet, color: 'var(--success)' },
-            { label: 'Analytics', path: '/mobile/analytics', icon: BarChart3, color: 'var(--accent-tertiary)' },
+            { label: 'Analytics', path: '/mobile/accounting?tab=analytics', icon: BarChart3, color: 'var(--accent-tertiary)' },
             { label: 'Inventory', path: '/mobile/inventory', icon: Inbox, color: '#ffb800' },
-            { label: 'Search', path: '/mobile/search', icon: Search, color: 'var(--info)' },
+            {
+              label: 'Search',
+              action: () => window.dispatchEvent(new CustomEvent('open-command-palette')),
+              icon: Search,
+              color: 'var(--info)'
+            },
           ].map((item) => {
             const Icon = item.icon
             return (
               <button
                 key={item.label}
-                onClick={() => navigate(item.path)}
+                onClick={() => item.action ? item.action() : navigate(item.path)}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -788,9 +977,10 @@ export default function MobileDashboard() {
                     return String(bCustId) === String(c.id) && Number(b.balance || 0) > 0
                   })
                   .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+                const custCode = c.customerCode || SequenceService.formatDisplayCode(c.id, 'CUS')
                 return (
                   <option key={c.id} value={c.id}>
-                    {c.name} {due > 0 ? `(Due: ₹${due.toLocaleString('en-IN')})` : ''}
+                    {c.name} ({custCode}) {due > 0 ? `— Due: ₹${due.toLocaleString('en-IN')}` : ''}
                   </option>
                 )
               })}

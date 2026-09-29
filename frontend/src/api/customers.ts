@@ -6,7 +6,9 @@ import { SequenceService } from '../services/sequenceService'
 
 export const mapCustomerFromApi = (c: any) => {
   if (!c) return c;
-  const customerCode = c.customer_code || c.customerCode || c.code || SequenceService.formatDisplayCode('customer', c.id, 'CUS');
+  const rawCode = c.customer_code || c.customerCode || c.code;
+  const isValidNonUuid = rawCode && typeof rawCode === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCode.trim());
+  const customerCode = isValidNonUuid ? rawCode.trim() : SequenceService.formatDisplayCode('customer', c.id || c, 'CUS');
   return {
     ...c,
     id: c.id,

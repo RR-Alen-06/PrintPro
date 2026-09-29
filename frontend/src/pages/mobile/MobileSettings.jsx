@@ -1,29 +1,84 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
 import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
 import { usePromoCodes, usePromoCodeMutations } from '../../hooks/usePromoCodesQuery'
+import { useBills, useBillMutations, useDeletedBills } from '../../hooks/useBillsQuery'
+import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
+import { useInventory, useInventoryMutations, usePayments, useAdvancePayments } from '../../hooks/useEntitiesQuery'
+import { useExpenses } from '../../hooks/useExpensesQuery'
+import { useGroupBills } from '../../hooks/useGroupBillsQuery'
 import { clearAllCloudData, clearTransactionRecords } from '../../lib/syncService'
 import { useQueryClient } from '@tanstack/react-query'
 import { SequenceService } from '../../services/sequenceService'
-import { ReminderService } from '../../services/reminderService'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
-  Building2, Shield, Gift, Monitor, LogOut, Check, Save, Upload,
-  Cpu, Sliders, Smartphone, AlertCircle, RefreshCw, Tag, Trash2,
-  FileText, Percent, Palette, Database, HelpCircle, Hash, MessageSquare, Printer, RotateCcw, AlertTriangle
+  createFullBackup,
+  exportToJSON,
+  exportBillsToCSV,
+  exportCustomersToCSV,
+  exportInventoryToCSV,
+  exportPaymentsToCSV,
+  exportExpensesToCSV,
+  exportAdvancesToCSV,
+  exportGroupsToCSV,
+} from '../../utils/dataExport'
+import {
+  importFromJSON,
+  importFromCSV,
+  importCustomersFromCSV,
+  importInventoryFromCSV,
+  validateBackupFile,
+  restoreFromBackup,
+} from '../../utils/dataImport'
+import {
+  Building2, Palette, BarChart3, Hash, MessageSquare, Gift, Tag,
+  Database, FileSpreadsheet, Trash2, Sliders, HardDrive, Download,
+  Upload, RefreshCw, RotateCcw, Check, Save, AlertTriangle, Eye,
+  ShieldAlert, ShieldCheck, CheckSquare, Square, X, Plus, Sparkles
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
+const MODULE_TABS = [
+  { id: 'profile', label: 'Profile', icon: Building2, color: 'var(--accent-primary)' },
+  { id: 'branding', label: 'Branding', icon: Palette, color: '#ec4899' },
+  { id: 'accounting', label: 'GST & Tax', icon: BarChart3, color: 'var(--warning)' },
+  { id: 'sequences', label: 'Prefixes', icon: Hash, color: '#3b82f6' },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, color: '#25D366' },
+  { id: 'loyalty', label: 'Loyalty', icon: Gift, color: '#a855f7' },
+  { id: 'promos', label: 'Coupons', icon: Tag, color: '#06b6d4' },
+  { id: 'backup', label: 'Backup', icon: Database, color: '#00f0ff' },
+  { id: 'import-export', label: 'CSV Hub', icon: FileSpreadsheet, color: '#10b981' },
+  { id: 'recycle-bin', label: 'Trash', icon: Trash2, color: '#ef4444' },
+  { id: 'maintenance', label: 'System', icon: Sliders, color: 'var(--error)' },
+]
+
 export default function MobileSettings() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') || 'profile'
+  const setActiveTab = (tab) => setSearchParams({ tab })
+
   const queryClient = useQueryClient()
   const {
     business,
-    currentUser, logout, showToast, syncFromCloud
+    currentUser,
+    logout,
+    showToast,
+    syncFromCloud,
+    bills: ctxBills = [],
+    customers: ctxCustomers = [],
+    inventory: ctxInventory = [],
+    payments: ctxPayments = [],
+    expenses: ctxExpenses = [],
+    advancePayments: ctxAdvances = [],
+    customerGroups: ctxGroups = [],
+    counters = {},
+    sequences = {},
   } = useAppContext()
+
   const { data: serverProfile = {} } = useProfile()
   const { updateProfile } = useProfileMutations()
   const { settings = {} } = useSettings()
@@ -31,25 +86,29 @@ export default function MobileSettings() {
   const { promoCodes = [] } = usePromoCodes()
   const { createPromoCode, updatePromoCode, deletePromoCode } = usePromoCodeMutations()
 
-  // Sequence configuration local state
-  const [seqConfigs, setSeqConfigs] = useState({
-    invPrefix: settings.invPrefix || 'INV',
-    cusPrefix: settings.cusPrefix || 'CUS',
-    itmPrefix: settings.itmPrefix || 'ITM',
-    payPrefix: settings.payPrefix || 'PAY',
-    expPrefix: settings.expPrefix || 'EXP',
-    grpPrefix: settings.grpPrefix || 'GRP',
-    cnPrefix: settings.cnPrefix || 'CN',
-    seqPadding: settings.seqPadding || 6,
-  })
+  // Queries for Data & Trash
+  const { data: serverBills = [] } = useBills()
+  const { data: serverDeletedBills = [], refetch: refetchDeleted } = useDeletedBills()
+  const {
+    restoreBill: restoreBillMutation,
+    permanentDeleteBill: permanentDeleteBillMutation,
+    purgeAllDeletedBills: purgeAllDeletedBillsMutation,
+  } = useBillMutations()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverPayments = [] } = usePayments()
+  const { data: serverExpenses = [] } = useExpenses()
+  const { data: serverAdvances = [] } = useAdvancePayments()
+  const { groupBills: serverGroups = [] } = useGroupBills()
 
-  // WhatsApp templates state
-  const [waTemplates, setWaTemplates] = useState({
-    whatsappGreeting: settings.whatsappGreeting || 'Dear *{customer_name}*,',
-    whatsappFooter: settings.whatsappFooter || 'Thank you for choosing *{shop_name}*! For any queries, contact us at {phone}.',
-    includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== false,
-  })
-  const [waPreviewTab, setWaPreviewTab] = useState('invoice')
+  const { createCustomer } = useCustomerMutations()
+  const { createInventory } = useInventoryMutations()
+
+  const allBills = serverBills.length > 0 ? serverBills : ctxBills
+  const activeBills = allBills.filter((b) => !b.deleted && !b.deleted_at)
+  const deletedBills = serverDeletedBills.length > 0
+    ? serverDeletedBills
+    : allBills.filter((b) => b && (b.deleted || b.deleted_at))
 
   // Business state
   const [biz, setBiz] = useState({
@@ -61,7 +120,6 @@ export default function MobileSettings() {
     upiId: business.upiId || '',
   })
 
-  // Sync serverProfile with local business form state when loaded
   useEffect(() => {
     if (serverProfile && Object.keys(serverProfile).length > 0) {
       setBiz((prev) => ({
@@ -75,1369 +133,941 @@ export default function MobileSettings() {
     }
   }, [serverProfile])
 
-  // Accounting defaults state
-  const [gstRate, setGstRate] = useState(settings.gstRate ?? 0)
-  const [fyPrefixing, setFyPrefixing] = useState(settings.fyInvoicePrefixing === true)
+  // Sequence state
+  const [seqConfigs, setSeqConfigs] = useState({
+    invPrefix: settings.invPrefix || 'INV',
+    cusPrefix: settings.cusPrefix || 'CUS',
+    itmPrefix: settings.itmPrefix || 'ITM',
+    payPrefix: settings.payPrefix || 'PAY',
+    expPrefix: settings.expPrefix || 'EXP',
+    grpPrefix: settings.grpPrefix || 'GRP',
+    seqPadding: settings.seqPadding || 6,
+  })
 
-  // Invoice Branding & PDF settings
+  // WhatsApp state
+  const [waTemplates, setWaTemplates] = useState({
+    whatsappGreeting: settings.whatsappGreeting || 'Dear *{customer_name}*,',
+    whatsappFooter: settings.whatsappFooter || 'Thank you for choosing *{shop_name}*! Contact: {phone}.',
+    includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== false,
+  })
+
+  // Accounting & Tax state
+  const [gstRate, setGstRate] = useState(settings.gstRate ?? 0)
+
+  // Branding state
   const [branding, setBranding] = useState({
     logoUrl: settings.logoUrl || '',
     shopSealUrl: settings.shopSealUrl || '',
-    signatorySignatureUrl: settings.signatorySignatureUrl || '',
     headerNotes: settings.headerNotes || '',
     footerNotes: settings.footerNotes || '',
-    showGstBreakdown: settings.showGstBreakdown !== false,
     showUpiQrCode: settings.showUpiQrCode !== false,
-    pdfColorTheme: settings.pdfColorTheme || 'dark',
   })
 
-  // Staff Permissions local state
-  const [staffPerms, setStaffPerms] = useState({
-    billing: settings.staffPermissions?.billing !== false,
-    customers: settings.staffPermissions?.customers !== false,
-    advancePayments: settings.staffPermissions?.advancePayments !== false,
-    accounting: settings.staffPermissions?.accounting === true,
-    analytics: settings.staffPermissions?.analytics === true,
-    inventory: settings.staffPermissions?.inventory === true,
-    settings: settings.staffPermissions?.settings === true,
-  })
-
-  // Loyalty local state
+  // Loyalty state
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled !== false)
   const [loyaltyEarningRate, setLoyaltyEarningRate] = useState(settings.loyaltyEarningRate ?? 30)
-  const [loyaltyRedeemPoints, setLoyaltyRedeemPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 150)
-  const [loyaltyRedeemRupees, setLoyaltyRedeemRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 5)
+  const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 150)
+  const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 5)
 
-  // Promo / Coupon Modal state
-  const [showAddPromoModal, setShowAddPromoModal] = useState(false)
+  // Promo modal state
+  const [showAddPromo, setShowAddPromo] = useState(false)
   const [newPromoCode, setNewPromoCode] = useState('')
   const [newPromoType, setNewPromoType] = useState('percent')
   const [newPromoValue, setNewPromoValue] = useState('')
   const [newPromoMinAmount, setNewPromoMinAmount] = useState('')
 
-  // Preferences local state
-  const [printPaperSize, setPrintPaperSize] = useState(settings.printPaperSize || '80mm')
-  const [autoPrintOnSave, setAutoPrintOnSave] = useState(settings.autoPrintOnSave === true)
-  const [silentThermalPrint, setSilentThermalPrint] = useState(settings.silentThermalPrint === true)
-  const [isSyncing, setIsSyncing] = useState(false)
-  
-  // Clear and Factory Reset modals state
+  // Storage & Backup state
+  const [isExporting, setIsExporting] = useState(false)
+  const [storageUsedKb, setStorageUsedKb] = useState(0)
+
+  useEffect(() => {
+    let bytes = 0
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key.startsWith('printpro') || key.startsWith('offline_queue'))) {
+        const val = localStorage.getItem(key) || ''
+        bytes += (key.length + val.length) * 2
+      }
+    }
+    setStorageUsedKb(Math.round(bytes / 1024))
+  }, [allBills])
+
+  // Recycle Bin Search & Selection
+  const [trashSearch, setTrashSearch] = useState('')
+  const [selectedTrashIds, setSelectedTrashIds] = useState([])
+  const [inspectingBill, setInspectingBill] = useState(null)
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
+  const [isProcessingTrash, setIsProcessingTrash] = useState(false)
+
+  const filteredTrashBills = useMemo(() => {
+    return deletedBills.filter((b) => {
+      if (!b) return false
+      if (!trashSearch.trim()) return true
+      const q = trashSearch.toLowerCase().trim()
+      const inv = String(b.invoiceNumber || b.invoice_number || b.id || '').toLowerCase()
+      const cust = String(b.customerName || b.customer_name || '').toLowerCase()
+      return inv.includes(q) || cust.includes(q)
+    })
+  }, [deletedBills, trashSearch])
+
+  // Reset Modals
   const [showResetModal, setShowResetModal] = useState(false)
-  const [resetConfirmationText, setResetConfirmationText] = useState('')
-  const [isResetting, setIsResetting] = useState(false)
-
+  const [resetText, setResetText] = useState('')
   const [showFactoryResetModal, setShowFactoryResetModal] = useState(false)
-  const [factoryResetConfirmationText, setFactoryResetConfirmationText] = useState('')
-  const [isFactoryResetting, setIsFactoryResetting] = useState(false)
+  const [factoryText, setFactoryText] = useState('')
 
-  // Save Business Profile
+  // Handlers
   const handleSaveBusiness = async (e) => {
     e.preventDefault()
     try {
-      if (updateProfile) {
-        await updateProfile({
-          shop_name: biz.shopName,
-          owner_name: biz.ownerName,
-          phone: biz.phone,
-          address: biz.address,
-          gstin: biz.gstin,
-          upi_id: biz.upiId,
-        })
-      }
-      showToast('Business Profile Updated & Synced to Cloud!', 'success')
+      await updateProfile({
+        shop_name: biz.shopName,
+        owner_name: biz.ownerName,
+        phone: biz.phone,
+        address: biz.address,
+        gstin: biz.gstin,
+        upi_id: biz.upiId,
+      })
+      showToast?.('Business profile saved', 'success')
     } catch (err) {
-      showToast(err.message || 'Failed to update business profile', 'error')
+      showToast?.(`Save failed: ${err.message || err}`, 'error')
     }
   }
 
-  // Image File Upload Helper
-  const handleImageUpload = (e, targetKey) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 200000) {
-      showToast('Image size should be under 200KB for mobile storage', 'error')
-      return
-    }
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setBranding(prev => ({ ...prev, [targetKey]: reader.result }))
-      if (updateSettings) {
-        updateSettings({ [targetKey]: reader.result })
-      }
-      showToast('Branding Image Uploaded!', 'success')
-    }
-    reader.readAsDataURL(file)
-  }
-
-  // Save Sequence & ID Settings
-  const handleSaveSequence = async () => {
-    const cleanPadding = Math.min(10, Math.max(3, Number(seqConfigs.seqPadding) || 6))
-    const updated = {
-      invPrefix: seqConfigs.invPrefix.trim().toUpperCase() || 'INV',
-      cusPrefix: seqConfigs.cusPrefix.trim().toUpperCase() || 'CUS',
-      itmPrefix: seqConfigs.itmPrefix.trim().toUpperCase() || 'ITM',
-      payPrefix: seqConfigs.payPrefix.trim().toUpperCase() || 'PAY',
-      expPrefix: seqConfigs.expPrefix.trim().toUpperCase() || 'EXP',
-      grpPrefix: seqConfigs.grpPrefix.trim().toUpperCase() || 'GRP',
-      cnPrefix: seqConfigs.cnPrefix.trim().toUpperCase() || 'CN',
-      seqPadding: cleanPadding,
-    }
-    if (updateSettings) {
-      updateSettings(updated)
-    }
-
+  const handleSaveSettings = async () => {
     try {
-      await SequenceService.updateSequenceConfig('BILL', updated.invPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('CUSTOMER', updated.cusPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('INVENTORY', updated.itmPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('PAYMENT', updated.payPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('EXPENSE', updated.expPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('GROUP', updated.grpPrefix, cleanPadding)
-      await SequenceService.updateSequenceConfig('CREDITNOTE', updated.cnPrefix, cleanPadding)
-    } catch (err) {
-      console.warn('Sync sequence config to server failed:', err)
-    }
-
-    showToast('Sequence & ID Format Settings Saved!', 'success')
-  }
-
-  // Save WhatsApp Templates
-  const handleSaveWhatsApp = () => {
-    if (updateSettings) {
-      updateSettings({
-        whatsappGreeting: waTemplates.whatsappGreeting.trim(),
-        whatsappFooter: waTemplates.whatsappFooter.trim(),
-        includeUpiInWhatsApp: waTemplates.includeUpiInWhatsApp,
-      })
-    }
-    showToast('WhatsApp Reminder Templates Saved!', 'success')
-  }
-
-  // Save Accounting & Branding Defaults
-  const handleSaveAccountingAndBranding = () => {
-    if (updateSettings) {
-      updateSettings({
+      await updateSettings({
+        ...settings,
+        ...seqConfigs,
+        ...waTemplates,
+        ...branding,
         gstRate: Number(gstRate),
-        fyInvoicePrefixing: fyPrefixing,
-        ...branding
-      })
-    }
-    showToast('Accounting & Branding Settings Saved!', 'success')
-  }
-
-  // Save Permissions
-  const handleSavePermissions = () => {
-    if (updateSettings) {
-      updateSettings({ staffPermissions: staffPerms })
-    }
-    showToast('Staff Permissions Saved!', 'success')
-  }
-
-  // Save Loyalty Config
-  const handleSaveLoyalty = () => {
-    if (updateSettings) {
-      updateSettings({
         loyaltyEnabled,
         loyaltyEarningRate: Number(loyaltyEarningRate),
-        loyaltyRedeemRatioPoints: Number(loyaltyRedeemPoints),
-        loyaltyRedeemRatioRupees: Number(loyaltyRedeemRupees)
+        loyaltyRedeemRatioPoints: Number(loyaltyRedeemRatioPoints),
+        loyaltyRedeemRatioRupees: Number(loyaltyRedeemRatioRupees),
       })
+      showToast?.('Configuration saved', 'success')
+    } catch (err) {
+      showToast?.(`Save failed: ${err.message || err}`, 'error')
     }
-    showToast('Loyalty Program Config Saved!', 'success')
   }
 
-  // Promo Code Operations
-  const handleAddPromoSubmit = async (e) => {
-    e.preventDefault()
-    const codeUpper = newPromoCode.trim().toUpperCase()
-    if (!codeUpper) {
-      showToast('Please enter a coupon code', 'error')
-      return
-    }
-    const val = Number(newPromoValue)
-    if (isNaN(val) || val <= 0) {
-      showToast('Please enter a valid value', 'error')
-      return
-    }
-
+  const handle1ClickSnapshot = () => {
     try {
-      await createPromoCode({
-        code: codeUpper,
-        type: newPromoType,
-        value: val,
-        minAmount: Number(newPromoMinAmount || 0),
-        enabled: true
+      setIsExporting(true)
+      const full = createFullBackup({
+        currentUser,
+        business,
+        customers: serverCustomers.length > 0 ? serverCustomers : ctxCustomers,
+        customerGroups: serverGroups.length > 0 ? serverGroups : ctxGroups,
+        inventory: serverInventory.length > 0 ? serverInventory : ctxInventory,
+        bills: allBills,
+        payments: serverPayments.length > 0 ? serverPayments : ctxPayments,
+        expenses: serverExpenses.length > 0 ? serverExpenses : ctxExpenses,
+        advancePayments: serverAdvances.length > 0 ? serverAdvances : ctxAdvances,
+        counters,
+        sequences,
+        settings,
       })
-      setNewPromoCode('')
-      setNewPromoValue('')
-      setNewPromoMinAmount('')
-      setShowAddPromoModal(false)
-      showToast(`Promo Code '${codeUpper}' Added!`, 'success')
+      const dateStr = new Date().toISOString().split('T')[0]
+      exportToJSON(full, `PrintPro_Snapshot_${dateStr}.json`)
+      showToast?.('JSON Snapshot downloaded', 'success')
     } catch (err) {
-      showToast(err?.message || 'Failed to add promo code', 'error')
-    }
-  }
-
-  const handleTogglePromoEnabled = async (code) => {
-    const target = (promoCodes || []).find(p => p.code === code || p.id === code)
-    if (!target) return
-    const newEnabled = target.enabled === false
-    try {
-      await updatePromoCode({ id: target.id || target.code, data: { enabled: newEnabled } })
-      showToast(`Promo code '${target.code}' ${newEnabled ? 'enabled' : 'disabled'}`, 'info')
-    } catch (err) {
-      showToast(err?.message || 'Failed to update promo code', 'error')
-    }
-  }
-
-  const handleDeletePromo = async (code) => {
-    const target = (promoCodes || []).find(p => p.code === code || p.id === code)
-    if (!target) return
-    try {
-      await deletePromoCode(target.id || target.code)
-      showToast(`Promo code '${target.code}' deleted`, 'info')
-    } catch (err) {
-      showToast(err?.message || 'Failed to delete promo code', 'error')
-    }
-  }
-
-  // Save Preferences
-  const handleToggleThermalPrint = () => {
-    const nextVal = !silentThermalPrint
-    setSilentThermalPrint(nextVal)
-    if (updateSettings) {
-      updateSettings({ silentThermalPrint: nextVal })
-    }
-    showToast(`Silent Thermal Print ${nextVal ? 'Enabled' : 'Disabled'}`, 'info')
-  }
-
-  // Trigger Cloud Sync
-  const handleSyncCloud = async () => {
-    setIsSyncing(true)
-    try {
-      if (syncFromCloud) await syncFromCloud()
-      showToast('Cloud database synchronized', 'success')
-    } catch (e) {
-      showToast('Sync failed', 'error')
+      showToast?.(`Snapshot failed: ${err.message || err}`, 'error')
     } finally {
-      setIsSyncing(false)
+      setIsExporting(false)
     }
   }
 
-  // Reset Transaction History (Bills, Payments, Expenses)
-  const handleConfirmResetTransactions = async () => {
-    if (resetConfirmationText.trim().toUpperCase() !== 'RESET') {
-      showToast('Type RESET in capital letters to confirm', 'error')
-      return
-    }
-
+  const handleRestoreOneTrash = async (id) => {
     try {
-      setIsResetting(true)
-      showToast('Purging transaction records from cloud database...', 'info')
-      await clearTransactionRecords()
+      setIsProcessingTrash(true)
+      await restoreBillMutation(id)
+      setSelectedTrashIds((prev) => prev.filter((i) => i !== id))
+      showToast?.('Bill restored to active list', 'success')
+      refetchDeleted()
+    } catch (err) {
+      showToast?.(`Restore failed: ${err.message || err}`, 'error')
+    } finally {
+      setIsProcessingTrash(false)
+    }
+  }
 
-      const userKey = currentUser?.id ? `printpro-state:${currentUser.id}` : 'printpro-state'
-      const currentState = JSON.parse(localStorage.getItem(userKey) || '{}')
-
-      const cleanState = {
-        ...currentState,
-        bills: [],
-        payments: [],
-        expenses: [],
-        advancePayments: [],
-        advances: [],
+  const handleBulkRestoreTrash = async () => {
+    if (selectedTrashIds.length === 0) return
+    try {
+      setIsProcessingTrash(true)
+      for (const id of selectedTrashIds) {
+        await restoreBillMutation(id)
       }
-
-      localStorage.setItem(userKey, JSON.stringify(cleanState))
-      queryClient.clear()
-      setShowResetModal(false)
-      setResetConfirmationText('')
-      showToast('Transactions wiped! Reloading terminal...', 'success')
-      setTimeout(() => window.location.reload(), 1000)
-    } catch (e) {
-      showToast(`Failed to reset transactions: ${e.message || e}`, 'error')
+      showToast?.(`Restored ${selectedTrashIds.length} bills`, 'success')
+      setSelectedTrashIds([])
+      refetchDeleted()
+    } catch (err) {
+      showToast?.(`Bulk restore error: ${err.message || err}`, 'error')
     } finally {
-      setIsResetting(false)
+      setIsProcessingTrash(false)
     }
   }
 
-  // Full Factory Reset
-  const handleConfirmFactoryReset = async () => {
-    if (factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET') {
-      showToast('Type FACTORY RESET in capital letters to confirm', 'error')
-      return
-    }
-
+  const handleEmptyTrash = async () => {
     try {
-      setIsFactoryResetting(true)
-      showToast('Executing full factory reset...', 'info')
-      await clearAllCloudData()
-      if (currentUser?.id) {
-        localStorage.removeItem(`printpro-state:${currentUser.id}`)
-      }
-      localStorage.removeItem('printpro-state')
-      queryClient.clear()
-      setShowFactoryResetModal(false)
-      setFactoryResetConfirmationText('')
-      showToast('All system data factory reset! Reloading...', 'success')
-      setTimeout(() => window.location.reload(), 1000)
-    } catch (e) {
-      showToast(`Failed to factory reset: ${e.message || e}`, 'error')
+      setIsProcessingTrash(true)
+      await purgeAllDeletedBillsMutation()
+      showToast?.('Recycle bin emptied', 'success')
+      setConfirmEmptyTrash(false)
+      setSelectedTrashIds([])
+      refetchDeleted()
+    } catch (err) {
+      showToast?.(`Purge failed: ${err.message || err}`, 'error')
     } finally {
-      setIsFactoryResetting(false)
+      setIsProcessingTrash(false)
     }
   }
 
   return (
-    <MobileLayout
-      title="System Settings Terminal"
-    >
-      {/* SECTION 1: BUSINESS PROFILE */}
-      <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Building2 size={20} style={{ color: 'var(--accent-primary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            BUSINESS PROFILE CONFIG
-          </h3>
+    <MobileLayout title="Settings & System Hub">
+      {/* 1. TOP QUICK ACTION HERO CARDS */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+        <div
+          onClick={handle1ClickSnapshot}
+          className="mobile-card"
+          style={{
+            padding: '10px 8px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            border: '1px solid rgba(0, 240, 255, 0.3)',
+            background: 'linear-gradient(180deg, rgba(0, 240, 255, 0.1) 0%, rgba(10, 5, 20, 0.6) 100%)',
+          }}
+        >
+          <Database size={18} style={{ color: '#00f0ff', margin: '0 auto 4px auto' }} />
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f8fafc' }}>Snapshot</div>
+          <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>1-Click JSON</div>
         </div>
 
-        <form onSubmit={handleSaveBusiness} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              SHOP / STORE NAME
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              value={biz.shopName}
-              onChange={(e) => setBiz({ ...biz, shopName: e.target.value })}
-              placeholder="PrintPro Neo Station"
-            />
-          </div>
+        <div
+          onClick={async () => {
+            showToast?.('Syncing with Supabase cloud...', 'info')
+            await syncFromCloud?.()
+            await queryClient.invalidateQueries()
+            showToast?.('Cloud sync complete', 'success')
+          }}
+          className="mobile-card"
+          style={{
+            padding: '10px 8px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            border: '1px solid rgba(0, 255, 171, 0.3)',
+            background: 'linear-gradient(180deg, rgba(0, 255, 171, 0.1) 0%, rgba(10, 5, 20, 0.6) 100%)',
+          }}
+        >
+          <RefreshCw size={18} style={{ color: '#00ffab', margin: '0 auto 4px auto' }} />
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f8fafc' }}>Cloud Sync</div>
+          <div style={{ fontSize: '0.62rem', color: '#00ffab' }}>Online</div>
+        </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              OWNER NAME
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              value={biz.ownerName}
-              onChange={(e) => setBiz({ ...biz, ownerName: e.target.value })}
-              placeholder="Alex Mercer"
-            />
+        <div
+          onClick={() => setActiveTab('recycle-bin')}
+          className="mobile-card"
+          style={{
+            padding: '10px 8px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            border: `1px solid ${deletedBills.length > 0 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+            background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.1) 0%, rgba(10, 5, 20, 0.6) 100%)',
+          }}
+        >
+          <Trash2 size={18} style={{ color: deletedBills.length > 0 ? '#ef4444' : '#94a3b8', margin: '0 auto 4px auto' }} />
+          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f8fafc' }}>Trash Bin</div>
+          <div style={{ fontSize: '0.62rem', color: deletedBills.length > 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>
+            {deletedBills.length} Bills
           </div>
+        </div>
+      </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+      {/* 2. HORIZONTAL SWIPEABLE TAB PILLS */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '6px',
+          overflowX: 'auto',
+          paddingBottom: '8px',
+          marginBottom: '14px',
+          scrollbarWidth: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {MODULE_TABS.map((tab) => {
+          const Icon = tab.icon
+          const isSelected = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 12px',
+                borderRadius: '999px',
+                border: isSelected ? `1px solid ${tab.color}` : '1px solid rgba(255, 255, 255, 0.1)',
+                background: isSelected ? `${tab.color}26` : 'rgba(255, 255, 255, 0.04)',
+                color: isSelected ? '#ffffff' : '#94a3b8',
+                fontSize: '0.78rem',
+                fontWeight: isSelected ? 700 : 500,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                cursor: 'pointer',
+              }}
+            >
+              <Icon size={14} style={{ color: isSelected ? tab.color : 'inherit' }} />
+              <span>{tab.label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 3. ACTIVE TAB CONTENT VIEW */}
+
+      {/* TAB: PROFILE */}
+      {activeTab === 'profile' && (
+        <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Building2 size={18} style={{ color: 'var(--accent-primary)' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              Business Profile
+            </h3>
+          </div>
+          <form onSubmit={handleSaveBusiness} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                CONTACT PHONE
-              </label>
-              <input
-                type="tel"
-                className="mobile-input"
-                value={biz.phone}
-                onChange={(e) => setBiz({ ...biz, phone: e.target.value })}
-                placeholder="+91 9876543210"
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                GSTIN NUMBER
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Store Name
               </label>
               <input
                 type="text"
                 className="mobile-input"
-                value={biz.gstin}
-                onChange={(e) => setBiz({ ...biz, gstin: e.target.value })}
-                placeholder="22AAAAA0000A1Z5"
+                value={biz.shopName}
+                onChange={(e) => setBiz({ ...biz, shopName: e.target.value })}
+                placeholder="PrintPro Station"
               />
             </div>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              BUSINESS ADDRESS / LOCATION
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              value={biz.address}
-              onChange={(e) => setBiz({ ...biz, address: e.target.value })}
-              placeholder="Shop #4, Commercial Complex, MG Road"
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              MERCHANT UPI ID (QR PAYMENTS)
-            </label>
-            <input
-              type="text"
-              className="mobile-input currency-num"
-              value={biz.upiId}
-              onChange={(e) => setBiz({ ...biz, upiId: e.target.value })}
-              placeholder="printpro@okaxis"
-            />
-          </div>
-
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '4px' }}>
-            <Save size={18} /> Save Business Profile
-          </button>
-        </form>
-      </div>
-
-      {/* SECTION 2: PROMO / COUPON CODES MANAGER */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Tag size={20} style={{ color: 'var(--accent-secondary)' }} />
-            <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-              PROMO / COUPON CODES
-            </h3>
-          </div>
-          <button
-            className="mobile-btn mobile-btn-primary"
-            onClick={() => setShowAddPromoModal(true)}
-            style={{ width: 'auto', padding: '0 12px', fontSize: '0.78rem', minHeight: '34px' }}
-          >
-            + New Promo
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {(promoCodes || []).length === 0 ? (
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
-              No promo codes created yet.
-            </div>
-          ) : (
-            (promoCodes || []).map(p => (
-              <div key={p.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--accent-primary)', fontFamily: 'JetBrains Mono' }}>
-                    {p.code}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`} • Min Order: ₹{p.minAmount || 0}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    className="mobile-badge"
-                    onClick={() => handleTogglePromoEnabled(p.code)}
-                    style={{ cursor: 'pointer', background: p.enabled !== false ? 'rgba(0, 255, 171, 0.2)' : 'rgba(255, 56, 96, 0.2)', color: p.enabled !== false ? 'var(--success)' : 'var(--error)' }}
-                  >
-                    {p.enabled !== false ? 'ACTIVE' : 'DISABLED'}
-                  </button>
-                  <button
-                    onClick={() => handleDeletePromo(p.code)}
-                    style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer' }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* SECTION 3: INVOICE BRANDING & PDF CUSTOMIZATION */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Palette size={20} style={{ color: 'var(--accent-primary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            INVOICE BRANDING & PDF
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              UPLOAD STORE LOGO
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              className="mobile-input"
-              onChange={(e) => handleImageUpload(e, 'logoUrl')}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              UPLOAD OFFICIAL SHOP SEAL
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              className="mobile-input"
-              onChange={(e) => handleImageUpload(e, 'shopSealUrl')}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              UPLOAD SIGNATORY SIGNATURE
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              className="mobile-input"
-              onChange={(e) => handleImageUpload(e, 'signatorySignatureUrl')}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              HEADER NOTES
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              value={branding.headerNotes}
-              onChange={(e) => setBranding({ ...branding, headerNotes: e.target.value })}
-              placeholder="Official Tax Invoice / Cash Memo"
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              PDF FOOTER NOTES
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              value={branding.footerNotes}
-              onChange={(e) => setBranding({ ...branding, footerNotes: e.target.value })}
-              placeholder="Thank you for printing with us!"
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                PDF COLOR THEME
-              </label>
-              <select
-                className="mobile-input"
-                value={branding.pdfColorTheme}
-                onChange={(e) => setBranding({ ...branding, pdfColorTheme: e.target.value })}
-              >
-                <option value="dark">Dark Theme</option>
-                <option value="light">Light Minimal</option>
-                <option value="cyberpunk">Cyberpunk Neon</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                INVOICE ACCENT COLOR
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Owner Name
               </label>
               <input
-                type="color"
+                type="text"
                 className="mobile-input"
-                style={{ height: '40px', padding: '4px', cursor: 'pointer' }}
-                value={branding.primaryColor || '#0f172a'}
-                onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })}
+                value={biz.ownerName}
+                onChange={(e) => setBiz({ ...biz, ownerName: e.target.value })}
               />
             </div>
-          </div>
-        </div>
-
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveAccountingAndBranding}>
-          Save Branding & PDF Settings
-        </button>
-      </div>
-
-      {/* SECTION 4: TAX SETTINGS */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Percent size={20} style={{ color: 'var(--warning)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            TAX & GST SETTINGS
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              DEFAULT GST RATE (%)
-            </label>
-            <select
-              className="mobile-input currency-num"
-              value={gstRate}
-              onChange={(e) => setGstRate(Number(e.target.value))}
-            >
-              <option value="0">0% (GST Exempted / Nil Rated)</option>
-              <option value="5">5% (5% GST)</option>
-              <option value="12">12% (12% Standard GST)</option>
-              <option value="18">18% (18% Printing Services)</option>
-            </select>
-          </div>
-        </div>
-
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveAccountingAndBranding} style={{ color: 'var(--warning)' }}>
-          Save Tax Settings
-        </button>
-      </div>
-
-      {/* SECTION 4B: SEQUENCE & ID FORMAT */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Hash size={20} style={{ color: '#3b82f6' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            ID &amp; SEQUENCE CODES
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                INVOICE PREFIX
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Phone / WhatsApp
               </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={biz.phone}
+                onChange={(e) => setBiz({ ...biz, phone: e.target.value })}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                UPI ID (VPA)
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={biz.upiId}
+                onChange={(e) => setBiz({ ...biz, upiId: e.target.value })}
+                placeholder="shop@upi"
+              />
+            </div>
+            <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '6px' }}>
+              <Save size={16} /> Save Business Profile
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* TAB: BRANDING */}
+      {activeTab === 'branding' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Palette size={18} style={{ color: '#ec4899' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              Invoice Branding & Print Style
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Header Note
+              </label>
+              <input
+                type="text"
+                className="mobile-input"
+                value={branding.headerNotes}
+                onChange={(e) => setBranding({ ...branding, headerNotes: e.target.value })}
+                placeholder="Tax Invoice / Cash Memo"
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Footer Terms
+              </label>
+              <textarea
+                className="mobile-input"
+                rows={2}
+                value={branding.footerNotes}
+                onChange={(e) => setBranding({ ...branding, footerNotes: e.target.value })}
+                placeholder="Goods once sold will not be taken back."
+              />
+            </div>
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+              <Save size={16} /> Save Branding
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: GST & TAX */}
+      {activeTab === 'accounting' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <BarChart3 size={18} style={{ color: 'var(--warning)' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              GST & Tax Preferences
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                Default GST Rate (%)
+              </label>
+              <input
+                type="number"
+                className="mobile-input"
+                value={gstRate}
+                onChange={(e) => setGstRate(e.target.value)}
+              />
+            </div>
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+              <Save size={16} /> Save GST Configuration
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: SEQUENCES */}
+      {activeTab === 'sequences' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Hash size={18} style={{ color: '#3b82f6' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              Sequences & Display Codes
+            </h3>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '2px' }}>Invoice Prefix</label>
               <input
                 type="text"
                 className="mobile-input"
                 value={seqConfigs.invPrefix}
                 onChange={(e) => setSeqConfigs({ ...seqConfigs, invPrefix: e.target.value.toUpperCase() })}
-                placeholder="INV"
-                maxLength={8}
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                CLIENT PREFIX
-              </label>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '2px' }}>Customer Prefix</label>
               <input
                 type="text"
                 className="mobile-input"
                 value={seqConfigs.cusPrefix}
                 onChange={(e) => setSeqConfigs({ ...seqConfigs, cusPrefix: e.target.value.toUpperCase() })}
-                placeholder="CUS"
-                maxLength={8}
               />
             </div>
           </div>
+          <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+            <Save size={16} /> Save Prefixes
+          </button>
+        </div>
+      )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                ITEM PREFIX
-              </label>
-              <input
-                type="text"
-                className="mobile-input"
-                value={seqConfigs.itmPrefix}
-                onChange={(e) => setSeqConfigs({ ...seqConfigs, itmPrefix: e.target.value.toUpperCase() })}
-                placeholder="ITM"
-                maxLength={8}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                PAYMENT PREFIX
-              </label>
-              <input
-                type="text"
-                className="mobile-input"
-                value={seqConfigs.payPrefix}
-                onChange={(e) => setSeqConfigs({ ...seqConfigs, payPrefix: e.target.value.toUpperCase() })}
-                placeholder="PAY"
-                maxLength={8}
-              />
-            </div>
+      {/* TAB: WHATSAPP */}
+      {activeTab === 'whatsapp' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <MessageSquare size={18} style={{ color: '#25D366' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              WhatsApp Messaging Template
+            </h3>
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                EXPENSE PREFIX
-              </label>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '2px' }}>Greeting</label>
               <input
                 type="text"
                 className="mobile-input"
-                value={seqConfigs.expPrefix}
-                onChange={(e) => setSeqConfigs({ ...seqConfigs, expPrefix: e.target.value.toUpperCase() })}
-                placeholder="EXP"
-                maxLength={8}
+                value={waTemplates.whatsappGreeting}
+                onChange={(e) => setWaTemplates({ ...waTemplates, whatsappGreeting: e.target.value })}
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                GROUP PREFIX
-              </label>
-              <input
-                type="text"
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '2px' }}>Footer Note</label>
+              <textarea
                 className="mobile-input"
-                value={seqConfigs.grpPrefix}
-                onChange={(e) => setSeqConfigs({ ...seqConfigs, grpPrefix: e.target.value.toUpperCase() })}
-                placeholder="GRP"
-                maxLength={8}
+                rows={2}
+                value={waTemplates.whatsappFooter}
+                onChange={(e) => setWaTemplates({ ...waTemplates, whatsappFooter: e.target.value })}
               />
             </div>
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+              <Save size={16} /> Save WhatsApp Template
+            </button>
           </div>
+        </div>
+      )}
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              ZERO-PADDING DIGITS
-            </label>
-            <select
-              className="mobile-input"
-              value={seqConfigs.seqPadding}
-              onChange={(e) => setSeqConfigs({ ...seqConfigs, seqPadding: Number(e.target.value) })}
+      {/* TAB: LOYALTY */}
+      {activeTab === 'loyalty' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Gift size={18} style={{ color: '#a855f7' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              Customer Loyalty Program
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f8fafc' }}>Enable Loyalty Points</span>
+              <input
+                type="checkbox"
+                checked={loyaltyEnabled}
+                onChange={(e) => setLoyaltyEnabled(e.target.checked)}
+                style={{ width: '18px', height: '18px' }}
+              />
+            </div>
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+              <Save size={16} /> Save Loyalty Program
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: PROMOS */}
+      {activeTab === 'promos' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Tag size={18} style={{ color: '#06b6d4' }} />
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+                Coupons & Discounts
+              </h3>
+            </div>
+            <button
+              onClick={() => setShowAddPromo(true)}
+              className="mobile-btn mobile-btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
             >
-              <option value={4}>4 digits (e.g. 0001)</option>
-              <option value={5}>5 digits (e.g. 00001)</option>
-              <option value={6}>6 digits (e.g. 000001)</option>
-              <option value={8}>8 digits (e.g. 00000001)</option>
-            </select>
+              <Plus size={14} /> Add
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {promoCodes.length === 0 ? (
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '16px' }}>
+                No active promo codes.
+              </div>
+            ) : (
+              promoCodes.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    padding: '10px',
+                    borderRadius: '8px',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#06b6d4' }}>
+                      {p.code}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '8px' }}>
+                      {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => deletePromoCode(p.id)}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
+      )}
 
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveSequence} style={{ color: '#3b82f6' }}>
-          Save Sequence Settings
-        </button>
-      </div>
+      {/* TAB: BACKUP & STORAGE GAUGE */}
+      {activeTab === 'backup' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: '#00f0ff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <Database size={18} style={{ color: '#00f0ff' }} />
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+                Cloud & Local Backup Center
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+              Export an all-in-one JSON snapshot or restore system registers.
+            </p>
 
-      {/* SECTION 4C: WHATSAPP & REMINDER TEMPLATES */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <MessageSquare size={20} style={{ color: '#25D366' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            WHATSAPP NOTIFICATIONS
-          </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                onClick={handle1ClickSnapshot}
+                disabled={isExporting}
+                className="mobile-btn mobile-btn-primary"
+                style={{ background: 'linear-gradient(135deg, #00f0ff 0%, #7000ff 100%)' }}
+              >
+                <Download size={16} /> {isExporting ? 'Generating...' : 'Download JSON Snapshot'}
+              </button>
+
+              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer' }}>
+                <Upload size={16} />
+                <span>Restore JSON Backup</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    try {
+                      const data = await importFromJSON(f)
+                      await restoreFromBackup(data)
+                      await queryClient.invalidateQueries()
+                      showToast?.('System restored! Reloading...', 'success')
+                      setTimeout(() => window.location.reload(), 1000)
+                    } catch (err) {
+                      showToast?.(`Restore failed: ${err.message || err}`, 'error')
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mobile-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <HardDrive size={16} style={{ color: '#00f0ff' }} />
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f8fafc' }}>
+                Local Storage Footprint
+              </span>
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              Estimated ~{storageUsedKb} KB cached in offline storage.
+            </div>
+          </div>
         </div>
+      )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              GREETING TEMPLATE
-            </label>
+      {/* TAB: CSV HUB */}
+      {activeTab === 'import-export' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="mobile-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <FileSpreadsheet size={18} style={{ color: '#10b981' }} />
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+                CSV Data Export
+              </h3>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <button onClick={() => exportBillsToCSV(activeBills)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Bills CSV
+              </button>
+              <button onClick={() => exportCustomersToCSV(serverCustomers.length ? serverCustomers : ctxCustomers)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Customers CSV
+              </button>
+              <button onClick={() => exportInventoryToCSV(serverInventory.length ? serverInventory : ctxInventory)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Inventory CSV
+              </button>
+              <button onClick={() => exportPaymentsToCSV(serverPayments.length ? serverPayments : ctxPayments)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Payments CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="mobile-card">
+            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, margin: '0 0 10px 0', color: '#f8fafc' }}>
+              Bulk Ingestion
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer' }}>
+                <Upload size={14} />
+                <span>Import Customers CSV</span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    try {
+                      const rows = await importFromCSV(f)
+                      const list = importCustomersFromCSV(rows)
+                      for (const c of list) {
+                        if (c.name && c.name !== 'Unnamed') await createCustomer(c)
+                      }
+                      await queryClient.invalidateQueries({ queryKey: ['customers'] })
+                      showToast?.(`Imported ${list.length} customers`, 'success')
+                    } catch (err) {
+                      showToast?.(`Import error: ${err.message || err}`, 'error')
+                    }
+                  }}
+                />
+              </label>
+
+              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer' }}>
+                <Upload size={14} />
+                <span>Import Inventory CSV</span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    try {
+                      const rows = await importFromCSV(f)
+                      const list = importInventoryFromCSV(rows)
+                      for (const it of list) {
+                        if (it.name && it.name !== 'Unnamed Item') await createInventory(it)
+                      }
+                      await queryClient.invalidateQueries({ queryKey: ['inventory'] })
+                      showToast?.(`Imported ${list.length} items`, 'success')
+                    } catch (err) {
+                      showToast?.(`Import error: ${err.message || err}`, 'error')
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: RECYCLE BIN */}
+      {activeTab === 'recycle-bin' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: '#ef4444' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Trash2 size={18} style={{ color: '#ef4444' }} />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+                  Recycle Bin ({deletedBills.length})
+                </h3>
+              </div>
+              {deletedBills.length > 0 && (
+                <button
+                  onClick={() => setConfirmEmptyTrash(true)}
+                  className="mobile-btn mobile-btn-danger"
+                  style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                >
+                  Empty Trash
+                </button>
+              )}
+            </div>
+
             <input
               type="text"
+              placeholder="Search deleted invoices..."
+              value={trashSearch}
+              onChange={(e) => setTrashSearch(e.target.value)}
               className="mobile-input"
-              value={waTemplates.whatsappGreeting}
-              onChange={(e) => setWaTemplates({ ...waTemplates, whatsappGreeting: e.target.value })}
-              placeholder="Dear *{customer_name}*,"
+              style={{ marginBottom: '10px', fontSize: '0.8rem' }}
             />
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-              <code>{'{customer_name}'}</code> auto-fills client name.
-            </div>
-          </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              CLOSING FOOTER TEMPLATE
-            </label>
-            <textarea
-              className="mobile-input"
-              rows={2}
-              value={waTemplates.whatsappFooter}
-              onChange={(e) => setWaTemplates({ ...waTemplates, whatsappFooter: e.target.value })}
-              placeholder="Thank you for choosing *{shop_name}*!"
-              style={{ resize: 'vertical' }}
-            />
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-              <code>{'{shop_name}'}</code> auto-fills business name.
-            </div>
-          </div>
+            {selectedTrashIds.length > 0 && (
+              <button
+                onClick={handleBulkRestoreTrash}
+                disabled={isProcessingTrash}
+                className="mobile-btn mobile-btn-primary"
+                style={{ marginBottom: '10px' }}
+              >
+                <RotateCcw size={14} /> Restore {selectedTrashIds.length} Selected Bills
+              </button>
+            )}
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700 }}>
-            <input
-              type="checkbox"
-              checked={waTemplates.includeUpiInWhatsApp}
-              onChange={(e) => setWaTemplates({ ...waTemplates, includeUpiInWhatsApp: e.target.checked })}
-              style={{ width: '16px', height: '16px', accentColor: '#25D366' }}
-            />
-            <span>Include 1-Click UPI Pay Link</span>
-          </label>
-
-          {/* Live Preview */}
-          <div style={{ background: '#0b141a', border: '1px solid #1f2c34', borderRadius: '8px', padding: '10px', marginTop: '4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#25D366' }}>WHATSAPP PREVIEW</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  type="button"
-                  onClick={() => setWaPreviewTab('invoice')}
-                  style={{
-                    background: waPreviewTab === 'invoice' ? '#25D366' : 'transparent',
-                    color: waPreviewTab === 'invoice' ? '#000' : 'var(--text-muted)',
-                    border: '1px solid var(--border)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    fontSize: '0.68rem',
-                    fontWeight: 700
-                  }}
-                >
-                  Bill
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWaPreviewTab('reminder')}
-                  style={{
-                    background: waPreviewTab === 'reminder' ? '#25D366' : 'transparent',
-                    color: waPreviewTab === 'reminder' ? '#000' : 'var(--text-muted)',
-                    border: '1px solid var(--border)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    fontSize: '0.68rem',
-                    fontWeight: 700
-                  }}
-                >
-                  Reminder
-                </button>
-              </div>
-            </div>
-
-            <div style={{
-              fontFamily: 'monospace',
-              fontSize: '0.72rem',
-              color: '#e9edef',
-              whiteSpace: 'pre-wrap',
-              maxHeight: '180px',
-              overflowY: 'auto'
-            }}>
-              {waPreviewTab === 'invoice' ? (
-                ReminderService.buildInvoiceMessage(
-                  {
-                    invoiceNumber: `${seqConfigs.invPrefix || 'INV'}-000042`,
-                    date: new Date().toISOString(),
-                    customerName: 'Rahul Sharma',
-                    items: [{ name: 'A4 Color Print', qty: 10, rate: 10, amount: 100 }],
-                    total: 100,
-                    paidTotal: 0,
-                    balance: 100,
-                  },
-                  business,
-                  waTemplates
-                )
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {filteredTrashBills.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: '0.82rem' }}>
+                  Trash bin is empty.
+                </div>
               ) : (
-                ReminderService.buildLedgerReminderMessage(
-                  { name: 'Rahul Sharma', phone: '9876543210' },
-                  -350,
-                  business,
-                  waTemplates
-                )
+                filteredTrashBills.map((b) => (
+                  <div
+                    key={b.id}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#00f0ff', fontSize: '0.82rem' }}>
+                        {b.invoiceNumber || SequenceService.formatDisplayCode('bill', b.id, 'INV')}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#f8fafc' }}>
+                        {b.customerName || 'Walk-in'} • ₹{Number(b.total || 0).toFixed(2)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => handleRestoreOneTrash(b.id)}
+                        disabled={isProcessingTrash}
+                        className="mobile-btn mobile-btn-secondary"
+                        style={{ padding: '6px 10px', color: '#00ffab', borderColor: 'rgba(0, 255, 171, 0.3)' }}
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
         </div>
-
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveWhatsApp} style={{ color: '#25D366' }}>
-          Save WhatsApp Templates
-        </button>
-      </div>
-
-      {/* SECTION 5: STAFF PERMISSIONS */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Shield size={20} style={{ color: 'var(--accent-secondary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            STAFF ACCESS PERMISSIONS
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
-          {[
-            { key: 'billing', label: 'Create & Manage Bills' },
-            { key: 'customers', label: 'Manage Customer Directory' },
-            { key: 'advancePayments', label: 'Record Advance Deposits' },
-            { key: 'inventory', label: 'Inventory & Rates Management' },
-            { key: 'accounting', label: 'Financial Accounting Access' },
-            { key: 'analytics', label: 'Period Analytics Reports' },
-          ].map(item => (
-            <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{item.label}</span>
-              <button
-                type="button"
-                onClick={() => setStaffPerms({ ...staffPerms, [item.key]: !staffPerms[item.key] })}
-                style={{
-                  width: '44px',
-                  height: '24px',
-                  borderRadius: '999px',
-                  background: staffPerms[item.key] ? 'var(--accent-secondary)' : 'var(--bg-input)',
-                  border: '1px solid var(--border)',
-                  position: 'relative',
-                  cursor: 'pointer',
-                  boxShadow: staffPerms[item.key] ? '0 0 8px rgba(0, 240, 255, 0.4)' : 'none',
-                  transition: 'var(--transition)'
-                }}
-              >
-                <div style={{
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '50%',
-                  background: '#ffffff',
-                  position: 'absolute',
-                  top: '2px',
-                  left: staffPerms[item.key] ? '22px' : '2px',
-                  transition: 'var(--transition)'
-                }} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSavePermissions} style={{ color: 'var(--accent-secondary)' }}>
-          Save Staff Permissions
-        </button>
-      </div>
-
-      {/* SECTION 5: LOYALTY PROGRAM CONFIG */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Gift size={20} style={{ color: 'var(--success)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            LOYALTY PROGRAM CONFIG
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Enable Customer Loyalty Points</span>
-          <button
-            type="button"
-            onClick={() => setLoyaltyEnabled(!loyaltyEnabled)}
-            style={{
-              width: '44px',
-              height: '24px',
-              borderRadius: '999px',
-              background: loyaltyEnabled ? 'var(--success)' : 'var(--bg-input)',
-              border: '1px solid var(--border)',
-              position: 'relative',
-              cursor: 'pointer',
-              boxShadow: loyaltyEnabled ? '0 0 8px rgba(0, 255, 171, 0.4)' : 'none',
-              transition: 'var(--transition)'
-            }}
-          >
-            <div style={{
-              width: '18px',
-              height: '18px',
-              borderRadius: '50%',
-              background: '#ffffff',
-              position: 'absolute',
-              top: '2px',
-              left: loyaltyEnabled ? '22px' : '2px',
-              transition: 'var(--transition)'
-            }} />
-          </button>
-        </div>
-
-        {loyaltyEnabled && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                EARNING RATE (1 Point per ₹N spent)
-              </label>
-              <input
-                type="number"
-                className="mobile-input currency-num"
-                value={loyaltyEarningRate}
-                onChange={(e) => setLoyaltyEarningRate(e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>REDEEM POINTS</label>
-                <input
-                  type="number"
-                  className="mobile-input currency-num"
-                  value={loyaltyRedeemPoints}
-                  onChange={(e) => setLoyaltyRedeemPoints(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>REDEEM RUPEES (₹)</label>
-                <input
-                  type="number"
-                  className="mobile-input currency-num"
-                  value={loyaltyRedeemRupees}
-                  onChange={(e) => setLoyaltyRedeemRupees(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        <button className="mobile-btn mobile-btn-secondary" onClick={handleSaveLoyalty}>
-          Save Loyalty Config
-        </button>
-      </div>
-
-      {/* SECTION 6: APP PREFERENCES */}
-      <div className="mobile-card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Sliders size={20} style={{ color: 'var(--accent-primary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            APP PREFERENCES
-          </h3>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Desktop Layout Mode</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Switch to multi-column desktop view</div>
-          </div>
-          <button
-            className="mobile-btn mobile-btn-secondary"
-            onClick={() => {
-              localStorage.setItem('printpro_viewport_pref', 'desktop')
-              navigate('/dashboard')
-            }}
-            style={{ width: 'auto', padding: '6px 12px', fontSize: '0.78rem' }}
-          >
-            <Monitor size={16} /> Switch
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Receipt Output Format</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Default width for 1-tap printing</div>
-          </div>
-          <select
-            className="mobile-input"
-            value={printPaperSize}
-            onChange={(e) => {
-              setPrintPaperSize(e.target.value)
-              if (updateSettings) updateSettings({ printPaperSize: e.target.value })
-              showToast(`Print format set to ${e.target.value}`, 'success')
-            }}
-            style={{ width: 'auto', minWidth: '100px', fontSize: '0.8rem', padding: '6px 8px' }}
-          >
-            <option value="58mm">58mm Thermal</option>
-            <option value="80mm">80mm Thermal</option>
-            <option value="A4">A4 Standard</option>
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Silent Thermal Print</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-print receipt without print dialog</div>
-          </div>
-          <button
-            type="button"
-            onClick={handleToggleThermalPrint}
-            style={{
-              width: '44px',
-              height: '24px',
-              borderRadius: '999px',
-              background: silentThermalPrint ? 'var(--accent-primary)' : 'var(--bg-input)',
-              border: '1px solid var(--border)',
-              position: 'relative',
-              cursor: 'pointer',
-              boxShadow: silentThermalPrint ? '0 0 8px rgba(255, 47, 176, 0.4)' : 'none',
-              transition: 'var(--transition)'
-            }}
-          >
-            <div style={{
-              width: '18px',
-              height: '18px',
-              borderRadius: '50%',
-              background: '#ffffff',
-              position: 'absolute',
-              top: '2px',
-              left: silentThermalPrint ? '22px' : '2px',
-              transition: 'var(--transition)'
-            }} />
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
-          <div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Auto-Print on Bill Save</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Automatically trigger printer on POS save</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !autoPrintOnSave
-              setAutoPrintOnSave(next)
-              if (updateSettings) updateSettings({ autoPrintOnSave: next })
-              showToast(next ? 'Auto-print enabled' : 'Auto-print disabled', 'info')
-            }}
-            style={{
-              width: '44px',
-              height: '24px',
-              borderRadius: '999px',
-              background: autoPrintOnSave ? 'var(--accent-primary)' : 'var(--bg-input)',
-              border: '1px solid var(--border)',
-              position: 'relative',
-              cursor: 'pointer',
-              boxShadow: autoPrintOnSave ? '0 0 8px rgba(255, 47, 176, 0.4)' : 'none',
-              transition: 'var(--transition)'
-            }}
-          >
-            <div style={{
-              width: '18px',
-              height: '18px',
-              borderRadius: '50%',
-              background: '#ffffff',
-              position: 'absolute',
-              top: '2px',
-              left: autoPrintOnSave ? '22px' : '2px',
-              transition: 'var(--transition)'
-            }} />
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION 7: SYSTEM INFO & CLOUD DATA MANAGEMENT */}
-      <div className="mobile-card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-          <Cpu size={20} style={{ color: 'var(--accent-secondary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
-            SYSTEM & CLOUD STATUS
-          </h3>
-        </div>
-
-        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
-          <div>Theme: <strong style={{ color: 'var(--accent-primary)' }}>NEON TOKYO CYBERPUNK v1.0</strong></div>
-          <div>User Account: <strong className="currency-num">{currentUser?.email || 'Authenticated Merchant'}</strong></div>
-          <div>Database Sync: <strong style={{ color: 'var(--success)' }}>Supabase PostgreSQL Connected</strong></div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button className="mobile-btn mobile-btn-secondary" onClick={handleSyncCloud} disabled={isSyncing} style={{ fontSize: '0.78rem' }}>
-            <RefreshCw size={14} className={isSyncing ? 'spin' : ''} /> Force Cloud Sync
-          </button>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <button
-              type="button"
-              className="mobile-btn"
-              onClick={() => setShowResetModal(true)}
-              style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', border: '1px solid rgba(234, 179, 8, 0.5)', fontSize: '0.78rem' }}
-            >
-              <RotateCcw size={14} /> Reset Trans.
-            </button>
-            <button
-              type="button"
-              className="mobile-btn"
-              onClick={() => setShowFactoryResetModal(true)}
-              style={{ background: 'var(--error-bg)', color: 'var(--error)', border: '1px solid var(--error)', fontSize: '0.78rem' }}
-            >
-              <Trash2 size={14} /> Factory Reset
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 8: LOGOUT BUTTON */}
-      <button
-        className="mobile-btn"
-        onClick={() => { if (logout) logout() }}
-        style={{
-          background: 'var(--error-bg)',
-          color: 'var(--error)',
-          border: '1px solid var(--error)',
-          boxShadow: '0 0 12px rgba(255, 56, 96, 0.35)',
-          marginBottom: '20px'
-        }}
-      >
-        <LogOut size={20} /> TERMINATE SESSION / LOGOUT
-      </button>
-
-      {/* Add Promo Code Bottom Sheet Drawer */}
-      <BottomSheet
-        isOpen={showAddPromoModal}
-        onClose={() => setShowAddPromoModal(false)}
-        title="Add New Promo Coupon Code"
-      >
-        <form onSubmit={handleAddPromoSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              PROMO CODE (UPPERCASE)
-            </label>
-            <input
-              type="text"
-              className="mobile-input currency-num"
-              placeholder="e.g. SUMMER50"
-              value={newPromoCode}
-              onChange={(e) => setNewPromoCode(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              DISCOUNT TYPE
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <button
-                type="button"
-                className={`mobile-btn ${newPromoType === 'percent' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setNewPromoType('percent')}
-                style={{ minHeight: '38px', fontSize: '0.82rem' }}
-              >
-                Percentage (%)
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${newPromoType === 'flat' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setNewPromoType('flat')}
-                style={{ minHeight: '38px', fontSize: '0.82rem' }}
-              >
-                Flat Amount (₹)
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                DISCOUNT VALUE
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                className="mobile-input currency-num"
-                placeholder={newPromoType === 'percent' ? '15' : '100'}
-                value={newPromoValue}
-                onChange={(e) => setNewPromoValue(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                MIN ORDER (INR)
-              </label>
-              <input
-                type="number"
-                className="mobile-input currency-num"
-                placeholder="500"
-                value={newPromoMinAmount}
-                onChange={(e) => setNewPromoMinAmount(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <button type="submit" className="mobile-btn mobile-btn-primary">
-            Save Promo Code
-          </button>
-        </form>
-      </BottomSheet>
-
-      {/* Reset Transactions Bottom Sheet Modal */}
-      {showResetModal && (
-        <div className="bottom-sheet-overlay" onClick={() => { if (!isResetting) setShowResetModal(false) }}>
-          <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
-            <div className="bottom-sheet-drag-handle" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#eab308' }}>
-              <RotateCcw size={20} />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
-                Reset Transaction History
-              </h3>
-            </div>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
-              This will erase all Bills, Payments, Expenses, and reset customer balances. Customer directory, item catalog, and settings are preserved.
-            </p>
-            <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', marginBottom: '6px' }}>
-              Type <strong>RESET</strong> to confirm:
-            </p>
-            <input
-              type="text"
-              className="mobile-input"
-              value={resetConfirmationText}
-              onChange={(e) => setResetConfirmationText(e.target.value)}
-              placeholder="RESET"
-              style={{ marginBottom: '14px', textTransform: 'uppercase' }}
-              autoFocus
-            />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <button
-                type="button"
-                className="mobile-btn mobile-btn-secondary"
-                onClick={() => { setShowResetModal(false); setResetConfirmationText('') }}
-                disabled={isResetting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="mobile-btn"
-                style={{ background: '#eab308', color: '#000000', fontWeight: 700 }}
-                onClick={handleConfirmResetTransactions}
-                disabled={resetConfirmationText.trim().toUpperCase() !== 'RESET' || isResetting}
-              >
-                {isResetting ? 'Resetting...' : 'Confirm Reset'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
-      {/* Full Factory Reset Bottom Sheet Modal */}
-      {showFactoryResetModal && (
-        <div className="bottom-sheet-overlay" onClick={() => { if (!isFactoryResetting) setShowFactoryResetModal(false) }}>
-          <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
-            <div className="bottom-sheet-drag-handle" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--error)' }}>
-              <AlertTriangle size={20} />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+      {/* TAB: SYSTEM & DANGER ZONE */}
+      {activeTab === 'maintenance' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--error)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <AlertTriangle size={18} style={{ color: 'var(--error)' }} />
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+                System Danger Zone
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+              Permanent operations for clearing transactions or returning terminal to factory state.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                onClick={() => setShowResetModal(true)}
+                className="mobile-btn mobile-btn-danger"
+              >
+                Clear Transaction Records
+              </button>
+
+              <button
+                onClick={() => setShowFactoryResetModal(true)}
+                className="mobile-btn mobile-btn-danger"
+                style={{ background: '#7f1d1d' }}
+              >
                 Full Factory Reset
-              </h3>
-            </div>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
-              Permanently wipes <strong>ALL bills, payments, expenses, customer accounts, and inventory items</strong>. Basic shop profile credentials are kept.
-            </p>
-            <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', marginBottom: '6px' }}>
-              Type <strong>FACTORY RESET</strong> to confirm:
-            </p>
-            <input
-              type="text"
-              className="mobile-input"
-              value={factoryResetConfirmationText}
-              onChange={(e) => setFactoryResetConfirmationText(e.target.value)}
-              placeholder="FACTORY RESET"
-              style={{ marginBottom: '14px', textTransform: 'uppercase' }}
-              autoFocus
-            />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <button
-                type="button"
-                className="mobile-btn mobile-btn-secondary"
-                onClick={() => { setShowFactoryResetModal(false); setFactoryResetConfirmationText('') }}
-                disabled={isFactoryResetting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="mobile-btn"
-                style={{ background: 'var(--error)', color: '#fff', fontWeight: 700 }}
-                onClick={handleConfirmFactoryReset}
-                disabled={factoryResetConfirmationText.trim().toUpperCase() !== 'FACTORY RESET' || isFactoryResetting}
-              >
-                {isFactoryResetting ? 'Resetting...' : 'Confirm Factory Reset'}
               </button>
             </div>
           </div>
         </div>
       )}
-      {/* SECTION: DESKTOP MODE SWITCH */}
-      <div className="mobile-card" style={{ marginTop: '20px', border: '1px solid var(--border)', textAlign: 'center' }}>
-        <h4 style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Desktop Workstation
-        </h4>
-        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.4 }}>
-          Switch to the full desktop multi-panel workstation layout.
-        </p>
-        <button
-          type="button"
-          className="mobile-btn mobile-btn-secondary"
-          onClick={() => {
-            localStorage.setItem('printpro_viewport_pref', 'desktop')
-            navigate('/dashboard')
-          }}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-        >
-          <Monitor size={16} /> Request Desktop Site
-        </button>
-      </div>
+
+      {/* MODALS */}
+      {confirmEmptyTrash && (
+        <BottomSheet isOpen={confirmEmptyTrash} onClose={() => setConfirmEmptyTrash(false)} title="Empty Recycle Bin">
+          <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#fca5a5' }}>
+              Are you sure you want to permanently erase all deleted bills? This action cannot be reversed.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setConfirmEmptyTrash(false)} className="mobile-btn mobile-btn-secondary" style={{ flex: 1 }}>
+                Cancel
+              </button>
+              <button onClick={handleEmptyTrash} className="mobile-btn mobile-btn-danger" style={{ flex: 1 }}>
+                Purge All
+              </button>
+            </div>
+          </div>
+        </BottomSheet>
+      )}
+
+      {showResetModal && (
+        <BottomSheet isOpen={showResetModal} onClose={() => setShowResetModal(false)} title="Clear Transactions">
+          <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: '#fca5a5' }}>
+              Type <strong>RESET</strong> in capital letters to confirm deleting all bills, payments, and expenses.
+            </p>
+            <input
+              type="text"
+              className="mobile-input"
+              value={resetText}
+              onChange={(e) => setResetText(e.target.value)}
+              placeholder="RESET"
+            />
+            <button
+              onClick={async () => {
+                if (resetText.trim() !== 'RESET') {
+                  showToast?.('Type RESET to confirm', 'error')
+                  return
+                }
+                await clearTransactionRecords()
+                queryClient.clear()
+                showToast?.('Transactions wiped! Reloading...', 'success')
+                setTimeout(() => window.location.reload(), 1000)
+              }}
+              className="mobile-btn mobile-btn-danger"
+            >
+              Confirm Wipe
+            </button>
+          </div>
+        </BottomSheet>
+      )}
+
+      {showFactoryResetModal && (
+        <BottomSheet isOpen={showFactoryResetModal} onClose={() => setShowFactoryResetModal(false)} title="Factory Reset">
+          <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: '#fca5a5' }}>
+              Type <strong>FACTORY RESET</strong> to wipe all data and return to blank state.
+            </p>
+            <input
+              type="text"
+              className="mobile-input"
+              value={factoryText}
+              onChange={(e) => setFactoryText(e.target.value)}
+              placeholder="FACTORY RESET"
+            />
+            <button
+              onClick={async () => {
+                if (factoryText.trim() !== 'FACTORY RESET') {
+                  showToast?.('Type FACTORY RESET to confirm', 'error')
+                  return
+                }
+                await clearAllCloudData()
+                queryClient.clear()
+                showToast?.('Factory reset complete! Reloading...', 'success')
+                setTimeout(() => window.location.reload(), 1000)
+              }}
+              className="mobile-btn mobile-btn-danger"
+            >
+              Execute Factory Reset
+            </button>
+          </div>
+        </BottomSheet>
+      )}
     </MobileLayout>
   )
 }
