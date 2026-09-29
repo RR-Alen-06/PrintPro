@@ -1,551 +1,691 @@
-import React, { useMemo, useState } from 'react'
-import { useAppContext } from '../context/AppContext'
-import { useBills } from '../hooks/useBillsQuery'
-import { useCustomers } from '../hooks/useCustomersQuery'
-import { useInventory } from '../hooks/useEntitiesQuery'
-import { Calendar, Layers, Filter, Printer, Download, Share2, Copy, Check, TrendingUp, TrendingDown, Users, FileText } from 'lucide-react'
-import { jsPDF } from 'jspdf'
+import React, { useState, useMemo } from 'react';
+import { useAppContext } from '../context/AppContext';
+import { useBills } from '../hooks/useBillsQuery';
+import { useCustomers } from '../hooks/useCustomersQuery';
+import { useInventory } from '../hooks/useEntitiesQuery';
+import {
+  Calendar,
+  Layers,
+  Search,
+  Filter,
+  Printer,
+  Download,
+  Share2,
+  Copy,
+  Check,
+  TrendingUp,
+  Tag,
+  Wrench,
+  AlertTriangle,
+  FileText,
+  DollarSign,
+  ShoppingBag,
+  ExternalLink,
+  ArrowUpDown,
+} from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import { ProductAnalyticsService } from '../services/productAnalyticsService';
+import { STATEMENT_PERIOD_OPTIONS, StatementService } from '../services/statementService';
+import ProductDrilldownModal from '../components/ProductDrilldownModal';
+import CustomServiceDrilldownModal from '../components/CustomServiceDrilldownModal';
+import EmptyState from '../components/common/EmptyState';
+import { TableSkeleton } from '../components/common/Skeleton';
 
-const PERIODS = [
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'yearly', label: 'Yearly' },
-  { value: 'custom', label: 'Custom Range' },
-  { value: 'all', label: 'All Time' }
-]
+export default function ItemSalesReport() {
+  const { business, settings } = useAppContext();
+  const { data: bills = [], isLoading: isLoadingBills } = useBills();
+  const { data: customers = [] } = useCustomers();
+  const { data: inventory = [], isLoading: isLoadingInventory } = useInventory();
 
-const getPeriodRange = (period) => {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (period === 'today') return { start: today, end: new Date(today.getTime() + 86400000 - 1) }
-  if (period === 'yesterday') {
-    const yesterday = new Date(today)
-    yesterday.setDate(today.getDate() - 1)
-    return { start: yesterday, end: new Date(yesterday.getTime() + 86400000 - 1) }
-  }
-  if (period === 'weekly') {
-    const day = today.getDay()
-    const mon = new Date(today); mon.setDate(today.getDate() - (day === 0 ? 6 : day - 1))
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-    return { start: mon, end: sun }
-  }
-  if (period === 'monthly') {
-    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0) }
-  }
-  if (period === 'quarterly') {
-    const q = Math.floor(now.getMonth() / 3)
-    return { start: new Date(now.getFullYear(), q * 3, 1), end: new Date(now.getFullYear(), q * 3 + 3, 0) }
-  }
-  if (period === 'yearly') {
-    return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31) }
-  }
-  return null
-}
-
-const ItemSalesReport = () => {
-  const { data: bills = [] } = useBills()
-  const { data: customers = [] } = useCustomers()
-  const { data: inventory = [] } = useInventory()
+  // Tab State: 'catalog' | 'custom'
+  const [activeTab, setActiveTab] = useState('catalog');
 
   // Filter States
-  const [period, setPeriod] = useState('monthly')
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
-  const [itemFilter, setItemFilter] = useState('all') // 'all', 'a4', 'a5', 'letter', 'legal', 'custom'
-  const [serviceFilter, setServiceFilter] = useState('all') // 'all', 'printing', 'photocopy', 'lamination', 'binding', 'design', 'photography', 'other'
-  const [printTypeFilter, setPrintTypeFilter] = useState('all') // 'all', 'color_single', 'color_double', 'bw_single', 'bw_double'
-  const [customerFilter, setCustomerFilter] = useState('all') // 'all', 'regular', 'walkin', or customerId
-  
-  const [copied, setCopied] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false)
+  const [period, setPeriod] = useState('this_month');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('revenue_desc'); // 'revenue_desc' | 'volume_desc' | 'variance' | 'name_asc'
 
-  // 1. Time range filtering
-  const range = useMemo(() => {
-    if (period === 'custom') {
-      let start = null
-      if (customStartDate) {
-        const [y, m, d] = customStartDate.split('-').map(Number)
-        start = new Date(y, m - 1, d, 0, 0, 0, 0)
-      }
-      let end = null
-      if (customEndDate) {
-        const [y, m, d] = customEndDate.split('-').map(Number)
-        end = new Date(y, m - 1, d, 23, 59, 59, 999)
-      }
-      return { start, end }
-    }
-    return getPeriodRange(period)
-  }, [period, customStartDate, customEndDate])
+  // Modal drilldown states
+  const [selectedProductData, setSelectedProductData] = useState(null);
+  const [selectedCustomServiceData, setSelectedCustomServiceData] = useState(null);
+  const [copied, setCopied] = useState(false);
 
-  // Filtered bills by time range and customer
-  const filteredBills = useMemo(() => {
-    return (Array.isArray(bills) ? bills : []).filter(b => {
-      if (!b || b.deleted || b.isGroupParent) return false
+  // Period label
+  const { label: periodLabel } = useMemo(() => {
+    return StatementService.getFilterBoundaries(period, {
+      startDate: customStartDate,
+      endDate: customEndDate,
+    });
+  }, [period, customStartDate, customEndDate]);
 
-      // Time Range Filter
-      const d = b.date ? new Date(b.date) : null
-      if (range) {
-        if (!d) return false
-        if (range.start && d < range.start) return false
-        if (range.end && d > range.end) return false
-      }
+  // 1. Catalog Products Analytics
+  const catalogAnalytics = useMemo(() => {
+    const list = ProductAnalyticsService.getAllCatalogProductsAnalytics({
+      filter: period,
+      customRange: { startDate: customStartDate, endDate: customEndDate },
+      bills,
+      products: inventory,
+    });
 
-      // Customer Filter
-      if (customerFilter === 'regular') {
-        if (b.customerType !== 'regular') return false
-      } else if (customerFilter === 'walkin') {
-        if (b.customerType !== 'random') return false
-      } else if (customerFilter !== 'all') {
-        if (b.customerId !== customerFilter) return false
-      }
+    return list;
+  }, [period, customStartDate, customEndDate, bills, inventory]);
 
-      return true
-    })
-  }, [bills, range, customerFilter])
+  // 2. Custom & Ad-Hoc Services Analytics
+  const customItemsAnalytics = useMemo(() => {
+    return ProductAnalyticsService.getCustomItemsAnalytics({
+      filter: period,
+      customRange: { startDate: customStartDate, endDate: customEndDate },
+      bills,
+      products: inventory,
+    });
+  }, [period, customStartDate, customEndDate, bills, inventory]);
 
-  // Calculate items breakdown
-  const salesData = useMemo(() => {
-    const itemMap = {}
-    let grandQty = 0
-    let grandRevenue = 0
+  // Filtered & Sorted Catalog Products
+  const filteredCatalogProducts = useMemo(() => {
+    let result = [...catalogAnalytics];
 
-    // Revenue by print type breakdown
-    const printTypeRevenue = {
-      'Color Single': 0,
-      'Color Double': 0,
-      'B/W Single': 0,
-      'B/W Double': 0
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.product_name.toLowerCase().includes(q) ||
+          (p.product_code && p.product_code.toLowerCase().includes(q)) ||
+          (p.category && p.category.toLowerCase().includes(q))
+      );
     }
 
-    filteredBills.forEach(bill => {
-      (bill.items || []).forEach(item => {
-        const itemName = item.name || item.itemName || 'Custom Item'
-        const printType = item.printType || 'bw'
-        const sides = item.sides || 'single'
-        const qty = Number(item.qty || 0)
-        const unitPrice = Number(item.unitPrice || 0)
-        const itemAmount = Number(item.amount || (qty * unitPrice))
-
-        // A. Match Item Filter (A4, A5, Letter, Legal, Custom Paper)
-        if (itemFilter !== 'all') {
-          const lowerName = itemName.toLowerCase()
-          if (itemFilter === 'a4' && !lowerName.includes('a4')) return
-          if (itemFilter === 'a5' && !lowerName.includes('a5')) return
-          if (itemFilter === 'letter' && !lowerName.includes('letter')) return
-          if (itemFilter === 'legal' && !lowerName.includes('legal')) return
-          if (itemFilter === 'custom' && (lowerName.includes('a4') || lowerName.includes('a5') || lowerName.includes('letter') || lowerName.includes('legal'))) return
-        }
-
-        // B. Match Service Filter
-        if (serviceFilter !== 'all') {
-          const lowerName = itemName.toLowerCase()
-          if (serviceFilter === 'printing' && !lowerName.includes('print')) return
-          if (serviceFilter === 'photocopy' && !lowerName.includes('copy') && !lowerName.includes('photocopy')) return
-          if (serviceFilter === 'lamination' && !lowerName.includes('laminate') && !lowerName.includes('lamination')) return
-          if (serviceFilter === 'binding' && !lowerName.includes('bind') && !lowerName.includes('binding')) return
-          if (serviceFilter === 'design' && !lowerName.includes('design')) return
-          if (serviceFilter === 'photography' && !lowerName.includes('photo') && !lowerName.includes('shoot')) return
-          if (serviceFilter === 'other' && (
-            lowerName.includes('print') || lowerName.includes('copy') || lowerName.includes('laminate') || 
-            lowerName.includes('bind') || lowerName.includes('design') || lowerName.includes('photo')
-          )) return
-        }
-
-        // C. Match Print Type Filter
-        const pTypeKey = `${printType === 'color' ? 'Color' : 'B/W'} ${sides === 'double' ? 'Double' : 'Single'}`
-        if (printTypeFilter !== 'all') {
-          if (printTypeFilter === 'color_single' && (printType !== 'color' || sides !== 'single')) return
-          if (printTypeFilter === 'color_double' && (printType !== 'color' || sides !== 'double')) return
-          if (printTypeFilter === 'bw_single' && (printType !== 'bw' || sides !== 'single')) return
-          if (printTypeFilter === 'bw_double' && (printType !== 'bw' || sides !== 'double')) return
-        }
-
-        // Add to aggregate item map
-        if (!itemMap[itemName]) {
-          itemMap[itemName] = { name: itemName, qty: 0, revenue: 0 }
-        }
-        itemMap[itemName].qty += qty
-        itemMap[itemName].revenue += itemAmount
-
-        // Add to print type breakdown
-        if (pTypeKey in printTypeRevenue) {
-          printTypeRevenue[pTypeKey] += itemAmount
-        }
-
-        grandQty += qty
-        grandRevenue += itemAmount
-      })
-    })
-
-    const itemsList = Object.values(itemMap)
-    const sortedDesc = [...itemsList].sort((a, b) => b.revenue - a.revenue)
-    const sortedAsc = [...itemsList].sort((a, b) => a.revenue - b.revenue)
-
-    return {
-      topSelling: sortedDesc.slice(0, 10),
-      leastSelling: sortedAsc.slice(0, 10),
-      printTypeRevenue,
-      grandQty,
-      grandRevenue
+    switch (sortBy) {
+      case 'volume_desc':
+        result.sort((a, b) => b.total_quantity_sold - a.total_quantity_sold);
+        break;
+      case 'variance':
+        result.sort((a, b) => (b.has_price_variance ? 1 : 0) - (a.has_price_variance ? 1 : 0));
+        break;
+      case 'name_asc':
+        result.sort((a, b) => a.product_name.localeCompare(b.product_name));
+        break;
+      case 'revenue_desc':
+      default:
+        result.sort((a, b) => b.total_revenue - a.total_revenue);
+        break;
     }
-  }, [filteredBills, itemFilter, serviceFilter, printTypeFilter])
 
-  // Share message formatting
-  const shareText = useMemo(() => {
-    let text = `*Item Sales Report Summary*\nPeriod: ${period.toUpperCase()}\n`
-    text += `Total Quantity Sold: ${salesData.grandQty}\n`
-    text += `Total Revenue: ₹${salesData.grandRevenue.toFixed(2)}\n\n`
-    text += `*Top 3 Selling Items:*\n`
-    salesData.topSelling.slice(0, 3).forEach((item, index) => {
-      text += `${index + 1}. ${item.name} - ₹${item.revenue.toFixed(2)} (${item.qty} units)\n`
-    })
-    return text
-  }, [salesData, period])
+    return result;
+  }, [catalogAnalytics, searchQuery, sortBy]);
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(shareText)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  // Filtered & Sorted Custom Items
+  const filteredCustomItems = useMemo(() => {
+    let result = [...customItemsAnalytics];
 
-  // Export PDF
-  const downloadPDF = () => {
-    const doc = new jsPDF()
-    const W = doc.internal.pageSize.getWidth()
-    let y = 15
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((c) => c.product_name.toLowerCase().includes(q));
+    }
 
-    doc.setFontSize(16)
-    doc.setFont('helvetica', 'bold')
-    doc.text('ITEM SALES REPORT', W / 2, y, { align: 'center' })
-    y += 8
+    switch (sortBy) {
+      case 'volume_desc':
+        result.sort((a, b) => b.total_quantity - a.total_quantity);
+        break;
+      case 'variance':
+        result.sort((a, b) => (b.is_dynamic_rate ? 1 : 0) - (a.is_dynamic_rate ? 1 : 0));
+        break;
+      case 'name_asc':
+        result.sort((a, b) => a.product_name.localeCompare(b.product_name));
+        break;
+      case 'revenue_desc':
+      default:
+        result.sort((a, b) => b.total_revenue - a.total_revenue);
+        break;
+    }
 
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Period: ${period.toUpperCase()}`, 15, y)
-    doc.text(`Generated: ${new Date().toLocaleString()}`, W - 15, y, { align: 'right' })
-    y += 8
+    return result;
+  }, [customItemsAnalytics, searchQuery, sortBy]);
 
-    doc.line(12, y, W - 12, y)
-    y += 8
+  // KPI Aggregates for current active tab
+  const tabKPIs = useMemo(() => {
+    if (activeTab === 'catalog') {
+      const totalVolume = catalogAnalytics.reduce((s, p) => s + p.total_quantity_sold, 0);
+      const totalRevenue = catalogAnalytics.reduce((s, p) => s + p.total_revenue, 0);
+      const activeCount = catalogAnalytics.filter((p) => p.total_quantity_sold > 0).length;
+      const avgRate = totalVolume > 0 ? totalRevenue / totalVolume : 0;
+      const varianceCount = catalogAnalytics.filter((p) => p.has_price_variance).length;
 
-    const grandRev = salesData.grandRevenue || 0;
+      return {
+        totalVolume,
+        totalRevenue,
+        avgRate,
+        count: activeCount,
+        countLabel: 'Active Products Sold',
+        varianceCount,
+      };
+    } else {
+      const totalVolume = customItemsAnalytics.reduce((s, c) => s + c.total_quantity, 0);
+      const totalRevenue = customItemsAnalytics.reduce((s, c) => s + c.total_revenue, 0);
+      const activeCount = customItemsAnalytics.length;
+      const avgRate = totalVolume > 0 ? totalRevenue / totalVolume : 0;
+      const varianceCount = customItemsAnalytics.filter((c) => c.is_dynamic_rate).length;
 
-    // Summary widgets
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'bold')
-    doc.text(`Total Quantity Sold: ${salesData.grandQty} units`, 15, y)
-    doc.text(`Total Revenue: Rs. ${grandRev.toFixed(2)}`, W - 15, y, { align: 'right' })
-    y += 12
+      return {
+        totalVolume,
+        totalRevenue,
+        avgRate,
+        count: activeCount,
+        countLabel: 'Custom Services Billed',
+        varianceCount,
+      };
+    }
+  }, [activeTab, catalogAnalytics, customItemsAnalytics]);
 
-    // Top Selling Table
-    doc.setFontSize(12)
-    doc.text('Top Selling Items', 15, y)
-    y += 6
+  // Export Summary CSV
+  const handleExportCSV = () => {
+    const BOM = '\uFEFF';
+    let csvContent = '';
 
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Rank', 15, y)
-    doc.text('Item Name', 30, y)
-    doc.text('Qty Sold', W - 65, y, { align: 'right' })
-    doc.text('Share %', W - 40, y, { align: 'right' })
-    doc.text('Revenue', W - 15, y, { align: 'right' })
-    y += 5
-    doc.line(15, y, W - 15, y)
-    y += 5
+    if (activeTab === 'catalog') {
+      const rows = [
+        ['Product Sales Intelligence Report', '', '', '', '', '', ''],
+        [`Period:`, periodLabel, '', '', '', '', ''],
+        [`Store:`, business?.shopName || 'PrintPro', '', '', '', '', ''],
+        [''],
+        ['Product Code', 'Product Name', 'Category', 'Catalog Price (Rs)', 'Units Sold', 'Realized Revenue (Rs)', 'Avg Rate (Rs)', 'Price Variance'],
+        ...filteredCatalogProducts.map((p) => [
+          `"${p.product_code || ''}"`,
+          `"${p.product_name}"`,
+          `"${p.category || 'General'}"`,
+          p.catalog_price.toFixed(2),
+          p.total_quantity_sold,
+          p.total_revenue.toFixed(2),
+          p.average_selling_rate.toFixed(2),
+          p.has_price_variance ? `Dynamic (Rs ${p.min_rate.toFixed(2)} - ${p.max_rate.toFixed(2)})` : 'Standard Price',
+        ]),
+      ];
+      csvContent = rows.map((r) => r.join(',')).join('\n');
+    } else {
+      const rows = [
+        ['Custom & Ad-Hoc Services Sales Report', '', '', '', '', '', ''],
+        [`Period:`, periodLabel, '', '', '', '', ''],
+        [`Store:`, business?.shopName || 'PrintPro', '', '', '', '', ''],
+        [''],
+        ['Custom Service Description', 'Units Billed', 'Realized Revenue (Rs)', 'Avg Rate (Rs)', 'Min Rate (Rs)', 'Max Rate (Rs)', 'Orders Count', 'First Used', 'Last Used'],
+        ...filteredCustomItems.map((c) => [
+          `"${c.product_name}"`,
+          c.total_quantity,
+          c.total_revenue.toFixed(2),
+          c.average_selling_rate.toFixed(2),
+          c.min_rate.toFixed(2),
+          c.max_rate.toFixed(2),
+          c.orders_count,
+          c.first_used_at ? c.first_used_at.slice(0, 10) : '',
+          c.last_used_at ? c.last_used_at.slice(0, 10) : '',
+        ]),
+      ];
+      csvContent = rows.map((r) => r.join(',')).join('\n');
+    }
 
-    doc.setFont('helvetica', 'normal')
-    salesData.topSelling.forEach((item, idx) => {
-      if (y > 270) { doc.addPage(); y = 15 }
-      const sharePct = grandRev > 0 ? ((item.revenue / grandRev) * 100).toFixed(1) : '0.0';
-      doc.text(String(idx + 1), 15, y)
-      doc.text(item.name.substring(0, 30), 30, y)
-      doc.text(String(item.qty), W - 65, y, { align: 'right' })
-      doc.text(`${sharePct}%`, W - 40, y, { align: 'right' })
-      doc.text(`Rs. ${item.revenue.toFixed(2)}`, W - 15, y, { align: 'right' })
-      y += 6
-    })
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${activeTab === 'catalog' ? 'Catalog_Products' : 'Custom_Services'}_Analytics_${period}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
-    y += 10
+  // Export Full Summary PDF
+  const handleExportPDF = () => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const PAGE_W = doc.internal.pageSize.getWidth();
+    const PAGE_H = doc.internal.pageSize.getHeight();
+    const MARGIN = 12;
+    const CONTENT_W = PAGE_W - MARGIN * 2;
+    let currentY = 14;
 
-    // Print Type Revenue Breakdown
-    if (y > 240) { doc.addPage(); y = 15 }
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Revenue by Print Type', 15, y)
-    y += 6
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text(business?.shopName || 'PrintPro Studio', MARGIN, currentY);
 
-    doc.setFontSize(9)
-    Object.entries(salesData.printTypeRevenue).forEach(([type, rev]) => {
-      const sharePct = grandRev > 0 ? ((rev / grandRev) * 100).toFixed(1) : '0.0';
-      doc.setFont('helvetica', 'normal')
-      doc.text(`${type} (${sharePct}%)`, 20, y)
-      doc.text(`Rs. ${rev.toFixed(2)}`, W - 15, y, { align: 'right' })
-      y += 6
-    })
+    doc.setFontSize(12);
+    doc.text(activeTab === 'catalog' ? 'CATALOG PRODUCTS SALES REPORT' : 'CUSTOM & AD-HOC SERVICES REPORT', PAGE_W - MARGIN, currentY, { align: 'right' });
+    currentY += 5;
 
-    doc.save('Item_Sales_Report.pdf')
-  }
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text(`Period: ${periodLabel}`, PAGE_W - MARGIN, currentY, { align: 'right' });
+    currentY += 5;
 
-  // Export CSV / Excel
-  const downloadCSV = () => {
-    const grandRev = salesData.grandRevenue || 0;
-    let csvContent = 'data:text/csv;charset=utf-8,Rank,Item,Quantity,Revenue,Share %\n'
-    salesData.topSelling.forEach((item, index) => {
-      const sharePct = grandRev > 0 ? ((item.revenue / grandRev) * 100).toFixed(1) : '0.0';
-      csvContent += `${index + 1},"${item.name}",${item.qty},${item.revenue},${sharePct}%\n`
-    })
-    const encodedUri = encodeURI(csvContent)
-    const link = document.createElement('a')
-    link.setAttribute('href', encodedUri)
-    link.setAttribute('download', 'item_sales_report.csv')
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
+    doc.setDrawColor(40, 40, 40);
+    doc.line(MARGIN, currentY, PAGE_W - MARGIN, currentY);
+    currentY += 6;
+
+    // KPI Summary Strip
+    doc.setFillColor(245, 246, 248);
+    doc.roundedRect(MARGIN, currentY, CONTENT_W, 16, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(50, 50, 50);
+
+    const kpiSummaryText = `Total Revenue: Rs. ${tabKPIs.totalRevenue.toFixed(2)}  |  Total Units: ${tabKPIs.totalVolume}  |  Avg Selling Rate: Rs. ${tabKPIs.avgRate.toFixed(2)}  |  ${tabKPIs.countLabel}: ${tabKPIs.count}`;
+    doc.text(kpiSummaryText, PAGE_W / 2, currentY + 10, { align: 'center' });
+    currentY += 22;
+
+    // Table Header
+    doc.setFillColor(235, 238, 242);
+    doc.rect(MARGIN, currentY, CONTENT_W, 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(30, 30, 30);
+
+    if (activeTab === 'catalog') {
+      doc.text('CODE', MARGIN + 3, currentY + 4);
+      doc.text('PRODUCT / SERVICE NAME', MARGIN + 25, currentY + 4);
+      doc.text('CATALOG', MARGIN + 95, currentY + 4, { align: 'right' });
+      doc.text('UNITS', MARGIN + 120, currentY + 4, { align: 'right' });
+      doc.text('AVG RATE', MARGIN + 145, currentY + 4, { align: 'right' });
+      doc.text('TOTAL REVENUE', PAGE_W - MARGIN - 3, currentY + 4, { align: 'right' });
+      currentY += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+
+      filteredCatalogProducts.forEach((p) => {
+        if (currentY > PAGE_H - 18) {
+          doc.addPage();
+          currentY = 14;
+        }
+        doc.text(p.product_code || '-', MARGIN + 3, currentY + 4);
+        doc.text(p.product_name.slice(0, 32), MARGIN + 25, currentY + 4);
+        doc.text(`Rs. ${p.catalog_price.toFixed(2)}`, MARGIN + 95, currentY + 4, { align: 'right' });
+        doc.text(String(p.total_quantity_sold), MARGIN + 120, currentY + 4, { align: 'right' });
+        doc.text(`Rs. ${p.average_selling_rate.toFixed(2)}`, MARGIN + 145, currentY + 4, { align: 'right' });
+        doc.text(`Rs. ${p.total_revenue.toFixed(2)}`, PAGE_W - MARGIN - 3, currentY + 4, { align: 'right' });
+
+        doc.setDrawColor(240, 240, 240);
+        doc.line(MARGIN, currentY + 5.5, PAGE_W - MARGIN, currentY + 5.5);
+        currentY += 5.5;
+      });
+    } else {
+      doc.text('CUSTOM SERVICE NAME', MARGIN + 3, currentY + 4);
+      doc.text('ORDERS', MARGIN + 85, currentY + 4, { align: 'right' });
+      doc.text('UNITS', MARGIN + 110, currentY + 4, { align: 'right' });
+      doc.text('RATE RANGE', MARGIN + 145, currentY + 4, { align: 'right' });
+      doc.text('TOTAL REVENUE', PAGE_W - MARGIN - 3, currentY + 4, { align: 'right' });
+      currentY += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+
+      filteredCustomItems.forEach((c) => {
+        if (currentY > PAGE_H - 18) {
+          doc.addPage();
+          currentY = 14;
+        }
+        doc.text(c.product_name.slice(0, 36), MARGIN + 3, currentY + 4);
+        doc.text(String(c.orders_count), MARGIN + 85, currentY + 4, { align: 'right' });
+        doc.text(String(c.total_quantity), MARGIN + 110, currentY + 4, { align: 'right' });
+        doc.text(`Rs. ${c.min_rate.toFixed(2)} - ${c.max_rate.toFixed(2)}`, MARGIN + 145, currentY + 4, { align: 'right' });
+        doc.text(`Rs. ${c.total_revenue.toFixed(2)}`, PAGE_W - MARGIN - 3, currentY + 4, { align: 'right' });
+
+        doc.setDrawColor(240, 240, 240);
+        doc.line(MARGIN, currentY + 5.5, PAGE_W - MARGIN, currentY + 5.5);
+        currentY += 5.5;
+      });
+    }
+
+    doc.save(`${activeTab === 'catalog' ? 'Catalog_Products' : 'Custom_Services'}_Report_${period}.pdf`);
+  };
+
+  const isDataLoading = isLoadingBills || isLoadingInventory;
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Item Sales Report</h1>
-        <p>Analyze item and printing sales performance with dynamic filters and volume breakdown.</p>
-      </div>
-
-      {/* Filters Card */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <Filter size={18} style={{ color: 'var(--accent)' }} />
-          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Filter Options</h2>
+    <div className="space-y-6 animate-fadeIn pb-12">
+      {/* Page Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Product & Sales Intelligence</h1>
+          <p className="text-sm text-purple-300/80 mt-1">
+            Item-level revenue intelligence, dynamic pricing detection, and ad-hoc custom services drilldown.
+          </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          {/* Time Filter */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Time Filter</label>
-            <select className="form-select" value={period} onChange={(e) => setPeriod(e.target.value)}>
-              {PERIODS.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-900/30 transition-all"
+          >
+            <Printer className="w-4 h-4" />
+            Export Report PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs Switcher */}
+      <div className="flex items-center gap-3 border-b border-purple-900/40 pb-3">
+        <button
+          onClick={() => setActiveTab('catalog')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+            activeTab === 'catalog'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/40'
+              : 'text-purple-300/70 hover:text-white hover:bg-purple-950/40'
+          }`}
+        >
+          <Tag className="w-4 h-4" />
+          Catalog Products Analytics ({catalogAnalytics.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('custom')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+            activeTab === 'custom'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/40'
+              : 'text-purple-300/70 hover:text-white hover:bg-purple-950/40'
+          }`}
+        >
+          <Wrench className="w-4 h-4" />
+          Custom & Ad-Hoc Services ({customItemsAnalytics.length})
+        </button>
+      </div>
+
+      {/* KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-[#180e30] border border-purple-900/40 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-purple-300/70 uppercase tracking-wider">Total Volume Sold</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-600/20 text-purple-400 flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-2xl font-bold font-mono text-white">{tabKPIs.totalVolume}</span>
+            <span className="text-xs text-purple-400 font-medium">Units</span>
+          </div>
+        </div>
+
+        <div className="bg-[#180e30] border border-purple-900/40 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-purple-300/70 uppercase tracking-wider">Total Realized Revenue</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 text-emerald-400 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-2xl font-bold font-mono text-emerald-400">₹{tabKPIs.totalRevenue.toFixed(2)}</span>
+            <span className="text-xs text-emerald-400/80 font-medium">{periodLabel}</span>
+          </div>
+        </div>
+
+        <div className="bg-[#180e30] border border-purple-900/40 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-purple-300/70 uppercase tracking-wider">Weighted Avg Selling Rate</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-2xl font-bold font-mono text-indigo-300">₹{tabKPIs.avgRate.toFixed(2)}</span>
+            <span className="text-xs text-indigo-400/80 font-medium">Per Unit</span>
+          </div>
+        </div>
+
+        <div className="bg-[#180e30] border border-purple-900/40 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-purple-300/70 uppercase tracking-wider">{tabKPIs.countLabel}</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-600/20 text-amber-400 flex items-center justify-center">
+              <Layers className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-2xl font-bold font-mono text-amber-300">{tabKPIs.count}</span>
+            <span className="text-xs text-amber-400/80 font-medium">
+              {tabKPIs.varianceCount > 0 ? `${tabKPIs.varianceCount} Dynamic Pricing` : 'Fixed Pricing'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="bg-[#180e30] border border-purple-900/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+        {/* Date Filter Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-purple-950/40 p-1 rounded-xl border border-purple-800/40">
+            {STATEMENT_PERIOD_OPTIONS.slice(0, 6).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPeriod(opt.value)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                  period === opt.value
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-purple-200/70 hover:text-white hover:bg-purple-800/30'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <select
+              value={['today', 'yesterday', 'this_week', 'last_7_days', 'this_month', 'last_month'].includes(period) ? '' : period}
+              onChange={(e) => setPeriod(e.target.value || 'this_quarter')}
+              className="bg-purple-900/40 text-purple-200 text-xs px-2 py-1 rounded-lg border border-purple-700/40 focus:outline-none focus:border-purple-500"
+            >
+              <option value="" disabled>More periods...</option>
+              {STATEMENT_PERIOD_OPTIONS.slice(6).map((opt) => (
+                <option key={opt.value} value={opt.value} className="bg-[#120924]">
+                  {opt.label}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Item Size Filter */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Item Filter</label>
-            <select className="form-select" value={itemFilter} onChange={(e) => setItemFilter(e.target.value)}>
-              <option value="all">All Items</option>
-              <option value="a4">A4</option>
-              <option value="a5">A5</option>
-              <option value="letter">Letter</option>
-              <option value="legal">Legal</option>
-              <option value="custom">Custom Paper</option>
-            </select>
-          </div>
-
-          {/* Service Type Filter */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Service Filter</label>
-            <select className="form-select" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)}>
-              <option value="all">All Services</option>
-              <option value="printing">Printing</option>
-              <option value="photocopy">Photocopy</option>
-              <option value="lamination">Lamination</option>
-              <option value="binding">Binding</option>
-              <option value="design">Design</option>
-              <option value="photography">Photography</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          {/* Print Type Filter */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Print Type Filter</label>
-            <select className="form-select" value={printTypeFilter} onChange={(e) => setPrintTypeFilter(e.target.value)}>
-              <option value="all">All Print Types</option>
-              <option value="color_single">Color Single Side</option>
-              <option value="color_double">Color Double Side</option>
-              <option value="bw_single">B/W Single Side</option>
-              <option value="bw_double">B/W Double Side</option>
-            </select>
-          </div>
-
-          {/* Customer Filter */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Customer Filter</label>
-            <select className="form-select" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)}>
-              <option value="all">All Customers</option>
-              <option value="regular">Regular Customers</option>
-              <option value="walkin">Walk-in Customers</option>
-              {customers.filter(c => !c.deleted).map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 text-xs bg-purple-950/30 px-2 py-1 rounded-lg border border-purple-800/30">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="bg-purple-900/40 border border-purple-700/50 rounded px-1.5 py-0.5 text-white text-xs"
+              />
+              <span className="text-purple-400">to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="bg-purple-900/40 border border-purple-700/50 rounded px-1.5 py-0.5 text-white text-xs"
+              />
+            </div>
+          )}
         </div>
 
-        {period === 'custom' && (
-          <div style={{ display: 'flex', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">From Date</label>
-              <input type="date" className="form-input" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} />
-            </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">To Date</label>
-              <input type="date" className="form-input" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} />
-            </div>
+        {/* Search & Sort Controls */}
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={activeTab === 'catalog' ? 'Search product or code...' : 'Search custom service...'}
+              className="pl-9 pr-4 py-1.5 bg-[#120924] border border-purple-800/40 rounded-xl text-xs text-white placeholder-purple-400/50 focus:outline-none focus:border-purple-500 w-56"
+            />
           </div>
-        )}
-      </div>
 
-      {/* Grid Summary Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <TrendingUp size={24} style={{ color: 'var(--success)', marginBottom: '8px' }} />
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Total Revenue (Filtered)</span>
-          <h2 style={{ fontSize: '2rem', margin: '4px 0', color: 'var(--success)' }}>₹{salesData.grandRevenue.toFixed(2)}</h2>
-        </div>
-
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '24px' }}>
-          <Layers size={24} style={{ color: 'var(--accent)', marginBottom: '8px' }} />
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Total Quantity Sold</span>
-          <h2 style={{ fontSize: '2rem', margin: '4px 0', color: 'var(--accent)' }}>{salesData.grandQty} units</h2>
+          <div className="flex items-center gap-1.5 text-xs bg-[#120924] px-3 py-1.5 rounded-xl border border-purple-800/40 text-purple-300">
+            <ArrowUpDown className="w-3.5 h-3.5" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="bg-transparent text-white text-xs focus:outline-none cursor-pointer"
+            >
+              <option value="revenue_desc" className="bg-[#180e30]">Revenue: High to Low</option>
+              <option value="volume_desc" className="bg-[#180e30]">Units: High to Low</option>
+              <option value="variance" className="bg-[#180e30]">Dynamic Pricing First</option>
+              <option value="name_asc" className="bg-[#180e30]">Name: A to Z</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Main Report Tables */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr', gap: '24px', alignItems: 'start' }}>
-        {/* Left Side: Top and Least Selling Items */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="card">
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrendingUp size={18} style={{ color: 'var(--success)' }} /> Top Selling Items
-            </h2>
-            <div className="table-responsive">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Item</th>
-                    <th style={{ textAlign: 'right' }}>Qty Sold</th>
-                    <th style={{ textAlign: 'right' }}>Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesData.topSelling.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No sales data matching filters.</td>
-                    </tr>
-                  ) : (
-                    salesData.topSelling.map((item, idx) => (
-                      <tr key={idx}>
-                        <td><strong>{idx + 1}</strong></td>
-                        <td>{item.name}</td>
-                        <td style={{ textAlign: 'right' }}>{item.qty}</td>
-                        <td style={{ textAlign: 'right' }}>₹{item.revenue.toFixed(2)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="card">
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrendingDown size={18} style={{ color: 'var(--error)' }} /> Least Selling Items (Inventory Planning)
-            </h2>
-            <div className="table-responsive">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Item</th>
-                    <th style={{ textAlign: 'right' }}>Qty Sold</th>
-                    <th style={{ textAlign: 'right' }}>Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesData.leastSelling.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No sales data matching filters.</td>
-                    </tr>
-                  ) : (
-                    salesData.leastSelling.map((item, idx) => (
-                      <tr key={idx}>
-                        <td><strong>{idx + 1}</strong></td>
-                        <td>{item.name}</td>
-                        <td style={{ textAlign: 'right' }}>{item.qty}</td>
-                        <td style={{ textAlign: 'right' }}>₹{item.revenue.toFixed(2)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Side: Print Type Breakdown & Exports */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Print Type Breakdown */}
-          <div className="card">
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '16px' }}>Revenue by Print Type</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {Object.entries(salesData.printTypeRevenue).map(([type, rev]) => {
-                const sharePct = (salesData.grandRevenue || 0) > 0 ? ((rev / salesData.grandRevenue) * 100).toFixed(1) : '0.0';
-                return (
-                  <div key={type} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    <span className="text-muted">{type} <span style={{ fontSize: '0.78rem', color: 'var(--accent)' }}>({sharePct}%)</span></span>
-                    <strong>₹{rev.toFixed(2)}</strong>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick Actions / Export Options */}
-          <div className="card">
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '16px' }}>Export &amp; Share Options</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="btn btn-primary" onClick={downloadPDF} style={{ gap: '8px' }}>
-                <Download size={16} /> Export as PDF
-              </button>
-              <button className="btn btn-secondary" onClick={downloadCSV} style={{ gap: '8px' }}>
-                <FileText size={16} /> Export as CSV
-              </button>
-              <button className="btn btn-secondary" onClick={() => window.print()} style={{ gap: '8px' }}>
-                <Printer size={16} /> Print Report
-              </button>
-              <button className="btn btn-secondary" onClick={copyToClipboard} style={{ gap: '8px' }}>
-                {copied ? <Check size={16} style={{ color: 'var(--success)' }} /> : <Copy size={16} />}
-                {copied ? 'Copied to Clipboard!' : 'Copy Summary'}
-              </button>
-              <button className="btn btn-secondary" onClick={() => setShareOpen(!shareOpen)} style={{ gap: '8px' }}>
-                <Share2 size={16} /> Share via WhatsApp
-              </button>
-
-              {shareOpen && (
-                <div style={{ marginTop: '8px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Send text summary to WhatsApp:</p>
-                  <a
-                    className="btn btn-primary btn-sm"
-                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: 'none', display: 'inline-flex', justifyContent: 'center' }}
+      {/* Analytics Data Table */}
+      {isDataLoading ? (
+        <TableSkeleton rows={8} columns={7} />
+      ) : activeTab === 'catalog' ? (
+        filteredCatalogProducts.length === 0 ? (
+          <EmptyState
+            Icon={ShoppingBag}
+            title="No catalog product sales found"
+            description="No matching sales records were found for the selected time range."
+          />
+        ) : (
+          <div className="border border-purple-900/40 rounded-2xl overflow-hidden bg-[#180e30] shadow-xl">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="bg-purple-950/40 text-purple-300/80 uppercase text-[10px] font-semibold border-b border-purple-900/40">
+                  <th className="py-3 px-4">Code</th>
+                  <th className="py-3 px-4">Product Name</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4 text-right">Catalog Rate</th>
+                  <th className="py-3 px-4 text-right">Units Sold</th>
+                  <th className="py-3 px-4 text-right">Realized Revenue</th>
+                  <th className="py-3 px-4 text-right">Avg Rate</th>
+                  <th className="py-3 px-4 text-center">Pricing Dynamics</th>
+                  <th className="py-3 px-4 text-center w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-purple-900/20 text-slate-200">
+                {filteredCatalogProducts.map((prod) => (
+                  <tr
+                    key={prod.product_id}
+                    onClick={() => setSelectedProductData(prod)}
+                    className="hover:bg-purple-950/30 cursor-pointer transition-colors"
                   >
-                    Open WhatsApp Web
-                  </a>
-                </div>
-              )}
-            </div>
+                    <td className="py-3 px-4 font-mono text-purple-300 font-semibold">{prod.product_code || '—'}</td>
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-white text-sm">{prod.product_name}</div>
+                      <div className="text-[10px] text-purple-400/70">{prod.orders_count} Invoices</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="px-2 py-0.5 rounded-full bg-purple-900/40 border border-purple-700/40 text-[10px] text-purple-300 font-medium">
+                        {prod.category || 'General'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-300">₹{prod.catalog_price.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300 text-sm">{prod.total_quantity_sold}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400 text-sm">
+                      ₹{prod.total_revenue.toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-white">₹{prod.average_selling_rate.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-center">
+                      {prod.has_price_variance ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-semibold">
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          ₹{prod.min_rate.toFixed(1)} - ₹{prod.max_rate.toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-semibold">
+                          Fixed Standard
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setSelectedProductData(prod)}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-900/50 hover:bg-purple-800 text-purple-200 border border-purple-700/40 transition-colors"
+                      >
+                        Drilldown
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+        )
+      ) : (
+        filteredCustomItems.length === 0 ? (
+          <EmptyState
+            Icon={Wrench}
+            title="No custom or ad-hoc services billed"
+            description="No uncataloged line-items were billed in this time period."
+          />
+        ) : (
+          <div className="border border-purple-900/40 rounded-2xl overflow-hidden bg-[#180e30] shadow-xl">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="bg-purple-950/40 text-purple-300/80 uppercase text-[10px] font-semibold border-b border-purple-900/40">
+                  <th className="py-3 px-4">Custom Service Description</th>
+                  <th className="py-3 px-4 text-right">Orders Count</th>
+                  <th className="py-3 px-4 text-right">Units Rendered</th>
+                  <th className="py-3 px-4 text-right">Realized Revenue</th>
+                  <th className="py-3 px-4 text-right">Avg Rate</th>
+                  <th className="py-3 px-4 text-center">Dynamic Pricing Range</th>
+                  <th className="py-3 px-4 text-center">First / Last Used</th>
+                  <th className="py-3 px-4 text-center w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-purple-900/20 text-slate-200">
+                {filteredCustomItems.map((item, idx) => (
+                  <tr
+                    key={idx}
+                    onClick={() => setSelectedCustomServiceData(item)}
+                    className="hover:bg-purple-950/30 cursor-pointer transition-colors"
+                  >
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-white text-sm">{item.product_name}</div>
+                      <span className="text-[10px] text-amber-400/80 font-mono">Uncataloged Ad-Hoc Item</span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-purple-300">{item.orders_count}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300 text-sm">{item.total_quantity}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400 text-sm">
+                      ₹{item.total_revenue.toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-white">₹{item.average_selling_rate.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-900/40 text-purple-200 border border-purple-700/40 text-[10px] font-mono font-semibold">
+                        ₹{item.min_rate.toFixed(2)} - ₹{item.max_rate.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center text-slate-400 text-[10px] font-mono">
+                      {item.first_used_at ? item.first_used_at.slice(0, 10) : 'N/A'} → {item.last_used_at ? item.last_used_at.slice(0, 10) : 'N/A'}
+                    </td>
+                    <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setSelectedCustomServiceData(item)}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-900/50 hover:bg-purple-800 text-purple-200 border border-purple-700/40 transition-colors"
+                      >
+                        Drilldown
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
 
-export default ItemSalesReport
+      {/* Single Product Drilldown Modal */}
+      <ProductDrilldownModal
+        isOpen={!!selectedProductData}
+        onClose={() => setSelectedProductData(null)}
+        productData={selectedProductData}
+        business={business}
+        periodLabel={periodLabel}
+      />
+
+      {/* Custom Service Drilldown Modal */}
+      <CustomServiceDrilldownModal
+        isOpen={!!selectedCustomServiceData}
+        onClose={() => setSelectedCustomServiceData(null)}
+        serviceData={selectedCustomServiceData}
+        business={business}
+        periodLabel={periodLabel}
+      />
+    </div>
+  );
+}
