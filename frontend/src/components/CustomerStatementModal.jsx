@@ -30,8 +30,6 @@ export default function CustomerStatementModal({
   settings = {},
   onInspectBill,
 }) {
-  if (!isOpen || !customerId) return null;
-
   const [period, setPeriod] = useState('this_month');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -42,6 +40,7 @@ export default function CustomerStatementModal({
 
   // Compute statement data
   const statementData = useMemo(() => {
+    if (!customerId) return null;
     return StatementService.getCustomerStatementData({
       customerId,
       filter: period,
@@ -66,7 +65,7 @@ export default function CustomerStatementModal({
     settings,
   ]);
 
-  if (!statementData) return null;
+  if (!isOpen || !customerId || !statementData) return null;
 
   const toggleBillExpand = (billId) => {
     setExpandedBills((prev) => ({
