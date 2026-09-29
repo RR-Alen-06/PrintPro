@@ -10,6 +10,7 @@ import { useSettings } from '../../hooks/useSettingsQuery'
 import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { SequenceService } from '../../services/sequenceService'
+import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
@@ -34,6 +35,7 @@ export default function MobileGroupBilling() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { showToast, settings, promoCodes, recordSplitGroupPayment } = useAppContext()
+  const { invalidateAllFinancialQueries, getCustomerFinancials } = useUnifiedFinancialHub()
 
   // Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
@@ -44,6 +46,7 @@ export default function MobileGroupBilling() {
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
+
 
   // Top Tab State: 'create' | 'masters'
   const [activeTab, setActiveTab] = useState('create')
@@ -213,7 +216,7 @@ export default function MobileGroupBilling() {
     return members.map((m) => {
       const cust = serverCustomers.find((c) => String(c.id) === String(m.customerId))
       const isRegular = (cust?.type || 'regular') === 'regular'
-      const custAdvance = Number(cust?.advanceBalance || cust?.credit_balance || 0)
+      const custAdvance = getCustomerFinancials(m.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.credit_balance || 0)
       const custPoints = Number(cust?.loyaltyPoints || cust?.loyalty_points || 0)
 
       let baseSubtotal = 0
@@ -553,6 +556,7 @@ export default function MobileGroupBilling() {
         memberBillIds: createdChildBillIds,
       })
 
+      await invalidateAllFinancialQueries()
       showToast(`Group bill with ${members.length} members created successfully!`, 'success')
 
       // Reset form
@@ -675,7 +679,7 @@ export default function MobileGroupBilling() {
       }
     }
 
-    return list.sort((a, b) => new Date(b.date) - new Date(a.date))
+    return list.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [groupBills, groupMasterBills])
 
   const getGroupStats = useCallback((grp) => {
@@ -828,13 +832,7 @@ export default function MobileGroupBilling() {
         showToast(`Payment of ₹${totalPaying.toFixed(2)} recorded for ${payModalBill.customerName || 'Client'}`, 'success')
       }
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bills'] }),
-        queryClient.invalidateQueries({ queryKey: ['payments'] }),
-        queryClient.invalidateQueries({ queryKey: ['customers'] }),
-        queryClient.invalidateQueries({ queryKey: ['group-bills'] }),
-        queryClient.invalidateQueries({ queryKey: ['accounting'] }),
-      ])
+      await invalidateAllFinancialQueries()
 
       closePayModal()
     } catch (err) {
@@ -1108,9 +1106,9 @@ export default function MobileGroupBilling() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {members.map((member, idx) => {
-                const mTotal = memberTotals[idx] || {}
+                const mTotal: any = memberTotals[idx] || {}
                 const cust = mTotal.customer
-                const custAdvance = Number(cust?.advanceBalance || cust?.credit_balance || 0)
+                const custAdvance = getCustomerFinancials(member.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.credit_balance || 0)
                 const custPoints = Number(cust?.loyaltyPoints || cust?.loyalty_points || 0)
 
                 return (

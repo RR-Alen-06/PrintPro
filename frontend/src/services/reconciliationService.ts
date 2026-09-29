@@ -352,4 +352,158 @@ export class ReconciliationService {
 
     return reconciledBills;
   }
+
+  /**
+   * Authoritative calculation of Accounts Receivables across the business.
+   * Net Receivables = sum(max(0, customerGrossDue - customerAdvanceBalance))
+   * Guarantees mathematical equality across Dashboard, Finance & Accounts, and Customer Ledger.
+   */
+  static calculateAccountsReceivables({
+    bills = [],
+    payments = [],
+    customers = [],
+  }: {
+    bills?: any[];
+    payments?: any[];
+    customers?: any[];
+  }): AccountsReceivableResult {
+    const reconciledBills = this.reconcileBillsWithPayments(bills, payments);
+    const now = new Date();
+
+    const customerMap = new Map<string, any>();
+    (customers || []).forEach((c: any) => {
+      if (c && !c.deleted) {
+        customerMap.set(String(c.id), c);
+        if (c.customerCode) {
+          customerMap.set(String(c.customerCode), c);
+        }
+      }
+    });
+
+    const duesByCustomer = new Map<string, {
+      customerId: string;
+      customerName: string;
+      customerCode?: string;
+      phone?: string;
+      grossDue: number;
+      advanceBalance: number;
+      openBillsCount: number;
+      oldestBillDate?: string;
+      hasOverdue: boolean;
+    }>();
+
+    // Initialize all active customers
+    (customers || []).forEach((c: any) => {
+      if (!c || c.deleted) return;
+      const cId = String(c.id);
+      const adv = Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0);
+      duesByCustomer.set(cId, {
+        customerId: cId,
+        customerName: c.name || 'Walk-in Client',
+        customerCode: c.customerCode || c.code || '',
+        phone: c.phone || '',
+        grossDue: 0,
+        advanceBalance: adv,
+        openBillsCount: 0,
+        oldestBillDate: undefined,
+        hasOverdue: false,
+      });
+    });
+
+    // Aggregate open bills per customer
+    reconciledBills
+      .filter((b: any) => b && !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent && Number(b.balance || 0) > 0)
+      .forEach((b: any) => {
+        const cId = String(b.customerId || b.customer_id || '').trim();
+        let entry = duesByCustomer.get(cId);
+        if (!entry) {
+          const custObj = customerMap.get(cId);
+          const adv = Number(custObj?.advanceBalance || custObj?.advance_balance || custObj?.creditBalance || custObj?.credit_balance || 0);
+          entry = {
+            customerId: cId || 'walk-in',
+            customerName: b.customerName || custObj?.name || 'Walk-in Client',
+            customerCode: custObj?.customerCode || custObj?.code || '',
+            phone: custObj?.phone || '',
+            grossDue: 0,
+            advanceBalance: adv,
+            openBillsCount: 0,
+            oldestBillDate: b.date || b.created_at,
+            hasOverdue: false,
+          };
+          duesByCustomer.set(cId || 'walk-in', entry);
+        }
+
+        const bal = Number(b.balance || 0);
+        entry.grossDue = Number((entry.grossDue + bal).toFixed(2));
+        entry.openBillsCount += 1;
+        const bDate = b.date || b.created_at;
+        if (bDate && (!entry.oldestBillDate || new Date(bDate) < new Date(entry.oldestBillDate))) {
+          entry.oldestBillDate = bDate;
+        }
+        if (b.dueDate && new Date(b.dueDate) < now) {
+          entry.hasOverdue = true;
+        }
+      });
+
+    let totalReceivables = 0;
+    let totalGrossDue = 0;
+    let totalAdvancePool = 0;
+
+    const allCustomerSummaries: CustomerReceivableSummary[] = [];
+    const customersWithDue: CustomerReceivableSummary[] = [];
+
+    duesByCustomer.forEach((data) => {
+      const netDue = Number(Math.max(0, data.grossDue - data.advanceBalance).toFixed(2));
+      const creditSurplus = Number(Math.max(0, data.advanceBalance - data.grossDue).toFixed(2));
+
+      totalGrossDue += data.grossDue;
+      totalReceivables += netDue;
+      totalAdvancePool += creditSurplus;
+
+      const summary: CustomerReceivableSummary = {
+        ...data,
+        netDue,
+        creditSurplus,
+      };
+
+      allCustomerSummaries.push(summary);
+      if (netDue > 0.01) {
+        customersWithDue.push(summary);
+      }
+    });
+
+    customersWithDue.sort((a, b) => b.netDue - a.netDue);
+
+    return {
+      totalReceivables: Number(totalReceivables.toFixed(2)),
+      totalGrossDue: Number(totalGrossDue.toFixed(2)),
+      totalAdvancePool: Number(totalAdvancePool.toFixed(2)),
+      debtorCount: customersWithDue.length,
+      customersWithDue,
+      allCustomerSummaries,
+    };
+  }
+}
+
+export interface CustomerReceivableSummary {
+  customerId: string;
+  customerName: string;
+  customerCode?: string;
+  phone?: string;
+  grossDue: number;
+  advanceBalance: number;
+  netDue: number;
+  creditSurplus: number;
+  openBillsCount: number;
+  oldestBillDate?: string;
+  hasOverdue: boolean;
+}
+
+export interface AccountsReceivableResult {
+  totalReceivables: number;
+  totalGrossDue: number;
+  totalAdvancePool: number;
+  debtorCount: number;
+  customersWithDue: CustomerReceivableSummary[];
+  allCustomerSummaries: CustomerReceivableSummary[];
 }

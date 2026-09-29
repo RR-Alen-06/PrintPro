@@ -8,21 +8,27 @@ export class DashboardService {
     bills = [],
     payments = [],
     advancePayments = [],
+    deletedPayments = [],
     customers = [],
   }: {
     bills?: any[];
     payments?: any[];
     advancePayments?: any[];
+    deletedPayments?: any[];
     expenses?: any[];
     customers?: any[];
     inventory?: any[];
   }) {
     const activeBills = bills.filter((b: any) => !b.deleted && !b.isGroupParent);
     const reconciledBills = ReconciliationService.reconcileBillsWithPayments(bills, payments);
+    const arResult = ReconciliationService.calculateAccountsReceivables({
+      bills,
+      payments,
+      customers,
+    });
 
-    const pendingAmount = Number(
-      reconciledBills.reduce((sum: number, b: any) => sum + Number(b.balance || 0), 0).toFixed(2)
-    );
+    const pendingAmount = arResult.totalReceivables;
+    const grossPendingAmount = arResult.totalGrossDue;
     const grossRevenue = Number(
       reconciledBills.reduce((sum: number, b: any) => sum + Number(b.total !== undefined ? b.total : (b.grand_total || 0)), 0).toFixed(2)
     );
@@ -33,14 +39,7 @@ export class DashboardService {
       .filter((a: any) => a.amount < 0 || a.isReturn)
       .reduce((sum: number, a: any) => sum + Math.abs(Number(a.amount || 0)), 0);
     const totalRefunds = Number((invoiceRefunds + advanceRefunds).toFixed(2));
-    const totalCustomerAdvance = Number(
-      customers
-        .filter((c: any) => !c.deleted)
-        .reduce(
-          (sum: number, c: any) => sum + Number(c.advanceBalance || c.creditBalance || 0),
-          0
-        ).toFixed(2)
-    );
+    const totalCustomerAdvance = arResult.totalAdvancePool;
     const totalCollected = Number(
       reconciledBills.reduce((sum: number, b: any) => sum + Number(b.amountPaid || 0), 0).toFixed(2)
     );
@@ -49,6 +48,7 @@ export class DashboardService {
       grossRevenue,
       netRevenue: Number((grossRevenue - totalRefunds).toFixed(2)),
       pendingAmount,
+      grossPendingAmount,
       totalRefunds,
       totalCustomerAdvance,
       totalCollected,

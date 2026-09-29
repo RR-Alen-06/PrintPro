@@ -372,7 +372,7 @@ const Dashboard = () => {
     let pInflowUpi = unlinkedUpiTotal
 
     billPaymentsMap.forEach((pData, bId) => {
-      const billTotal = billMap.get(bId)
+      const billTotal = Number(billMap.get(bId) || 0)
       if (pData.total > billTotal && billTotal > 0) {
         const ratio = billTotal / pData.total
         pInflowCash += Number((pData.cash * ratio).toFixed(2))
@@ -489,7 +489,7 @@ const Dashboard = () => {
     let pInflowUpi = unlinkedUpiTotal
 
     billPaymentsMap.forEach((pData, bId) => {
-      const billTotal = billMap.get(bId)
+      const billTotal = Number(billMap.get(bId) || 0)
       if (pData.total > billTotal && billTotal > 0) {
         const ratio = billTotal / pData.total
         pInflowCash += Number((pData.cash * ratio).toFixed(2))
@@ -538,9 +538,10 @@ const Dashboard = () => {
   }, [bills, payments, serverAdvancePayments, customers])
 
   const allTimeTotalCustomers = customers.filter(c => !c.deleted).length
-  const allTimeTotalDue = allTimeStats.pendingAmount
+  const allTimeTotalDue = allTimeStats.grossPendingAmount !== undefined ? allTimeStats.grossPendingAmount : allTimeStats.pendingAmount
   const allTimeAdvancePool = allTimeStats.totalCustomerAdvance
-  const allTimeNetDue = Math.max(0, allTimeTotalDue - allTimeAdvancePool)
+  const allTimeNetDue = allTimeStats.pendingAmount
+
 
   const allTimeOverdueBills = useMemo(
     () => allTimeActiveBills.filter((b) => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0 && b.dueDate && new Date(b.dueDate) < today),
@@ -551,7 +552,7 @@ const Dashboard = () => {
 
   // Pending dues per customer — ALL-TIME CUMULATIVE with Advance deductions & CUS-XXXX code
   const pendingDues = useMemo(() => {
-    const map = {}
+    const map: Record<string, any> = {}
     allTimeActiveBills
       .filter((b) => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0)
       .forEach((b) => {
@@ -584,6 +585,7 @@ const Dashboard = () => {
         ...e,
         netDue: Math.max(0, e.grossDue - e.advanceBalance)
       }))
+      .filter(e => e.netDue > 0.01)
       .sort((a, b) => b.netDue - a.netDue || b.grossDue - a.grossDue)
   }, [allTimeActiveBills, customers, today])
 
@@ -903,7 +905,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <div className="stat-card-label" style={{ color: 'var(--text-muted)' }}>TOTAL AMOUNT DUE</div>
-                <div className="stat-card-value" style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--error)' }}>₹{allTimeTotalDue.toFixed(2)}</div>
+                <div className="stat-card-value" style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--error)' }}>₹{(allTimeStats.grossPendingAmount !== undefined ? allTimeStats.grossPendingAmount : allTimeTotalDue).toFixed(2)}</div>
               </div>
             </div>
             <div className="stat-card-sub" style={{ color: 'var(--error)' }}>
@@ -1650,7 +1652,7 @@ const Dashboard = () => {
                 ))}
               {bills.length === 0 && payments.length === 0 && (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>No recent activity.</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No recent activity.</td>
                 </tr>
               )}
             </tbody>

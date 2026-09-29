@@ -10,6 +10,8 @@ import { useGroupSettlements, useGroupSettlementMutations } from '../hooks/useGr
 import { useSettings } from '../hooks/useSettingsQuery'
 import { usePromoCodes } from '../hooks/usePromoCodesQuery'
 import { SequenceService } from '../services/sequenceService'
+import { useUnifiedFinancialHub } from '../hooks/useUnifiedFinancialHub'
+
 
 const makeItemRow = (inventory) => {
   const first = (inventory || [])[0]
@@ -579,6 +581,7 @@ const GroupBilling = () => {
   const { createCustomer, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createGroupBill: serverCreateGroupBill } = useGroupBillMutations()
   const { adjustStock } = useInventoryMutations()
+  const { invalidateAllFinancialQueries, getCustomerFinancials } = useUnifiedFinancialHub()
   const inventory = isInventoryLoaded ? serverInventory : (contextInventory || [])
   const customers = isCustomersLoaded ? serverCustomers : (contextCustomers || [])
   const bills = isBillsLoaded ? serverBills : (contextBills || [])
@@ -595,7 +598,7 @@ const GroupBilling = () => {
     openingCash: '',
     openingUpi: ''
   })
-  const [newCustomerErrors, setNewCustomerErrors] = useState({})
+  const [newCustomerErrors, setNewCustomerErrors] = useState<Record<string, string>>({})
   const [newCustomerSuccess, setNewCustomerSuccess] = useState('')
 
   const [mode, setMode] = useState('shared') // 'shared' | 'split'
@@ -618,7 +621,7 @@ const GroupBilling = () => {
 
   // ── Shared/Addon mode state ─────────────────────────────────────────────────
   const [sharedRows, setSharedRows] = useState(() => [makeItemRow(inventory)])
-  const [members, setMembers] = useState([
+  const [members, setMembers] = useState<any[]>([
     { id: `m-${Date.now()}`, customerId: '', hasAddons: false, addonRows: [], discountType: 'flat', discountValue: 0, useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0 },
   ])
   const [sharedDiscountMode, setSharedDiscountMode] = useState('individual') // 'individual' | 'group'
@@ -626,7 +629,7 @@ const GroupBilling = () => {
 
   // ── Split mode state ────────────────────────────────────────────────────────
   const [splitRows, setSplitRows] = useState(() => [makeItemRow(inventory)])
-  const [splitMembers, setSplitMembers] = useState([
+  const [splitMembers, setSplitMembers] = useState<any[]>([
     { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0 },
     { id: `sm-${Date.now()}-2`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0 },
   ])
@@ -798,8 +801,8 @@ const GroupBilling = () => {
         const updated = { ...m, ...changes }
         if (changes.customerId !== undefined) {
           const cust = activeCustomers.find((c) => c.id === changes.customerId)
-          const adv = Number(cust?.advanceBalance || cust?.creditBalance || 0)
-          updated.useAdvance = adv > 0
+          const liveAdv = getCustomerFinancials(changes.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.creditBalance || 0)
+          updated.useAdvance = liveAdv > 0
         }
         return updated
       })
@@ -818,8 +821,8 @@ const GroupBilling = () => {
         const updated = { ...m, ...changes }
         if (changes.customerId !== undefined) {
           const cust = activeCustomers.find((c) => c.id === changes.customerId)
-          const adv = Number(cust?.advanceBalance || cust?.creditBalance || 0)
-          updated.useAdvance = adv > 0
+          const liveAdv = getCustomerFinancials(changes.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.creditBalance || 0)
+          updated.useAdvance = liveAdv > 0
         }
         return updated
       })
@@ -828,7 +831,7 @@ const GroupBilling = () => {
   const handleSaveNewCustomer = async (e) => {
     e.preventDefault()
     if (isCreatingCustomer) return
-    const errs = {}
+    const errs: Record<string, string> = {}
     if (!newCustomerForm.name.trim()) {
       errs.name = 'Customer name is required'
     }
@@ -997,7 +1000,8 @@ const GroupBilling = () => {
       const createdBillIds = []
       for (const m of groupMembers) {
         const cust = customers.find(c => String(c.id) === String(m.customerId))
-        const custCredit = Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
+        const custFin = getCustomerFinancials(m.customerId)
+        const custCredit = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
         const advUsed = m.usePayerAdvance ? Math.min(Number(m.total || 0), custCredit) : 0
         const directPaid = Number(m.cashPaid || 0) + Number(m.upiPaid || 0)
         const totalMemberPaid = directPaid + advUsed
@@ -1042,7 +1046,7 @@ const GroupBilling = () => {
         }
       }
 
-      const created = await serverCreateGroupBill({
+      const created: any = await serverCreateGroupBill({
         type: 'shared',
         members: groupMembers,
         date,
@@ -1082,6 +1086,7 @@ const GroupBilling = () => {
         }
       }
 
+      await invalidateAllFinancialQueries()
       showToast(`Group bill created with ${members.length} member(s)!`, 'success')
       resetAll()
     } catch (err) {
@@ -1168,7 +1173,8 @@ const GroupBilling = () => {
       const createdBillIds = []
       for (const sm of splitGroupMembers) {
         const cust = customers.find(c => String(c.id) === String(sm.customerId))
-        const custCredit = Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
+        const custFin = getCustomerFinancials(sm.customerId)
+        const custCredit = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance !== undefined ? cust.advanceBalance : (cust?.creditBalance !== undefined ? cust.creditBalance : (cust?.credit_balance || 0)))
         const advUsed = sm.useAdvance ? Math.min(Number(sm.total || 0), custCredit) : 0
         const directPaid = Number(sm.cashPaid || 0) + Number(sm.upiPaid || 0)
         const totalMemberPaid = directPaid + advUsed
@@ -1213,7 +1219,7 @@ const GroupBilling = () => {
         }
       }
 
-      const created = await serverCreateGroupBill({
+      const created: any = await serverCreateGroupBill({
         type: 'split',
         members: splitGroupMembers,
         date,
@@ -1227,7 +1233,7 @@ const GroupBilling = () => {
 
       // Deduct stock for split items
       const deductions = new Map()
-      for (const item of splitRows) {
+      for (const item of (splitRows as any[])) {
         const invItem = (inventory || []).find(
           (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
         )
@@ -1249,6 +1255,7 @@ const GroupBilling = () => {
         }
       }
 
+      await invalidateAllFinancialQueries()
       showToast(`Split group bill created — ₹${splitAmount} × ${splitCount} members!`, 'success')
       resetAll()
     } catch (err) {
@@ -1440,7 +1447,8 @@ const GroupBilling = () => {
                     {members.map((m, i) => {
                       const cust = activeCustomers.find((c) => c.id === m.customerId)
                       const { subtotal, gstAmount, discountAmount, loyaltyDiscount, total } = memberTotals[i]
-                      const adv = Number(cust?.advanceBalance || 0)
+                      const custFin = getCustomerFinancials(m.customerId)
+                      const adv = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance || 0)
                       const advUsed = m.useAdvance ? Math.min(adv, total) : 0
                       const remaining = Math.max(total - advUsed, 0)
                       const status = advUsed >= total ? 'paid' : advUsed > 0 ? 'partial' : 'unpaid'
@@ -1611,7 +1619,8 @@ const GroupBilling = () => {
             {splitMembers.map((m, i) => {
               const cust = activeCustomers.find((c) => c.id === m.customerId)
               const { total: memberTotal } = splitMemberTotals[i]
-              const adv = Number(cust?.advanceBalance || 0)
+              const custFin = getCustomerFinancials(m.customerId)
+              const adv = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance || 0)
               const advUsed = m.useAdvance ? Math.min(adv, memberTotal) : 0
               const remaining = Math.max(memberTotal - advUsed, 0)
               const status = advUsed >= memberTotal ? 'paid' : advUsed > 0 ? 'partial' : 'unpaid'
@@ -2010,7 +2019,8 @@ const GroupBillsHistory = () => {
   const { data: payments = [] } = usePayments()
   const { createPayment } = usePaymentMutations()
   const { groupSettlements = [] } = useGroupSettlements()
-  const { settleGroupBill } = useGroupSettlementMutations()
+  const { settleGroupBillAndSync, invalidateAllFinancialQueries } = useUnifiedFinancialHub()
+
 
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
@@ -2059,7 +2069,7 @@ const GroupBillsHistory = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {[...groupBills].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)).slice(0, 20).map((grp) => {
+      {[...groupBills].sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).slice(0, 20).map((grp) => {
         // Always look up bills by stored memberBillIds
         const memberBills = (grp.memberBillIds || [])
           .map((id) => bills.find((b) => b.id === id && !b.deleted))
@@ -2310,7 +2320,7 @@ const GroupBillsHistory = () => {
 
           setIsSubmitting(true)
           try {
-            await settleGroupBill({
+            await settleGroupBillAndSync({
               group_bill_id: payModalGroup.id,
               payer_customer_id: payModalBill.customerId || payModalBill.customer_id,
               payer_bill_id: payModalBill.id,

@@ -9,6 +9,7 @@ import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { SequenceService } from '../../services/sequenceService'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { CreditService } from '../../services/creditService'
+import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import LoyaltyEnginePanel from '../../components/common/LoyaltyEnginePanel'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
@@ -27,6 +28,8 @@ export default function MobileCreateBill() {
   const { showToast, editBill } = useAppContext()
   const { settings = {} } = useSettings()
   const { promoCodes = [] } = usePromoCodes()
+  const { getCustomerFinancials, createBillAndSync, updateBillAndSync, recordPaymentAndSync } = useUnifiedFinancialHub()
+
 
   // TanStack Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
@@ -263,17 +266,20 @@ export default function MobileCreateBill() {
     return Math.min(disc, subtotal)
   }, [subtotal, discountType, discountValue, appliedPromo, loyaltyDiscount])
 
-  // Advance Credit Deduction via Headless CreditService
+  // Advance Credit Deduction via Unified Financial Hub
+  const customerFinancials = selectedCustomerId ? getCustomerFinancials(selectedCustomerId) : null
+  const liveCustomerAdvance = customerFinancials?.advanceBalance ?? Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance || selectedCustomerObj?.advanceBalance || 0)
+
   const netBeforeAdvance = Math.max(0, subtotal - calculatedDiscount)
   const advanceDeduction = useMemo(() => {
-    if (!useAdvanceCredit || !selectedCustomerObj) return 0
-    const credit = Number(selectedCustomerObj.creditBalance || selectedCustomerObj.credit_balance || 0)
-    return CreditService.calculateAdvanceDrawdown(credit, netBeforeAdvance).advanceUsed
-  }, [useAdvanceCredit, selectedCustomerObj, netBeforeAdvance])
+    if (!useAdvanceCredit || liveCustomerAdvance <= 0) return 0
+    return CreditService.calculateAdvanceDrawdown(liveCustomerAdvance, netBeforeAdvance).advanceUsed
+  }, [useAdvanceCredit, liveCustomerAdvance, netBeforeAdvance])
 
   const grandTotal = useMemo(() => {
     return Math.max(0, netBeforeAdvance - advanceDeduction)
   }, [netBeforeAdvance, advanceDeduction])
+
 
   // Apply Promo Code
   const handleApplyPromo = () => {
@@ -376,13 +382,13 @@ export default function MobileCreateBill() {
       }
 
       if (editBillId) {
-        await updateBillMutation({ id: editBillId, data: billPayload })
+        await updateBillAndSync({ id: editBillId, data: billPayload })
         if (editBill) editBill(billPayload)
         showToast(`Bill #${billPayload.invoiceNumber} updated successfully!`, 'success')
         navigate(`/mobile/bill/${editBillId}`)
       } else {
-        // Fire mutation and navigate immediately using optimistic id
-        const mutationPromise = createBillMutation(billPayload)
+        // Fire unified mutation and navigate immediately using optimistic id
+        const mutationPromise = createBillAndSync(billPayload)
         navigate(`/mobile/bill/${billPayload.id}`)
         showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
 
@@ -420,7 +426,7 @@ export default function MobileCreateBill() {
             }
             if (finalCash + finalUpi > 0) {
               try {
-                await createPayment({
+                await recordPaymentAndSync({
                   bill_id: savedResultId,
                   customer_id: resolvedCustomerId,
                   date: billDate,
@@ -913,7 +919,7 @@ export default function MobileCreateBill() {
           </div>
 
           {/* Advance Credit Usage */}
-          {Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance || 0) > 0 && (
+          {liveCustomerAdvance > 0 && (
             <div className="mobile-card" style={{ marginBottom: '14px', background: 'rgba(0, 240, 255, 0.05)', borderColor: 'var(--accent-secondary)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -921,7 +927,7 @@ export default function MobileCreateBill() {
                     CUSTOMER ADVANCE CREDIT
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Available: ₹{Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance).toFixed(2)}
+                    Available: ₹{liveCustomerAdvance.toFixed(2)}
                   </div>
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>

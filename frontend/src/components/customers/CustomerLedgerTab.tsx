@@ -60,7 +60,7 @@ export const CustomerLedgerTab: React.FC<CustomerLedgerTabProps> = ({
   // Summaries
   const totalDebits = useMemo(() => ledgerEntries.reduce((s, e) => s + Number(e.debit || 0), 0), [ledgerEntries])
   const totalCredits = useMemo(
-    () => ledgerEntries.reduce((s, e) => s + Number(e.credit || 0) + Number(e.advanceIn || 0), 0),
+    () => ledgerEntries.reduce((s, e) => s + Number(e.credit || 0), 0),
     [ledgerEntries]
   )
   const periodAdvanceReturned = useMemo(
@@ -418,6 +418,8 @@ export const CustomerLedgerTab: React.FC<CustomerLedgerTabProps> = ({
                               ? 'badge-success'
                               : row.type === 'advance_return'
                               ? 'badge-warning'
+                              : row.type === 'advance_settlement'
+                              ? 'badge-secondary'
                               : 'badge-success'
                           }`}
                           style={{ fontSize: '0.7rem' }}
@@ -428,11 +430,16 @@ export const CustomerLedgerTab: React.FC<CustomerLedgerTabProps> = ({
                             ? 'Advance'
                             : row.type === 'advance_return'
                             ? 'Adv Return'
+                            : row.type === 'advance_settlement'
+                            ? 'Adv Settle'
                             : 'Payment'}
                         </span>
                       </td>
                       <td style={{ padding: '10px 14px', color: 'var(--text-primary)' }}>
                         <div style={{ fontWeight: 500 }}>{row.description}</div>
+                        {row.subtext && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{row.subtext}</div>
+                        )}
                         {row.refId && (
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Ref: {row.refId}</div>
                         )}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
@@ -10,11 +10,13 @@ import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { ProductAnalyticsService } from '../../services/productAnalyticsService'
 import { STATEMENT_PERIOD_OPTIONS } from '../../services/statementService'
+import { ReconciliationService } from '../../services/reconciliationService'
 import ProductDrilldownModal from '../../components/accounting/ProductDrilldownModal'
 import CustomServiceDrilldownModal from '../../components/accounting/CustomServiceDrilldownModal'
 import {
   DollarSign, Wallet, FileText, RotateCcw, TrendingUp, Layers, Calculator,
-  Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2, Plus, MessageSquare, X, Tag, Wrench
+  Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2, Plus, MessageSquare, X, Tag, Wrench,
+  CreditCard, Clock, ArrowRight
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -108,6 +110,17 @@ export default function MobileAccounting() {
   const [refReason, setRefReason] = useState('')
   const [isSubmittingRef, setIsSubmittingRef] = useState(false)
 
+  const navigate = useNavigate()
+
+  // Reconciled Accounts Receivables & Debtors (synced exactly with Dashboard and Customer Ledger)
+  const accountsReceivableData = useMemo(() => {
+    return ReconciliationService.calculateAccountsReceivables({
+      bills,
+      payments,
+      customers,
+    })
+  }, [bills, payments, customers])
+
   // Daily Calculations
   const dayCalculations = useMemo(() => {
     let cashIn = 0
@@ -115,19 +128,50 @@ export default function MobileAccounting() {
     let cashOut = 0
     let upiOut = 0
 
+    // 1. Payments collected on this date (excluding non-cash advance applications)
     payments.forEach((p) => {
       const pDate = (p.date || p.created_at || '').slice(0, 10)
       if (pDate === selectedDate && !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0) {
-        cashIn += Number(p.cashAmount || p.cash_amount || 0)
-        upiIn += Number(p.upiAmount || p.upi_amount || 0)
+        const notesLower = String(p.notes || '').toLowerCase()
+        const isAdvanceApplied =
+          notesLower.includes('advance balance applied') ||
+          notesLower.includes('from advance deposit') ||
+          notesLower.includes('fifo payment from advance deposit') ||
+          p.paymentType === 'advance_deduction' ||
+          p.payment_type === 'advance_deduction'
+        if (isAdvanceApplied) return
+
+        let cash = Number(p.cashAmount || p.cash_amount || 0)
+        let upi = Number(p.upiAmount || p.upi_amount || 0)
+        const totalPaid = Number(
+          p.totalPaid !== undefined ? p.totalPaid : p.amount !== undefined ? p.amount : p.total_paid || 0
+        )
+
+        if (cash === 0 && upi === 0 && totalPaid > 0) {
+          const method = String(p.payment_method || p.paymentMethod || p.paymentType || '').toLowerCase()
+          if (method === 'upi') upi = totalPaid
+          else cash = totalPaid
+        }
+
+        cashIn += cash
+        upiIn += upi
       }
     })
 
+    // 2. Advance Payments deposited on this date
     advancePayments.forEach((ap) => {
       const apDate = (ap.date || ap.created_at || '').slice(0, 10)
       if (apDate === selectedDate && !ap.isReturn && Number(ap.amount || 0) > 0) {
-        cashIn += Number(ap.cashAmount || (ap.paymentMethod === 'cash' ? ap.amount : 0))
-        upiIn += Number(ap.upiAmount || (ap.paymentMethod === 'upi' ? ap.amount : 0))
+        let cash = Number(ap.cashAmount || ap.cash_amount || 0)
+        let upi = Number(ap.upiAmount || ap.upi_amount || 0)
+        const amt = Number(ap.amount || 0)
+        if (cash === 0 && upi === 0 && amt > 0) {
+          const method = String(ap.paymentMethod || ap.payment_method || 'cash').toLowerCase()
+          if (method === 'upi') upi = amt
+          else cash = amt
+        }
+        cashIn += cash
+        upiIn += upi
       }
     })
 
@@ -269,6 +313,39 @@ export default function MobileAccounting() {
           >
             <MessageSquare size={14} /> Z-Report
           </button>
+        </div>
+      </div>
+
+      {/* ── ACCOUNTS RECEIVABLE MOBILE SUMMARY BANNER ── */}
+      <div
+        className="mobile-card"
+        style={{
+          marginBottom: '14px',
+          padding: '12px 14px',
+          borderRadius: '12px',
+          border: '1px solid rgba(255, 56, 96, 0.3)',
+          background: 'linear-gradient(135deg, rgba(255, 56, 96, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
+          cursor: 'pointer',
+        }}
+        onClick={() => navigate('/customers?filter=with-dues')}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              <CreditCard size={13} color="var(--error)" />
+              <span>Accounts Receivable (Net Dues)</span>
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--error)', margin: '4px 0 2px' }}>
+              ₹{accountsReceivableData.totalReceivables.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              {accountsReceivableData.debtorCount} debtor{accountsReceivableData.debtorCount === 1 ? '' : 's'} · ₹{accountsReceivableData.totalGrossDue.toFixed(2)} gross · ₹{accountsReceivableData.totalAdvancePool.toFixed(2)} adv pool
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--accent-secondary)', fontSize: '0.75rem', fontWeight: 700, marginTop: '4px' }}>
+            <span>Ledger</span>
+            <ArrowRight size={14} />
+          </div>
         </div>
       </div>
 

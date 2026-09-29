@@ -91,6 +91,15 @@ export class LedgerService {
     });
 
     (payments || []).forEach((p) => {
+      const notesLower = String(p.notes || '').toLowerCase();
+      const isAdvanceApplied =
+        notesLower.includes('advance balance applied') ||
+        notesLower.includes('from advance deposit') ||
+        notesLower.includes('fifo payment from advance deposit') ||
+        p.paymentType === 'advance_deduction' ||
+        p.payment_type === 'advance_deduction';
+      if (isAdvanceApplied) return;
+
       const amt = Number(p.amount !== undefined ? p.amount : (p.totalPaid !== undefined ? p.totalPaid : (p.total_paid !== undefined ? p.total_paid : (p.paid_amount || 0))));
       rawEvents.push({
         date: p.created_at || p.date || new Date().toISOString(),
@@ -272,6 +281,11 @@ export class LedgerService {
       (a) => String(a.customerId || a.customer_id || '') === custIdStr
     );
 
+    // Track payment bills to handle direct upfront payments on bills without payments table rows
+    const paymentBillIds = new Set(
+      selectedPayments.map((p) => String(p.billId || p.bill_id || '')).filter(Boolean)
+    );
+
     // Initial pass of bills
     selectedBills.forEach((bill) => {
       const advUsed = Number(bill.advanceUsed || bill.advance_used || 0);
@@ -307,18 +321,58 @@ export class LedgerService {
           balance: 0,
         });
       }
+
+      // Fallback for bills with direct cash/upi payments made upfront only if no payments records exist at all
+      const bId = String(bill.id || '');
+      if (selectedPayments.length === 0 && !paymentBillIds.has(bId)) {
+        const paidTotal = Number(
+          bill.paid_total !== undefined
+            ? bill.paid_total
+            : bill.amount_paid !== undefined
+            ? bill.amount_paid
+            : bill.amountPaid || 0
+        );
+        const directPaid = Math.max(0, paidTotal - advUsed);
+        if (directPaid > 0) {
+          entries.push({
+            type: 'payment',
+            date: bill.date || bill.created_at || new Date().toISOString(),
+            id: `PAY-DIRECT-${bill.id}`,
+            description: `Payment at Billing — Invoice #${bill.invoiceNumber || bill.bill_number || bill.id}`,
+            subtext: `Direct payment via ${bill.payment_method || 'Cash/UPI'}`,
+            debit: 0,
+            credit: directPaid,
+            balance: 0,
+          });
+        }
+      }
     });
 
     // Initial pass of payments
     selectedPayments.forEach((payment) => {
       const excess = Number(payment.excessCredit || payment.excess_credit || 0);
-      const paidAmt = Number(payment.totalPaid !== undefined ? payment.totalPaid : (payment.amount !== undefined ? payment.amount : (payment.total_paid || 0)));
+      const paidAmt = Number(
+        payment.totalPaid !== undefined
+          ? payment.totalPaid
+          : payment.amount !== undefined
+          ? payment.amount
+          : payment.total_paid || 0
+      );
       const isRefund =
         paidAmt < 0 ||
         payment.paymentType === 'refund' ||
         payment.payment_type === 'refund' ||
         payment.isRefund;
-      let creditAmt = paidAmt + excess;
+
+      const notesLower = String(payment.notes || '').toLowerCase();
+      const isAdvanceApplied =
+        notesLower.includes('advance balance applied') ||
+        notesLower.includes('from advance deposit') ||
+        notesLower.includes('fifo payment from advance deposit') ||
+        payment.paymentType === 'advance_deduction' ||
+        payment.payment_type === 'advance_deduction';
+
+      let creditAmt = isAdvanceApplied ? 0 : paidAmt + excess;
 
       if (payment.isGroupPayment && Array.isArray(payment.groupSettlements)) {
         const settledForOthers = payment.groupSettlements.reduce(
@@ -333,15 +387,25 @@ export class LedgerService {
       const billCode = payment.invoiceNumber || payment.bill_number || targetBill?.invoiceNumber || targetBill?.bill_number || payment.billId || payment.bill_id;
 
       entries.push({
-        type: isRefund ? 'refund' : payment.isGroupPayment ? 'group_payment' : 'payment',
+        type: isRefund
+          ? 'refund'
+          : isAdvanceApplied
+          ? 'advance_settlement'
+          : payment.isGroupPayment
+          ? 'group_payment'
+          : 'payment',
         date: payment.date || payment.created_at || new Date().toISOString(),
         id: payment.id,
         description: isRefund
           ? `Refund — Bill #${billCode || 'General'}`
+          : isAdvanceApplied
+          ? `Advance Applied — Invoice #${billCode || 'General'}`
           : payment.isGroupPayment
           ? `Full Group Payment — ${payment.groupBillId || payment.group_bill_id}`
           : `Payment — ${billCode || 'General'}`,
-        subtext: payment.isGroupPayment
+        subtext: isAdvanceApplied
+          ? `Allocated ₹${paidAmt.toFixed(2)} from prepaid advance balance (non-cash settlement)`
+          : payment.isGroupPayment
           ? `Paid ₹${paidAmt.toFixed(2)} for Split Group ${payment.groupBillId || payment.group_bill_id}`
           : `Cash ₹${Number(payment.cashAmount || payment.cash_amount || 0).toFixed(2)} · UPI ₹${Number(
               payment.upiAmount || payment.upi_amount || 0

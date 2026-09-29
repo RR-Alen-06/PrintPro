@@ -19,6 +19,7 @@ import LoyaltyEnginePanel from '../components/common/LoyaltyEnginePanel'
 import LedgerBillCard from '../components/common/LedgerBillCard'
 import { LoyaltyService } from '../services/loyaltyService'
 import { SequenceService } from '../services/sequenceService'
+import { useUnifiedFinancialHub } from '../hooks/useUnifiedFinancialHub'
 
 
 const makeInitialRow = (inventory = []) => {
@@ -50,6 +51,7 @@ const Billing = () => {
   const customers = serverCustomers || contextCustomers || []
   const inventory = (serverInventory && serverInventory.length > 0) ? serverInventory : contextInventory
   const { createBill, updateBill: updateBillMutation, deleteBill: deleteBillMutation } = useBillMutations()
+  const { getCustomerFinancials, validateAdvanceApplication, createBillAndSync } = useUnifiedFinancialHub()
   const { adjustStock } = useInventoryMutations()
   const { createCustomer } = useCustomerMutations()
   const location = useLocation()
@@ -1010,7 +1012,8 @@ const Billing = () => {
   const total = Math.max(subtotal + totalGst - discountAmount - loyaltyDiscount, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   const customerCredit = Number(selectedCustomer?.creditBalance || 0)
-  const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
+  const selectedCustFinancials = selectedCustomer ? getCustomerFinancials(selectedCustomer.id) : null
+  const customerAdvance = Number(selectedCustFinancials?.advanceBalance ?? selectedCustomer?.advanceBalance ?? 0)
   const appliedAdvance = Math.min(Number(advanceUsed || 0), customerAdvance, total)
   const excessPaid = Math.max(amountPaid - Math.max(total - appliedAdvance, 0), 0)
   const netBalance = Math.max(total - appliedAdvance - amountPaid, 0)
@@ -1022,12 +1025,13 @@ const Billing = () => {
   // Auto-detect and apply available advance payments
   React.useEffect(() => {
     if (selectedCustomer) {
-      const maxAdv = Math.min(Number(selectedCustomer.advanceBalance || 0), total)
+      const liveAdv = getCustomerFinancials(selectedCustomer.id)?.advanceBalance ?? Number(selectedCustomer.advanceBalance || 0)
+      const maxAdv = Math.min(liveAdv, total)
       setAdvanceUsed(Number(maxAdv.toFixed(2)))
     } else {
       setAdvanceUsed(0)
     }
-  }, [selectedCustomer, total])
+  }, [selectedCustomer, total, getCustomerFinancials])
 
   // Promo code validation effect (after subtotal is declared to avoid TDZ error)
   useEffect(() => {
@@ -1391,7 +1395,7 @@ const Billing = () => {
         return
       }
 
-      const createdBill = await createBill(billPayload)
+      const createdBill = await createBillAndSync(billPayload)
       await deductStockForBillItems(billPayload.items)
 
       const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
@@ -1460,7 +1464,7 @@ const Billing = () => {
       processEditBillSave(finalPayload)
     } else {
       try {
-        const createdBill = await createBill(finalPayload)
+        const createdBill = await createBillAndSync(finalPayload)
         await deductStockForBillItems(finalPayload.items)
         const newBillId = createdBill?.bill_number || createdBill?.invoice_number || createdBill?.id || `BILL-${Date.now().toString().slice(-4)}`
         const paid = Number(finalPayload.amountPaid || finalPayload.amount_paid || 0)
