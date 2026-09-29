@@ -4,7 +4,7 @@ import { useAppContext } from '../context/AppContext'
 import {
   TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle,
   RefreshCw, FileText, UserPlus, PlusCircle, Receipt, DollarSign, Activity, X,
-  Users, MessageSquare, ExternalLink, ArrowUpRight
+  Users, MessageSquare, ExternalLink, ArrowUpRight, Banknote, QrCode, GitMerge
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useBills, useBillMutations } from '../hooks/useBillsQuery'
@@ -67,6 +67,7 @@ const Dashboard = () => {
   const [paymentCash, setPaymentCash] = useState('')
   const [paymentUpi, setPaymentUpi] = useState('')
   const [paymentNotes, setPaymentNotes] = useState('')
+  const [sendWhatsAppReceipt, setSendWhatsAppReceipt] = useState(true)
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false)
 
   // Live calculation of selected customer's total due across unpaid bills
@@ -186,6 +187,22 @@ const Dashboard = () => {
 
       const custObj = (customers || []).find((c) => String(c.id) === String(paymentCustomerId))
       showToast?.(`Recorded payment of ₹${total.toLocaleString('en-IN')} for ${custObj?.name || 'Customer'}`, 'success')
+
+      // Trigger WhatsApp receipt if enabled and customer has phone
+      if (sendWhatsAppReceipt && custObj?.phone) {
+        try {
+          const cleanPhone = String(custObj.phone).replace(/[^0-9]/g, '')
+          const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
+          const shopName = business?.shopName || 'our store'
+          const remDue = Math.max(0, Number(selectedCustomerDue || 0) - total)
+          const text = encodeURIComponent(
+            `Dear *${custObj.name}*,\n\nWe have successfully received your payment of *₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}* via ${paymentMode === 'split' ? 'Cash + UPI' : paymentMode.toUpperCase()}.\n\nRemaining Balance: *₹${remDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n\nThank you for choosing *${shopName}*!`
+          )
+          window.open(`https://wa.me/${formattedPhone}?text=${text}`, '_blank')
+        } catch (waErr) {
+          console.warn('Failed to open WhatsApp receipt:', waErr)
+        }
+      }
 
       // Invalidate queries so dashboard cards update instantly
       queryClient.invalidateQueries({ queryKey: ['bills'] })
@@ -1782,79 +1799,182 @@ const Dashboard = () => {
         )
       })()}
 
-      {/* Quick Record Payment Modal */}
+      {/* Quick Record Payment Slide-over Drawer */}
       {showRecordPaymentModal && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(5px)',
+            background: 'rgba(5, 1, 15, 0.75)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'flex-end',
             zIndex: 1000,
-            padding: '20px'
           }}
           onClick={() => setShowRecordPaymentModal(false)}
         >
           <div
-            className="card"
             style={{
-              maxWidth: '520px',
               width: '100%',
+              maxWidth: '480px',
+              height: '100%',
+              background: 'linear-gradient(180deg, rgba(18, 12, 34, 0.96) 0%, rgba(8, 4, 18, 0.98) 100%)',
+              borderLeft: '1px solid rgba(0, 240, 255, 0.25)',
+              boxShadow: '-10px 0 40px rgba(0, 0, 0, 0.8), -2px 0 16px rgba(0, 240, 255, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflowY: 'auto',
               padding: '24px',
-              border: '1px solid var(--border)',
-              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
-              borderRadius: 'var(--radius-lg)'
+              position: 'relative',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px', marginBottom: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
-                  <Receipt size={20} />
+            {/* Drawer Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                paddingBottom: '16px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                marginBottom: '20px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.2) 0%, rgba(112, 0, 255, 0.3) 100%)',
+                    border: '1px solid var(--aurora-cyan, #00f0ff)',
+                    boxShadow: '0 0 16px rgba(0, 240, 255, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--aurora-cyan, #00f0ff)',
+                  }}
+                >
+                  <Receipt size={22} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: '1.25rem',
+                      fontWeight: 800,
+                      letterSpacing: '-0.01em',
+                      background: 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                    }}
+                  >
                     Quick Record Payment
                   </h3>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    Auto-allocated across oldest unpaid bills (FIFO)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        fontFamily: 'var(--font-mono, JetBrains Mono, monospace)',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: 'rgba(0, 240, 255, 0.12)',
+                        border: '1px solid rgba(0, 240, 255, 0.3)',
+                        color: 'var(--aurora-cyan, #00f0ff)',
+                      }}
+                    >
+                      FIFO ALLOCATION
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted, #94a3b8)' }}>
+                      Clears oldest unpaid bills
+                    </span>
                   </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowRecordPaymentModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary, #94a3b8)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#ffffff'
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-secondary, #94a3b8)'
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleRecordPaymentSubmit}>
-              {/* Customer Selection */}
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Select Customer *</label>
+            <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+              {/* Step 1: Customer Selection */}
+              <div
+                style={{
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '12px',
+                }}
+              >
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    color: 'var(--aurora-cyan, #00f0ff)',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  1. Select Customer *
+                </label>
                 <select
                   className="form-control"
                   value={paymentCustomerId}
                   onChange={(e) => {
                     const cId = e.target.value
                     setPaymentCustomerId(cId)
-                    // If customer selected, check their due
                     const custBills = (bills || []).filter(
                       (b) => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(cId)
                     )
                     const due = custBills.reduce((sum, b) => sum + Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0)), 0)
                     if (due > 0) {
                       setPaymentAmount(String(due))
+                      if (paymentMode === 'split') {
+                        setPaymentCash(String(due))
+                        setPaymentUpi('0')
+                      }
                     }
                   }}
                   required
-                  style={{ width: '100%' }}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(10, 5, 20, 0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#ffffff',
+                    fontSize: '0.88rem',
+                  }}
                 >
                   <option value="">-- Choose Customer --</option>
                   {(customers || [])
@@ -1872,145 +1992,365 @@ const Dashboard = () => {
                       )
                     })}
                 </select>
+
+                {/* Outstanding Balance Clean Card */}
+                {paymentCustomerId && (
+                  <div
+                    style={{
+                      marginTop: '12px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      background: selectedCustomerDue > 0
+                        ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(220, 38, 38, 0.05) 100%)'
+                        : 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.05) 100%)',
+                      border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em', color: selectedCustomerDue > 0 ? '#fca5a5' : '#6ee7b7' }}>
+                        OUTSTANDING DUE
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '1.25rem',
+                          fontWeight: 800,
+                          fontFamily: 'var(--font-mono, JetBrains Mono, monospace)',
+                          color: selectedCustomerDue > 0 ? '#f87171' : '#34d399',
+                          marginTop: '2px',
+                        }}
+                      >
+                        ₹{selectedCustomerDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    {selectedCustomerDue > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentAmount(String(selectedCustomerDue))
+                          if (paymentMode === 'split') {
+                            setPaymentCash(String(selectedCustomerDue))
+                            setPaymentUpi('0')
+                          }
+                        }}
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          padding: '6px 14px',
+                          borderRadius: '8px',
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.35)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'
+                        }}
+                      >
+                        Pay Full Due
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Outstanding Balance Banner */}
-              {paymentCustomerId && (
-                <div
+              {/* Step 2: Payment Mode Selector */}
+              <div
+                style={{
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '12px',
+                }}
+              >
+                <label
                   style={{
-                    padding: '10px 14px',
-                    background: selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                    border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                    borderRadius: 'var(--radius-md)',
-                    marginBottom: '16px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    color: 'var(--aurora-cyan, #00f0ff)',
+                    marginBottom: '10px',
+                    textTransform: 'uppercase',
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>TOTAL DUE BALANCE</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: selectedCustomerDue > 0 ? '#ef4444' : '#10b981' }}>
-                      ₹{selectedCustomerDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  2. Payment Mode
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {[
+                    { id: 'cash', label: 'Cash', icon: Banknote, color: '#10b981' },
+                    { id: 'upi', label: 'UPI / QR', icon: QrCode, color: '#00f0ff' },
+                    { id: 'split', label: 'Cash + UPI', icon: GitMerge, color: '#a855f7' },
+                  ].map((mode) => {
+                    const Icon = mode.icon
+                    const isSelected = paymentMode === mode.id
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => {
+                          setPaymentMode(mode.id)
+                          if (mode.id === 'split') {
+                            const cur = Number(paymentAmount) || selectedCustomerDue || 0
+                            setPaymentCash(String(cur))
+                            setPaymentUpi('0')
+                          }
+                        }}
+                        style={{
+                          padding: '12px 8px',
+                          borderRadius: '10px',
+                          border: isSelected ? `1.5px solid ${mode.color}` : '1px solid rgba(255, 255, 255, 0.08)',
+                          background: isSelected
+                            ? `linear-gradient(180deg, ${mode.color}22 0%, rgba(255,255,255,0.02) 100%)`
+                            : 'rgba(255, 255, 255, 0.03)',
+                          boxShadow: isSelected ? `0 0 14px ${mode.color}33` : 'none',
+                          color: isSelected ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <Icon size={20} style={{ color: isSelected ? mode.color : 'inherit' }} />
+                        <span style={{ fontSize: '0.8rem', fontWeight: isSelected ? 800 : 600 }}>
+                          {mode.label}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Step 3: Amount Fields */}
+              <div
+                style={{
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '12px',
+                }}
+              >
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    color: 'var(--aurora-cyan, #00f0ff)',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  3. Amount Received (₹) *
+                </label>
+
+                {paymentMode === 'split' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        💵 Cash Amount (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="form-control"
+                        placeholder="0.00"
+                        value={paymentCash}
+                        onChange={(e) => {
+                          setPaymentCash(e.target.value)
+                          const sum = (Number(e.target.value) || 0) + (Number(paymentUpi) || 0)
+                          setPaymentAmount(String(sum))
+                        }}
+                        style={{
+                          fontSize: '1.05rem',
+                          fontWeight: 700,
+                          fontFamily: 'var(--font-mono, JetBrains Mono, monospace)',
+                          background: 'rgba(10, 5, 20, 0.8)',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          color: '#ffffff',
+                          borderRadius: '8px',
+                          padding: '10px',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', color: '#00f0ff', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        ⚡ UPI Amount (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="form-control"
+                        placeholder="0.00"
+                        value={paymentUpi}
+                        onChange={(e) => {
+                          setPaymentUpi(e.target.value)
+                          const sum = (Number(paymentCash) || 0) + (Number(e.target.value) || 0)
+                          setPaymentAmount(String(sum))
+                        }}
+                        style={{
+                          fontSize: '1.05rem',
+                          fontWeight: 700,
+                          fontFamily: 'var(--font-mono, JetBrains Mono, monospace)',
+                          background: 'rgba(10, 5, 20, 0.8)',
+                          border: '1px solid rgba(0, 240, 255, 0.3)',
+                          color: '#ffffff',
+                          borderRadius: '8px',
+                          padding: '10px',
+                        }}
+                      />
                     </div>
                   </div>
-                  {selectedCustomerDue > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => {
-                        setPaymentAmount(String(selectedCustomerDue))
-                        if (paymentMode === 'split') {
-                          setPaymentCash(String(selectedCustomerDue))
-                          setPaymentUpi('0')
-                        }
-                      }}
-                      style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                    >
-                      Pay Full Due
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Payment Mode Selector */}
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Payment Mode</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                  {['cash', 'upi', 'split'].map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setPaymentMode(mode)}
+                ) : (
+                  <div>
+                    <input
+                      type="number"
+                      step="any"
+                      className="form-control"
+                      placeholder="0.00"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      required
                       style={{
-                        padding: '8px',
-                        borderRadius: 'var(--radius-md)',
-                        border: paymentMode === mode ? '2px solid #3b82f6' : '1px solid var(--border)',
-                        background: paymentMode === mode ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg-input)',
-                        color: paymentMode === mode ? '#3b82f6' : 'var(--text-secondary)',
-                        fontWeight: 700,
-                        fontSize: '0.82rem',
-                        cursor: 'pointer',
-                        textTransform: 'uppercase'
+                        fontSize: '1.3rem',
+                        fontWeight: 800,
+                        fontFamily: 'var(--font-mono, JetBrains Mono, monospace)',
+                        background: 'rgba(10, 5, 20, 0.8)',
+                        border: '1px solid rgba(0, 240, 255, 0.35)',
+                        boxShadow: '0 0 12px rgba(0, 240, 255, 0.15)',
+                        color: '#ffffff',
+                        borderRadius: '8px',
+                        padding: '12px',
                       }}
-                    >
-                      {mode === 'split' ? 'Cash + UPI' : mode}
-                    </button>
-                  ))}
-                </div>
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Amount Fields */}
-              {paymentMode === 'split' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">Cash Amount (₹)</label>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-control currency-num"
-                      placeholder="0.00"
-                      value={paymentCash}
-                      onChange={(e) => setPaymentCash(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">UPI Amount (₹)</label>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-control currency-num"
-                      placeholder="0.00"
-                      value={paymentUpi}
-                      onChange={(e) => setPaymentUpi(e.target.value)}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="form-group" style={{ marginBottom: '16px' }}>
-                  <label className="form-label" style={{ fontWeight: 700 }}>Payment Amount (₹) *</label>
+              {/* Step 4: Notes & WhatsApp */}
+              <div
+                style={{
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      color: 'var(--text-secondary, #94a3b8)',
+                      marginBottom: '6px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Notes / Reference (Optional)
+                  </label>
                   <input
-                    type="number"
-                    step="any"
-                    className="form-control currency-num"
-                    placeholder="Enter amount"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    required
-                    style={{ fontSize: '1.1rem', fontWeight: 700 }}
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. GPay Ref #12345, Counter Cash..."
+                    value={paymentNotes}
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                    style={{
+                      background: 'rgba(10, 5, 20, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      padding: '9px 12px',
+                      color: '#ffffff',
+                      fontSize: '0.85rem',
+                    }}
                   />
                 </div>
-              )}
 
-              {/* Reference Notes */}
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label">Notes / Reference (Optional)</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="e.g. GPay Ref #12345, Counter Cash..."
-                  value={paymentNotes}
-                  onChange={(e) => setPaymentNotes(e.target.value)}
-                />
+                {/* WhatsApp Receipt Toggle */}
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: sendWhatsAppReceipt ? 'rgba(37, 211, 102, 0.1)' : 'rgba(255, 255, 255, 0.02)',
+                    border: sendWhatsAppReceipt ? '1px solid rgba(37, 211, 102, 0.3)' : '1px solid rgba(255, 255, 255, 0.05)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={sendWhatsAppReceipt}
+                    onChange={(e) => setSendWhatsAppReceipt(e.target.checked)}
+                    style={{ width: '17px', height: '17px', accentColor: '#25D366', cursor: 'pointer' }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: sendWhatsAppReceipt ? '#4ade80' : 'var(--text-primary, #f8fafc)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <MessageSquare size={14} style={{ color: '#25D366' }} /> Send WhatsApp Receipt
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted, #94a3b8)' }}>
+                      Opens instant WhatsApp settlement receipt for customer
+                    </div>
+                  </div>
+                </label>
               </div>
 
-              {/* Actions */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              {/* Drawer Footer Actions */}
+              <div style={{ marginTop: 'auto', display: 'flex', gap: '10px', paddingTop: '10px' }}>
                 <button
                   type="button"
-                  className="btn btn-secondary"
                   onClick={() => setShowRecordPaymentModal(false)}
                   disabled={isSubmittingPayment}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    borderRadius: '10px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: 'var(--text-secondary, #94a3b8)',
+                    fontWeight: 700,
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                  }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="btn btn-primary"
                   disabled={isSubmittingPayment}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontWeight: 800 }}
+                  style={{
+                    flex: 2,
+                    padding: '12px 18px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #00f0ff 0%, #7000ff 100%)',
+                    border: 'none',
+                    boxShadow: '0 0 20px rgba(0, 240, 255, 0.35)',
+                    color: '#05010f',
+                    fontWeight: 800,
+                    fontSize: '0.92rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    cursor: isSubmittingPayment ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
                 >
-                  <CheckCircle size={16} />
+                  <CheckCircle size={18} />
                   {isSubmittingPayment ? 'Recording...' : 'Record Payment Now'}
                 </button>
               </div>
