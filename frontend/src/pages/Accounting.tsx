@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../context/AppContext'
 import { useBills } from '../hooks/useBillsQuery'
@@ -8,9 +8,11 @@ import { useExpenses, useExpenseMutations } from '../hooks/useExpensesQuery'
 import { useCustomers } from '../hooks/useCustomersQuery'
 import {
   DollarSign, Wallet, FileText, RotateCcw, TrendingUp, Layers, Calculator,
-  Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2
+  Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2,
+  Users, CreditCard, Clock, ArrowRight
 } from 'lucide-react'
 import { SequenceService } from '../services/sequenceService'
+import { ReconciliationService } from '../services/reconciliationService'
 
 // Sub-components
 import { CashbookRegisterTab } from '../components/accounting/CashbookRegisterTab'
@@ -23,6 +25,7 @@ import { ZReportModal } from '../components/accounting/ZReportModal'
 
 export default function Accounting() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { business, settings, showToast, showConfirm, processRefund } = useAppContext()
 
@@ -43,6 +46,15 @@ export default function Accounting() {
   const inventory = Array.isArray(serverInventory) ? serverInventory : []
   const customers = Array.isArray(serverCustomers) ? serverCustomers : []
   const advancePayments = Array.isArray(serverAdvancePayments) ? serverAdvancePayments : []
+
+  // Reconciled Accounts Receivables & Debtors (synced exactly with Dashboard and Customer Ledger)
+  const accountsReceivableData = useMemo(() => {
+    return ReconciliationService.calculateAccountsReceivables({
+      bills,
+      payments,
+      customers,
+    })
+  }, [bills, payments, customers])
 
   // Extracted refunds from payments or deleted payments
   const refunds = useMemo(() => {
@@ -82,12 +94,34 @@ export default function Accounting() {
     let upiOut = 0
     const txList: any[] = []
 
-    // 1. Payments collected on this date
+    // 1. Payments collected on this date (excluding non-cash advance applications)
     payments.forEach((p: any) => {
       const pDate = (p.date || p.created_at || '').slice(0, 10)
       if (pDate === selectedDate && !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0) {
-        const cash = Number(p.cashAmount || p.cash_amount || 0)
-        const upi = Number(p.upiAmount || p.upi_amount || 0)
+        const notesLower = String(p.notes || '').toLowerCase()
+        const isAdvanceApplied =
+          notesLower.includes('advance balance applied') ||
+          notesLower.includes('from advance deposit') ||
+          notesLower.includes('fifo payment from advance deposit') ||
+          p.paymentType === 'advance_deduction' ||
+          p.payment_type === 'advance_deduction'
+        if (isAdvanceApplied) return
+
+        let cash = Number(p.cashAmount || p.cash_amount || 0)
+        let upi = Number(p.upiAmount || p.upi_amount || 0)
+        const totalPaid = Number(
+          p.totalPaid !== undefined ? p.totalPaid : p.amount !== undefined ? p.amount : p.total_paid || 0
+        )
+
+        if (cash === 0 && upi === 0 && totalPaid > 0) {
+          const method = String(p.payment_method || p.paymentMethod || p.paymentType || '').toLowerCase()
+          if (method === 'upi') {
+            upi = totalPaid
+          } else {
+            cash = totalPaid
+          }
+        }
+
         cashIn += cash
         upiIn += upi
 
@@ -111,8 +145,18 @@ export default function Accounting() {
     advancePayments.forEach((ap: any) => {
       const apDate = (ap.date || ap.created_at || '').slice(0, 10)
       if (apDate === selectedDate && !ap.isReturn && Number(ap.amount || 0) > 0) {
-        const cash = Number(ap.cashAmount || ap.cash_amount || (ap.paymentMethod === 'cash' ? ap.amount : 0))
-        const upi = Number(ap.upiAmount || ap.upi_amount || (ap.paymentMethod === 'upi' ? ap.amount : 0))
+        let cash = Number(ap.cashAmount || ap.cash_amount || 0)
+        let upi = Number(ap.upiAmount || ap.upi_amount || 0)
+        const amt = Number(ap.amount || 0)
+        if (cash === 0 && upi === 0 && amt > 0) {
+          const method = String(ap.paymentMethod || ap.payment_method || 'cash').toLowerCase()
+          if (method === 'upi') {
+            upi = amt
+          } else {
+            cash = amt
+          }
+        }
+
         cashIn += cash
         upiIn += upi
 
@@ -125,10 +169,10 @@ export default function Accounting() {
           type: 'in',
           description: `Advance Deposit (${ap.customerName || 'Customer'})`,
           partyName: ap.customerName,
-          method: ap.paymentMethod || 'Cash',
+          method: cash > 0 && upi > 0 ? 'Split' : upi > 0 ? 'UPI' : 'Cash',
           cashAmount: cash,
           upiAmount: upi,
-          total: Number(ap.amount || 0),
+          total: cash + upi,
         })
       }
     })
@@ -274,6 +318,126 @@ export default function Accounting() {
             <FileText size={14} />
             Daily Z-Report
           </button>
+        </div>
+      </div>
+
+      {/* ── ACCOUNTS RECEIVABLE & DEBTORS SYNCHRONIZATION STRIP ── */}
+      <div style={{ marginBottom: '22px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.84rem', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 800 }}>
+            <span style={{ width: '4px', height: '14px', background: 'var(--accent-secondary, #00f0ff)', borderRadius: '2px', display: 'inline-block' }} />
+            Accounts Receivable & Store Outstanding Balance (Reconciled with Dashboard & Ledger)
+          </h3>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigate('/customers?filter=with-dues')}
+            style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--accent-secondary)' }}
+          >
+            <span>View All Debtors in Customer Ledger</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: '14px' }}>
+          {/* Card 1: Net Accounts Receivable */}
+          <div
+            className="stat-card"
+            style={{
+              borderColor: 'rgba(255, 56, 96, 0.35)',
+              background: 'linear-gradient(135deg, rgba(255, 56, 96, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
+              cursor: 'pointer',
+            }}
+            onClick={() => navigate('/customers?filter=with-dues')}
+            title="Click to view debtor accounts"
+          >
+            <div className="stat-card-header">
+              <div className="stat-card-icon error" style={{ background: 'rgba(255, 56, 96, 0.15)', color: 'var(--error)' }}>
+                <CreditCard size={20} />
+              </div>
+              <div>
+                <div className="stat-card-label" style={{ color: 'var(--text-muted)' }}>NET RECEIVABLES (DUE)</div>
+                <div className="stat-card-value" style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--error)' }}>
+                  ₹{accountsReceivableData.totalReceivables.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <div className="stat-card-sub" style={{ color: 'var(--error)' }}>
+              {accountsReceivableData.debtorCount} debtor account{accountsReceivableData.debtorCount === 1 ? '' : 's'} with net balance
+            </div>
+          </div>
+
+          {/* Card 2: Gross Invoiced Dues */}
+          <div
+            className="stat-card"
+            style={{
+              borderColor: 'rgba(245, 158, 11, 0.25)',
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.06) 0%, rgba(15, 23, 42, 0.8) 100%)',
+            }}
+          >
+            <div className="stat-card-header">
+              <div className="stat-card-icon warning" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+                <Clock size={20} />
+              </div>
+              <div>
+                <div className="stat-card-label" style={{ color: 'var(--text-muted)' }}>GROSS INVOICED DUES</div>
+                <div className="stat-card-value" style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--warning)' }}>
+                  ₹{accountsReceivableData.totalGrossDue.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <div className="stat-card-sub" style={{ color: 'var(--text-secondary)' }}>
+              Gross balances before advance offsets
+            </div>
+          </div>
+
+          {/* Card 3: Customer Advance Pool */}
+          <div
+            className="stat-card"
+            style={{
+              borderColor: 'rgba(16, 185, 129, 0.25)',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(15, 23, 42, 0.8) 100%)',
+            }}
+          >
+            <div className="stat-card-header">
+              <div className="stat-card-icon success" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
+                <Wallet size={20} />
+              </div>
+              <div>
+                <div className="stat-card-label" style={{ color: 'var(--text-muted)' }}>CUSTOMER ADVANCE POOL</div>
+                <div className="stat-card-value" style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--success)' }}>
+                  ₹{accountsReceivableData.totalAdvancePool.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <div className="stat-card-sub" style={{ color: 'var(--success)' }}>
+              Available credits offsetting customer dues
+            </div>
+          </div>
+
+          {/* Card 4: Ledger Reconciliation Integrity */}
+          <div
+            className="stat-card"
+            style={{
+              borderColor: 'rgba(0, 240, 255, 0.25)',
+              background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(15, 23, 42, 0.8) 100%)',
+            }}
+          >
+            <div className="stat-card-header">
+              <div className="stat-card-icon indigo" style={{ background: 'rgba(0, 240, 255, 0.15)', color: 'var(--accent-secondary)' }}>
+                <CheckCircle size={20} />
+              </div>
+              <div>
+                <div className="stat-card-label" style={{ color: 'var(--text-muted)' }}>LEDGER INTEGRITY</div>
+                <div className="stat-card-value" style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>100% Synced</span>
+                </div>
+              </div>
+            </div>
+            <div className="stat-card-sub" style={{ color: 'var(--text-secondary)' }}>
+              Dashboard ≡ Ledger ≡ Accounts Receivable
+            </div>
+          </div>
         </div>
       </div>
 

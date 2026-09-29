@@ -8,6 +8,7 @@ import { usePayments, usePaymentMutations, useAdvancePayments, useAdvancePayment
 import { SequenceService } from '../services/sequenceService'
 import { ReminderService } from '../services/reminderService'
 import { ReconciliationService } from '../services/reconciliationService'
+import { useUnifiedFinancialHub } from '../hooks/useUnifiedFinancialHub'
 import EmptyState from '../components/common/EmptyState'
 import { ListSkeleton } from '../components/common/Skeleton'
 import {
@@ -100,15 +101,12 @@ export default function Customers() {
     }
   }, [bills, payments])
 
-  // Calculate customer outstanding due
+  const { getCustomerFinancials, invalidateAllFinancialQueries } = useUnifiedFinancialHub()
+
+  // Calculate customer outstanding net due directly from unified financial hub
   const getCustomerOutstanding = (custId: string) => {
     if (!custId) return 0
-    const strId = String(custId)
-    const custOpenBills = (reconciledBills || []).filter((b: any) => {
-      if (!b || b.deleted || b.deleted_at) return false
-      return String(b.customerId || b.customer_id || '') === strId
-    })
-    return Number(custOpenBills.reduce((sum: number, b: any) => sum + Number(b?.balance || 0), 0).toFixed(2))
+    return getCustomerFinancials(custId)?.netDue ?? 0
   }
 
   // Selected customer object - supports both sequential code (CUS-0001) and internal ID
@@ -134,19 +132,13 @@ export default function Customers() {
   // Computed values for selected customer
   const selectedCustomerOutstanding = useMemo(() => {
     if (!selectedCustomer) return 0
-    return getCustomerOutstanding(selectedCustomer.id)
-  }, [selectedCustomer, reconciledBills])
+    return getCustomerFinancials(selectedCustomer.id)?.netDue ?? 0
+  }, [selectedCustomer, getCustomerFinancials])
 
   const selectedCustomerAdvance = useMemo(() => {
     if (!selectedCustomer) return 0
-    return Number(
-      selectedCustomer.advanceBalance ||
-      selectedCustomer.advance_balance ||
-      selectedCustomer.creditBalance ||
-      selectedCustomer.credit_balance ||
-      0
-    )
-  }, [selectedCustomer])
+    return getCustomerFinancials(selectedCustomer.id)?.advanceBalance ?? 0
+  }, [selectedCustomer, getCustomerFinancials])
 
   const selectedCustomerBills = useMemo(() => {
     if (!selectedCustomer) return []

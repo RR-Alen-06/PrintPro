@@ -17,9 +17,27 @@ import {
 } from 'lucide-react'
 import { SequenceService } from '../../services/sequenceService'
 import { ReminderService } from '../../services/reminderService'
+import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import '../../styles/mobile.css'
 
-const MetricsRow = React.memo(({ stats }) => {
+
+interface MetricsRowProps {
+  stats: {
+    totalRevenue: number
+    totalCollected: number
+    billCount: number
+    pendingAmount: number
+    unpaidCount: number
+    cashInflow: number
+    cashTotal: number
+    upiTotal: number
+    periodExpenses: number
+    totalRefunds: number
+    netCashFlow: number
+  }
+}
+
+const MetricsRow = React.memo(({ stats }: MetricsRowProps) => {
   return (
     <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
       {/* Metric Card 1: Total Revenue */}
@@ -104,14 +122,22 @@ export default function MobileDashboard() {
     business, syncFromCloud, showToast
   } = useAppContext()
 
+  // Unified Financial Hub (Single Connection for all financial balances)
+  const {
+    storeFinancials,
+    getCustomerFinancials,
+    invalidateAllFinancialQueries,
+  } = useUnifiedFinancialHub()
+
   // TanStack Queries & Mutations
   const { data: bills = [], isLoading: isLoadingBills } = useBills()
   const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
   const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
-  const { createCustomer: createCustomerMutation, updateCustomer: updateCustomerMutation, isCreatingCustomer } = useCustomerMutations()
+  const { createCustomer: createCustomerMutation, updateCustomer: updateCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
+
 
   const [isSyncing, setIsSyncing] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('today') // 'today' | 'week' | 'month' | 'fy' | 'custom' | 'all'
@@ -146,6 +172,8 @@ export default function MobileDashboard() {
   // Calculate live outstanding dues for selected customer in payment modal
   const selectedCustomerDue = useMemo(() => {
     if (!paymentCustomerId) return 0
+    const fin = getCustomerFinancials(paymentCustomerId)
+    if (fin) return fin.netDue
     return (bills || [])
       .filter(b => {
         if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
@@ -153,7 +181,7 @@ export default function MobileDashboard() {
         return String(bCustId) === String(paymentCustomerId) && Number(b.balance || 0) > 0
       })
       .reduce((sum, b) => sum + Number(b.balance || 0), 0)
-  }, [bills, paymentCustomerId])
+  }, [bills, paymentCustomerId, getCustomerFinancials])
 
   const handleNavigate = useCallback((path) => {
     navigate(path)
@@ -258,13 +286,8 @@ export default function MobileDashboard() {
         })
       }
 
-      // React Query multi-entity cache invalidation
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bills'] }),
-        queryClient.invalidateQueries({ queryKey: ['payments'] }),
-        queryClient.invalidateQueries({ queryKey: ['customers'] }),
-        queryClient.invalidateQueries({ queryKey: ['accounting'] })
-      ])
+      // Unified financial cache invalidation across all 7 modules
+      await invalidateAllFinancialQueries()
 
       showToast(`Payment of ₹${total.toLocaleString('en-IN')} recorded for ${custName}`, 'success')
       setShowRecordPaymentModal(false)
@@ -365,49 +388,25 @@ export default function MobileDashboard() {
     return (customers || []).filter(c => !c.deleted).length
   }, [customers])
 
-  const allTimePendingAmount = useMemo(() => {
-    const unpaids = allTimeReconciledBills.filter(b => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0)
-    return Number(unpaids.reduce((sum, b) => sum + Number(b.balance || 0), 0).toFixed(2))
-  }, [allTimeReconciledBills])
+  const allTimePendingAmount = storeFinancials.totalGrossDue
+  const allTimeAdvancePool = storeFinancials.totalAdvancePool
+  const allTimeNetDue = storeFinancials.totalAccountsReceivable
 
-  const allTimeAdvancePool = useMemo(() => {
-    return (customers || []).filter(c => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.advance_balance || 0), 0)
-  }, [customers])
-
-  const allTimeNetDue = Math.max(0, allTimePendingAmount - allTimeAdvancePool)
-
-  // Top Debtors (All-Time) with Net Due & CUS-XXXX code
+  // Top Debtors (All-Time) with Net Due & CUS-XXXX code — Single Unified Connection
   const topDebtors = useMemo(() => {
-    const map = {}
-    allTimeReconciledBills
-      .filter((b) => !b.deleted && !b.deleted_at && !b.isGroupParent && Number(b.balance || 0) > 0)
-      .forEach((b) => {
-        const custId = String(b.customerId || b.customer_id)
-        if (!map[custId]) {
-          const custObj = (customers || []).find(c => String(c.id) === custId)
-          const advBal = Number(custObj?.advanceBalance || custObj?.advance_balance || 0)
-          map[custId] = {
-            customerId: custId,
-            customerName: b.customerName || custObj?.name || 'Customer',
-            customerCode: custObj?.customerCode || SequenceService.formatDisplayCode(custId, 'CUS'),
-            phone: custObj?.phone || '',
-            advanceBalance: advBal,
-            grossDue: 0,
-            billCount: 0,
-          }
-        }
-        const entry = map[custId]
-        entry.grossDue += Number(b.balance || 0)
-        entry.billCount += 1
-      })
-    return Object.values(map)
-      .map(e => ({
-        ...e,
-        netDue: Math.max(0, e.grossDue - e.advanceBalance)
-      }))
-      .sort((a, b) => b.netDue - a.netDue || b.grossDue - a.grossDue)
+    return (storeFinancials.debtorsList || [])
       .slice(0, 5)
-  }, [allTimeReconciledBills, customers])
+      .map(d => ({
+        customerId: d.customerId,
+        customerName: d.customerName,
+        customerCode: d.customerCode,
+        phone: d.phone,
+        advanceBalance: d.advanceBalance,
+        grossDue: d.grossDue,
+        billCount: d.openBillsCount,
+        netDue: d.netDue,
+      }))
+  }, [storeFinancials.debtorsList])
 
   // Financial Metric Calculations matching desktop logic
   const stats = useMemo(() => {
@@ -953,12 +952,14 @@ export default function MobileDashboard() {
               className="mobile-input"
               value={paymentCustomerId}
               onChange={(e) => {
-                setPaymentCustomerId(e.target.value)
-                const due = (bills || [])
+                const cId = e.target.value
+                setPaymentCustomerId(cId)
+                const fin = getCustomerFinancials(cId)
+                const due = fin ? fin.netDue : (bills || [])
                   .filter(b => {
                     if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
                     const bCustId = b.customerId || b.customer_id
-                    return String(bCustId) === String(e.target.value) && Number(b.balance || 0) > 0
+                    return String(bCustId) === String(cId) && Number(b.balance || 0) > 0
                   })
                   .reduce((sum, b) => sum + Number(b.balance || 0), 0)
                 if (due > 0) {
@@ -970,7 +971,8 @@ export default function MobileDashboard() {
             >
               <option value="">-- Choose Customer --</option>
               {customers.map((c) => {
-                const due = (bills || [])
+                const fin = getCustomerFinancials(c.id)
+                const due = fin ? fin.netDue : (bills || [])
                   .filter(b => {
                     if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
                     const bCustId = b.customerId || b.customer_id
