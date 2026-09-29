@@ -12,7 +12,9 @@ export interface BillFilters {
 
 export const mapBillFromApi = (b: any) => {
   if (!b) return b;
-  const invoiceNumber = b.invoice_number || b.invoiceNumber || b.bill_number || SequenceService.formatDisplayCode('bill', b.id, 'INV');
+  const rawInv = b.invoice_number || b.invoiceNumber || b.bill_number;
+  const isValidNonUuid = rawInv && typeof rawInv === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawInv.trim());
+  const invoiceNumber = isValidNonUuid ? rawInv.trim() : SequenceService.formatDisplayCode('bill', b.id || b, 'INV');
 
   const items = (b.items || []).map((item: any) => {
     const q = Number(item.qty || 1);

@@ -9,7 +9,8 @@
     "dev": "tsx watch server.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "audit-check": "npm audit --audit-level=high"
+    "audit-check": "npm audit --audit-level=high",
+    "db:setup": "tsx scripts/apply_schema.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

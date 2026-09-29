@@ -1,38 +1,25 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Printer, Home, FileText, Users, DollarSign, Layers, Bell, Trash2, Settings, Download, Search as SearchIcon, Receipt, TrendingUp, Wallet, BookOpen, RefreshCw, GitMerge, X, LogOut, User, ShieldCheck } from 'lucide-react'
+import { Printer, Home, FileText, Users, DollarSign, Layers, Settings, Receipt, GitMerge, X, LogOut, User } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
 // permKey = key in staffPermissions; undefined means always show
 const navItems = [
-  { label: 'Dashboard',        path: '/dashboard',         icon: Home,         permKey: undefined },
-  { label: 'Billing',          path: '/billing',           icon: FileText,     permKey: 'billing' },
-  { label: 'Group Billing',    path: '/group-billing',     icon: GitMerge,     permKey: 'billing' },
-  { label: 'Customers',        path: '/customers',         icon: Users,        permKey: 'customers' },
-  { label: 'Advance Payments', path: '/advance-payments',  icon: Wallet,       permKey: 'advancePayments' },
-  { label: 'Accounting',       path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
-  { label: 'Refunds',          path: '/refunds',           icon: RefreshCw,    permKey: 'accounting' },
-  { label: 'Analytics',        path: '/analytics',         icon: TrendingUp,   permKey: 'accounting' },
-  { label: 'Item Sales Report',path: '/item-sales-report', icon: Layers,       permKey: 'accounting' },
-  { label: 'Inventory',        path: '/inventory',         icon: Layers,       permKey: 'inventory' },
-  { label: 'Customer Ledger',  path: '/customer-ledger',   icon: BookOpen,     permKey: 'ledger' },
-  { label: 'Customer Bills',   path: '/customer-bills',    icon: FileText,     permKey: 'customers' },
-  { label: 'Receipt',          path: '/receipt',           icon: Receipt,      permKey: 'receipt' },
-  { label: 'Search',           path: '/search',            icon: SearchIcon,   permKey: 'search' },
-  { label: 'Notifications',    path: '/notifications',     icon: Bell,         permKey: undefined },
-  { label: 'Data Management',  path: '/data-management',   icon: Download,     permKey: 'dataManagement' },
-  { label: 'Deleted Bills',    path: '/deleted-bills',     icon: Trash2,       permKey: 'deletedBills' },
-  { label: 'Settings',         path: '/settings',          icon: Settings,     permKey: 'settings' },
+  { label: 'Dashboard',          path: '/dashboard',         icon: Home,         permKey: undefined },
+  { label: 'Billing',            path: '/billing',           icon: FileText,     permKey: 'billing' },
+  { label: 'Group Billing',      path: '/group-billing',     icon: GitMerge,     permKey: 'billing' },
+  { label: 'Customers',          path: '/customers',         icon: Users,        permKey: 'customers' },
+  { label: 'Finance & Accounts', path: '/accounting',        icon: DollarSign,   permKey: 'accounting' },
+  { label: 'Inventory',          path: '/inventory',         icon: Layers,       permKey: 'inventory' },
+  { label: 'Receipt',            path: '/receipt',           icon: Receipt,      permKey: 'receipt' },
+  { label: 'Settings & System',  path: '/settings',          icon: Settings,     permKey: 'settings' },
 ]
 
 const Sidebar = ({ isOpen, onClose }) => {
-  const { currentUser, settings, logout } = useAppContext()
+  const { currentUser, logout } = useAppContext()
   const isMerchant = !!currentUser
 
   const visibleItems = navItems.filter((item) => {
-    if (item.path === '/refunds' && settings?.refundsEnabled === false) {
-      return false
-    }
     if (isMerchant) return true
     return item.permKey === undefined
   })

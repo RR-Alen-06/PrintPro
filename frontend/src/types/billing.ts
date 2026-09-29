@@ -245,4 +245,3 @@ export interface CustomItemAnalyticsData {
   last_used_at: string;
   transaction_history: ProductTransactionHistory[];
 }
-

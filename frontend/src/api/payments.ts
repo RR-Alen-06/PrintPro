@@ -5,9 +5,17 @@ import { SequenceService } from '../services/sequenceService'
 
 export const mapPaymentFromApi = (p: any) => {
   if (!p) return p;
-  const paymentCode = p.payment_code || p.paymentCode || p.code || SequenceService.formatDisplayCode('payment', p.id, 'PAY');
-  const invoiceNumber = p.invoice_number || p.invoiceNumber || p.bill_invoice_number || p.billInvoiceNumber || (p.bill_id || p.billId ? SequenceService.formatDisplayCode('bill', p.bill_id || p.billId, 'INV') : '');
-  const customerCode = p.customer_code || p.customerCode || (p.customer_id || p.customerId ? SequenceService.formatDisplayCode('customer', p.customer_id || p.customerId, 'CUS') : '');
+  const rawPay = p.payment_code || p.paymentCode || p.code;
+  const isValidPay = rawPay && typeof rawPay === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawPay.trim());
+  const paymentCode = isValidPay ? rawPay.trim() : SequenceService.formatDisplayCode('payment', p.id || p, 'PAY');
+
+  const rawInv = p.invoice_number || p.invoiceNumber || p.bill_invoice_number || p.billInvoiceNumber;
+  const isValidInv = rawInv && typeof rawInv === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawInv.trim());
+  const invoiceNumber = isValidInv ? rawInv.trim() : (p.bill_id || p.billId ? SequenceService.formatDisplayCode('bill', p.bill_id || p.billId, 'INV') : '');
+
+  const rawCus = p.customer_code || p.customerCode;
+  const isValidCus = rawCus && typeof rawCus === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCus.trim());
+  const customerCode = isValidCus ? rawCus.trim() : (p.customer_id || p.customerId ? SequenceService.formatDisplayCode('customer', p.customer_id || p.customerId, 'CUS') : '');
 
   return {
     ...p,

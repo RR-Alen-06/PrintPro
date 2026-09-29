@@ -37,9 +37,9 @@ export class SequenceService {
   /**
    * Formats a sequential number code given prefix, numeric value, and padding width.
    */
-  static formatSequenceCode(prefix: string, value: number | string, padding: number = 6): string {
+  static formatSequenceCode(prefix: string, value: number | string, padding: number = 4): string {
     const cleanPrefix = (prefix || 'SEQ').toUpperCase();
-    const cleanPadding = Math.min(12, Math.max(2, padding || 6));
+    const cleanPadding = Math.min(12, Math.max(2, padding || 4));
     const num = typeof value === 'number' ? value : parseInt(String(value).replace(/\D/g, ''), 10);
     const cleanValue = isNaN(num) || num <= 0 ? 1 : Math.floor(num);
     return `${cleanPrefix}-${String(cleanValue).padStart(cleanPadding, '0')}`;
@@ -52,7 +52,7 @@ export class SequenceService {
     entityType: 'bill' | 'customer' | 'inventory' | 'payment' | 'expense' | 'group' | 'creditNote' | string,
     itemOrId: any,
     fallbackPrefix?: string,
-    padding: number = 6
+    padding: number = 4
   ): string {
     if (!itemOrId && itemOrId !== 0) return '—';
 
@@ -60,12 +60,21 @@ export class SequenceService {
     if (typeof itemOrId === 'object') {
       const code =
         itemOrId.invoiceNumber ||
+        itemOrId.invoice_number ||
+        itemOrId.billNumber ||
+        itemOrId.bill_number ||
         itemOrId.customerCode ||
+        itemOrId.customer_code ||
         itemOrId.itemCode ||
+        itemOrId.item_code ||
         itemOrId.paymentCode ||
+        itemOrId.payment_code ||
         itemOrId.expenseCode ||
+        itemOrId.expense_code ||
         itemOrId.creditNoteNumber ||
+        itemOrId.credit_note_number ||
         itemOrId.groupInvoiceNumber ||
+        itemOrId.group_invoice_number ||
         itemOrId.code;
 
       if (code && typeof code === 'string' && code.trim()) {
@@ -113,7 +122,7 @@ export class SequenceService {
       hash = ((hash << 5) - hash) + trimmed.charCodeAt(i);
       hash |= 0; // Convert to 32bit integer
     }
-    const positiveNum = Math.abs(hash) % 1000000 || 1;
+    const positiveNum = (Math.abs(hash) % 9999) + 1;
     return this.formatSequenceCode(prefix, positiveNum, padding);
   }
 
@@ -268,5 +277,81 @@ export class SequenceService {
 
     const { error } = await supabase.from('sequences').upsert(payload);
     if (error) throw new Error(error.message);
+  }
+
+  /**
+   * Arranges and backfills sequential IDs across database records chronologically.
+   */
+  static async alignAndArrangeDatabaseSequences(): Promise<{
+    customersUpdated: number;
+    billsUpdated: number;
+    paymentsUpdated: number;
+  }> {
+    let customersUpdated = 0;
+    let billsUpdated = 0;
+    let paymentsUpdated = 0;
+
+    try {
+      // 1. Arrange Customers
+      const { data: custs } = await supabase
+        .from('customers')
+        .select('id, customer_code, created_at')
+        .order('created_at', { ascending: true });
+
+      if (custs && custs.length > 0) {
+        for (let i = 0; i < custs.length; i++) {
+          const c = custs[i];
+          const isMissingOrUuid = !c.customer_code || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.customer_code);
+          if (isMissingOrUuid) {
+            const expectedCode = this.formatSequenceCode('CUS', i + 1, 4);
+            await supabase.from('customers').update({ customer_code: expectedCode }).eq('id', c.id);
+            customersUpdated++;
+          }
+        }
+        await this.updateSequenceConfig('CUS', 'CUS', 4, custs.length);
+      }
+
+      // 2. Arrange Bills
+      const { data: bills } = await supabase
+        .from('bills')
+        .select('id, invoice_number, created_at, date')
+        .order('created_at', { ascending: true });
+
+      if (bills && bills.length > 0) {
+        for (let i = 0; i < bills.length; i++) {
+          const b = bills[i];
+          const isMissingOrUuid = !b.invoice_number || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.invoice_number);
+          if (isMissingOrUuid) {
+            const expectedCode = this.formatSequenceCode('INV', i + 1, 4);
+            await supabase.from('bills').update({ invoice_number: expectedCode }).eq('id', b.id);
+            billsUpdated++;
+          }
+        }
+        await this.updateSequenceConfig('INV', 'INV', 4, bills.length);
+      }
+
+      // 3. Arrange Payments
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('id, payment_code, date')
+        .order('date', { ascending: true });
+
+      if (payments && payments.length > 0) {
+        for (let i = 0; i < payments.length; i++) {
+          const p = payments[i];
+          const isMissingOrUuid = !p.payment_code || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.payment_code);
+          if (isMissingOrUuid) {
+            const expectedCode = this.formatSequenceCode('PAY', i + 1, 4);
+            await supabase.from('payments').update({ payment_code: expectedCode }).eq('id', p.id);
+            paymentsUpdated++;
+          }
+        }
+        await this.updateSequenceConfig('PAY', 'PAY', 4, payments.length);
+      }
+    } catch (err) {
+      console.warn('Database sequence arrangement encountered an issue:', err);
+    }
+
+    return { customersUpdated, billsUpdated, paymentsUpdated };
   }
 }

@@ -299,7 +299,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {(customers || []).filter((c) => c && !c.deleted && !(members || []).some(m => m && m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
+              {(customers || []).filter((c) => c && !c.deleted && !(members || []).some(m => m && m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || SequenceService.formatDisplayCode('customer', c, 'CUS')})</option>)}
             </select>
             <button
               type="button"
@@ -1624,7 +1624,7 @@ const GroupBilling = () => {
                       <select className="form-input" style={{ flex: 1, fontSize: '13px' }} value={m.customerId}
                         onChange={(e) => updateSplitMember(m.id, { customerId: e.target.value })}>
                         <option value="">— Select Customer —</option>
-                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || c.id})</option>)}
+                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.customerCode || SequenceService.formatDisplayCode('customer', c, 'CUS')})</option>)}
                       </select>
                       <button
                         type="button"
