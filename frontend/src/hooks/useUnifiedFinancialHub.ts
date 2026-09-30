@@ -36,8 +36,8 @@ export function useUnifiedFinancialHub() {
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverExpenses = [], isLoading: isLoadingExpenses } = useExpenses()
   const { data: serverRefunds = [], isLoading: isLoadingRefunds } = useDeletedPayments()
-  const { data: serverGroupBills = [] } = useGroupBills()
-  const { data: serverGroupSettlements = [] } = useGroupSettlements()
+  const { groupBills: serverGroupBills = [] } = useGroupBills()
+  const { groupSettlements: serverGroupSettlements = [] } = useGroupSettlements()
 
   const bills = Array.isArray(serverBills) ? serverBills : []
   const payments = Array.isArray(serverPayments) ? serverPayments : []
@@ -57,34 +57,53 @@ export function useUnifiedFinancialHub() {
 
   // 2. Authoritative Reconciled Bills (reconciles bill payments & FIFO allocations)
   const reconciledBills = useMemo(() => {
-    return ReconciliationService.reconcileBillsWithPayments(bills, payments)
+    try {
+      return ReconciliationService.reconcileBillsWithPayments(bills, payments) || []
+    } catch (e) {
+      console.error('Error reconciling bills in useUnifiedFinancialHub:', e)
+      return []
+    }
   }, [bills, payments])
 
   // 3. Authoritative Accounts Receivable Data
   const accountsReceivable: AccountsReceivableResult = useMemo(() => {
-    return ReconciliationService.calculateAccountsReceivables({
-      bills,
-      payments,
-      customers,
-    })
+    try {
+      return ReconciliationService.calculateAccountsReceivables({
+        bills,
+        payments,
+        customers,
+      })
+    } catch (e) {
+      console.error('Error calculating accounts receivables in useUnifiedFinancialHub:', e)
+      return {
+        totalReceivables: 0,
+        totalGrossDue: 0,
+        totalAdvancePool: 0,
+        debtorCount: 0,
+        customersWithDue: [] as CustomerReceivableSummary[],
+        allCustomerSummaries: [] as CustomerReceivableSummary[],
+      }
+    }
   }, [bills, payments, customers])
 
   // 4. Quick O(1) Customer Financial Map
   const customerFinancialsMap = useMemo(() => {
     const map = new Map<string, CustomerFinancialDetails>()
-    const activeReconciledBills = reconciledBills.filter(
-      (b: any) => !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent
-    )
+    const activeReconciledBills = (reconciledBills || []).filter(
+      (b: any) => b && !b.deleted && !b.deleted_at && !b.isGroupParent && !b.is_group_parent
+    );
+    const summaries: CustomerReceivableSummary[] = accountsReceivable?.allCustomerSummaries || [];
 
     customers.forEach((c: any) => {
       if (!c || c.deleted) return
-      const cId = String(c.id)
+      const cId = String(c.id || '')
+      if (!cId) return
       const code = c.customerCode ? String(c.customerCode).toLowerCase() : ''
       const custBills = activeReconciledBills.filter(
-        (b: any) => String(b.customerId || b.customer_id || '') === cId
+        (b: any) => b && String(b.customerId || b.customer_id || '') === cId
       )
-      const summary = accountsReceivable.allCustomerSummaries.find(
-        (s) => s.customerId === cId || (code && s.customerCode?.toLowerCase() === code)
+      const summary = summaries.find(
+        (s) => s && (s.customerId === cId || (code && s.customerCode?.toLowerCase() === code))
       ) || {
         customerId: cId,
         customerName: c.name || 'Customer',
@@ -121,8 +140,9 @@ export function useUnifiedFinancialHub() {
   // 5. Customer Financial Details Getter
   const getCustomerFinancials = useCallback(
     (customerIdOrCode: string | number | null | undefined): CustomerFinancialDetails | null => {
-      if (!customerIdOrCode) return null
+      if (customerIdOrCode === null || customerIdOrCode === undefined) return null
       const key = String(customerIdOrCode).trim()
+      if (!key) return null
       return customerFinancialsMap.get(key) || customerFinancialsMap.get(key.toLowerCase()) || null
     },
     [customerFinancialsMap]
@@ -340,11 +360,11 @@ export function useUnifiedFinancialHub() {
 
   // 10. Direct Mutations
   const { createBill, updateBill, deleteBill } = useBillMutations()
-  const { createPaymentMutation, deletePaymentMutation } = usePaymentMutations()
+  const { createPayment, deletePayment } = usePaymentMutations()
   const { addAdvancePayment, deleteAdvancePayment } = useAdvancePaymentMutations()
-  const { createExpenseMutation, deleteExpenseMutation } = useExpenseMutations()
+  const { createExpense, deleteExpense } = useExpenseMutations()
   const { settleGroupBill: groupSettleMutation } = useGroupSettlementMutations()
-  const { updateCustomerMutation } = useCustomerMutations()
+  const { updateCustomer } = useCustomerMutations()
 
   // Consolidated Handlers with Guaranteed Atomic Cascade
   const createBillAndSync = useCallback(
@@ -358,11 +378,11 @@ export function useUnifiedFinancialHub() {
 
   const recordPaymentAndSync = useCallback(
     async (payload: any) => {
-      const res = await createPaymentMutation.mutateAsync(payload)
+      const res = await createPayment(payload)
       await invalidateAllFinancialQueries()
       return res
     },
-    [createPaymentMutation, invalidateAllFinancialQueries]
+    [createPayment, invalidateAllFinancialQueries]
   )
 
   const recordAdvanceDepositAndSync = useCallback(
@@ -444,11 +464,11 @@ export function useUnifiedFinancialHub() {
     // Direct Mutators if needed
     updateBill,
     deleteBill,
-    deletePayment: deletePaymentMutation.mutateAsync,
+    deletePayment,
     deleteAdvancePayment,
-    createExpense: createExpenseMutation.mutateAsync,
-    deleteExpense: deleteExpenseMutation.mutateAsync,
-    updateCustomer: updateCustomerMutation.mutateAsync,
+    createExpense,
+    deleteExpense,
+    updateCustomer,
   }
 }
 

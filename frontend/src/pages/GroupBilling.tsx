@@ -1446,7 +1446,8 @@ const GroupBilling = () => {
                   <tbody>
                     {members.map((m, i) => {
                       const cust = activeCustomers.find((c) => c.id === m.customerId)
-                      const { subtotal, gstAmount, discountAmount, loyaltyDiscount, total } = memberTotals[i]
+                      const currentTotals = memberTotals[i] || { subtotal: 0, gstAmount: 0, discountAmount: 0, loyaltyDiscount: 0, total: 0 }
+                      const { subtotal = 0, gstAmount = 0, discountAmount = 0, loyaltyDiscount = 0, total = 0 } = currentTotals
                       const custFin = getCustomerFinancials(m.customerId)
                       const adv = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance || 0)
                       const advUsed = m.useAdvance ? Math.min(adv, total) : 0
@@ -1618,7 +1619,8 @@ const GroupBilling = () => {
 
             {splitMembers.map((m, i) => {
               const cust = activeCustomers.find((c) => c.id === m.customerId)
-              const { total: memberTotal } = splitMemberTotals[i]
+              const currentSplitTotals = splitMemberTotals[i] || { total: 0 }
+              const { total: memberTotal = 0 } = currentSplitTotals
               const custFin = getCustomerFinancials(m.customerId)
               const adv = custFin ? custFin.advanceBalance : Number(cust?.advanceBalance || 0)
               const advUsed = m.useAdvance ? Math.min(adv, memberTotal) : 0
