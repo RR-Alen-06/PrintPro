@@ -22,7 +22,7 @@ const BillCard = React.memo(({ bill, onNavigate, onQuickPay, onDelete, onWhatsAp
   return (
     <div
       className={`mobile-card ${bill.isOptimistic ? 'mobile-card-optimistic' : ''}`}
-      onClick={() => onNavigate(`/mobile/bill/${bill.id}`)}
+      onClick={() => onNavigate(`/bill/${bill.id}`)}
       style={{ cursor: 'pointer', position: 'relative', marginBottom: '12px' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
@@ -325,7 +325,7 @@ export default function MobileBillingList() {
           {isLoading ? 'LOADING INVOICES...' : `SHOWING ${processedBills.length} INVOICE RECORDS`}
         </span>
         <button
-          onClick={() => navigate('/mobile/create-bill')}
+          onClick={() => navigate('/create-bill')}
           style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
         >
           <PlusCircle size={16} /> + New Bill

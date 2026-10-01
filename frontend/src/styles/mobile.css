@@ -78,6 +78,35 @@
   position: relative;
   overflow-x: hidden;
   padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 24px);
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .mobile-shell {
+    max-width: 540px;
+    margin: 0 auto;
+    border-left: 1px solid rgba(168, 85, 247, 0.25);
+    border-right: 1px solid rgba(168, 85, 247, 0.25);
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.95), 0 0 35px rgba(255, 47, 176, 0.15), 0 0 20px rgba(0, 240, 255, 0.1);
+  }
+
+  .mobile-bottom-nav {
+    max-width: 540px !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    border-left: 1px solid var(--border-light);
+    border-right: 1px solid var(--border-light);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+  }
+
+  .bottom-sheet-content {
+    max-width: 540px !important;
+    margin: 0 auto !important;
+    border-left: 1px solid var(--border-light) !important;
+    border-right: 1px solid var(--border-light) !important;
+  }
 }
 
 .mobile-content {

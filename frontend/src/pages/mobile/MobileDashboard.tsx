@@ -686,7 +686,7 @@ export default function MobileDashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
         <button
           className="mobile-btn mobile-btn-primary"
-          onClick={() => navigate('/mobile/create-bill')}
+          onClick={() => navigate('/create-bill')}
           style={{ minHeight: '48px', fontSize: '0.82rem' }}
         >
           <PlusCircle size={18} /> + QUICK BILL
@@ -707,7 +707,7 @@ export default function MobileDashboard() {
         </button>
         <button
           className="mobile-btn mobile-btn-secondary"
-          onClick={() => navigate('/mobile/accounting')}
+          onClick={() => navigate('/accounting')}
           style={{ minHeight: '48px', fontSize: '0.82rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
         >
           <DollarSign size={18} /> + EXPENSE
@@ -726,7 +726,7 @@ export default function MobileDashboard() {
             </div>
             <button
               className="btn btn-sm btn-secondary"
-              onClick={() => navigate('/mobile/customers')}
+              onClick={() => navigate('/customers')}
               style={{ fontSize: '0.72rem', padding: '3px 8px' }}
             >
               All <ChevronRight size={12} />
@@ -820,11 +820,11 @@ export default function MobileDashboard() {
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
           {[
-            { label: 'View Bills', path: '/mobile/billing', icon: Receipt, color: 'var(--accent-primary)' },
-            { label: 'Customers', path: '/mobile/customers', icon: Users, color: 'var(--accent-secondary)' },
-            { label: 'Accounting', path: '/mobile/accounting', icon: Wallet, color: 'var(--success)' },
-            { label: 'Analytics', path: '/mobile/accounting?tab=analytics', icon: BarChart3, color: 'var(--accent-tertiary)' },
-            { label: 'Inventory', path: '/mobile/inventory', icon: Inbox, color: '#ffb800' },
+            { label: 'View Bills', path: '/billing', icon: Receipt, color: 'var(--accent-primary)' },
+            { label: 'Customers', path: '/customers', icon: Users, color: 'var(--accent-secondary)' },
+            { label: 'Accounting', path: '/accounting', icon: Wallet, color: 'var(--success)' },
+            { label: 'Analytics', path: '/accounting?tab=analytics', icon: BarChart3, color: 'var(--accent-tertiary)' },
+            { label: 'Inventory', path: '/inventory', icon: Inbox, color: '#ffb800' },
             {
               label: 'Search',
               action: () => window.dispatchEvent(new CustomEvent('open-command-palette')),

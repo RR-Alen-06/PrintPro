@@ -47,7 +47,7 @@ export default function MobileReceipt() {
           <p style={{ margin: '0 0 14px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             {billId ? `Invoice #${billId} not found.` : 'No invoice selected for receipt preview.'}
           </p>
-          <button className="mobile-btn mobile-btn-secondary" onClick={() => navigate('/mobile/billing')}>
+          <button className="mobile-btn mobile-btn-secondary" onClick={() => navigate('/billing')}>
             Browse Invoices
           </button>
         </div>

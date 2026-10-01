@@ -45,7 +45,7 @@ export default function MobileAuth() {
 
           <button
             className="mobile-btn mobile-btn-primary"
-            onClick={() => navigate('/mobile/dashboard')}
+            onClick={() => navigate('/dashboard')}
             style={{ marginBottom: '12px' }}
           >
             ENTER MOBILE ERP <ArrowRight size={18} />
