@@ -245,7 +245,8 @@ export default function MobileCreateBill() {
     if (!shouldRedeemLoyalty || !selectedCustomerObj) return 0
     const points = Number(loyaltyPointsRedeemed || 0)
     const available = Number(selectedCustomerObj.loyalty_points || selectedCustomerObj.loyaltyPoints || 0)
-    return LoyaltyService.calculateRedemptionDiscount(points, available, subtotal, settings)
+    const redemption = LoyaltyService.calculateRedemptionDiscount(points, available, subtotal, settings)
+    return typeof redemption === 'number' ? redemption : Number(redemption?.discountAmount || 0)
   }, [shouldRedeemLoyalty, selectedCustomerObj, loyaltyPointsRedeemed, settings, subtotal])
 
   const calculatedDiscount = useMemo(() => {
@@ -402,9 +403,9 @@ export default function MobileCreateBill() {
             // Deduct stock for product-type items
             const deductions = new Map()
             const billItemsList = billPayload.items || []
-            for (const item of billItemsList) {
+            for (const item of (billItemsList as any[])) {
               const invItem = (serverInventory || []).find(
-                (i) => String(i.id) === String(item.itemId || item.id) || i.name === (item.itemName || item.name)
+                (i: any) => String(i.id) === String(item.itemId || item.id) || i.name === (item.item_name || item.itemName || item.name)
               )
               if (invItem && invItem.type === 'product') {
                 const qty = Number(item.qty || item.quantity || 0)
@@ -774,7 +775,7 @@ export default function MobileCreateBill() {
                 className="mobile-input currency-num"
                 placeholder="0.00"
                 value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
+                onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
               />
             </div>
 
@@ -879,7 +880,7 @@ export default function MobileCreateBill() {
                       step="0.01"
                       className="mobile-input currency-num"
                       value={cashAmount}
-                      onChange={(e) => setCashAmount(e.target.value)}
+                      onChange={(e) => setCashAmount(Number(e.target.value) || 0)}
                     />
                   </div>
                   <div>
@@ -907,7 +908,7 @@ export default function MobileCreateBill() {
                       step="0.01"
                       className="mobile-input currency-num"
                       value={upiAmount}
-                      onChange={(e) => setUpiAmount(e.target.value)}
+                      onChange={(e) => setUpiAmount(Number(e.target.value) || 0)}
                     />
                   </div>
                 </div>
@@ -1218,7 +1219,7 @@ export default function MobileCreateBill() {
                 className="mobile-input currency-num"
                 placeholder="0%"
                 value={itemGstRate}
-                onChange={(e) => setItemGstRate(e.target.value)}
+                onChange={(e) => setItemGstRate(Number(e.target.value) || 0)}
               />
             </div>
           </div>

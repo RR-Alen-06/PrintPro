@@ -14,7 +14,17 @@ import {
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
-const BillCard = React.memo(({ bill, onNavigate, onQuickPay, onDelete, onWhatsApp, isCreatingPayment, isDeletingBill }) => {
+interface BillCardProps {
+  bill: any
+  onNavigate: (path: string) => void
+  onQuickPay: (bill: any) => void
+  onDelete: (bill: any) => void
+  onWhatsApp: (bill: any, e: any) => void
+  isCreatingPayment: boolean
+  isDeletingBill: boolean
+}
+
+const BillCard = React.memo<BillCardProps>(({ bill, onNavigate, onQuickPay, onDelete, onWhatsApp, isCreatingPayment, isDeletingBill }) => {
   const isPaid = bill.status === 'paid'
   const isPartial = bill.status === 'partial'
   const balance = Number(bill.balance || 0)
@@ -174,8 +184,8 @@ export default function MobileBillingList() {
 
     // Sorting
     result.sort((a, b) => {
-      if (sortBy === 'newest') return new Date(b.date || b.created_at || b.createdAt) - new Date(a.date || a.created_at || a.createdAt)
-      if (sortBy === 'oldest') return new Date(a.date || a.created_at || a.createdAt) - new Date(b.date || b.created_at || b.createdAt)
+      if (sortBy === 'newest') return new Date(b.date || b.created_at || b.createdAt || 0).getTime() - new Date(a.date || a.created_at || a.createdAt || 0).getTime()
+      if (sortBy === 'oldest') return new Date(a.date || a.created_at || a.createdAt || 0).getTime() - new Date(b.date || b.created_at || b.createdAt || 0).getTime()
       if (sortBy === 'highest') return Number(b.total || 0) - Number(a.total || 0)
       if (sortBy === 'lowest') return Number(a.total || 0) - Number(b.total || 0)
       return 0
