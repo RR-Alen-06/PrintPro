@@ -2,16 +2,14 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Loader2, ShieldCheck, CheckCircle2, Zap, Lock } from 'lucide-react';
-import { useMobileDetect } from '../hooks/useMobileDetect';
 import '../styles/aurora.css';
 
 const AuthCallback = () => {
   const navigate = useNavigate();
-  const { effectiveMode } = useMobileDetect();
 
   useEffect(() => {
-    const dashboardRoute = effectiveMode === 'mobile' ? '/mobile/dashboard' : '/dashboard';
-    const authRoute = effectiveMode === 'mobile' ? '/mobile/auth' : '/auth';
+    const dashboardRoute = '/dashboard';
+    const authRoute = '/auth';
 
     // Check if user session exists and redirect
     const checkSession = async () => {

@@ -97,7 +97,7 @@ export default function MobileBillDetail() {
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
             The requested bill record #{id} does not exist or was deleted.
           </p>
-          <button className="mobile-btn mobile-btn-primary" onClick={() => navigate('/mobile/billing')}>
+          <button className="mobile-btn mobile-btn-primary" onClick={() => navigate('/billing')}>
             Return to Bills Terminal
           </button>
         </div>
@@ -305,7 +305,7 @@ export default function MobileBillDetail() {
               </span>
               <button
                 className="mobile-btn mobile-btn-secondary"
-                onClick={() => navigate(`/mobile/create-bill?edit=${bill.id}`)}
+                onClick={() => navigate(`/create-bill?edit=${bill.id}`)}
                 style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
               >
                 <Pencil size={12} /> Edit Bill

@@ -385,18 +385,18 @@ export default function MobileCreateBill() {
         await updateBillAndSync({ id: editBillId, data: billPayload })
         if (editBill) editBill(billPayload)
         showToast(`Bill #${billPayload.invoiceNumber} updated successfully!`, 'success')
-        navigate(`/mobile/bill/${editBillId}`)
+        navigate(`/bill/${editBillId}`)
       } else {
         // Fire unified mutation and navigate immediately using optimistic id
         const mutationPromise = createBillAndSync(billPayload)
-        navigate(`/mobile/bill/${billPayload.id}`)
+        navigate(`/bill/${billPayload.id}`)
         showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
 
         mutationPromise
           .then(async (created) => {
             const savedResultId = created?.id || billPayload.id
             if (created?.id && created.id !== billPayload.id) {
-              navigate(`/mobile/bill/${created.id}`, { replace: true })
+              navigate(`/bill/${created.id}`, { replace: true })
             }
 
             // Deduct stock for product-type items

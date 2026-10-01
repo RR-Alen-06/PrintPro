@@ -11,18 +11,18 @@ export default function MobileBottomNav() {
   const [showMoreDrawer, setShowMoreDrawer] = useState(false)
 
   const navItems = [
-    { to: '/mobile/dashboard', label: 'Home', icon: LayoutDashboard },
-    { to: '/mobile/billing', label: 'Bills', icon: Receipt },
-    { to: '/mobile/create-bill', label: 'New Bill', icon: PlusCircle },
-    { to: '/mobile/settings', label: 'Settings', icon: Settings },
+    { to: '/dashboard', label: 'Home', icon: LayoutDashboard },
+    { to: '/billing', label: 'Bills', icon: Receipt },
+    { to: '/create-bill', label: 'New Bill', icon: PlusCircle },
+    { to: '/settings', label: 'Settings', icon: Settings },
   ]
 
   const moreModules = [
-    { to: '/mobile/customers', label: 'Customer Hub', icon: Users },
-    { to: '/mobile/accounting', label: 'Finance & Accounts', icon: DollarSign },
-    { to: '/mobile/group-billing', label: 'Group Billing', icon: Layers },
-    { to: '/mobile/inventory', label: 'Inventory Rates', icon: Inbox },
-    { to: '/mobile/receipt', label: 'Thermal Receipt', icon: Printer },
+    { to: '/customers', label: 'Customer Hub', icon: Users },
+    { to: '/accounting', label: 'Finance & Accounts', icon: DollarSign },
+    { to: '/group-billing', label: 'Group Billing', icon: Layers },
+    { to: '/inventory', label: 'Inventory Rates', icon: Inbox },
+    { to: '/receipt', label: 'Thermal Receipt', icon: Printer },
   ]
 
   return (

@@ -53,15 +53,15 @@ export default function MobileNotificationDrawer({ isOpen, onClose }: MobileNoti
 
     const text = `${item.title || ''} ${item.message || ''}`.toLowerCase()
     if (text.includes('stock') || text.includes('inventory')) {
-      navigate('/mobile/inventory')
+      navigate('/inventory')
     } else if (text.includes('bill') || text.includes('invoice')) {
-      navigate('/mobile/billing')
+      navigate('/billing')
     } else if (text.includes('customer') || text.includes('advance')) {
-      navigate('/mobile/customers')
+      navigate('/customers')
     } else if (text.includes('expense') || text.includes('cashbook') || text.includes('z-report')) {
-      navigate('/mobile/accounting')
+      navigate('/accounting')
     } else if (text.includes('backup')) {
-      navigate('/mobile/settings?tab=backup')
+      navigate('/settings?tab=backup')
     }
     onClose()
   }

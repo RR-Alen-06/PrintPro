@@ -25,7 +25,7 @@ export default function MobileHeader({ title }: MobileHeaderProps) {
     select: (m) => m.state.status === 'pending'
   }).length > 0
 
-  const isHome = location.pathname === '/mobile/dashboard'
+  const isHome = location.pathname === '/' || location.pathname === '/dashboard' || location.pathname === '/mobile/dashboard'
 
   const unreadCount = useMemo(() => {
     return notifications.filter((n) => !n.read).length
