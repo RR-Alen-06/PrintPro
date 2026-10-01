@@ -39,7 +39,7 @@ const AuthCallback = () => {
     };
 
     checkSession();
-  }, [navigate, effectiveMode]);
+  }, [navigate]);
 
   return (
     <div
