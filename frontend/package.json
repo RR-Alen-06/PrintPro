@@ -27,15 +27,21 @@
     "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
+    "@typescript-eslint/eslint-plugin": "^8.71.0",
+    "@typescript-eslint/parser": "^8.71.0",
     "@vitejs/plugin-react": "^4.2.0",
     "eslint": "^9.20.0",
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-security": "^3.0.1",
     "globals": "^15.15.0",
-    "typescript": "^7.0.2",
+    "jiti": "^2.7.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.71.0",
+    "typescript-native": "npm:typescript@^7.0.2",
     "vite": "^6.4.2",
     "vitest": "^4.1.11",
     "zod": "^4.4.3"
