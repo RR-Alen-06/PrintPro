@@ -35,7 +35,7 @@ export const billItemSchema = z.object({
 export const billSchema = z.object({
   id: z.string().optional(),
   invoice_number: z.string().optional(),
-  customer_id: z.string().min(1, 'Customer ID is required'),
+  customer_id: z.string().optional().default('walk-in'),
   date: z.string().min(1, 'Date is required'),
   due_date: z.string().nullable().optional(),
   subtotal: z.number().nonnegative().default(0),
@@ -48,8 +48,15 @@ export const billSchema = z.object({
   balance: z.number().nonnegative().default(0),
   status: z.enum(['unpaid', 'partial', 'paid']).default('unpaid'),
   notes: z.string().optional().default(''),
-  items: z.array(billItemSchema).optional()
-});
+  items: z.array(billItemSchema).optional(),
+  cash_amount: z.number().nonnegative().optional().default(0),
+  cashAmount: z.number().nonnegative().optional().default(0),
+  upi_amount: z.number().nonnegative().optional().default(0),
+  upiAmount: z.number().nonnegative().optional().default(0),
+  advance_used: z.number().nonnegative().optional(),
+  advanceUsed: z.number().nonnegative().optional(),
+  payment_mode: z.string().optional()
+}).passthrough();
 
 export const updateBillSchema = billSchema.partial();
 

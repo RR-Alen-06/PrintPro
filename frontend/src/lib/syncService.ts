@@ -12,7 +12,7 @@ import api, { isBackendAvailable, markBackendUnavailable } from '../api';
  * Pushes locally created entities to the cloud backend.
  * This ensures data written locally gets synced to the Supabase Postgres database.
  */
-export const syncEntityToCloud = async (action: string, payload: any) => {
+export const syncEntityToCloud = async (action: string, payload: Record<string, any>) => {
   try {
     switch (action) {
       case 'ADD_CUSTOMER':
@@ -30,13 +30,14 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
 
       case 'UPDATE_CUSTOMER':
         if (payload.id) {
-          const custUpdateData: Record<string, any> = {};
+          const custUpdateData: Record<string, unknown> = {};
           if (payload.updates.name !== undefined) custUpdateData.name = payload.updates.name;
           if (payload.updates.phone !== undefined) custUpdateData.phone = payload.updates.phone;
           if (payload.updates.email !== undefined) custUpdateData.email = payload.updates.email;
           if (payload.updates.address !== undefined) custUpdateData.address = payload.updates.address;
           if (payload.updates.type !== undefined) custUpdateData.type = payload.updates.type;
           if (payload.updates.creditBalance !== undefined) custUpdateData.credit_balance = payload.updates.creditBalance;
+          if (payload.updates.advanceBalance !== undefined) custUpdateData.advance_balance = payload.updates.advanceBalance;
           if (payload.updates.creditLimit !== undefined) custUpdateData.credit_limit = payload.updates.creditLimit;
           await updateCustomer(payload.id, custUpdateData);
         }
@@ -45,20 +46,21 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
       case 'UPDATE_CUSTOMER_FULL':
         if (payload.id) {
           const editData = payload.data || {};
-          const custUpdateData: Record<string, any> = {};
+          const custUpdateData: Record<string, unknown> = {};
           if (editData.name !== undefined) custUpdateData.name = editData.name;
           if (editData.phone !== undefined) custUpdateData.phone = editData.phone;
           if (editData.email !== undefined) custUpdateData.email = editData.email;
           if (editData.address !== undefined) custUpdateData.address = editData.address;
           if (editData.type !== undefined) custUpdateData.type = editData.type;
           if (editData.creditBalance !== undefined) custUpdateData.credit_balance = editData.creditBalance;
+          if (editData.advanceBalance !== undefined) custUpdateData.advance_balance = editData.advanceBalance;
           if (editData.creditLimit !== undefined) custUpdateData.credit_limit = editData.creditLimit;
           await updateCustomer(payload.id, custUpdateData);
         }
         break;
 
       case 'DELETE_CUSTOMER':
-        await deleteCustomer(payload);
+        await deleteCustomer(typeof payload === 'string' ? payload : (payload?.id || String(payload)));
         break;
 
       case 'ADD_INVENTORY_ITEM':
@@ -142,7 +144,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
             notes += ` [WriteOff: amount=${payload.updates.writtenOffAmount}]`;
           }
 
-          const mappedUpdates: Record<string, any> = {
+          const mappedUpdates: Record<string, unknown> = {
             customer_id: payload.updates.customerId,
             date: payload.updates.date,
             due_date: payload.updates.dueDate,
@@ -158,7 +160,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
             notes: notes
           };
           if (payload.updates.items) {
-            mappedUpdates.items = payload.updates.items.map((item: any) => ({
+            mappedUpdates.items = payload.updates.items.map((item: Record<string, any>) => ({
               item_name: item.itemName || item.name || item.item_name,
               print_type: item.printType || item.print_type || 'color',
               sides: item.sides || 'single',
@@ -172,11 +174,11 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
         break;
 
       case 'DELETE_BILL':
-        await deleteBill(payload);
+        await deleteBill(typeof payload === 'string' ? payload : (payload?.id || String(payload)));
         break;
 
       case 'RESTORE_BILL':
-        await restoreBill(payload);
+        await restoreBill(typeof payload === 'string' ? payload : (payload?.id || String(payload)));
         break;
 
       case 'ADD_PAYMENT':
@@ -195,7 +197,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
 
       case 'DELETE_PAYMENT':
         if (payload) {
-          await deletePayment(payload);
+          await deletePayment(typeof payload === 'string' ? payload : (payload?.id || String(payload)));
         }
         break;
 
@@ -212,7 +214,7 @@ export const syncEntityToCloud = async (action: string, payload: any) => {
         });
 
       case 'DELETE_EXPENSE':
-        await deletePurchase(payload);
+        await deletePurchase(typeof payload === 'string' ? payload : (payload?.id || String(payload)));
         break;
 
       case 'UPDATE_BUSINESS':
@@ -275,7 +277,7 @@ export const clearAllCloudData = async () => {
     try {
       const response = await api.delete('/settings/clear-all');
       return response.data;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.warn('Backend clear-all failed, attempting Supabase fallback:', err);
       markBackendUnavailable();
     }
@@ -299,7 +301,7 @@ export const clearAllCloudData = async () => {
       await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
     }
     return { success: true, message: 'Data cleared from database' };
-  } catch (supaErr: any) {
+  } catch (supaErr: unknown) {
     logger.error('Failed to clear Supabase data:', supaErr);
     return { success: true, message: 'Local data cleared' };
   }
@@ -310,7 +312,7 @@ export const clearTransactionRecords = async () => {
     try {
       const response = await api.delete('/settings/clear-transactions');
       return response.data;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.warn('Backend clear-transactions failed, attempting Supabase fallback:', err);
       markBackendUnavailable();
     }
@@ -333,7 +335,7 @@ export const clearTransactionRecords = async () => {
       await supabase.from('business_profile').update({ advance_payments: [] }).eq('user_id', user.id);
     }
     return { success: true, message: 'Transactions cleared from database' };
-  } catch (supaErr: any) {
+  } catch (supaErr: unknown) {
     logger.error('Failed to clear Supabase transactions:', supaErr);
     return { success: true, message: 'Local transactions cleared' };
   }

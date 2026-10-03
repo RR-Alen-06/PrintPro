@@ -178,7 +178,17 @@ export const createBill = async (data: any) => {
     notes: data.notes || '',
     cash_amount: Number(data.cash_amount !== undefined ? data.cash_amount : (data.cashAmount || 0)),
     upi_amount: Number(data.upi_amount !== undefined ? data.upi_amount : (data.upiAmount || 0)),
-    advance_used: Number(data.advance_used !== undefined ? data.advance_used : (data.advanceUsed || 0)),
+    advance_used: Number(
+      data.advance_used !== undefined
+        ? data.advance_used
+        : data.advanceUsed !== undefined
+        ? data.advanceUsed
+        : data.advance_deducted !== undefined
+        ? data.advance_deducted
+        : data.advanceDeducted !== undefined
+        ? data.advanceDeducted
+        : (data.advancePaid || 0)
+    ),
     return_change_upi: Number(data.return_change_upi !== undefined ? data.return_change_upi : (data.returnChangeUpi || 0)),
     items: (data.items || []).map((item: any) => {
       const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
@@ -290,17 +300,21 @@ export const createBill = async (data: any) => {
       user_id: user?.id
     }]);
 
-    // Deduct from customer credit balance
+    // Deduct from customer advance balance and credit balance
     const { data: custData } = await supabase
       .from('customers')
-      .select('credit_balance')
+      .select('credit_balance, advance_balance')
       .eq('id', bill.customer_id)
       .maybeSingle();
     if (custData) {
-      const currentCredit = Number(custData.credit_balance || 0);
+      const currentAdv = Number(custData.advance_balance !== undefined ? custData.advance_balance : (custData.credit_balance || 0));
+      const newAdv = Math.max(0, currentAdv - advUsed);
       await supabase
         .from('customers')
-        .update({ credit_balance: Math.max(0, currentCredit - advUsed) })
+        .update({
+          advance_balance: newAdv,
+          credit_balance: newAdv
+        })
         .eq('id', bill.customer_id);
     }
   }

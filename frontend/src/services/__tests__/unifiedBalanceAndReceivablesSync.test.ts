@@ -363,5 +363,41 @@ describe('Unified Balance & Receivables Synchronization Suite', () => {
     expect(accountingTotalReceivables).toBe(ledger.closingBalance);
     expect(ledger.closingBalance).toBe(customerPageNetDue);
   });
+
+  it('prevents double deduction when historical bills recorded advance deductions', () => {
+    // Customer deposited 1000, used 500 on a bill, DB now stores advanceBalance = 500
+    const customerWithAdvance = {
+      id: 'cust-adv-1',
+      name: 'Alpha Corporate',
+      customerCode: 'RC0001',
+      advanceBalance: 500, // authoritative remaining advance in DB
+    };
+
+    const pastBillWithAdvance = {
+      id: 'bill-adv-1',
+      bill_number: 'INV-000001',
+      customerId: customerWithAdvance.id,
+      customerName: customerWithAdvance.name,
+      total: 500,
+      amountPaid: 500,
+      advanceUsed: 500,
+      balance: 0,
+      status: 'paid',
+    };
+
+    const arResult = ReconciliationService.calculateAccountsReceivables({
+      bills: [pastBillWithAdvance],
+      payments: [],
+      customers: [customerWithAdvance],
+    });
+
+    // Customer has 0 gross due and 500 available advance pool
+    const summary = arResult.allCustomerSummaries.find((c) => c.customerId === customerWithAdvance.id);
+    expect(summary).toBeDefined();
+    expect(summary?.grossDue).toBe(0);
+    expect(summary?.advanceBalance).toBe(500); // Must remain 500, not double-deducted to 0
+    expect(arResult.totalAdvancePool).toBe(500);
+    expect(arResult.totalReceivables).toBe(0);
+  });
 });
 

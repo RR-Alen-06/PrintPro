@@ -14,7 +14,7 @@
     "allowJs": true,
     "strict": false,
     "forceConsistentCasingInFileNames": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"]
   },
   "include": ["src"]
 }

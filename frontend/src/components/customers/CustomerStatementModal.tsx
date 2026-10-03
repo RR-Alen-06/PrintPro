@@ -10,10 +10,6 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
-  DollarSign,
-  ShoppingBag,
-  TrendingUp,
-  AlertCircle,
   ExternalLink,
   Share2,
 } from 'lucide-react';
@@ -24,12 +20,12 @@ interface CustomerStatementModalProps {
   isOpen: boolean;
   onClose: () => void;
   customerId?: string | null;
-  customers?: any[];
-  bills?: any[];
-  payments?: any[];
-  advancePayments?: any[];
-  business?: any;
-  settings?: any;
+  customers?: Array<Record<string, unknown>>;
+  bills?: Array<Record<string, unknown>>;
+  payments?: Array<Record<string, unknown>>;
+  advancePayments?: Array<Record<string, unknown>>;
+  business?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
   onInspectBill?: (billId: string) => void;
 }
 
@@ -45,8 +41,6 @@ export default function CustomerStatementModal({
   settings = {},
   onInspectBill,
 }: CustomerStatementModalProps) {
-  if (!isOpen || !customerId) return null;
-
   const [period, setPeriod] = useState<string>('this_month');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -57,6 +51,7 @@ export default function CustomerStatementModal({
 
   // Compute statement data
   const statementData: CustomerStatementData | null = useMemo(() => {
+    if (!customerId) return null;
     return StatementService.getCustomerStatementData({
       customerId,
       filter: period,
@@ -81,7 +76,7 @@ export default function CustomerStatementModal({
     settings,
   ]);
 
-  if (!statementData) return null;
+  if (!isOpen || !customerId || !statementData) return null;
 
   const toggleBillExpand = (billId: string) => {
     setExpandedBills((prev) => ({
@@ -246,7 +241,7 @@ export default function CustomerStatementModal({
               className="bg-[#181230] border border-cyan-500/30 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-cyan-400"
             >
               {STATEMENT_PERIOD_OPTIONS.map((opt) => (
-                <option key={opt.key} value={opt.key}>
+                <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}

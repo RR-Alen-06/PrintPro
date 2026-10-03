@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses } from '../../hooks/useExpensesQuery'
 import { ReconciliationService } from '../../services/reconciliationService'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -13,7 +13,8 @@ import {
   TrendingUp, Clock, Wallet, CheckCircle, RefreshCw,
   PlusCircle, UserPlus, Download,
   Receipt, Users, Inbox, BarChart3, Search, ArrowDownRight, DollarSign,
-  MessageSquare, ExternalLink, CreditCard, ChevronRight
+  MessageSquare, CreditCard, ChevronRight,
+  User, Smartphone, Banknote, Layers, X, Sparkles, Check, Coins
 } from 'lucide-react'
 import { SequenceService } from '../../services/sequenceService'
 import { ReminderService } from '../../services/reminderService'
@@ -34,6 +35,7 @@ interface MetricsRowProps {
     periodExpenses: number
     totalRefunds: number
     netCashFlow: number
+    advancePool?: number
   }
 }
 
@@ -64,7 +66,7 @@ const MetricsRow = React.memo(({ stats }: MetricsRowProps) => {
           ₹{stats.pendingAmount.toLocaleString('en-IN')}
         </div>
         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-          {stats.unpaidCount} Pending Invoice(s)
+          {stats.unpaidCount} Pending Invoice(s){(stats.advancePool || 0) > 0 ? ` • Adv: ₹${(stats.advancePool || 0).toLocaleString('en-IN')}` : ''}
         </div>
       </div>
 
@@ -130,10 +132,11 @@ export default function MobileDashboard() {
   } = useUnifiedFinancialHub()
 
   // TanStack Queries & Mutations
-  const { data: bills = [], isLoading: isLoadingBills } = useBills()
-  const { data: customers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: payments = [], isLoading: isLoadingPayments } = usePayments()
-  const { data: expenses = [], isLoading: isLoadingExpenses } = useExpenses()
+  const { data: bills = [] } = useBills()
+  const { data: customers = [] } = useCustomers()
+  const { data: payments = [] } = usePayments()
+  const { data: advancePayments = [] } = useAdvancePayments()
+  const { data: expenses = [] } = useExpenses()
   const { createCustomer: createCustomerMutation, updateCustomer: updateCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { createPayment: createPaymentMutation } = usePaymentMutations()
   const { updateBill: updateBillMutation } = useBillMutations()
@@ -156,6 +159,8 @@ export default function MobileDashboard() {
 
   // Payment Form States
   const [paymentCustomerId, setPaymentCustomerId] = useState('')
+  const [paymentCustomerSearch, setPaymentCustomerSearch] = useState('')
+  const [paymentCustomerFilter, setPaymentCustomerFilter] = useState<'all' | 'due' | 'regular' | 'walkin'>('all')
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentMode, setPaymentMode] = useState('cash')
   const [paymentCash, setPaymentCash] = useState('')
@@ -169,23 +174,75 @@ export default function MobileDashboard() {
   const [newCustEmail, setNewCustEmail] = useState('')
   const [newCustType, setNewCustType] = useState('regular')
 
+  // Selected customer object & live financials
+  const selectedCustomerObj = useMemo(() => {
+    if (!paymentCustomerId) return null
+    return (customers || []).find((c) => String(c.id) === String(paymentCustomerId)) || null
+  }, [customers, paymentCustomerId])
+
+  const selectedCustomerFinancials = useMemo(() => {
+    if (!paymentCustomerId) return null
+    return getCustomerFinancials(paymentCustomerId)
+  }, [paymentCustomerId, getCustomerFinancials])
+
   // Calculate live outstanding dues for selected customer in payment modal
   const selectedCustomerDue = useMemo(() => {
     if (!paymentCustomerId) return 0
-    const fin = getCustomerFinancials(paymentCustomerId)
-    if (fin) return fin.netDue
+    if (selectedCustomerFinancials) return selectedCustomerFinancials.netDue
     return (bills || [])
-      .filter(b => {
+      .filter((b) => {
         if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
         const bCustId = b.customerId || b.customer_id
         return String(bCustId) === String(paymentCustomerId) && Number(b.balance || 0) > 0
       })
       .reduce((sum, b) => sum + Number(b.balance || 0), 0)
-  }, [bills, paymentCustomerId, getCustomerFinancials])
+  }, [bills, paymentCustomerId, selectedCustomerFinancials])
 
-  const handleNavigate = useCallback((path) => {
-    navigate(path)
-  }, [navigate])
+  // Enriched customer list for searchable picker in payment modal
+  const paymentModalFilteredCustomers = useMemo(() => {
+    let list = (customers || []).map((c) => {
+      const fin = getCustomerFinancials(c.id)
+      const due = fin ? fin.netDue : (bills || [])
+        .filter((b) => {
+          if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
+          const bCustId = b.customerId || b.customer_id
+          return String(bCustId) === String(c.id) && Number(b.balance || 0) > 0
+        })
+        .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+      const adv = fin ? (fin.advanceBalance || fin.creditSurplus || 0) : Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0)
+      const displayCode = c.customerCode || SequenceService.formatDisplayCode(c.id, 'CUS')
+      return {
+        ...c,
+        due,
+        adv,
+        displayCode,
+      }
+    })
+
+    if (paymentCustomerFilter === 'due') {
+      list = list.filter((c) => c.due > 0)
+    } else if (paymentCustomerFilter === 'regular') {
+      list = list.filter((c) => c.type === 'regular')
+    } else if (paymentCustomerFilter === 'walkin') {
+      list = list.filter((c) => c.type !== 'regular')
+    }
+
+    if (paymentCustomerSearch.trim()) {
+      const q = paymentCustomerSearch.toLowerCase().trim()
+      list = list.filter((c) =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.toLowerCase().includes(q)) ||
+        (c.displayCode && c.displayCode.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q))
+      )
+    }
+
+    // Sort: highest outstanding due first, then alphabetically
+    return list.sort((a, b) => {
+      if (b.due !== a.due) return b.due - a.due
+      return (a.name || '').localeCompare(b.name || '')
+    })
+  }, [customers, bills, getCustomerFinancials, paymentCustomerFilter, paymentCustomerSearch])
 
   const handleRecordPaymentSubmit = useCallback(async (e) => {
     e.preventDefault()
@@ -327,7 +384,7 @@ export default function MobileDashboard() {
       }
       await queryClient.invalidateQueries()
       showToast('Cloud Data Synced Successfully', 'success')
-    } catch (e) {
+    } catch (_e) {
       showToast('Sync Failed: Check network connection', 'error')
     } finally {
       setIsSyncing(false)
@@ -388,7 +445,7 @@ export default function MobileDashboard() {
     return (customers || []).filter(c => !c.deleted).length
   }, [customers])
 
-  const allTimePendingAmount = storeFinancials.totalGrossDue
+  const allTimePendingAmount = storeFinancials.totalAccountsReceivable
   const allTimeAdvancePool = storeFinancials.totalAdvancePool
   const allTimeNetDue = storeFinancials.totalAccountsReceivable
 
@@ -417,7 +474,24 @@ export default function MobileDashboard() {
 
     const periodPayments = (payments || []).filter((p) => {
       if (p.isRefund || p.is_refund) return false
-      const d = new Date(p.date)
+      const notesLower = String(p.notes || '').toLowerCase()
+      const isAdvanceApplied =
+        notesLower.includes('advance balance applied') ||
+        notesLower.includes('from advance deposit') ||
+        notesLower.includes('fifo payment from advance deposit') ||
+        p.paymentType === 'advance_deduction' ||
+        p.payment_type === 'advance_deduction'
+      if (isAdvanceApplied) return false
+
+      const d = new Date(p.date || p.created_at)
+      if (activeDateRange.start && d < activeDateRange.start) return false
+      if (activeDateRange.end && d > activeDateRange.end) return false
+      return true
+    })
+
+    const periodAdvances = (advancePayments || []).filter((ap) => {
+      if (ap.isReturn || ap.type === 'return' || Number(ap.amount || 0) <= 0) return false
+      const d = new Date(ap.date || ap.created_at)
       if (activeDateRange.start && d < activeDateRange.start) return false
       if (activeDateRange.end && d > activeDateRange.end) return false
       return true
@@ -426,33 +500,68 @@ export default function MobileDashboard() {
     let cashTotal = 0
     let upiTotal = 0
     periodPayments.forEach((p) => {
-      cashTotal += Number(p.cashAmount || p.cash_amount || 0)
-      upiTotal += Number(p.upiAmount || p.upi_amount || 0)
+      let cash = Number(p.cashAmount || p.cash_amount || 0)
+      let upi = Number(p.upiAmount || p.upi_amount || 0)
+      const totalPaid = Number(
+        p.totalPaid !== undefined ? p.totalPaid : p.amount !== undefined ? p.amount : p.total_paid || 0
+      )
+      if (cash === 0 && upi === 0 && totalPaid > 0) {
+        const method = String(p.payment_method || p.paymentMethod || p.paymentType || '').toLowerCase()
+        if (method === 'upi') upi = totalPaid
+        else cash = totalPaid
+      }
+      cashTotal += cash
+      upiTotal += upi
     })
-    const cashInflow = cashTotal + upiTotal
+
+    periodAdvances.forEach((ap) => {
+      let cash = Number(ap.cashAmount || ap.cash_amount || 0)
+      let upi = Number(ap.upiAmount || ap.upi_amount || 0)
+      const amt = Number(ap.amount || 0)
+      if (cash === 0 && upi === 0 && amt > 0) {
+        const method = String(ap.paymentMethod || ap.payment_method || 'cash').toLowerCase()
+        if (method === 'upi') upi = amt
+        else cash = amt
+      }
+      cashTotal += cash
+      upiTotal += upi
+    })
+
+    const cashInflow = Number((cashTotal + upiTotal).toFixed(2))
 
     const periodExpenses = (expenses || [])
       .filter((e) => {
-        const d = new Date(e.date)
+        const d = new Date(e.date || e.created_at)
         if (activeDateRange.start && d < activeDateRange.start) return false
         if (activeDateRange.end && d > activeDateRange.end) return false
         return true
       })
-      .reduce((sum, e) => sum + Number(e.amount || 0), 0)
+      .reduce((sum, e) => sum + Number(e.amount || e.total || 0), 0)
 
-    const refundPayments = (payments || []).filter(
-      (p) =>
-        p.isRefund ||
-        p.is_refund ||
-        p.paymentType === 'refund' ||
-        Number(p.totalPaid || p.total_paid || 0) < 0
-    )
-    const totalRefunds = refundPayments.reduce(
-      (sum, p) => sum + Math.abs(Number(p.totalPaid || p.total_paid || 0)),
-      0
-    )
+    const refundPayments = (payments || []).filter((p) => {
+      const isRef = p.isRefund || p.is_refund || p.paymentType === 'refund' || Number(p.totalPaid || p.total_paid || 0) < 0
+      if (!isRef) return false
+      const d = new Date(p.date || p.created_at)
+      if (activeDateRange.start && d < activeDateRange.start) return false
+      if (activeDateRange.end && d > activeDateRange.end) return false
+      return true
+    })
 
-    const netCashFlow = cashInflow - periodExpenses - totalRefunds
+    const returnAdvances = (advancePayments || []).filter((a) => {
+      const isRet = a.isReturn || a.type === 'return' || Number(a.amount || 0) < 0
+      if (!isRet) return false
+      const d = new Date(a.date || a.created_at)
+      if (activeDateRange.start && d < activeDateRange.start) return false
+      if (activeDateRange.end && d > activeDateRange.end) return false
+      return true
+    })
+
+    const totalRefunds = Number((
+      refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || p.total_paid || p.amount || 0)), 0) +
+      returnAdvances.reduce((sum, a) => sum + Math.abs(Number(a.amount || 0)), 0)
+    ).toFixed(2))
+
+    const netCashFlow = Number((cashInflow - periodExpenses - totalRefunds).toFixed(2))
 
     return {
       totalRevenue,
@@ -460,14 +569,15 @@ export default function MobileDashboard() {
       billCount: filteredBills.length,
       pendingAmount,
       unpaidCount: unpaidBills.length,
+      advancePool: allTimeAdvancePool,
       cashInflow,
-      cashTotal,
-      upiTotal,
-      periodExpenses,
+      cashTotal: Number(cashTotal.toFixed(2)),
+      upiTotal: Number(upiTotal.toFixed(2)),
+      periodExpenses: Number(periodExpenses.toFixed(2)),
       totalRefunds,
       netCashFlow,
     }
-  }, [filteredBills, reconciledBills, allTimeReconciledBills, allTimePendingAmount, payments, expenses, activeDateRange])
+  }, [filteredBills, reconciledBills, allTimeReconciledBills, allTimePendingAmount, allTimeAdvancePool, payments, advancePayments, expenses, activeDateRange])
 
   // Handle Add Customer Form
   const handleAddCustomerSubmit = useCallback(async (e) => {
@@ -486,7 +596,7 @@ export default function MobileDashboard() {
         credit_balance: 0,
         creditBalance: 0
       }
-      const created = await createCustomerMutation(payload)
+      await createCustomerMutation(payload)
       showToast(`Customer '${payload.name}' added successfully!`, 'success')
       setNewCustName('')
       setNewCustPhone('')
@@ -940,180 +1050,592 @@ export default function MobileDashboard() {
       {/* Quick Record Payment Modal Drawer */}
       <BottomSheet
         isOpen={showRecordPaymentModal}
-        onClose={() => setShowRecordPaymentModal(false)}
+        onClose={() => {
+          setShowRecordPaymentModal(false)
+          setPaymentCustomerId('')
+          setPaymentCustomerSearch('')
+          setPaymentAmount('')
+          setPaymentNotes('')
+        }}
         title="Record Customer Payment"
       >
         <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          
+          {/* 1. SELECT CUSTOMER SECTION */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              SELECT CUSTOMER
-            </label>
-            <select
-              className="mobile-input"
-              value={paymentCustomerId}
-              onChange={(e) => {
-                const cId = e.target.value
-                setPaymentCustomerId(cId)
-                const fin = getCustomerFinancials(cId)
-                const due = fin ? fin.netDue : (bills || [])
-                  .filter(b => {
-                    if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
-                    const bCustId = b.customerId || b.customer_id
-                    return String(bCustId) === String(cId) && Number(b.balance || 0) > 0
-                  })
-                  .reduce((sum, b) => sum + Number(b.balance || 0), 0)
-                if (due > 0) {
-                  setPaymentAmount(due.toString())
-                }
-              }}
-              required
-              style={{ padding: '10px 12px' }}
-            >
-              <option value="">-- Choose Customer --</option>
-              {customers.map((c) => {
-                const fin = getCustomerFinancials(c.id)
-                const due = fin ? fin.netDue : (bills || [])
-                  .filter(b => {
-                    if (b.deleted || b.deleted_at || b.isGroupParent || b.is_group_parent) return false
-                    const bCustId = b.customerId || b.customer_id
-                    return String(bCustId) === String(c.id) && Number(b.balance || 0) > 0
-                  })
-                  .reduce((sum, b) => sum + Number(b.balance || 0), 0)
-                const custCode = c.customerCode || SequenceService.formatDisplayCode(c.id, 'CUS')
-                return (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({custCode}) {due > 0 ? `— Due: ₹${due.toLocaleString('en-IN')}` : ''}
-                  </option>
-                )
-              })}
-            </select>
-          </div>
-
-          {/* Outstanding Balance Banner if customer selected */}
-          {paymentCustomerId && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 12px',
-              borderRadius: 'var(--radius-md)',
-              background: selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)',
-              border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
-            }}>
-              <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>TOTAL OUTSTANDING</span>
-                <span style={{
-                  fontSize: '1rem',
-                  fontWeight: 800,
-                  color: selectedCustomerDue > 0 ? 'var(--error)' : 'var(--success)'
-                }}>
-                  ₹{selectedCustomerDue.toLocaleString('en-IN')}
-                </span>
-              </div>
-              {selectedCustomerDue > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <User size={14} color="var(--aurora-cyan, #00f0ff)" />
+                SELECT CUSTOMER / CLIENT
+              </label>
+              {paymentCustomerId && (
                 <button
                   type="button"
-                  onClick={() => setPaymentAmount(selectedCustomerDue.toString())}
+                  onClick={() => {
+                    setPaymentCustomerId('')
+                    setPaymentCustomerSearch('')
+                    setPaymentAmount('')
+                  }}
                   style={{
-                    padding: '4px 10px',
-                    fontSize: '0.75rem',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--aurora-cyan, #00f0ff)',
+                    fontSize: '0.72rem',
                     fontWeight: 700,
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--accent-primary)',
-                    background: 'rgba(255, 47, 176, 0.15)',
-                    color: 'var(--accent-primary)',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: 0,
                   }}
                 >
-                  Pay Full Due
+                  <RefreshCw size={11} /> Change Client
                 </button>
               )}
             </div>
-          )}
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              AMOUNT RECEIVED (₹)
-            </label>
-            <input
-              type="number"
-              className="mobile-input"
-              placeholder="0.00"
-              step="any"
-              min="0"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-              required
-              style={{ fontSize: '1.1rem', fontWeight: 800 }}
-            />
+            {/* If Customer NOT Selected: Render Searchable List */}
+            {!paymentCustomerId ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search client by name, phone or code..."
+                    value={paymentCustomerSearch}
+                    onChange={(e) => setPaymentCustomerSearch(e.target.value)}
+                    className="mobile-input"
+                    style={{ paddingLeft: '32px', paddingRight: paymentCustomerSearch ? '30px' : '10px', fontSize: '0.78rem', minHeight: '34px' }}
+                    autoFocus
+                  />
+                  {paymentCustomerSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentCustomerSearch('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Chips */}
+                <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
+                  {[
+                    { key: 'all', label: `All (${customers.length})` },
+                    { key: 'due', label: `With Dues (${customers.filter(c => (getCustomerFinancials(c.id)?.netDue || 0) > 0).length})` },
+                    { key: 'regular', label: 'Regular' },
+                    { key: 'walkin', label: 'Walk-in' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setPaymentCustomerFilter(tab.key as 'all' | 'due' | 'regular' | 'walkin')}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        fontSize: '0.68rem',
+                        fontWeight: paymentCustomerFilter === tab.key ? 700 : 500,
+                        background: paymentCustomerFilter === tab.key ? 'var(--aurora-cyan, #00f0ff)' : 'var(--bg-card)',
+                        color: paymentCustomerFilter === tab.key ? '#000000' : 'var(--text-secondary)',
+                        border: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Scrollable Customer List */}
+                <div style={{
+                  maxHeight: '210px',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '6px',
+                  background: 'rgba(10, 10, 26, 0.6)',
+                }}>
+                  {paymentModalFilteredCustomers.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      No customers found matching &quot;{paymentCustomerSearch}&quot;
+                    </div>
+                  ) : (
+                    paymentModalFilteredCustomers.map((c) => {
+                      const initials = (c.name || 'C').slice(0, 2).toUpperCase()
+                      const hasDue = c.due > 0
+                      const hasAdv = c.adv > 0
+
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setPaymentCustomerId(c.id)
+                            setPaymentCustomerSearch('')
+                            if (c.due > 0) {
+                              setPaymentAmount(c.due.toString())
+                            }
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: hasDue ? 'rgba(239, 68, 68, 0.06)' : 'var(--bg-card)',
+                            border: `1px solid ${hasDue ? 'rgba(239, 68, 68, 0.25)' : 'var(--border)'}`,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            {/* Avatar */}
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              background: hasDue ? 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(185,28,28,0.3))' : 'linear-gradient(135deg, rgba(0,240,255,0.15), rgba(147,51,234,0.2))',
+                              border: `1px solid ${hasDue ? 'rgba(239,68,68,0.4)' : 'rgba(0,240,255,0.3)'}`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              color: hasDue ? '#ef4444' : '#00f0ff',
+                              flexShrink: 0,
+                            }}>
+                              {initials}
+                            </div>
+
+                            {/* Info */}
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {c.name}
+                                </span>
+                                <span style={{
+                                  fontSize: '0.62rem',
+                                  padding: '1px 4px',
+                                  borderRadius: '4px',
+                                  background: c.type === 'regular' ? 'rgba(0,240,255,0.1)' : 'rgba(245,158,11,0.15)',
+                                  color: c.type === 'regular' ? '#00f0ff' : '#fbbf24',
+                                  fontFamily: 'monospace',
+                                  fontWeight: 600,
+                                }}>
+                                  {c.displayCode}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '1px' }}>
+                                {c.phone || 'No mobile'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Dues / Advance Badge */}
+                          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
+                            {hasDue ? (
+                              <div style={{
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(239, 68, 68, 0.15)',
+                                color: '#ef4444',
+                                fontWeight: 800,
+                                fontSize: '0.75rem',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                              }}>
+                                Due: ₹{c.due.toLocaleString('en-IN')}
+                              </div>
+                            ) : hasAdv ? (
+                              <div style={{
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontWeight: 700,
+                                fontSize: '0.72rem',
+                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                              }}>
+                                Adv: ₹{c.adv.toLocaleString('en-IN')}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                ₹0 Due
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Selected Customer Profile View */
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+                background: selectedCustomerDue > 0
+                  ? 'linear-gradient(135deg, rgba(239,68,68,0.12), rgba(16,13,35,0.9))'
+                  : 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,13,35,0.9))',
+                border: `1px solid ${selectedCustomerDue > 0 ? 'rgba(239, 68, 68, 0.35)' : 'rgba(16, 185, 129, 0.35)'}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '10px',
+                      background: selectedCustomerDue > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)',
+                      border: `1px solid ${selectedCustomerDue > 0 ? '#ef4444' : '#10b981'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.85rem',
+                      fontWeight: 800,
+                      color: selectedCustomerDue > 0 ? '#ef4444' : '#10b981',
+                    }}>
+                      {(selectedCustomerObj?.name || 'C').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#ffffff' }}>
+                          {selectedCustomerObj?.name}
+                        </strong>
+                        <span style={{
+                          fontSize: '0.65rem',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: 'rgba(0,240,255,0.15)',
+                          color: '#00f0ff',
+                          fontFamily: 'monospace',
+                          fontWeight: 700
+                        }}>
+                          {selectedCustomerObj?.customerCode || SequenceService.formatDisplayCode(selectedCustomerObj?.id, 'CUS')}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {selectedCustomerObj?.phone || 'No phone'} • {selectedCustomerObj?.type === 'regular' ? 'Regular Client' : 'Walk-in'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
+                      Total Outstanding
+                    </span>
+                    <span style={{
+                      fontSize: '1.15rem',
+                      fontWeight: 900,
+                      color: selectedCustomerDue > 0 ? '#ef4444' : '#10b981'
+                    }}>
+                      ₹{selectedCustomerDue.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Settle Presets */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  {selectedCustomerDue > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentAmount(selectedCustomerDue.toString())}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        borderRadius: '6px',
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        border: '1px solid #ef4444',
+                        color: '#fca5a5',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <Sparkles size={12} /> Pay Full Due (₹{selectedCustomerDue.toLocaleString('en-IN')})
+                    </button>
+                  )}
+                  {[100, 500, 1000, 2000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setPaymentAmount(amt.toString())}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* 2. AMOUNT RECEIVED INPUT */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              PAYMENT MODE
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '0.04em' }}>
+              AMOUNT RECEIVED (₹) *
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-              {['cash', 'upi', 'split'].map((m) => (
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '1.2rem',
+                fontWeight: 800,
+                color: 'var(--aurora-cyan, #00f0ff)'
+              }}>
+                ₹
+              </span>
+              <input
+                type="number"
+                className="mobile-input"
+                placeholder="0.00"
+                step="any"
+                min="0.01"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                required
+                style={{
+                  paddingLeft: '32px',
+                  fontSize: '1.25rem',
+                  fontWeight: 900,
+                  color: '#ffffff',
+                  minHeight: '44px',
+                  background: 'rgba(10, 10, 26, 0.8)',
+                  borderColor: paymentAmount ? 'var(--aurora-cyan, #00f0ff)' : 'var(--border)',
+                  boxShadow: paymentAmount ? '0 0 10px rgba(0,240,255,0.15)' : 'none'
+                }}
+              />
+            </div>
+
+            {/* Real-time Settlement Guidance */}
+            {paymentCustomerId && Number(paymentAmount) > 0 && (
+              <div style={{ marginTop: '6px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {Number(paymentAmount) === selectedCustomerDue ? (
+                  <span style={{ color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={13} /> Exact settlement: All outstanding invoices will be fully cleared!
+                  </span>
+                ) : Number(paymentAmount) < selectedCustomerDue ? (
+                  <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                    • Partial settlement: ₹{(selectedCustomerDue - Number(paymentAmount)).toFixed(2)} will remain due.
+                  </span>
+                ) : (
+                  <span style={{ color: '#00f0ff', fontWeight: 600 }}>
+                    • Overpayment: ₹{(Number(paymentAmount) - selectedCustomerDue).toFixed(2)} will be credited to Advance pool.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 3. PAYMENT MODE SELECTOR */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '0.04em' }}>
+              PAYMENT MODE *
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {[
+                { key: 'cash', label: 'Cash', icon: Banknote, activeColor: '#10b981' },
+                { key: 'upi', label: 'UPI / QR', icon: Smartphone, activeColor: '#00f0ff' },
+                { key: 'split', label: 'Split (Cash+UPI)', icon: Layers, activeColor: '#a855f7' },
+              ].map((m) => {
+                const IconComponent = m.icon
+                const isActive = paymentMode === m.key
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setPaymentMode(m.key)}
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: 'var(--radius-md)',
+                      background: isActive ? 'rgba(30, 27, 75, 0.8)' : 'var(--bg-card)',
+                      border: `1.5px solid ${isActive ? m.activeColor : 'var(--border)'}`,
+                      color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer',
+                      boxShadow: isActive ? `0 0 12px ${m.activeColor}33` : 'none',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <IconComponent size={18} color={isActive ? m.activeColor : 'var(--text-muted)'} />
+                    <span style={{ fontSize: '0.75rem', fontWeight: isActive ? 800 : 600 }}>{m.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Split Mode Breakdown */}
+          {paymentMode === 'split' && (
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(168, 85, 247, 0.08)',
+              border: '1px solid rgba(168, 85, 247, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#10b981', marginBottom: '3px' }}>
+                    Cash Portion (₹)
+                  </label>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    placeholder="0.00"
+                    step="any"
+                    value={paymentCash}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setPaymentCash(val)
+                      const cVal = parseFloat(val) || 0
+                      const tot = parseFloat(paymentAmount) || 0
+                      if (tot > cVal) {
+                        setPaymentUpi((tot - cVal).toFixed(2))
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#00f0ff', marginBottom: '3px' }}>
+                    UPI Portion (₹)
+                  </label>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    placeholder="0.00"
+                    step="any"
+                    value={paymentUpi}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setPaymentUpi(val)
+                      const uVal = parseFloat(val) || 0
+                      const tot = parseFloat(paymentAmount) || 0
+                      if (tot > uVal) {
+                        setPaymentCash((tot - uVal).toFixed(2))
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Split Balance helper */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Sum: ₹{((parseFloat(paymentCash) || 0) + (parseFloat(paymentUpi) || 0)).toFixed(2)} of ₹{parseFloat(paymentAmount) || 0}
+                </span>
+                {Math.abs(((parseFloat(paymentCash) || 0) + (parseFloat(paymentUpi) || 0)) - (parseFloat(paymentAmount) || 0)) < 0.01 ? (
+                  <span style={{ color: '#10b981', fontWeight: 700 }}>✓ Balanced</span>
+                ) : (
+                  <span style={{ color: '#ef4444', fontWeight: 700 }}>⚠ Diff: ₹{Math.abs((parseFloat(paymentAmount) || 0) - ((parseFloat(paymentCash) || 0) + (parseFloat(paymentUpi) || 0))).toFixed(2)}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 4. REMARKS / REFERENCE */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '4px', letterSpacing: '0.04em' }}>
+              REMARKS / PAYMENT REFERENCE (OPTIONAL)
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              placeholder="e.g. GPay / Counter cash settlement / UTR Ref..."
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+              style={{ fontSize: '0.78rem' }}
+            />
+            {/* Quick Reference Chips */}
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+              {['GPay', 'PhonePe', 'Paytm', 'Cash Counter', 'Bank Transfer'].map((tag) => (
                 <button
-                  key={m}
+                  key={tag}
                   type="button"
-                  className={`mobile-btn ${paymentMode === m ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                  onClick={() => setPaymentMode(m)}
-                  style={{ minHeight: '36px', fontSize: '0.78rem', textTransform: 'uppercase' }}
+                  onClick={() => setPaymentNotes(paymentNotes ? `${paymentNotes}, ${tag}` : tag)}
+                  style={{
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    fontSize: '0.65rem',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
                 >
-                  {m}
+                  +{tag}
                 </button>
               ))}
             </div>
           </div>
 
-          {paymentMode === 'split' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>CASH (₹)</label>
-                <input
-                  type="number"
-                  className="mobile-input"
-                  placeholder="0.00"
-                  step="any"
-                  value={paymentCash}
-                  onChange={(e) => setPaymentCash(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>UPI (₹)</label>
-                <input
-                  type="number"
-                  className="mobile-input"
-                  placeholder="0.00"
-                  step="any"
-                  value={paymentUpi}
-                  onChange={(e) => setPaymentUpi(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              REMARKS / REFERENCE (OPTIONAL)
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              placeholder="e.g. GPay / Cash counter settlement"
-              value={paymentNotes}
-              onChange={(e) => setPaymentNotes(e.target.value)}
-            />
+          {/* 5. FIFO SETTLEMENT NOTICE */}
+          <div style={{
+            padding: '8px 10px',
+            borderRadius: '6px',
+            background: 'rgba(0, 240, 255, 0.05)',
+            border: '1px solid rgba(0, 240, 255, 0.15)',
+            fontSize: '0.68rem',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>
+            <Coins size={13} color="var(--aurora-cyan, #00f0ff)" />
+            <span>Automatic FIFO Allocation: Payments settle oldest pending bills first; surplus is added to advance balance.</span>
           </div>
 
+          {/* 6. SUBMIT BUTTON */}
           <button
             type="submit"
             className="mobile-btn mobile-btn-primary"
-            style={{ marginTop: '8px', minHeight: '44px' }}
+            style={{
+              marginTop: '4px',
+              minHeight: '46px',
+              fontSize: '0.88rem',
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, var(--aurora-cyan, #00f0ff), #3b82f6)',
+              color: '#000000',
+              boxShadow: '0 4px 15px rgba(0, 240, 255, 0.3)',
+            }}
             disabled={isSubmittingPayment}
           >
-            {isSubmittingPayment ? 'Recording...' : '✓ Record & Settle Invoices (FIFO)'}
+            {isSubmittingPayment ? 'Recording...' : `✓ Record ${paymentAmount ? `₹${parseFloat(paymentAmount).toFixed(2)}` : 'Payment'} & Auto-Settle (FIFO)`}
           </button>
         </form>
       </BottomSheet>

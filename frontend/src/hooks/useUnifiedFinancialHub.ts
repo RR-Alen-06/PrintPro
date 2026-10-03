@@ -196,7 +196,7 @@ export function useUnifiedFinancialHub() {
 
   // 8. Strict Cash-Flow Daybook Calculator for any Date
   const calculateDaybookForDate = useCallback(
-    (targetDate: string, openingCash = 1000) => {
+    (targetDate: string, openingCash = 0) => {
       let cashIn = 0
       let upiIn = 0
       let cashOut = 0

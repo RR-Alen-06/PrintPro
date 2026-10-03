@@ -252,6 +252,36 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS unallocated_amount DECIMAL(10,2) D
 
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS expense_code VARCHAR(30);
 
+-- ── 4B. INVOICE DEDUPLICATION & PREFIX STANDARDIZATION ─────────────────────────
+-- Soft-deletes duplicate legacy BILLxxxx records if an equivalent INV-xxxxxx exists
+UPDATE bills
+SET deleted_at = NOW()
+WHERE id IN (
+  SELECT b_legacy.id
+  FROM bills b_legacy
+  JOIN bills b_canonical ON b_legacy.customer_id = b_canonical.customer_id
+    AND b_legacy.user_id = b_canonical.user_id
+    AND b_legacy.total = b_canonical.total
+    AND b_legacy.id <> b_canonical.id
+  WHERE (b_legacy.invoice_number ILIKE 'BILL%' OR b_legacy.invoice_number ILIKE '#BILL%')
+    AND (b_canonical.invoice_number ILIKE 'INV-%' OR b_canonical.invoice_number ILIKE '#INV-%')
+    AND b_legacy.deleted_at IS NULL
+    AND b_canonical.deleted_at IS NULL
+    AND ABS(EXTRACT(EPOCH FROM (b_legacy.created_at - b_canonical.created_at))) < 3600
+);
+
+-- Standardize remaining BILLxxxx records to INV-00000X format
+UPDATE bills
+SET invoice_number = 'INV-' || LPAD(REGEXP_REPLACE(invoice_number, '[^0-9]', '', 'g'), 6, '0')
+WHERE (invoice_number ILIKE 'BILL%' OR invoice_number ILIKE '#BILL%')
+  AND deleted_at IS NULL
+  AND REGEXP_REPLACE(invoice_number, '[^0-9]', '', 'g') <> '';
+
+-- Clean leading '#' from invoice numbers
+UPDATE bills
+SET invoice_number = REGEXP_REPLACE(invoice_number, '^#+', '')
+WHERE invoice_number LIKE '#%';
+
 -- ── 5. INDEXES ────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_customers_user ON customers (user_id);
 CREATE INDEX IF NOT EXISTS idx_customers_code ON customers (user_id, customer_code);

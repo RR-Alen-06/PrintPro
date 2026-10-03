@@ -136,7 +136,7 @@ export async function recordPayment(req: any, res: any, next: any) {
     const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
     if (excess > 0) {
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance + $1 WHERE id = $2 AND user_id = $3',
+        'UPDATE customers SET credit_balance = credit_balance + $1, advance_balance = COALESCE(advance_balance, credit_balance) + $1 WHERE id = $2 AND user_id = $3',
         [excess, customerId, req.user.id]
       );
 
