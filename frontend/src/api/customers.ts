@@ -1,28 +1,28 @@
 import api, { isBackendAvailable, markBackendUnavailable } from './index'
-import { supabase, logSupabaseError } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { mapBillFromApi } from './bills'
 import { isValidUUID } from '../lib/uuid'
 import { SequenceService } from '../services/sequenceService'
 
-export const mapCustomerFromApi = (c: any) => {
+export const mapCustomerFromApi = (c: Record<string, unknown> | null | undefined) => {
   if (!c) return c;
-  const rawCode = c.customer_code || c.customerCode || c.code;
+  const rawCode = (c.customer_code || c.customerCode || c.code) as string | undefined;
   const isValidNonUuid = rawCode && typeof rawCode === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCode.trim());
-  const customerCode = isValidNonUuid ? rawCode.trim() : SequenceService.formatDisplayCode('customer', c.id || c, 'CUS');
+  const customerCode = isValidNonUuid ? rawCode.trim() : SequenceService.formatDisplayCode('customer', (c.id || c) as any, 'CUS');
   return {
     ...c,
     id: c.id,
     customerCode,
-  type: c.type || 'regular',
-  name: c.name || '',
-  phone: c.phone || '',
-  email: c.email || '',
-  address: c.address || '',
-  creditBalance: Number(c.credit_balance !== undefined ? c.credit_balance : (c.creditBalance || 0)),
-  advanceBalance: Number(c.advance_balance !== undefined ? c.advance_balance : (c.advanceBalance || c.credit_balance || 0)),
-  creditLimit: Number(c.credit_limit !== undefined ? c.credit_limit : (c.creditLimit || 0)),
-  loyaltyPoints: Number(c.loyalty_points !== undefined ? c.loyalty_points : (c.loyaltyPoints || 0)),
-  createdAt: c.created_at || c.createdAt || new Date().toISOString()
+    type: (c.type || 'regular') as 'regular' | 'walkin',
+    name: (c.name || '') as string,
+    phone: (c.phone || c.mobile || '') as string,
+    email: (c.email || '') as string,
+    address: (c.address || '') as string,
+    creditBalance: Number(c.credit_balance !== undefined ? c.credit_balance : (c.creditBalance || 0)),
+    advanceBalance: Number(c.advance_balance !== undefined ? c.advance_balance : (c.advanceBalance || c.credit_balance || 0)),
+    creditLimit: Number(c.credit_limit !== undefined ? c.credit_limit : (c.creditLimit || 0)),
+    loyaltyPoints: Number(c.loyalty_points !== undefined ? c.loyalty_points : (c.loyaltyPoints || 0)),
+    createdAt: (c.created_at || c.createdAt || new Date().toISOString()) as string
   };
 };
 
@@ -30,10 +30,11 @@ export const getCustomers = async (type = 'all', search = '') => {
   if (isBackendAvailable()) {
     try {
       const res = await api.get('/customers', { params: { type, search } });
-      const mapped = (res.data.data || []).map(mapCustomerFromApi);
+      const mapped = (res.data.data || []).map((c: Record<string, unknown>) => mapCustomerFromApi(c));
       return { data: { data: mapped } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -54,8 +55,9 @@ export const getCustomer = async (id: string) => {
     try {
       const res = await api.get(`/customers/${id}`);
       return { data: { data: mapCustomerFromApi(res.data.data) } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -75,20 +77,66 @@ export const getCustomer = async (id: string) => {
   return { data: { data: mapCustomerFromApi(data) } };
 }
 
-export const createCustomer = async (data: any) => {
+export const sanitizeCustomerDbPayload = (data: Record<string, unknown> | null | undefined) => {
+  if (!data || typeof data !== 'object') return {};
+  const payload: Record<string, unknown> = {};
+
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.phone !== undefined || data.mobile !== undefined) payload.phone = data.phone !== undefined ? data.phone : (data.mobile || '');
+  if (data.email !== undefined) payload.email = data.email || '';
+  if (data.address !== undefined) payload.address = data.address || '';
+  if (data.type !== undefined) payload.type = data.type;
+  
+  if (data.customer_code !== undefined || data.customerCode !== undefined) {
+    payload.customer_code = data.customer_code || data.customerCode;
+  }
+  
+  if (data.credit_limit !== undefined || data.creditLimit !== undefined) {
+    payload.credit_limit = Number(data.credit_limit !== undefined ? data.credit_limit : data.creditLimit);
+  }
+
+  const advVal = data.advance_balance !== undefined 
+    ? data.advance_balance 
+    : (data.advanceBalance !== undefined 
+      ? data.advanceBalance 
+      : (data.credit_balance !== undefined ? data.credit_balance : data.creditBalance));
+      
+  if (advVal !== undefined) {
+    payload.advance_balance = Number(advVal);
+    payload.credit_balance = Number(advVal);
+  }
+
+  if (data.total_spent !== undefined || data.totalSpent !== undefined) {
+    payload.total_spent = Number(data.total_spent !== undefined ? data.total_spent : data.totalSpent);
+  }
+
+  if (data.balance_due !== undefined || data.balanceDue !== undefined) {
+    payload.balance_due = Number(data.balance_due !== undefined ? data.balance_due : data.balanceDue);
+  }
+
+  if (data.loyalty_points !== undefined || data.loyaltyPoints !== undefined) {
+    payload.loyalty_points = Number(data.loyalty_points !== undefined ? data.loyalty_points : data.loyaltyPoints);
+  }
+
+  return payload;
+};
+
+export const createCustomer = async (data: Record<string, unknown>) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const payload: any = {
-    type: data.type || 'regular',
-    name: data.name,
-    phone: data.phone || '',
-    email: data.email || '',
-    address: data.address || '',
-    credit_balance: Number(data.credit_balance || 0),
-    credit_limit: Number(data.credit_limit || 0)
+  const dbPayload = sanitizeCustomerDbPayload(data);
+  const payload: Record<string, unknown> = {
+    type: dbPayload.type || 'regular',
+    name: dbPayload.name || data.name || '',
+    phone: dbPayload.phone || '',
+    email: dbPayload.email || '',
+    address: dbPayload.address || '',
+    credit_balance: Number(dbPayload.credit_balance || 0),
+    advance_balance: Number(dbPayload.advance_balance || dbPayload.credit_balance || 0),
+    credit_limit: Number(dbPayload.credit_limit || 0)
   };
 
   // Include id only if it is a valid UUID
-  if (data.id && isValidUUID(data.id)) {
+  if (data.id && typeof data.id === 'string' && isValidUUID(data.id)) {
     payload.id = data.id;
   }
 
@@ -96,8 +144,9 @@ export const createCustomer = async (data: any) => {
     try {
       const res = await api.post('/customers', payload);
       return { data: { data: res.data.data } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -105,7 +154,7 @@ export const createCustomer = async (data: any) => {
   }
 
   // Generate customer_code on direct Supabase fallback path without extra round-trip
-  let customerCode = data.customer_code || data.customerCode;
+  let customerCode = dbPayload.customer_code as string | undefined;
   if (!customerCode) {
     const prefix = payload.type === 'regular' ? 'RC' : 'WC';
     customerCode = `${prefix}${Date.now().toString(36).toUpperCase().slice(-6)}`;
@@ -134,13 +183,14 @@ export const createCustomer = async (data: any) => {
   return { data: { data: mapCustomerFromApi(inserted) } };
 }
 
-export const updateCustomer = async (id: string, data: any) => {
+export const updateCustomer = async (id: string, data: Record<string, unknown>) => {
   if (isBackendAvailable()) {
     try {
       const res = await api.put(`/customers/${id}`, data);
       return { data: { data: res.data.data } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -157,14 +207,16 @@ export const updateCustomer = async (id: string, data: any) => {
     if (found?.id) custId = found.id;
   }
 
+  const sanitizedPayload = sanitizeCustomerDbPayload(data);
+
   const { data: updated, error } = await supabase
     .from('customers')
-    .update(data)
+    .update(sanitizedPayload)
     .eq('id', custId)
     .select()
     .single();
   if (error) throw error;
-  return { data: { data: updated } };
+  return { data: { data: mapCustomerFromApi(updated) } };
 }
 
 export const deleteCustomer = async (id: string) => {
@@ -172,8 +224,9 @@ export const deleteCustomer = async (id: string) => {
     try {
       await api.delete(`/customers/${id}`);
       return { data: { success: true } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -201,8 +254,9 @@ export const getCustomerBills = async (id: string) => {
       const res = await api.get(`/customers/${id}/bills`);
       const mapped = (res.data.data || []).map(mapBillFromApi);
       return { data: { data: mapped } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();
@@ -239,8 +293,9 @@ export const getCustomerPayments = async (id: string) => {
     try {
       const res = await api.get(`/customers/${id}/payments`);
       return { data: { data: res.data.data } };
-    } catch (err: any) {
-      if (err.response && err.response.status >= 400 && err.response.status < 500) {
+    } catch (err: unknown) {
+      const errResp = err as { response?: { status?: number } };
+      if (errResp.response && errResp.response.status && errResp.response.status >= 400 && errResp.response.status < 500) {
         throw err;
       }
       markBackendUnavailable();

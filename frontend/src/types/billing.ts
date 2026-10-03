@@ -245,3 +245,27 @@ export interface CustomItemAnalyticsData {
   last_used_at: string;
   transaction_history: ProductTransactionHistory[];
 }
+
+export interface PrintVariantItemBreakdown {
+  name: string;
+  quantity: number;
+  revenue: number;
+  avg_rate: number;
+}
+
+export interface PrintVariantAnalyticsData {
+  variant_key: string;
+  variant_label: string;
+  paper_size?: string;
+  print_type?: string;
+  sides?: string;
+  total_quantity: number;
+  total_revenue: number;
+  average_rate: number;
+  min_rate: number;
+  max_rate: number;
+  orders_count: number;
+  item_breakdown: PrintVariantItemBreakdown[];
+  transaction_history: ProductTransactionHistory[];
+}
+

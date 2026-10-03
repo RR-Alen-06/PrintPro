@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
 import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
@@ -23,22 +23,18 @@ import {
   exportPaymentsToCSV,
   exportExpensesToCSV,
   exportAdvancesToCSV,
-  exportGroupsToCSV,
 } from '../../utils/dataExport'
 import {
   importFromJSON,
   importFromCSV,
   importCustomersFromCSV,
   importInventoryFromCSV,
-  validateBackupFile,
   restoreFromBackup,
 } from '../../utils/dataImport'
 import {
   Building2, Palette, BarChart3, Hash, MessageSquare, Gift, Tag,
   Database, FileSpreadsheet, Trash2, Sliders, HardDrive, Download,
-  Upload, RefreshCw, RotateCcw, Check, Save, AlertTriangle, Eye,
-  ShieldAlert, ShieldCheck, CheckSquare, Square, X, Plus, Sparkles,
-  Edit3, Calendar, Clock, CheckCircle2
+  Upload, RefreshCw, RotateCcw, Save, AlertTriangle, Plus, Edit3, Calendar
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -57,16 +53,13 @@ const MODULE_TABS = [
 ]
 
 export default function MobileSettings() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') || 'profile'
-  const setActiveTab = (tab) => setSearchParams({ tab })
+  const setActiveTab = (tab: string) => setSearchParams({ tab })
 
   const queryClient = useQueryClient()
   const {
     business,
-    currentUser,
-    logout,
     showToast,
     syncFromCloud,
     bills: ctxBills = [],
@@ -92,7 +85,6 @@ export default function MobileSettings() {
   const { data: serverDeletedBills = [], refetch: refetchDeleted } = useDeletedBills()
   const {
     restoreBill: restoreBillMutation,
-    permanentDeleteBill: permanentDeleteBillMutation,
     purgeAllDeletedBills: purgeAllDeletedBillsMutation,
   } = useBillMutations()
   const { data: serverCustomers = [] } = useCustomers()
@@ -103,7 +95,7 @@ export default function MobileSettings() {
   const { groupBills: serverGroups = [] } = useGroupBills()
 
   const { createCustomer } = useCustomerMutations()
-  const { createInventory } = useInventoryMutations()
+  const { createItem } = useInventoryMutations()
 
   const allBills = serverBills.length > 0 ? serverBills : ctxBills
   const activeBills = allBills.filter((b) => !b.deleted && !b.deleted_at)
@@ -201,10 +193,24 @@ export default function MobileSettings() {
     setShowPromoModal(true)
   }
 
-  const handleOpenEditPromo = (p: any) => {
+  const handleOpenEditPromo = (p: {
+    id: string
+    code?: string
+    type?: 'percent' | 'fixed' | string
+    value?: number | string
+    minAmount?: number | string
+    min_amount?: number | string
+    maxDiscount?: number | string
+    max_discount?: number | string
+    startDate?: string
+    start_date?: string
+    endDate?: string
+    end_date?: string
+    enabled?: boolean
+  }) => {
     setEditingPromoId(p.id)
-    setPromoCode(p.code)
-    setPromoType(p.type || 'percent')
+    setPromoCode(p.code || '')
+    setPromoType((p.type === 'fixed' || p.type === 'flat') ? 'flat' : 'percent')
     setPromoValue(p.value || '')
     setPromoMinAmount(p.minAmount || p.min_amount || '')
     setPromoMaxDiscount(p.maxDiscount || p.max_discount || '')
@@ -226,7 +232,7 @@ export default function MobileSettings() {
       return
     }
 
-    const payload: any = {
+    const payload = {
       code: promoCode.trim().toUpperCase(),
       type: promoType,
       value: val,
@@ -247,8 +253,9 @@ export default function MobileSettings() {
       }
       setShowPromoModal(false)
       resetPromoForm()
-    } catch (err: any) {
-      showToast?.(`Failed to save coupon: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Failed to save coupon: ${msg}`, 'error')
     }
   }
 
@@ -276,8 +283,9 @@ export default function MobileSettings() {
       })
       exportToJSON(backupData, `printpro_backup_${new Date().toISOString().slice(0, 10)}.json`)
       showToast?.('Database snapshot exported successfully!', 'success')
-    } catch (err: any) {
-      showToast?.(`Export failed: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Export failed: ${msg}`, 'error')
     } finally {
       setIsExporting(false)
     }
@@ -289,8 +297,9 @@ export default function MobileSettings() {
       await syncFromCloud?.()
       await queryClient.invalidateQueries()
       showToast?.('Cloud database synchronized seamlessly!', 'success')
-    } catch (err: any) {
-      showToast?.(`Sync warning: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Sync warning: ${msg}`, 'error')
     } finally {
       setIsSyncingCloud(false)
     }
@@ -311,7 +320,6 @@ export default function MobileSettings() {
   // Recycle Bin Search & Selection
   const [trashSearch, setTrashSearch] = useState('')
   const [selectedTrashIds, setSelectedTrashIds] = useState([])
-  const [inspectingBill, setInspectingBill] = useState(null)
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
   const [isProcessingTrash, setIsProcessingTrash] = useState(false)
 
@@ -368,33 +376,6 @@ export default function MobileSettings() {
       showToast?.('Configuration saved', 'success')
     } catch (err) {
       showToast?.(`Save failed: ${err.message || err}`, 'error')
-    }
-  }
-
-  const handle1ClickSnapshot = () => {
-    try {
-      setIsExporting(true)
-      const full = createFullBackup({
-        currentUser,
-        business,
-        customers: serverCustomers.length > 0 ? serverCustomers : ctxCustomers,
-        customerGroups: serverGroups.length > 0 ? serverGroups : ctxGroups,
-        inventory: serverInventory.length > 0 ? serverInventory : ctxInventory,
-        bills: allBills,
-        payments: serverPayments.length > 0 ? serverPayments : ctxPayments,
-        expenses: serverExpenses.length > 0 ? serverExpenses : ctxExpenses,
-        advancePayments: serverAdvances.length > 0 ? serverAdvances : ctxAdvances,
-        counters,
-        sequences,
-        settings,
-      })
-      const dateStr = new Date().toISOString().split('T')[0]
-      exportToJSON(full, `PrintPro_Snapshot_${dateStr}.json`)
-      showToast?.('JSON Snapshot downloaded', 'success')
-    } catch (err) {
-      showToast?.(`Snapshot failed: ${err.message || err}`, 'error')
-    } finally {
-      setIsExporting(false)
     }
   }
 
@@ -1064,8 +1045,9 @@ export default function MobileSettings() {
                       await queryClient.invalidateQueries()
                       showToast?.('System restored! Reloading...', 'success')
                       setTimeout(() => window.location.reload(), 1000)
-                    } catch (err: any) {
-                      showToast?.(`Restore failed: ${err.message || err}`, 'error')
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : String(err)
+                      showToast?.(`Restore failed: ${msg}`, 'error')
                     }
                   }}
                 />
@@ -1122,6 +1104,12 @@ export default function MobileSettings() {
               <button onClick={() => exportPaymentsToCSV(serverPayments.length ? serverPayments : ctxPayments)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
                 <Download size={14} /> Payments CSV
               </button>
+              <button onClick={() => exportExpensesToCSV(serverExpenses.length ? serverExpenses : ctxExpenses)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Expenses CSV
+              </button>
+              <button onClick={() => exportAdvancesToCSV(serverAdvances.length ? serverAdvances : ctxAdvances)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Advances CSV
+              </button>
             </div>
           </div>
 
@@ -1169,7 +1157,7 @@ export default function MobileSettings() {
                       const rows = await importFromCSV(f)
                       const list = importInventoryFromCSV(rows)
                       for (const it of list) {
-                        if (it.name && it.name !== 'Unnamed Item') await createInventory(it)
+                        if (it.name && it.name !== 'Unnamed Item') await createItem(it)
                       }
                       await queryClient.invalidateQueries({ queryKey: ['inventory'] })
                       showToast?.(`Imported ${list.length} items`, 'success')

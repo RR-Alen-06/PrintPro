@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills } from '../../hooks/useBillsQuery'
-import { usePayments, useInventory, useAdvancePayments, useDeletedPayments } from '../../hooks/useEntitiesQuery'
+import { usePayments, useInventory, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses, useExpenseMutations } from '../../hooks/useExpensesQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -13,10 +13,16 @@ import { STATEMENT_PERIOD_OPTIONS } from '../../services/statementService'
 import { ReconciliationService } from '../../services/reconciliationService'
 import ProductDrilldownModal from '../../components/accounting/ProductDrilldownModal'
 import CustomServiceDrilldownModal from '../../components/accounting/CustomServiceDrilldownModal'
+import VariantDrilldownModal from '../../components/accounting/VariantDrilldownModal'
 import {
-  DollarSign, Wallet, FileText, RotateCcw, TrendingUp, Layers, Calculator,
-  Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2, Plus, MessageSquare, X, Tag, Wrench,
-  CreditCard, Clock, ArrowRight, ArrowDownLeft, ArrowUpRight, Trash2, Edit2, Save, Send, ShieldAlert
+  ProductSalesAnalyticsData,
+  CustomItemAnalyticsData,
+  PrintVariantAnalyticsData,
+} from '../../types/billing'
+import {
+  Wallet, Calculator, Calendar, ChevronRight, Plus, MessageSquare,
+  CreditCard, ArrowRight, ArrowDownLeft, ArrowUpRight, Trash2, Edit2, Save,
+  Download, Printer, FileText, Layers, Sparkles, Search
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -37,13 +43,12 @@ const EXPENSE_CATEGORIES = [
 export default function MobileAccounting() {
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const { business, settings, showToast, processRefund } = useAppContext()
+  const { business, showToast, processRefund } = useAppContext()
 
   // Queries
   const { data: serverBills = [] } = useBills()
   const { data: serverPayments = [] } = usePayments()
   const { data: serverExpenses = [] } = useExpenses()
-  const { data: serverRefunds = [] } = useDeletedPayments()
   const { data: serverInventory = [] } = useInventory()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverAdvancePayments = [] } = useAdvancePayments()
@@ -92,9 +97,20 @@ export default function MobileAccounting() {
 
   // Item Sales Analytics state
   const [itemPeriod, setItemPeriod] = useState('this_month')
-  const [itemSubTab, setItemSubTab] = useState('catalog')
-  const [selectedItemProduct, setSelectedItemProduct] = useState(null)
-  const [selectedItemCustom, setSelectedItemCustom] = useState(null)
+  const [itemSubTab, setItemSubTab] = useState<'variants' | 'all' | 'catalog' | 'custom'>('variants')
+  const [itemSearchQuery, setItemSearchQuery] = useState('')
+  const [selectedItemProduct, setSelectedItemProduct] = useState<ProductSalesAnalyticsData | null>(null)
+  const [selectedItemCustom, setSelectedItemCustom] = useState<CustomItemAnalyticsData | null>(null)
+  const [selectedItemVariant, setSelectedItemVariant] = useState<PrintVariantAnalyticsData | null>(null)
+  const [isExportingItemReport, setIsExportingItemReport] = useState(false)
+
+  const variantAnalytics = useMemo(() => {
+    return ProductAnalyticsService.getPrintVariantsAnalytics({
+      filter: itemPeriod,
+      bills,
+      products: inventory,
+    })
+  }, [itemPeriod, bills, inventory])
 
   const catalogAnalytics = useMemo(() => {
     return ProductAnalyticsService.getAllCatalogProductsAnalytics({
@@ -111,6 +127,86 @@ export default function MobileAccounting() {
       products: inventory,
     })
   }, [itemPeriod, bills, inventory])
+
+  const allItemsAnalytics = useMemo(() => {
+    const list = [
+      ...catalogAnalytics.map((c) => ({
+        type: 'catalog' as const,
+        id: c.product_id,
+        name: c.product_name,
+        code: c.product_code,
+        category: c.category || 'General',
+        qty: c.total_quantity_sold,
+        revenue: c.total_revenue,
+        avgRate: c.average_selling_rate,
+        hasPriceVariance: c.has_price_variance,
+        raw: c,
+      })),
+      ...customAnalytics.map((cu, idx) => ({
+        type: 'custom' as const,
+        id: `custom-${idx}`,
+        name: cu.product_name,
+        code: undefined,
+        category: 'Custom Service',
+        qty: cu.total_quantity,
+        revenue: cu.total_revenue,
+        avgRate: cu.average_selling_rate,
+        hasPriceVariance: cu.is_dynamic_rate,
+        raw: cu,
+      })),
+    ]
+    return list.sort((a, b) => b.revenue - a.revenue)
+  }, [catalogAnalytics, customAnalytics])
+
+  const itemSalesTotals = useMemo(() => {
+    const totalQty = allItemsAnalytics.reduce((sum, it) => sum + it.qty, 0)
+    const totalRev = allItemsAnalytics.reduce((sum, it) => sum + it.revenue, 0)
+    const activeVariants = variantAnalytics.filter(v => v.total_quantity > 0 || v.total_revenue > 0)
+    const topVariant = activeVariants.length > 0 ? activeVariants[0] : null
+    return { totalQty, totalRev, topVariant }
+  }, [allItemsAnalytics, variantAnalytics])
+
+  const handleExportItemSalesPDF = () => {
+    try {
+      setIsExportingItemReport(true)
+      const periodLabel = STATEMENT_PERIOD_OPTIONS.find((o) => o.value === itemPeriod)?.label || itemPeriod
+      const doc = ProductAnalyticsService.generateComprehensiveItemSalesReportPDF({
+        catalogData: catalogAnalytics,
+        customData: customAnalytics,
+        variantData: variantAnalytics,
+        business,
+        periodLabel,
+        currency: '₹',
+      })
+      doc.save(`PrintPro_Item_Sales_Report_${itemPeriod}.pdf`)
+      showToast('Item Sales Report PDF downloaded', 'success')
+    } catch (err) {
+      console.error('Failed to export Item Sales PDF:', err)
+      showToast('Failed to export PDF report', 'error')
+    } finally {
+      setIsExportingItemReport(false)
+    }
+  }
+
+  const handlePrintItemSalesPDF = () => {
+    try {
+      const periodLabel = STATEMENT_PERIOD_OPTIONS.find((o) => o.value === itemPeriod)?.label || itemPeriod
+      const doc = ProductAnalyticsService.generateComprehensiveItemSalesReportPDF({
+        catalogData: catalogAnalytics,
+        customData: customAnalytics,
+        variantData: variantAnalytics,
+        business,
+        periodLabel,
+        currency: '₹',
+      })
+      doc.autoPrint()
+      const blobUrl = doc.output('bloburl')
+      window.open(blobUrl, '_blank')
+    } catch (err) {
+      console.error('Failed to print Item Sales Report:', err)
+      showToast('Failed to open print preview', 'error')
+    }
+  }
 
   // Modals state
   const [showDenomSheet, setShowDenomSheet] = useState(false)
@@ -168,7 +264,7 @@ export default function MobileAccounting() {
     let upiDrawings = 0
     let upiRefunds = 0
 
-    const txList: any[] = []
+    const txList: Array<{ id: string; type: string; label: string; amount: number; method: string; time: string; details?: string; [key: string]: unknown }> = []
 
     // 1. Payments collected on this date (excluding non-cash advance allocations)
     payments.forEach((p) => {
@@ -452,8 +548,9 @@ export default function MobileAccounting() {
       setExpLoanPerson('')
       setExpLoanDueDate('')
       setShowAddExpenseSheet(false)
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to record expense', 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(msg || 'Failed to record expense', 'error')
     } finally {
       setIsSubmittingExp(false)
     }
@@ -467,8 +564,9 @@ export default function MobileAccounting() {
       queryClient.invalidateQueries({ queryKey: ['expenses'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
       showToast('Expense removed', 'success')
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to delete expense', 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(msg || 'Failed to delete expense', 'error')
     }
   }
 
@@ -495,8 +593,9 @@ export default function MobileAccounting() {
       setRefAmount('')
       setRefReason('')
       setShowRefundSheet(false)
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to process refund', 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(msg || 'Failed to process refund', 'error')
     } finally {
       setIsSubmittingRef(false)
     }
@@ -1022,21 +1121,136 @@ export default function MobileAccounting() {
       {/* TAB 5: ITEM SALES */}
       {activeTab === 'items' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* Controls: SubTab & Period */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-card)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+          {/* Top Actions & PDF Export Header */}
+          <div className="mobile-card" style={{ padding: '12px 14px', background: 'linear-gradient(135deg, rgba(16,13,35,0.95), rgba(30,27,75,0.6))', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <Layers size={16} color="var(--aurora-cyan, #00f0ff)" />
+                  Item & Variant Intelligence
+                </h3>
+                <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                  Complete sales report for catalog products, custom items & print variants
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handleExportItemSalesPDF}
+                  disabled={isExportingItemReport}
+                  className="mobile-btn"
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    background: 'var(--aurora-cyan, #00f0ff)',
+                    color: '#000000',
+                    border: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                  title="Export PDF Report"
+                >
+                  <Download size={13} />
+                  {isExportingItemReport ? 'Generating...' : 'Export PDF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintItemSalesPDF}
+                  className="mobile-btn mobile-btn-secondary"
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                  title="Print Report"
+                >
+                  <Printer size={13} />
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick KPI Overview */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            <div className="mobile-card" style={{ padding: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Total Units Sold</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
+                {itemSalesTotals.totalQty.toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            <div className="mobile-card" style={{ padding: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Realized Revenue</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
+                ₹{itemSalesTotals.totalRev.toFixed(0)}
+              </div>
+            </div>
+
+            <div className="mobile-card" style={{ padding: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Top Print Variant</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--aurora-cyan, #00f0ff)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {itemSalesTotals.topVariant ? itemSalesTotals.topVariant.variant_label : 'N/A'}
+              </div>
+            </div>
+          </div>
+
+          {/* Controls: SubTabs & Period */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '3px', background: 'var(--bg-card)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border)', overflowX: 'auto' }}>
+              <button
+                type="button"
+                onClick={() => setItemSubTab('variants')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.7rem',
+                  fontWeight: itemSubTab === 'variants' ? 700 : 500,
+                  background: itemSubTab === 'variants' ? 'var(--aurora-cyan, #00f0ff)' : 'transparent',
+                  color: itemSubTab === 'variants' ? '#000000' : 'var(--text-secondary)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Variants ({variantAnalytics.filter(v => v.total_quantity > 0).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemSubTab('all')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.7rem',
+                  fontWeight: itemSubTab === 'all' ? 700 : 500,
+                  background: itemSubTab === 'all' ? 'var(--aurora-cyan, #00f0ff)' : 'transparent',
+                  color: itemSubTab === 'all' ? '#000000' : 'var(--text-secondary)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                All ({allItemsAnalytics.length})
+              </button>
               <button
                 type="button"
                 onClick={() => setItemSubTab('catalog')}
                 style={{
-                  padding: '4px 10px',
+                  padding: '4px 8px',
                   borderRadius: '6px',
-                  fontSize: '0.72rem',
+                  fontSize: '0.7rem',
                   fontWeight: itemSubTab === 'catalog' ? 700 : 500,
                   background: itemSubTab === 'catalog' ? 'var(--aurora-cyan, #00f0ff)' : 'transparent',
                   color: itemSubTab === 'catalog' ? '#000000' : 'var(--text-secondary)',
                   border: 'none',
                   cursor: 'pointer',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 Catalog ({catalogAnalytics.length})
@@ -1045,14 +1259,15 @@ export default function MobileAccounting() {
                 type="button"
                 onClick={() => setItemSubTab('custom')}
                 style={{
-                  padding: '4px 10px',
+                  padding: '4px 8px',
                   borderRadius: '6px',
-                  fontSize: '0.72rem',
+                  fontSize: '0.7rem',
                   fontWeight: itemSubTab === 'custom' ? 700 : 500,
                   background: itemSubTab === 'custom' ? 'var(--aurora-cyan, #00f0ff)' : 'transparent',
                   color: itemSubTab === 'custom' ? '#000000' : 'var(--text-secondary)',
                   border: 'none',
                   cursor: 'pointer',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 Custom ({customAnalytics.length})
@@ -1066,79 +1281,225 @@ export default function MobileAccounting() {
               style={{ minHeight: '30px', padding: '2px 8px', fontSize: '0.72rem', width: 'auto' }}
             >
               {STATEMENT_PERIOD_OPTIONS.map((opt) => (
-                <option key={opt.key} value={opt.key}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
 
-          {/* List items */}
-          {itemSubTab === 'catalog' ? (
+          {/* Search bar */}
+          <div style={{ position: 'relative' }}>
+            <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Filter items or variants..."
+              value={itemSearchQuery}
+              onChange={(e) => setItemSearchQuery(e.target.value)}
+              className="mobile-input"
+              style={{ paddingLeft: '32px', fontSize: '0.75rem', minHeight: '32px' }}
+            />
+          </div>
+
+          {/* SUBTAB 1: PRINT VARIANTS (A4/A3 Color & B/W, Sides, Binding) */}
+          {itemSubTab === 'variants' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {variantAnalytics
+                .filter((v) => {
+                  if (itemSearchQuery) {
+                    const q = itemSearchQuery.toLowerCase()
+                    return v.variant_label.toLowerCase().includes(q) || v.variant_key.toLowerCase().includes(q)
+                  }
+                  return true
+                })
+                .map((v) => {
+                  const hasSales = v.total_quantity > 0 || v.total_revenue > 0
+                  return (
+                    <div
+                      key={v.variant_key}
+                      className="mobile-card"
+                      onClick={() => setSelectedItemVariant(v)}
+                      style={{
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderLeft: hasSales ? '3px solid var(--aurora-cyan, #00f0ff)' : '3px solid var(--border)',
+                        opacity: hasSales ? 1 : 0.65,
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.variant_label}</span>
+                          {v.paper_size && v.paper_size !== 'N/A' && (
+                            <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,240,255,0.1)', color: '#00f0ff', fontFamily: 'monospace' }}>
+                              {v.paper_size}
+                            </span>
+                          )}
+                          {v.print_type === 'Color' && (
+                            <span style={{ fontSize: '0.62rem', padding: '1px 4px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#fbbf24', fontWeight: 600 }}>
+                              Color
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {v.total_quantity} prints sold • {v.rates.length > 1 ? `₹${v.min_rate.toFixed(0)}-₹${v.max_rate.toFixed(0)} (Avg ₹${v.average_rate.toFixed(1)})` : `Rate: ₹${v.average_rate.toFixed(1)}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong style={{ color: hasSales ? '#10b981' : 'var(--text-muted)', fontSize: '0.88rem' }}>
+                          ₹{v.total_revenue.toFixed(2)}
+                        </strong>
+                        <ChevronRight size={14} color="var(--text-muted)" />
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          )}
+
+          {/* SUBTAB 2: ALL ITEMS (Combined Catalog & Custom) */}
+          {itemSubTab === 'all' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {allItemsAnalytics
+                .filter((item) => {
+                  if (itemSearchQuery) {
+                    const q = itemSearchQuery.toLowerCase()
+                    return item.name.toLowerCase().includes(q) || (item.code && item.code.toLowerCase().includes(q))
+                  }
+                  return true
+                })
+                .map((item) => (
+                  <div
+                    key={item.id}
+                    className="mobile-card"
+                    onClick={() => {
+                      if (item.type === 'catalog') {
+                        setSelectedItemProduct(item.raw as ProductSalesAnalyticsData)
+                      } else {
+                        setSelectedItemCustom(item.raw as CustomItemAnalyticsData)
+                      }
+                    }}
+                    style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
+                        <span style={{
+                          fontSize: '0.62rem',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: item.type === 'catalog' ? 'rgba(0,240,255,0.1)' : 'rgba(245,158,11,0.15)',
+                          color: item.type === 'catalog' ? '#00f0ff' : '#fbbf24',
+                          fontWeight: 600
+                        }}>
+                          {item.type === 'catalog' ? (item.code || 'Catalog') : 'Custom'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {item.qty} sold • Avg ₹{item.avgRate.toFixed(1)}
+                        {item.hasPriceVariance && (
+                          <span style={{ marginLeft: '6px', color: '#f59e0b' }}>• Dynamic</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
+                        ₹{item.revenue.toFixed(2)}
+                      </strong>
+                      <ChevronRight size={14} color="var(--text-muted)" />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {/* SUBTAB 3: CATALOG ONLY */}
+          {itemSubTab === 'catalog' && (
             catalogAnalytics.length === 0 ? (
               <div className="mobile-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                 No catalog sales in selected period.
               </div>
             ) : (
-              catalogAnalytics.map((prod) => (
-                <div
-                  key={prod.product_id}
-                  className="mobile-card"
-                  onClick={() => setSelectedItemProduct(prod)}
-                  style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod.product_name}</span>
-                      {prod.product_code && (
-                        <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '4px', background: 'rgba(0,240,255,0.1)', color: '#00f0ff', fontFamily: 'monospace' }}>
-                          {prod.product_code}
-                        </span>
-                      )}
+              catalogAnalytics
+                .filter((prod) => {
+                  if (itemSearchQuery) {
+                    const q = itemSearchQuery.toLowerCase()
+                    return prod.product_name.toLowerCase().includes(q) || (prod.product_code && prod.product_code.toLowerCase().includes(q))
+                  }
+                  return true
+                })
+                .map((prod) => (
+                  <div
+                    key={prod.product_id}
+                    className="mobile-card"
+                    onClick={() => setSelectedItemProduct(prod)}
+                    style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod.product_name}</span>
+                        {prod.product_code && (
+                          <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '4px', background: 'rgba(0,240,255,0.1)', color: '#00f0ff', fontFamily: 'monospace' }}>
+                            {prod.product_code}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {prod.total_quantity_sold} sold • Avg ₹{prod.average_selling_rate.toFixed(1)}
+                        {prod.has_price_variance && (
+                          <span style={{ marginLeft: '6px', color: '#f59e0b' }}>• Dynamic</span>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {prod.total_quantity_sold} sold • Avg ₹{prod.average_selling_rate.toFixed(1)}
-                      {prod.has_price_variance && (
-                        <span style={{ marginLeft: '6px', color: '#f59e0b' }}>• Dynamic</span>
-                      )}
+                    <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
+                        ₹{prod.total_revenue.toFixed(2)}
+                      </strong>
+                      <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
-                      ₹{prod.total_revenue.toFixed(2)}
-                    </strong>
-                    <ChevronRight size={14} color="var(--text-muted)" />
-                  </div>
-                </div>
-              ))
+                ))
             )
-          ) : (
+          )}
+
+          {/* SUBTAB 4: CUSTOM ONLY */}
+          {itemSubTab === 'custom' && (
             customAnalytics.length === 0 ? (
               <div className="mobile-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                 No custom services in selected period.
               </div>
             ) : (
-              customAnalytics.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="mobile-card"
-                  onClick={() => setSelectedItemCustom(item)}
-                  style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {item.product_name}
+              customAnalytics
+                .filter((item) => {
+                  if (itemSearchQuery) {
+                    const q = itemSearchQuery.toLowerCase()
+                    return item.product_name.toLowerCase().includes(q)
+                  }
+                  return true
+                })
+                .map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="mobile-card"
+                    onClick={() => setSelectedItemCustom(item)}
+                    style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.product_name}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {item.total_quantity} qty • Rate: ₹{item.min_rate.toFixed(0)}-₹{item.max_rate.toFixed(0)}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {item.total_quantity} qty • Rate: ₹{item.min_rate.toFixed(0)}-₹{item.max_rate.toFixed(0)}
+                    <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
+                        ₹{item.total_revenue.toFixed(2)}
+                      </strong>
+                      <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
-                      ₹{item.total_revenue.toFixed(2)}
-                    </strong>
-                    <ChevronRight size={14} color="var(--text-muted)" />
-                  </div>
-                </div>
-              ))
+                ))
             )
           )}
         </div>
@@ -1299,6 +1660,12 @@ export default function MobileAccounting() {
       {/* Process Refund BottomSheet */}
       <BottomSheet isOpen={showRefundSheet} onClose={() => setShowRefundSheet(false)} title="Process Refund">
         <form onSubmit={handleRefundSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <select className="mobile-input" value={refCustomerId} onChange={(e) => setRefCustomerId(e.target.value)}>
+            <option value="">-- Customer (Optional) --</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name || c.phone || 'Customer'}</option>
+            ))}
+          </select>
           <input
             type="number"
             step="0.01"
@@ -1341,6 +1708,15 @@ export default function MobileAccounting() {
         isOpen={!!selectedItemCustom}
         onClose={() => setSelectedItemCustom(null)}
         serviceData={selectedItemCustom}
+        business={business}
+        periodLabel={itemPeriod}
+      />
+
+      {/* Print Variant Drilldown Modal (Bottom Sheet on Mobile) */}
+      <VariantDrilldownModal
+        isOpen={!!selectedItemVariant}
+        onClose={() => setSelectedItemVariant(null)}
+        variantData={selectedItemVariant}
         business={business}
         periodLabel={itemPeriod}
       />

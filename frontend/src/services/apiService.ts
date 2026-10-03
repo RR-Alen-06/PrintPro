@@ -1,13 +1,11 @@
 import { supabase } from '../lib/supabase';
 import { SequenceService } from './sequenceService';
-import { BillingService } from './billingService';
 import { LedgerService } from './ledgerService';
 import { ReconciliationService } from './reconciliationService';
 import { getCustomers as fetchCustomersApi, getCustomer as fetchCustomerApi } from '../api/customers';
 import {
   CustomerSummary,
   CustomerLedgerEntry,
-  BillFinancialSummary,
   DashboardStats,
   DateFilterOption,
   RoundingMethod,
@@ -23,22 +21,22 @@ export class ApiService {
   }
 
   // ── CUSTOMERS ────────────────────────────────────────────────────────────
-  static async getCustomers(): Promise<any[]> {
+  static async getCustomers(): Promise<Record<string, unknown>[]> {
     try {
       const res = await fetchCustomersApi();
-      return res.data?.data || [];
-    } catch (error: any) {
-      console.warn('Error fetching customers:', error?.message);
+      return (res.data?.data || []) as Record<string, unknown>[];
+    } catch (error: unknown) {
+      console.warn('Error fetching customers:', error instanceof Error ? error.message : String(error));
       return [];
     }
   }
 
-  static async getCustomerById(id: string): Promise<any | null> {
+  static async getCustomerById(id: string): Promise<Record<string, unknown> | null> {
     try {
       const res = await fetchCustomerApi(id);
-      return res.data?.data || null;
-    } catch (error: any) {
-      console.warn('Error fetching customer by ID:', error?.message);
+      return (res.data?.data || null) as Record<string, unknown> | null;
+    } catch (error: unknown) {
+      console.warn('Error fetching customer by ID:', error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -55,7 +53,7 @@ export class ApiService {
     creditBalance?: number;
     opening_cash?: number;
     opening_upi?: number;
-  }): Promise<any> {
+  }): Promise<Record<string, unknown>> {
     const { data: { user } } = await supabase.auth.getUser();
     const customer_code = await SequenceService.getNextSequence('CUSTOMER');
     const mobileVal = customer.mobile || customer.phone || null;
@@ -121,10 +119,13 @@ export class ApiService {
       credit_limit?: number;
       creditLimit?: number;
       advance_balance?: number;
+      advanceBalance?: number;
+      credit_balance?: number;
+      creditBalance?: number;
       loyalty_points?: number;
     }
-  ): Promise<any> {
-    const payload: Record<string, any> = {};
+  ): Promise<Record<string, unknown>> {
+    const payload: Record<string, unknown> = {};
     if (updates.name !== undefined) payload.name = updates.name.trim();
     if (updates.mobile !== undefined || updates.phone !== undefined) {
       payload.mobile = updates.mobile || updates.phone || null;
@@ -134,7 +135,15 @@ export class ApiService {
     if (updates.credit_limit !== undefined || updates.creditLimit !== undefined) {
       payload.credit_limit = Number(updates.credit_limit !== undefined ? updates.credit_limit : updates.creditLimit);
     }
-    if (updates.advance_balance !== undefined) payload.advance_balance = Number(updates.advance_balance);
+    const advVal = updates.advance_balance !== undefined 
+      ? updates.advance_balance 
+      : (updates.advanceBalance !== undefined 
+        ? updates.advanceBalance 
+        : (updates.credit_balance !== undefined ? updates.credit_balance : updates.creditBalance));
+    if (advVal !== undefined) {
+      payload.advance_balance = Number(advVal);
+      payload.credit_balance = Number(advVal);
+    }
     if (updates.loyalty_points !== undefined) payload.loyalty_points = Number(updates.loyalty_points);
 
     const { data, error } = await supabase
@@ -167,7 +176,7 @@ export class ApiService {
 
     return customers.map((c) =>
       LedgerService.computeCustomerSummary({
-        customer: c,
+        customer: c as any,
         bills: activeBills,
         payments: activePayments,
       })
@@ -175,7 +184,7 @@ export class ApiService {
   }
 
   static async getCustomerLedger(customerId: string): Promise<{
-    customer: any;
+    customer: Record<string, unknown>;
     entries: CustomerLedgerEntry[];
     totalBilled: number;
     totalPaid: number;
@@ -245,7 +254,7 @@ export class ApiService {
       amount: number;
       gst_rate?: number;
     }>;
-  }): Promise<any> {
+  }): Promise<Record<string, unknown>> {
     const { data: { user } } = await supabase.auth.getUser();
 
     // 1. Generate atomic Bill sequence
@@ -259,7 +268,7 @@ export class ApiService {
 
     // 2. Fetch prior unpaid bills for FIFO allocation if customer provided
     let priorOutstanding = 0;
-    const priorUnpaidBillsList: Array<{ id: string; due: number; bill: any }> = [];
+    const priorUnpaidBillsList: Array<{ id: string; due: number; bill: Record<string, unknown> }> = [];
 
     if (billData.customer_id) {
       const { data: priorBills } = await supabase
@@ -448,7 +457,7 @@ export class ApiService {
     };
   }
 
-  static async getBills(): Promise<any[]> {
+  static async getBills(): Promise<Record<string, unknown>[]> {
     const { data: bills, error } = await supabase
       .from('bills')
       .select('*, bill_items(*), customers(name, mobile, email)')
@@ -480,7 +489,7 @@ export class ApiService {
     payment_method: PaymentMethod;
     bill_id?: string | null;
     notes?: string;
-  }): Promise<any> {
+  }): Promise<Record<string, unknown>> {
     const { data: { user } } = await supabase.auth.getUser();
     const payment_number = await SequenceService.getNextSequence('PAYMENT');
 
@@ -707,8 +716,8 @@ export class ApiService {
     // Top Products
     const prodMap = new Map<string, { quantity: number; revenue: number }>();
     allBills.forEach((b) => {
-      (b.bill_items || []).forEach((item: any) => {
-        const name = item.item_name || item.itemName || 'Item';
+      (b.bill_items || []).forEach((item: Record<string, unknown>) => {
+        const name = (item.item_name || item.itemName || 'Item') as string;
         const existing = prodMap.get(name) || { quantity: 0, revenue: 0 };
         prodMap.set(name, {
           quantity: existing.quantity + Number(item.qty || 1),
