@@ -4,12 +4,13 @@
 
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm ci --prefer-offline && npm --prefix frontend ci --prefer-offline && npm --prefix backend ci --prefer-offline",
+  "installCommand": "npm install && npm --prefix frontend install && npm --prefix backend install",
 
   "functions": {
     "api/index.ts": {
       "memory": 1024,
-      "maxDuration": 10
+      "maxDuration": 10,
+      "includeFiles": "backend/**"
     }
   },
 
@@ -24,3 +25,4 @@
     }
   ]
 }
+

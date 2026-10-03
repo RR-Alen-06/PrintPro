@@ -50,14 +50,14 @@ export class SequenceService {
    */
   static formatDisplayCode(
     entityType: 'bill' | 'customer' | 'inventory' | 'payment' | 'expense' | 'group' | 'creditNote' | string,
-    itemOrId: any,
+    itemOrId: string | number | Record<string, unknown> | null | undefined,
     fallbackPrefix?: string,
     padding: number = 4
   ): string {
     if (!itemOrId && itemOrId !== 0) return '—';
 
     // 1. Check if item has a designated code property
-    if (typeof itemOrId === 'object') {
+    if (typeof itemOrId === 'object' && itemOrId !== null) {
       const code =
         itemOrId.invoiceNumber ||
         itemOrId.invoice_number ||
@@ -78,15 +78,15 @@ export class SequenceService {
         itemOrId.code;
 
       if (code && typeof code === 'string' && code.trim()) {
-        const trimmedCode = code.trim();
+        const trimmedCode = code.replace(/^#+/, '').trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedCode)) {
           return trimmedCode;
         }
       }
     }
 
-    const rawVal = typeof itemOrId === 'object' ? (itemOrId.id || '') : String(itemOrId);
-    const trimmed = String(rawVal).trim();
+    const rawVal = typeof itemOrId === 'object' && itemOrId !== null ? ((itemOrId as { id?: string | number }).id || '') : String(itemOrId);
+    const trimmed = String(rawVal).replace(/^#+/, '').trim();
 
     // 2. If it's already a clean legacy/custom short code (e.g. RC0002, INV-000001, CUS-000042)
     if (trimmed && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
@@ -128,11 +128,11 @@ export class SequenceService {
 
   /**
    * Peeks at what the upcoming sequence code will be without incrementing the database counter.
-   * Scans existing items to ensure the upcoming number is strictly higher than any existing record.
+   * Scans existing items across all prefix aliases to ensure the upcoming number is strictly higher than any existing record.
    */
   static peekNextSequence(
     entityType: 'bill' | 'customer' | 'inventory' | 'payment' | 'expense' | 'group' | 'creditNote' | string,
-    existingItems: any[] = [],
+    existingItems: Array<Record<string, unknown>> = [],
     customPrefix?: string,
     padding: number = 6
   ): string {
@@ -151,13 +151,33 @@ export class SequenceService {
     ).toUpperCase();
 
     let maxNum = 0;
-    const prefixPattern = new RegExp(`^${prefix}[-_]?(\\d+)$`, 'i');
+
+    // Build comprehensive regex that matches all legacy & current prefix aliases for this entity
+    let prefixPattern: RegExp | null = null;
+    if (typeUpper === 'BILL' || typeUpper === 'INV' || typeUpper === 'INVOICE') {
+      prefixPattern = /^(?:INV|BILL|INVOICE|B)[-_]?(\d+)$/i;
+    } else if (typeUpper === 'CUSTOMER' || typeUpper === 'CUS') {
+      prefixPattern = /^(?:CUS|CUSTOMER|RC|C)[-_]?(\d+)$/i;
+    } else if (typeUpper === 'INVENTORY' || typeUpper === 'ITEM' || typeUpper === 'ITM') {
+      prefixPattern = /^(?:ITM|ITEM|I)[-_]?(\d+)$/i;
+    } else if (typeUpper === 'PAYMENT' || typeUpper === 'PAY') {
+      prefixPattern = /^(?:PAY|PAYMENT|P)[-_]?(\d+)$/i;
+    } else if (typeUpper === 'EXPENSE' || typeUpper === 'EXP') {
+      prefixPattern = /^(?:EXP|EXPENSE|E)[-_]?(\d+)$/i;
+    } else if (typeUpper === 'GROUP' || typeUpper === 'GRP') {
+      prefixPattern = /^(?:GRP|GROUP|G)[-_]?(\d+)$/i;
+    }
+
+    const sanitizedPrefix = prefix.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const genericPattern = /^(?:[A-Z0-9]+)[-_]?(\d+)$/i;
 
     for (const item of existingItems) {
       if (!item) continue;
       const code =
         item.invoiceNumber ||
         item.invoice_number ||
+        item.billNumber ||
+        item.bill_number ||
         item.customerCode ||
         item.customer_code ||
         item.itemCode ||
@@ -172,11 +192,22 @@ export class SequenceService {
         (typeof item.id === 'string' && !item.id.includes('-') ? item.id : '');
 
       if (code && typeof code === 'string') {
-        const match = code.trim().match(prefixPattern);
-        if (match && match[1]) {
-          const parsed = parseInt(match[1], 10);
-          if (!isNaN(parsed) && parsed > maxNum) {
-            maxNum = parsed;
+        const cleanCode = code.replace(/^#+/, '').trim();
+        if (prefixPattern) {
+          const match = cleanCode.match(prefixPattern);
+          if (match && match[1]) {
+            const parsed = parseInt(match[1], 10);
+            if (!isNaN(parsed) && parsed > maxNum) {
+              maxNum = parsed;
+            }
+          }
+        } else {
+          const match = cleanCode.match(genericPattern);
+          if (match && match[1] && cleanCode.toUpperCase().startsWith(sanitizedPrefix)) {
+            const parsed = parseInt(match[1], 10);
+            if (!isNaN(parsed) && parsed > maxNum) {
+              maxNum = parsed;
+            }
           }
         }
       }
@@ -191,7 +222,7 @@ export class SequenceService {
    */
   static async getNextSequenceSafe(
     key: SequenceKey,
-    existingItems: any[] = [],
+    existingItems: Array<Record<string, unknown>> = [],
     customPrefix?: string,
     padding: number = 6
   ): Promise<string> {
@@ -264,7 +295,7 @@ export class SequenceService {
   static async updateSequenceConfig(key: SequenceKey, prefix: string, padding: number, currentVal?: number): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     const uppercaseKey = key.toUpperCase();
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       user_id: user?.id || null,
       key: uppercaseKey,
       prefix: prefix.toUpperCase(),

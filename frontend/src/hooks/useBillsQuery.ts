@@ -66,6 +66,7 @@ export function useBillMutations() {
       await queryClient.cancelQueries({ queryKey: userBillsKey, exact: false })
       const previousQueries = queryClient.getQueriesData<any[]>({ queryKey: userBillsKey, exact: false })
 
+      const totalPaidDirect = Number(newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0))
       const optimisticBill = {
         id: newBillData.id || `temp-bill-${Date.now()}`,
         invoice_number: newBillData.invoice_number || newBillData.invoiceNumber || 'BILL-SAVING...',
@@ -76,10 +77,10 @@ export function useBillMutations() {
         customerName: newBillData.customer_name || newBillData.customerName || 'Customer',
         date: newBillData.date,
         total: newBillData.total || 0,
-        amount_paid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
-        amountPaid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
-        balance: newBillData.balance !== undefined ? newBillData.balance : 0,
-        status: newBillData.status || 'unpaid',
+        amount_paid: totalPaidDirect,
+        amountPaid: totalPaidDirect,
+        balance: newBillData.balance !== undefined ? newBillData.balance : Math.max(0, (newBillData.total || 0) - totalPaidDirect),
+        status: newBillData.status || (totalPaidDirect >= (newBillData.total || 0) ? 'paid' : totalPaidDirect > 0 ? 'partial' : 'unpaid'),
         items: newBillData.items || [],
         isOptimistic: true,
       }
@@ -88,6 +89,54 @@ export function useBillMutations() {
         optimisticBill,
         ...(Array.isArray(old) ? old : []),
       ])
+
+      if (totalPaidDirect > 0) {
+        const userPaymentsKey = ['payments', userId]
+        const optimisticPayment = {
+          id: `temp-pay-${Date.now()}`,
+          bill_id: optimisticBill.id,
+          billId: optimisticBill.id,
+          customer_id: optimisticBill.customer_id,
+          customerId: optimisticBill.customerId,
+          cash_amount: Number(newBillData.cash_amount || newBillData.cashAmount || 0),
+          cashAmount: Number(newBillData.cash_amount || newBillData.cashAmount || 0),
+          upi_amount: Number(newBillData.upi_amount || newBillData.upiAmount || 0),
+          upiAmount: Number(newBillData.upi_amount || newBillData.upiAmount || 0),
+          total_paid: totalPaidDirect,
+          totalPaid: totalPaidDirect,
+          date: newBillData.date,
+          payment_type: optimisticBill.status === 'paid' ? 'full' : 'partial',
+          notes: 'POS checkout payment'
+        }
+        queryClient.setQueriesData<any[]>({ queryKey: userPaymentsKey, exact: false }, (old = []) => [
+          optimisticPayment,
+          ...(Array.isArray(old) ? old : [])
+        ])
+      }
+
+      // Optimistically update customer advance balance if advance is used
+      const advUsed = Number(newBillData.advance_deducted || newBillData.advance_used || newBillData.advanceUsed || 0)
+      const targetCustId = newBillData.customer_id || newBillData.customerId
+      if (advUsed > 0 && targetCustId) {
+        const userCustKey = ['customers', userId]
+        queryClient.setQueriesData<any[]>({ queryKey: userCustKey, exact: false }, (old = []) => {
+          if (!Array.isArray(old)) return old
+          return old.map(c => {
+            if (String(c.id) === String(targetCustId) || String(c.customerCode) === String(targetCustId)) {
+              const curAdv = Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0)
+              const newAdv = Math.max(0, curAdv - advUsed)
+              return {
+                ...c,
+                advanceBalance: newAdv,
+                advance_balance: newAdv,
+                creditBalance: newAdv,
+                credit_balance: newAdv
+              }
+            }
+            return c
+          })
+        })
+      }
 
       return { previousQueries }
     },
@@ -116,6 +165,7 @@ export function useBillMutations() {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })

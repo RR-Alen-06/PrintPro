@@ -392,11 +392,11 @@ export class ReconciliationService {
       hasOverdue: boolean;
     }>();
 
-    // Initialize all active customers
+    // Initialize all active customers with authoritative server-enforced advance balances
     (customers || []).forEach((c: any) => {
       if (!c || c.deleted) return;
       const cId = String(c.id);
-      const adv = Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0);
+      const adv = Math.max(0, Number(Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0).toFixed(2)));
       duesByCustomer.set(cId, {
         customerId: cId,
         customerName: c.name || 'Walk-in Client',

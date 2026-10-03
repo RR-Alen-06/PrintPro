@@ -74,7 +74,7 @@ describe('Universal Sequential ID & UUID Elimination Suite', () => {
       const mapped = mapCustomerFromApi(rawApiCustomer);
       expect(mapped.customerCode).toMatch(/^CUS-\d{4}$/);
       expect(mapped.customerCode).not.toBe(sampleUuid);
-      expect(mapped.customerCode.startsWith('CUS-')).toBe(true);
+      expect(String(mapped.customerCode).startsWith('CUS-')).toBe(true);
     });
 
     it('mapBillFromApi sanitizes bills without invoice numbers into clean INV-XXXX', () => {

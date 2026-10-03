@@ -33,22 +33,21 @@ export default function ProductDrilldownModal({
   periodLabel = 'Selected Period',
   onInspectBill,
 }: ProductDrilldownModalProps) {
-  if (!isOpen || !productData) return null;
-
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [isExporting, setIsExporting] = useState(false);
 
   // Filter and sort transaction history
   const filteredTransactions = useMemo(() => {
+    if (!productData || !Array.isArray(productData.transaction_history)) return [];
     let txs = [...productData.transaction_history];
 
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       txs = txs.filter(
         (t) =>
-          t.bill_number.toLowerCase().includes(q) ||
-          t.customer_name.toLowerCase().includes(q)
+          String(t?.bill_number || '').toLowerCase().includes(q) ||
+          String(t?.customer_name || '').toLowerCase().includes(q)
       );
     }
 
@@ -59,7 +58,9 @@ export default function ProductDrilldownModal({
     });
 
     return txs;
-  }, [productData.transaction_history, searchTerm, sortOrder]);
+  }, [productData, searchTerm, sortOrder]);
+
+  if (!isOpen || !productData) return null;
 
   const handleExportPDF = () => {
     try {

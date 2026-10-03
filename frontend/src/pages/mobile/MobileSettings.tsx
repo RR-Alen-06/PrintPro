@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
 import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
@@ -23,21 +23,18 @@ import {
   exportPaymentsToCSV,
   exportExpensesToCSV,
   exportAdvancesToCSV,
-  exportGroupsToCSV,
 } from '../../utils/dataExport'
 import {
   importFromJSON,
   importFromCSV,
   importCustomersFromCSV,
   importInventoryFromCSV,
-  validateBackupFile,
   restoreFromBackup,
 } from '../../utils/dataImport'
 import {
   Building2, Palette, BarChart3, Hash, MessageSquare, Gift, Tag,
   Database, FileSpreadsheet, Trash2, Sliders, HardDrive, Download,
-  Upload, RefreshCw, RotateCcw, Check, Save, AlertTriangle, Eye,
-  ShieldAlert, ShieldCheck, CheckSquare, Square, X, Plus, Sparkles
+  Upload, RefreshCw, RotateCcw, Save, AlertTriangle, Plus, Edit3, Calendar
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -56,16 +53,13 @@ const MODULE_TABS = [
 ]
 
 export default function MobileSettings() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') || 'profile'
-  const setActiveTab = (tab) => setSearchParams({ tab })
+  const setActiveTab = (tab: string) => setSearchParams({ tab })
 
   const queryClient = useQueryClient()
   const {
     business,
-    currentUser,
-    logout,
     showToast,
     syncFromCloud,
     bills: ctxBills = [],
@@ -91,7 +85,6 @@ export default function MobileSettings() {
   const { data: serverDeletedBills = [], refetch: refetchDeleted } = useDeletedBills()
   const {
     restoreBill: restoreBillMutation,
-    permanentDeleteBill: permanentDeleteBillMutation,
     purgeAllDeletedBills: purgeAllDeletedBillsMutation,
   } = useBillMutations()
   const { data: serverCustomers = [] } = useCustomers()
@@ -102,7 +95,7 @@ export default function MobileSettings() {
   const { groupBills: serverGroups = [] } = useGroupBills()
 
   const { createCustomer } = useCustomerMutations()
-  const { createInventory } = useInventoryMutations()
+  const { createItem } = useInventoryMutations()
 
   const allBills = serverBills.length > 0 ? serverBills : ctxBills
   const activeBills = allBills.filter((b) => !b.deleted && !b.deleted_at)
@@ -163,22 +156,154 @@ export default function MobileSettings() {
     showUpiQrCode: settings.showUpiQrCode !== false,
   })
 
-  // Loyalty state
+  // Loyalty program configuration state
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled !== false)
-  const [loyaltyEarningRate, setLoyaltyEarningRate] = useState(settings.loyaltyEarningRate ?? 30)
-  const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 150)
-  const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 5)
+  const [loyaltyForRandomCustomers, setLoyaltyForRandomCustomers] = useState(settings.loyaltyForRandomCustomers ?? true)
+  const [loyaltyEarningRate, setLoyaltyEarningRate] = useState(settings.loyaltyEarningRate ?? 100) // Spend ₹X per 1 pt
+  const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 100)
+  const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 10)
+  const [loyaltyMinRedemptionPoints, setLoyaltyMinRedemptionPoints] = useState(settings.loyaltyMinRedemptionPoints ?? 20)
 
-  // Promo modal state
-  const [showAddPromo, setShowAddPromo] = useState(false)
-  const [newPromoCode, setNewPromoCode] = useState('')
-  const [newPromoType, setNewPromoType] = useState('percent')
-  const [newPromoValue, setNewPromoValue] = useState('')
-  const [newPromoMinAmount, setNewPromoMinAmount] = useState('')
+  // Promo Code Modal & CRUD State
+  const [showPromoModal, setShowPromoModal] = useState(false)
+  const [editingPromoId, setEditingPromoId] = useState<string | null>(null)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoType, setPromoType] = useState<'percent' | 'flat'>('percent')
+  const [promoValue, setPromoValue] = useState<number | string>('')
+  const [promoMinAmount, setPromoMinAmount] = useState<number | string>('')
+  const [promoMaxDiscount, setPromoMaxDiscount] = useState<number | string>('')
+  const [promoStartDate, setPromoStartDate] = useState('')
+  const [promoEndDate, setPromoEndDate] = useState('')
+  const [promoEnabled, setPromoEnabled] = useState(true)
+
+  const resetPromoForm = () => {
+    setEditingPromoId(null)
+    setPromoCode('')
+    setPromoType('percent')
+    setPromoValue('')
+    setPromoMinAmount('')
+    setPromoMaxDiscount('')
+    setPromoStartDate('')
+    setPromoEndDate('')
+    setPromoEnabled(true)
+  }
+
+  const handleOpenAddPromo = () => {
+    resetPromoForm()
+    setShowPromoModal(true)
+  }
+
+  const handleOpenEditPromo = (p: {
+    id: string
+    code?: string
+    type?: 'percent' | 'fixed' | string
+    value?: number | string
+    minAmount?: number | string
+    min_amount?: number | string
+    maxDiscount?: number | string
+    max_discount?: number | string
+    startDate?: string
+    start_date?: string
+    endDate?: string
+    end_date?: string
+    enabled?: boolean
+  }) => {
+    setEditingPromoId(p.id)
+    setPromoCode(p.code || '')
+    setPromoType((p.type === 'fixed' || p.type === 'flat') ? 'flat' : 'percent')
+    setPromoValue(p.value || '')
+    setPromoMinAmount(p.minAmount || p.min_amount || '')
+    setPromoMaxDiscount(p.maxDiscount || p.max_discount || '')
+    setPromoStartDate(p.startDate || p.start_date || '')
+    setPromoEndDate(p.endDate || p.end_date || '')
+    setPromoEnabled(p.enabled !== false)
+    setShowPromoModal(true)
+  }
+
+  const handleSavePromo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!promoCode.trim()) {
+      showToast?.('Coupon Code is required', 'error')
+      return
+    }
+    const val = Number(promoValue)
+    if (isNaN(val) || val <= 0) {
+      showToast?.('Valid discount value is required', 'error')
+      return
+    }
+
+    const payload = {
+      code: promoCode.trim().toUpperCase(),
+      type: promoType,
+      value: val,
+      minAmount: promoMinAmount ? Number(promoMinAmount) : 0,
+      maxDiscount: promoMaxDiscount ? Number(promoMaxDiscount) : null,
+      startDate: promoStartDate || null,
+      endDate: promoEndDate || null,
+      enabled: promoEnabled,
+    }
+
+    try {
+      if (editingPromoId) {
+        await updatePromoCode({ id: editingPromoId, data: payload })
+        showToast?.(`Updated Coupon '${payload.code}'`, 'success')
+      } else {
+        await createPromoCode(payload)
+        showToast?.(`Created Coupon '${payload.code}'`, 'success')
+      }
+      setShowPromoModal(false)
+      resetPromoForm()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Failed to save coupon: ${msg}`, 'error')
+    }
+  }
 
   // Storage & Backup state
   const [isExporting, setIsExporting] = useState(false)
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false)
   const [storageUsedKb, setStorageUsedKb] = useState(0)
+
+  const handle1ClickSnapshot = async () => {
+    setIsExporting(true)
+    try {
+      const backupData = createFullBackup({
+        business,
+        settings,
+        bills: activeBills,
+        customers: serverCustomers.length ? serverCustomers : ctxCustomers,
+        inventory: serverInventory.length ? serverInventory : ctxInventory,
+        payments: serverPayments.length ? serverPayments : ctxPayments,
+        expenses: serverExpenses.length ? serverExpenses : ctxExpenses,
+        advancePayments: serverAdvances.length ? serverAdvances : ctxAdvances,
+        customerGroups: serverGroups.length ? serverGroups : ctxGroups,
+        promoCodes,
+        counters,
+        sequences,
+      })
+      exportToJSON(backupData, `printpro_backup_${new Date().toISOString().slice(0, 10)}.json`)
+      showToast?.('Database snapshot exported successfully!', 'success')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Export failed: ${msg}`, 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleForceCloudSync = async () => {
+    setIsSyncingCloud(true)
+    try {
+      await syncFromCloud?.()
+      await queryClient.invalidateQueries()
+      showToast?.('Cloud database synchronized seamlessly!', 'success')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Sync warning: ${msg}`, 'error')
+    } finally {
+      setIsSyncingCloud(false)
+    }
+  }
 
   useEffect(() => {
     let bytes = 0
@@ -195,7 +320,6 @@ export default function MobileSettings() {
   // Recycle Bin Search & Selection
   const [trashSearch, setTrashSearch] = useState('')
   const [selectedTrashIds, setSelectedTrashIds] = useState([])
-  const [inspectingBill, setInspectingBill] = useState(null)
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
   const [isProcessingTrash, setIsProcessingTrash] = useState(false)
 
@@ -243,40 +367,15 @@ export default function MobileSettings() {
         ...branding,
         gstRate: Number(gstRate),
         loyaltyEnabled,
+        loyaltyForRandomCustomers,
         loyaltyEarningRate: Number(loyaltyEarningRate),
         loyaltyRedeemRatioPoints: Number(loyaltyRedeemRatioPoints),
         loyaltyRedeemRatioRupees: Number(loyaltyRedeemRatioRupees),
+        loyaltyMinRedemptionPoints: Number(loyaltyMinRedemptionPoints),
       })
       showToast?.('Configuration saved', 'success')
     } catch (err) {
       showToast?.(`Save failed: ${err.message || err}`, 'error')
-    }
-  }
-
-  const handle1ClickSnapshot = () => {
-    try {
-      setIsExporting(true)
-      const full = createFullBackup({
-        currentUser,
-        business,
-        customers: serverCustomers.length > 0 ? serverCustomers : ctxCustomers,
-        customerGroups: serverGroups.length > 0 ? serverGroups : ctxGroups,
-        inventory: serverInventory.length > 0 ? serverInventory : ctxInventory,
-        bills: allBills,
-        payments: serverPayments.length > 0 ? serverPayments : ctxPayments,
-        expenses: serverExpenses.length > 0 ? serverExpenses : ctxExpenses,
-        advancePayments: serverAdvances.length > 0 ? serverAdvances : ctxAdvances,
-        counters,
-        sequences,
-        settings,
-      })
-      const dateStr = new Date().toISOString().split('T')[0]
-      exportToJSON(full, `PrintPro_Snapshot_${dateStr}.json`)
-      showToast?.('JSON Snapshot downloaded', 'success')
-    } catch (err) {
-      showToast?.(`Snapshot failed: ${err.message || err}`, 'error')
-    } finally {
-      setIsExporting(false)
     }
   }
 
@@ -634,24 +733,106 @@ export default function MobileSettings() {
 
       {/* TAB: LOYALTY */}
       {activeTab === 'loyalty' && (
-        <div className="mobile-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <div className="mobile-card mobile-card-glow" style={{ borderColor: '#a855f7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <Gift size={18} style={{ color: '#a855f7' }} />
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-              Customer Loyalty Program
+              Customer Loyalty & Rewards Program
             </h3>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f8fafc' }}>Enable Loyalty Points</span>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(168, 85, 247, 0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f8fafc' }}>Enable Loyalty System</div>
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Reward clients with points on every order</div>
+              </div>
               <input
                 type="checkbox"
                 checked={loyaltyEnabled}
                 onChange={(e) => setLoyaltyEnabled(e.target.checked)}
-                style={{ width: '18px', height: '18px' }}
+                style={{ width: '20px', height: '20px', accentColor: '#a855f7' }}
               />
             </div>
-            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255, 255, 255, 0.03)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f8fafc' }}>Allow Walk-in / Cash Clients</div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Include unregistered walk-ins in loyalty points</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={loyaltyForRandomCustomers}
+                onChange={(e) => setLoyaltyForRandomCustomers(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: '#a855f7' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Earning Rate (₹ Spend to Earn 1 Point)
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="number"
+                  className="mobile-input"
+                  value={loyaltyEarningRate}
+                  onChange={(e) => setLoyaltyEarningRate(Number(e.target.value))}
+                  placeholder="100"
+                />
+                <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
+                  ₹ per 1 pt
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Redemption Value Ratio (Points to Cash Value)
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '8px', alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    value={loyaltyRedeemRatioPoints}
+                    onChange={(e) => setLoyaltyRedeemRatioPoints(Number(e.target.value))}
+                    placeholder="100"
+                  />
+                  <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.68rem', color: '#94a3b8' }}>
+                    pts
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a855f7' }}>=</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    value={loyaltyRedeemRatioRupees}
+                    onChange={(e) => setLoyaltyRedeemRatioRupees(Number(e.target.value))}
+                    placeholder="10"
+                  />
+                  <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.68rem', color: '#94a3b8' }}>
+                    ₹
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Minimum Points Threshold to Redeem
+              </label>
+              <input
+                type="number"
+                className="mobile-input"
+                value={loyaltyMinRedemptionPoints}
+                onChange={(e) => setLoyaltyMinRedemptionPoints(Number(e.target.value))}
+                placeholder="20"
+              />
+            </div>
+
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary" style={{ background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', marginTop: '6px' }}>
               <Save size={16} /> Save Loyalty Program
             </button>
           </div>
@@ -660,89 +841,197 @@ export default function MobileSettings() {
 
       {/* TAB: PROMOS */}
       {activeTab === 'promos' && (
-        <div className="mobile-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div className="mobile-card mobile-card-glow" style={{ borderColor: '#06b6d4' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Tag size={18} style={{ color: '#06b6d4' }} />
               <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-                Coupons & Discounts
+                Promo Codes & Coupons
               </h3>
             </div>
             <button
-              onClick={() => setShowAddPromo(true)}
-              className="mobile-btn mobile-btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+              onClick={handleOpenAddPromo}
+              className="mobile-btn mobile-btn-primary"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '0.75rem', background: '#06b6d4' }}
             >
-              <Plus size={14} /> Add
+              <Plus size={14} /> New Coupon
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {promoCodes.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '16px' }}>
-                No active promo codes.
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '24px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px' }}>
+                <Tag size={28} style={{ color: '#94a3b8', opacity: 0.5, margin: '0 auto 8px auto', display: 'block' }} />
+                No promo codes configured yet.<br />
+                Create your first promotional discount coupon above!
               </div>
             ) : (
-              promoCodes.map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    padding: '10px',
-                    borderRadius: '8px',
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#06b6d4' }}>
-                      {p.code}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '8px' }}>
-                      {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => deletePromoCode(p.id)}
-                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+              promoCodes.map((p) => {
+                const todayStr = new Date().toISOString().slice(0, 10)
+                const isExpired = p.endDate || p.end_date ? todayStr > (p.endDate || p.end_date) : false
+                const isFuture = p.startDate || p.start_date ? todayStr < (p.startDate || p.start_date) : false
+                const isOff = p.enabled === false
+
+                let statusBadge = { label: 'Active', bg: 'rgba(0, 255, 171, 0.15)', color: '#00ffab' }
+                if (isOff) {
+                  statusBadge = { label: 'Disabled', bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8' }
+                } else if (isExpired) {
+                  statusBadge = { label: 'Expired', bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }
+                } else if (isFuture) {
+                  statusBadge = { label: `Starts ${(p.startDate || p.start_date)}`, bg: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }
+                }
+
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
                   >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 900, fontSize: '0.95rem', color: '#06b6d4', letterSpacing: '0.5px' }}>
+                          {p.code}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: statusBadge.bg, color: statusBadge.color }}>
+                          {statusBadge.label}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => handleOpenEditPromo(p)}
+                          style={{ background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#94a3b8', cursor: 'pointer' }}
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => deletePromoCode(p.id)}
+                          style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#ef4444', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.72rem', color: '#cbd5e1' }}>
+                      <span style={{ background: 'rgba(6, 182, 212, 0.12)', color: '#06b6d4', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                        {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
+                      </span>
+                      {(p.minAmount || p.min_amount) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                          Min Spend: ₹{p.minAmount || p.min_amount}
+                        </span>
+                      ) : null}
+                      {(p.maxDiscount || p.max_discount) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                          Max Cap: ₹{p.maxDiscount || p.max_discount}
+                        </span>
+                      ) : null}
+                      {(p.startDate || p.start_date || p.endDate || p.end_date) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Calendar size={11} /> {p.startDate || p.start_date || 'Anytime'} → {p.endDate || p.end_date || 'No Expiry'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
       )}
 
-      {/* TAB: BACKUP & STORAGE GAUGE */}
+      {/* TAB: DATABASE MANAGEMENT & BACKUP */}
       {activeTab === 'backup' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div className="mobile-card mobile-card-glow" style={{ borderColor: '#00f0ff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <Database size={18} style={{ color: '#00f0ff' }} />
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-                Cloud & Local Backup Center
-              </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* 1. Database Health & Live Table Metrics */}
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--aurora-cyan, #00f0ff)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={18} style={{ color: 'var(--aurora-cyan, #00f0ff)' }} />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  Cloud PostgreSQL Database
+                </h3>
+              </div>
+              <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }}></span>
+                ONLINE & SYNCED
+              </span>
             </div>
-            <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
-              Export an all-in-one JSON snapshot or restore system registers.
+
+            {/* Live Table Metrics Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '12px' }}>
+              {[
+                { label: 'BILLS', count: activeBills.length, color: '#00f0ff' },
+                { label: 'CLIENTS', count: serverCustomers.length || ctxCustomers.length, color: '#ec4899' },
+                { label: 'ITEMS', count: serverInventory.length || ctxInventory.length, color: '#3b82f6' },
+                { label: 'PAYMENTS', count: serverPayments.length || ctxPayments.length, color: '#10b981' },
+                { label: 'EXPENSES', count: serverExpenses.length || ctxExpenses.length, color: '#f59e0b' },
+                { label: 'ADVANCES', count: serverAdvances.length || ctxAdvances.length, color: '#a855f7' },
+                { label: 'COUPONS', count: promoCodes.length, color: '#06b6d4' },
+                { label: 'TRASH', count: deletedBills.length, color: '#ef4444' },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    padding: '8px 4px',
+                    borderRadius: '8px',
+                    textAlign: 'center',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                  }}
+                >
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 800 }}>{stat.label}</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 900, color: stat.color, marginTop: '2px' }}>
+                    {stat.count}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Force Sync Action */}
+            <button
+              onClick={handleForceCloudSync}
+              disabled={isSyncingCloud}
+              className="mobile-btn mobile-btn-secondary"
+              style={{ width: '100%', fontSize: '0.78rem', minHeight: '34px' }}
+            >
+              <RefreshCw size={14} className={isSyncingCloud ? 'spin-animation' : ''} />
+              {isSyncingCloud ? 'Syncing Cloud Database...' : 'Force Cloud Database Sync'}
+            </button>
+          </div>
+
+          {/* 2. Automated Multi-Table JSON Snapshot */}
+          <div className="mobile-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <HardDrive size={16} style={{ color: '#00f0ff' }} />
+              <h4 style={{ fontSize: '0.88rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                Multi-Table JSON Backup & Restore
+              </h4>
+            </div>
+            <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Creates an encrypted, self-contained snapshot of all registers (Bills, Customers, Inventory, Payments, Expenses, and Settings).
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 onClick={handle1ClickSnapshot}
                 disabled={isExporting}
                 className="mobile-btn mobile-btn-primary"
-                style={{ background: 'linear-gradient(135deg, #00f0ff 0%, #7000ff 100%)' }}
+                style={{ fontSize: '0.78rem', minHeight: '36px' }}
               >
-                <Download size={16} /> {isExporting ? 'Generating...' : 'Download JSON Snapshot'}
+                <Download size={15} /> {isExporting ? 'Exporting...' : 'Export Snapshot'}
               </button>
 
-              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer' }}>
-                <Upload size={16} />
-                <span>Restore JSON Backup</span>
+              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer', fontSize: '0.78rem', minHeight: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <Upload size={15} />
+                <span>Restore JSON</span>
                 <input
                   type="file"
                   accept=".json"
@@ -756,8 +1045,9 @@ export default function MobileSettings() {
                       await queryClient.invalidateQueries()
                       showToast?.('System restored! Reloading...', 'success')
                       setTimeout(() => window.location.reload(), 1000)
-                    } catch (err) {
-                      showToast?.(`Restore failed: ${err.message || err}`, 'error')
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : String(err)
+                      showToast?.(`Restore failed: ${msg}`, 'error')
                     }
                   }}
                 />
@@ -765,15 +1055,27 @@ export default function MobileSettings() {
             </div>
           </div>
 
+          {/* 3. Local Cache Storage Footprint */}
           <div className="mobile-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-              <HardDrive size={16} style={{ color: '#00f0ff' }} />
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f8fafc' }}>
-                Local Storage Footprint
-              </span>
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              Estimated ~{storageUsedKb} KB cached in offline storage.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Local Storage Cache
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  ~{storageUsedKb} KB cached for instant zero-latency offline loading.
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  queryClient.clear()
+                  showToast?.('Client query cache flushed!', 'success')
+                }}
+                className="mobile-btn mobile-btn-secondary"
+                style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', minHeight: '28px' }}
+              >
+                Flush Cache
+              </button>
             </div>
           </div>
         </div>
@@ -801,6 +1103,12 @@ export default function MobileSettings() {
               </button>
               <button onClick={() => exportPaymentsToCSV(serverPayments.length ? serverPayments : ctxPayments)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
                 <Download size={14} /> Payments CSV
+              </button>
+              <button onClick={() => exportExpensesToCSV(serverExpenses.length ? serverExpenses : ctxExpenses)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Expenses CSV
+              </button>
+              <button onClick={() => exportAdvancesToCSV(serverAdvances.length ? serverAdvances : ctxAdvances)} className="mobile-btn mobile-btn-secondary" style={{ fontSize: '0.75rem' }}>
+                <Download size={14} /> Advances CSV
               </button>
             </div>
           </div>
@@ -849,7 +1157,7 @@ export default function MobileSettings() {
                       const rows = await importFromCSV(f)
                       const list = importInventoryFromCSV(rows)
                       for (const it of list) {
-                        if (it.name && it.name !== 'Unnamed Item') await createInventory(it)
+                        if (it.name && it.name !== 'Unnamed Item') await createItem(it)
                       }
                       await queryClient.invalidateQueries({ queryKey: ['inventory'] })
                       showToast?.(`Imported ${list.length} items`, 'success')
@@ -1066,6 +1374,153 @@ export default function MobileSettings() {
               Execute Factory Reset
             </button>
           </div>
+        </BottomSheet>
+      )}
+
+      {showPromoModal && (
+        <BottomSheet
+          isOpen={showPromoModal}
+          onClose={() => {
+            setShowPromoModal(false)
+            resetPromoForm()
+          }}
+          title={editingPromoId ? 'Edit Promo Coupon' : 'Create Promo Coupon'}
+        >
+          <form onSubmit={handleSavePromo} style={{ padding: '10px 4px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Coupon Code *
+              </label>
+              <input
+                type="text"
+                required
+                className="mobile-input"
+                style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}
+                placeholder="e.g. FESTIVE20, SAVE50"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Discount Type
+                </label>
+                <select
+                  className="mobile-input"
+                  value={promoType}
+                  onChange={(e) => setPromoType(e.target.value as 'percent' | 'flat')}
+                >
+                  <option value="percent">Percentage (%)</option>
+                  <option value="flat">Flat Amount (₹)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Discount Value *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  step="any"
+                  className="mobile-input currency-num"
+                  placeholder={promoType === 'percent' ? '10%' : '₹50'}
+                  value={promoValue}
+                  onChange={(e) => setPromoValue(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Min Order Spend (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="mobile-input"
+                  placeholder="0 (No minimum)"
+                  value={promoMinAmount}
+                  onChange={(e) => setPromoMinAmount(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Max Discount Cap (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="mobile-input"
+                  placeholder="Optional cap"
+                  value={promoMaxDiscount}
+                  onChange={(e) => setPromoMaxDiscount(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Start Date (Validity)
+                </label>
+                <input
+                  type="date"
+                  className="mobile-input"
+                  value={promoStartDate}
+                  onChange={(e) => setPromoStartDate(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  End Date (Expiry)
+                </label>
+                <input
+                  type="date"
+                  className="mobile-input"
+                  value={promoEndDate}
+                  onChange={(e) => setPromoEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc' }}>Status: Active / Enabled</span>
+              <input
+                type="checkbox"
+                checked={promoEnabled}
+                onChange={(e) => setPromoEnabled(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: '#06b6d4' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPromoModal(false)
+                  resetPromoForm()
+                }}
+                className="mobile-btn mobile-btn-secondary"
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="mobile-btn mobile-btn-primary"
+                style={{ flex: 1, background: '#06b6d4' }}
+              >
+                <Save size={16} /> {editingPromoId ? 'Update Coupon' : 'Create Coupon'}
+              </button>
+            </div>
+          </form>
         </BottomSheet>
       )}
     </MobileLayout>

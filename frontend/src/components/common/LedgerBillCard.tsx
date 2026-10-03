@@ -2,12 +2,12 @@ import React from 'react'
 import { LoyaltyService } from '../../services/loyaltyService'
 
 export interface LedgerBillCardProps {
-  bill: any
-  business?: any
-  settings?: any
-  customers?: any[]
-  bills?: any[]
-  payments?: any[]
+  bill: Record<string, any>
+  business?: Record<string, any>
+  settings?: Record<string, any>
+  customers?: Record<string, any>[]
+  bills?: Record<string, any>[]
+  payments?: Record<string, any>[]
 }
 
 export default function LedgerBillCard({
@@ -50,9 +50,9 @@ export default function LedgerBillCard({
         return sum + (isNaN(bal) ? 0 : bal)
       }, 0)
     } else if (customer) {
-      const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || b.amount_paid || 0))
-      const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0)
-      previousOutstanding = Math.max(0, totalCustCredit - currentBillBal)
+      const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0))
+      const totalCustDue = Number(customer.balanceDue || customer.balance_due || 0)
+      previousOutstanding = Math.max(0, totalCustDue - currentBillBal)
     }
   }
 
@@ -64,18 +64,34 @@ export default function LedgerBillCard({
   const billPayments = payments.filter(p => !p.deleted && !p.deleted_at && String(p.billId || p.bill_id) === String(bill.id))
   const cashPaid = billPayments.reduce((sum, p) => sum + Number(p.cashAmount || p.cash_amount || 0), 0)
   const upiPaid = billPayments.reduce((sum, p) => sum + Number(p.upiAmount || p.upi_amount || 0), 0)
-  const advanceUsed = Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || 0)
+  const advanceUsed = Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || bill.advance_used || 0)
   const directPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || (cashPaid + upiPaid))))
   const paidNow = Math.max(directPaid, cashPaid + upiPaid) + advanceUsed
 
-  // 5. Remaining Balance
-  const remainingBalance = Math.max(0, totalAmountDue - paidNow)
-  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || customer?.credit_balance || 0)
+  // 5. Remaining Balances & Total Outstanding
+  const currentBillBalanceDue = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, currentBill - paidNow)
+  const _remainingBalance = Math.max(0, totalAmountDue - paidNow)
+  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || 0)
+  const totalCustomerDue = customerId
+    ? bills.filter(b => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(customerId))
+        .reduce((sum, b) => {
+          const bal = b.balance !== undefined ? Number(b.balance) : Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0) - Number(b.advance_used || b.advanceUsed || 0))
+          return sum + (isNaN(bal) ? 0 : bal)
+        }, 0)
+    : currentBillBalanceDue
 
-  // 6. Loyalty Earned
+  // 6. Loyalty Lifecycle Calculation
   const isRegular = (customer?.type || 'regular') === 'regular'
-  const pointsEarned = bill.loyaltyPointsEarned || LoyaltyService.calculatePointsEarned(bill.subtotal || bill.total, isRegular, settings)
   const isFullyPaid = bill.status === 'paid' || (bill.balance !== undefined && Number(bill.balance) <= 0)
+  const pointsEarned = Number(bill.loyaltyPointsEarned !== undefined ? bill.loyaltyPointsEarned : (bill.pointsEarned !== undefined ? bill.pointsEarned : LoyaltyService.calculatePointsEarned(bill.subtotal || bill.total, isRegular, settings)))
+  const pointsRedeemed = Number(bill.loyaltyPointsRedeemed || bill.pointsRedeemed || 0)
+  const customerTotalPoints = Number(customer?.loyaltyPoints || customer?.loyalty_points || bill.customerTotalLoyaltyPoints || 0)
+  const previousPoints = customerTotalPoints >= pointsEarned
+    ? Math.max(0, customerTotalPoints - pointsEarned + pointsRedeemed)
+    : customerTotalPoints
+  const netAvailablePoints = isFullyPaid
+    ? Math.max(customerTotalPoints, previousPoints + pointsEarned - pointsRedeemed)
+    : customerTotalPoints
 
   // Format date cleanly
   let formattedDate = bill.date || ''
@@ -87,6 +103,8 @@ export default function LedgerBillCard({
       formattedDate = bill.date
     }
   }
+
+  const cleanBillNumber = String(bill.invoiceNumber || bill.invoice_number || bill.id || '').replace(/^#+/, '')
 
   return (
     <div
@@ -124,7 +142,7 @@ export default function LedgerBillCard({
 
       {/* Bill Meta */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', flexWrap: 'wrap', gap: '4px' }}>
-        <div><strong>Bill No :</strong> #{bill.invoiceNumber || bill.invoice_number || bill.id}</div>
+        <div><strong>Bill No :</strong> #{cleanBillNumber}</div>
         <div><strong>Date :</strong> {formattedDate}</div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -255,13 +273,13 @@ export default function LedgerBillCard({
             <span>₹{upiPaid.toFixed(2)}</span>
           </div>
           {advanceUsed > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Advance Used</span>
-              <span>₹{advanceUsed.toFixed(2)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--accent-secondary)' }}>
+              <span>⚡ Advance Used</span>
+              <span style={{ fontWeight: 800 }}>-₹{advanceUsed.toFixed(2)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: 'var(--success)', paddingTop: '3px', borderTop: '1px dashed var(--border-light, rgba(255,255,255,0.1))' }}>
-            <span>Paid Now</span>
+            <span>Total Paid (This Bill)</span>
             <span>₹{paidNow.toFixed(2)}</span>
           </div>
         </div>
@@ -272,34 +290,67 @@ export default function LedgerBillCard({
       {/* BALANCE SUMMARY */}
       <div style={{ marginBottom: '10px' }}>
         <div style={{ fontWeight: 800, fontSize: '0.8rem', color: 'var(--accent-secondary)', marginBottom: '6px' }}>
-          BALANCE SUMMARY
+          CURRENT BALANCES
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', fontWeight: 800, color: remainingBalance > 0 ? 'var(--error)' : 'var(--success)' }}>
-            <span>Remaining to Pay (Balance Due)</span>
-            <span>₹{remainingBalance.toFixed(2)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', fontWeight: 800, color: currentBillBalanceDue > 0 ? 'var(--error)' : 'var(--success)' }}>
+            <span>Bill Balance Due</span>
+            <span>₹{currentBillBalanceDue.toFixed(2)}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: customerAdvanceBal > 0 ? 'var(--accent-secondary)' : 'var(--text-muted)' }}>
             <span>Customer Advance Balance</span>
-            <span>₹{customerAdvanceBal.toFixed(2)}</span>
+            <span style={{ fontWeight: customerAdvanceBal > 0 ? 800 : 400 }}>₹{customerAdvanceBal.toFixed(2)}</span>
           </div>
+          {customerId && totalCustomerDue > currentBillBalanceDue && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--warning)', paddingTop: '2px', borderTop: '1px dashed rgba(255,255,255,0.05)' }}>
+              <span>Total Outstanding Due (All Bills)</span>
+              <span style={{ fontWeight: 800 }}>₹{totalCustomerDue.toFixed(2)}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* LOYALTY SUMMARY */}
-      {pointsEarned > 0 && (
+      {/* LOYALTY POINTS SUMMARY */}
+      {(pointsEarned > 0 || pointsRedeemed > 0 || customerTotalPoints > 0) && (
         <>
           <div style={{ borderTop: '1px dashed var(--border, rgba(255,255,255,0.2))', margin: '12px 0' }} />
-          <div style={{ fontSize: '0.78rem' }}>
-            {isFullyPaid ? (
-              <div style={{ color: 'var(--success)', fontWeight: 700 }}>
-                🎁 <strong>Loyalty Earned :</strong> +{pointsEarned} Points Credited
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#ff2fb0', marginBottom: '6px' }}>
+              🎁 LOYALTY POINTS SUMMARY
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.78rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                <span>Previous Points Balance</span>
+                <span>{previousPoints} pts</span>
               </div>
-            ) : (
-              <div style={{ color: 'var(--warning, #f59e0b)', fontWeight: 600 }}>
-                ⏳ <strong>Loyalty Points :</strong> +{pointsEarned} pts (credited after fully paid)
+              {pointsEarned > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--success)' }}>
+                  <span>Points Earned (This Bill)</span>
+                  <span>+{pointsEarned} pts</span>
+                </div>
+              )}
+              {pointsRedeemed > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--error)' }}>
+                  <span>Points Redeemed (This Bill)</span>
+                  <span>-{pointsRedeemed} pts</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: 'var(--text-primary)', paddingTop: '3px', borderTop: '1px dashed var(--border-light, rgba(255,255,255,0.1))' }}>
+                <span>Net Available Points Balance</span>
+                <span>{netAvailablePoints} pts</span>
               </div>
-            )}
+              <div style={{ marginTop: '4px', fontSize: '0.72rem' }}>
+                {isFullyPaid ? (
+                  <span style={{ color: 'var(--success)', fontWeight: 700 }}>
+                    ✅ {pointsEarned > 0 ? `+${pointsEarned} Points Credited to customer wallet` : 'Wallet balance updated'}
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--warning, #f59e0b)', fontWeight: 600 }}>
+                    ⏳ {pointsEarned > 0 ? `+${pointsEarned} pts pending (credited after bill is fully paid)` : 'Pending payment settlement'}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </>
       )}

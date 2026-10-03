@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
@@ -8,17 +8,19 @@ import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import ShareReceiptSheet from '../../components/mobile/ShareReceiptSheet'
 import LedgerBillCard from '../../components/common/LedgerBillCard'
+import UnifiedCustomerPaymentModal from '../../components/mobile/UnifiedCustomerPaymentModal'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
   FileText, Download, CreditCard, QrCode, ArrowLeft, CheckCircle2,
   Clock, AlertTriangle, Phone, Mail, User, ShieldCheck, Share2, Wallet, DollarSign,
-  Pencil, Tag, RotateCcw, Percent, Check, Loader2
+  Pencil, Tag, RotateCcw, Percent, Check, Loader2, Plus
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 export default function MobileBillDetail() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const {
     business, settings, showToast, applyPostDiscount, createCreditNote
@@ -50,8 +52,8 @@ export default function MobileBillDetail() {
     return (serverPayments || []).filter(p => String(p.billId || p.bill_id) === String(bill.id))
   }, [serverPayments, bill])
 
-  // Share Bottom Sheet state
-  const [showShareModal, setShowShareModal] = useState(false)
+  // Share Bottom Sheet state (auto opens if query param share=true)
+  const [showShareModal, setShowShareModal] = useState(() => searchParams.get('share') === 'true')
 
   // Payment Bottom Sheet state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -303,13 +305,22 @@ export default function MobileBillDetail() {
               <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
                 {(bill.status || 'unpaid').toUpperCase()}
               </span>
-              <button
-                className="mobile-btn mobile-btn-secondary"
-                onClick={() => navigate(`/create-bill?edit=${bill.id}`)}
-                style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
-              >
-                <Pencil size={12} /> Edit Bill
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  className="mobile-btn mobile-btn-primary"
+                  onClick={() => navigate('/create-bill')}
+                  style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                >
+                  <Plus size={12} /> New Bill
+                </button>
+                <button
+                  className="mobile-btn mobile-btn-secondary"
+                  onClick={() => navigate(`/create-bill?edit=${bill.id}`)}
+                  style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
+                >
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
             </div>
           </div>
 
@@ -427,75 +438,15 @@ export default function MobileBillDetail() {
         bills={serverBills}
       />
 
-      {/* Record Payment Bottom Sheet Drawer */}
-      <BottomSheet
+      {/* Unified Payment Bottom Sheet Drawer */}
+      <UnifiedCustomerPaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
-        title={`Record Payment — Bill #${bill.invoiceNumber || bill.invoice_number || bill.id}`}
-      >
-        <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ padding: '10px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>OUTSTANDING BALANCE</span>
-            <span className="currency-num" style={{ fontSize: '1.2rem', color: 'var(--error)' }}>
-              ₹{balanceDue.toFixed(2)}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            className="mobile-btn mobile-btn-secondary"
-            onClick={handleQuickFullPayPrefill}
-            style={{ fontSize: '0.82rem', minHeight: '38px', color: 'var(--accent-secondary)' }}
-          >
-            Auto Fill Full Balance (₹{balanceDue.toFixed(2)})
-          </button>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              CASH PAYMENT AMOUNT (INR)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              className="mobile-input currency-num"
-              placeholder="0.00"
-              value={payCashAmount}
-              onChange={(e) => setPayCashAmount(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              UPI DIGITAL AMOUNT (INR)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              className="mobile-input currency-num"
-              placeholder="0.00"
-              value={payUpiAmount}
-              onChange={(e) => setPayUpiAmount(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              PAYMENT NOTES / REFERENCE
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              placeholder="e.g. Cash received at counter"
-              value={payNotes}
-              onChange={(e) => setPayNotes(e.target.value)}
-            />
-          </div>
-
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '8px' }} disabled={isCreatingPayment}>
-            {isCreatingPayment ? 'Saving Payment...' : 'Confirm & Save Payment Record'}
-          </button>
-        </form>
-      </BottomSheet>
+        customer={customer || { id: bill.customerId || bill.customer_id, name: bill.customerName || bill.customer_name || 'Customer' }}
+        targetBill={bill}
+        initialAmount={balanceDue}
+        defaultMode="settle"
+      />
 
       {/* Post-Bill Discount Bottom Sheet */}
       <BottomSheet

@@ -1,14 +1,12 @@
 import { GstService } from './gstService';
-import { CreditService } from './creditService';
-import { PromoService, PromoCode } from './promoService';
-import { LoyaltyService, LoyaltyConfig } from './loyaltyService';
+import { PromoCode } from './promoService';
 
 export interface GroupMemberInput {
   id: string;
   customerId: string;
   customerName?: string;
   hasAddons?: boolean;
-  addonRows?: any[];
+  addonRows?: Array<Record<string, unknown>>;
   discountType?: 'flat' | 'percent';
   discountValue?: number;
   promoCode?: string;
@@ -46,14 +44,14 @@ export class GroupBillingService {
     gstPercent = 0,
     discountMode = 'individual',
     groupDiscount = { type: 'flat' as 'flat' | 'percent', value: 0 },
-    roundingMethod = 'None',
+    _roundingMethod = 'None',
   }: {
     totalAmount: number;
     members: GroupMemberInput[];
     gstPercent?: number;
     discountMode?: 'individual' | 'group';
     groupDiscount?: { type: 'flat' | 'percent'; value: number };
-    roundingMethod?: string;
+    _roundingMethod?: string;
   }): {
     memberCalculations: SplitMemberCalculation[];
     aggregateSubtotal: number;
@@ -244,4 +242,91 @@ export class GroupBillingService {
       totalSettled,
     };
   }
+
+  /**
+   * Deterministically merges a line item into an existing list of items if a matching
+   * item (by itemId/name, printType, sides, and unitPrice) exists, otherwise appends it.
+   */
+  static mergeLineItem<T extends { itemId?: string; id?: string; itemName?: string; name?: string; printType?: string; sides?: string; qty?: number | string; unitPrice?: number | string; amount?: number | string; pages?: number | string }>(
+    existingItems: T[],
+    newItem: T
+  ): { items: T[]; merged: boolean; updatedItem?: T } {
+    const isMatching = (a: T, b: T) => {
+      const aId = a.itemId || a.id;
+      const bId = b.itemId || b.id;
+      const aName = a.itemName || a.name || '';
+      const bName = b.itemName || b.name || '';
+      
+      const identityMatch = (aId && bId && aId === bId) || (!aId && !bId && aName === bName) || (aName && bName && aName === bName);
+      const printTypeMatch = (a.printType || 'color') === (b.printType || 'color');
+      const sidesMatch = (a.sides || 'single') === (b.sides || 'single');
+      const pagesMatch = Number(a.pages || 1) === Number(b.pages || 1);
+      const unitPriceMatch = Number(a.unitPrice || 0) === Number(b.unitPrice || 0);
+
+      return identityMatch && printTypeMatch && sidesMatch && pagesMatch && unitPriceMatch;
+    };
+
+    const existingIdx = (existingItems || []).findIndex((item) => isMatching(item, newItem));
+    if (existingIdx > -1) {
+      const copy = [...existingItems];
+      const existing = copy[existingIdx];
+      const currentQty = Number(existing.qty || 1);
+      const addedQty = Number(newItem.qty || 1);
+      const newQty = currentQty + addedQty;
+      const pages = Number(existing.pages || 1);
+      const price = Number(existing.unitPrice || 0);
+      const newAmount = Number((newQty * price * pages).toFixed(2));
+
+      const updated: T = {
+        ...existing,
+        qty: newQty,
+        amount: newAmount,
+      };
+      copy[existingIdx] = updated;
+
+      return {
+        items: copy,
+        merged: true,
+        updatedItem: updated,
+      };
+    }
+
+    return {
+      items: [...(existingItems || []), newItem],
+      merged: false,
+    };
+  }
+
+  /**
+   * Validates that all members in a group have distinct, non-empty customer IDs.
+   */
+  static validateUniqueMembers(members: Array<{ id: string; customerId: string }>): {
+    isValid: boolean;
+    duplicateCustomerIds: string[];
+    emptyMemberIds: string[];
+  } {
+    const emptyMemberIds: string[] = [];
+    const seen = new Set<string>();
+    const duplicateCustomerIds: string[] = [];
+
+    for (const m of members || []) {
+      if (!m.customerId) {
+        emptyMemberIds.push(m.id);
+      } else {
+        const cId = String(m.customerId);
+        if (seen.has(cId)) {
+          duplicateCustomerIds.push(cId);
+        } else {
+          seen.add(cId);
+        }
+      }
+    }
+
+    return {
+      isValid: emptyMemberIds.length === 0 && duplicateCustomerIds.length === 0,
+      duplicateCustomerIds,
+      emptyMemberIds,
+    };
+  }
 }
+
