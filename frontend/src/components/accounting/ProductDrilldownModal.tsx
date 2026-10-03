@@ -39,15 +39,15 @@ export default function ProductDrilldownModal({
 
   // Filter and sort transaction history
   const filteredTransactions = useMemo(() => {
-    if (!productData) return [];
+    if (!productData || !Array.isArray(productData.transaction_history)) return [];
     let txs = [...productData.transaction_history];
 
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       txs = txs.filter(
         (t) =>
-          t.bill_number.toLowerCase().includes(q) ||
-          t.customer_name.toLowerCase().includes(q)
+          String(t?.bill_number || '').toLowerCase().includes(q) ||
+          String(t?.customer_name || '').toLowerCase().includes(q)
       );
     }
 

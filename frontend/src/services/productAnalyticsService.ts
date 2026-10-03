@@ -23,10 +23,11 @@ export class ProductAnalyticsService {
   static filterBillsByRange(bills: any[], filter: string, customRange?: StatementFilterRange): any[] {
     const { start, end } = StatementService.getFilterBoundaries(filter, customRange);
     return (bills || []).filter((b) => {
-      if (b.deleted || b.deleted_at || b.isGroupParent) return false;
+      if (!b || b.deleted || b.deleted_at || b.isGroupParent) return false;
       const dateStr = b.date || b.createdAt || b.created_at;
       if (!dateStr) return true;
       const bDate = new Date(dateStr);
+      if (isNaN(bDate.getTime())) return true;
       if (start && bDate < start) return false;
       if (end && bDate > end) return false;
       return true;
@@ -37,7 +38,16 @@ export class ProductAnalyticsService {
    * Classifies any line item into its standardized print variant.
    */
   static classifyItemVariant(item: any): VariantClassification {
-    const name = (item.product_name || item.name || item.itemName || '').trim();
+    if (!item) {
+      return {
+        variantKey: 'custom_services',
+        variantLabel: 'Custom & Specialty Services',
+        paperSize: 'Custom',
+        printType: 'N/A',
+        sides: 'N/A',
+      };
+    }
+    const name = String(item.product_name || item.name || item.itemName || '').trim();
     const lower = name.toLowerCase();
     const itemPrintType = String(item.printType || item.print_type || '').toLowerCase();
     const itemSides = String(item.sides || item.side || '').toLowerCase();
@@ -187,18 +197,21 @@ export class ProductAnalyticsService {
     const transactionHistory: ProductTransactionHistory[] = [];
 
     filteredBills.forEach((b) => {
-      const items = b.items || [];
-      const billId = String(b.id);
-      const billNumber = b.bill_number || b.invoiceNumber || `BILL-${billId.slice(0, 6)}`;
+      if (!b) return;
+      const items = Array.isArray(b.items) ? b.items : [];
+      const billId = String(b.id || '');
+      const billNumber = b.bill_number || b.invoiceNumber || b.invoice_number || `BILL-${billId.slice(0, 6)}`;
       const createdAt = b.date || b.createdAt || b.created_at || new Date().toISOString();
       const customerId = b.customerId || b.customer_id;
       const customerName = b.customerName || b.customer_name || 'Walk-in Customer';
 
       items.forEach((item: any) => {
+        if (!item) return;
         const itemProdId = item.product_id || item.productId;
+        const itemName = String(item.name || item.itemName || item.item_name || '').trim();
         const isMatch =
           String(itemProdId) === String(productId) ||
-          (!itemProdId && item.name && item.name.trim().toLowerCase() === productName.trim().toLowerCase());
+          (!itemProdId && itemName && itemName.toLowerCase() === productName.trim().toLowerCase());
 
         if (isMatch) {
           const qty = Number(item.quantity !== undefined ? item.quantity : (item.qty || 1));
@@ -318,16 +331,18 @@ export class ProductAnalyticsService {
     >();
 
     filteredBills.forEach((b) => {
-      const items = b.items || [];
-      const billId = String(b.id);
-      const billNumber = b.bill_number || b.invoiceNumber || `BILL-${billId.slice(0, 6)}`;
+      if (!b) return;
+      const items = Array.isArray(b.items) ? b.items : [];
+      const billId = String(b.id || '');
+      const billNumber = b.bill_number || b.invoiceNumber || b.invoice_number || `BILL-${billId.slice(0, 6)}`;
       const createdAt = b.date || b.createdAt || b.created_at || new Date().toISOString();
       const customerId = b.customerId || b.customer_id;
       const customerName = b.customerName || b.customer_name || 'Walk-in Customer';
 
       items.forEach((item: any) => {
+        if (!item) return;
         const itemProdId = item.product_id || item.productId;
-        const rawName = (item.product_name || item.name || item.itemName || '').trim();
+        const rawName = String(item.product_name || item.name || item.itemName || item.item_name || '').trim();
         if (!rawName) return;
 
         // Is custom item if no productId or not matched in catalog
@@ -468,14 +483,16 @@ export class ProductAnalyticsService {
     });
 
     filteredBills.forEach((b) => {
-      const items = b.items || [];
-      const billId = String(b.id);
-      const billNumber = b.bill_number || b.invoiceNumber || `BILL-${billId.slice(0, 6)}`;
+      if (!b) return;
+      const items = Array.isArray(b.items) ? b.items : [];
+      const billId = String(b.id || '');
+      const billNumber = b.bill_number || b.invoiceNumber || b.invoice_number || `BILL-${billId.slice(0, 6)}`;
       const createdAt = b.date || b.createdAt || b.created_at || new Date().toISOString();
       const customerId = b.customerId || b.customer_id;
       const customerName = b.customerName || b.customer_name || 'Walk-in Customer';
 
       items.forEach((item: any) => {
+        if (!item) return;
         const classification = this.classifyItemVariant(item);
         const vKey = classification.variantKey;
 
@@ -496,10 +513,10 @@ export class ProductAnalyticsService {
         }
 
         const variant = variantMap.get(vKey)!;
-        const qty = Number(item.quantity !== undefined ? item.quantity : (item.qty || 1));
-        const price = Number(item.price !== undefined ? item.price : (item.unitPrice || item.rate || 0));
-        const total = Number(item.total !== undefined ? item.total : (item.amount || qty * price));
-        const itemName = (item.product_name || item.name || item.itemName || 'Custom Item').trim();
+        const qty = Number(item.quantity !== undefined ? item.quantity : (item.qty || 1)) || 1;
+        const price = Number(item.price !== undefined ? item.price : (item.unitPrice || item.unit_price || item.rate || 0)) || 0;
+        const total = Number(item.total !== undefined ? item.total : (item.amount || qty * price)) || (qty * price);
+        const itemName = String(item.product_name || item.name || item.itemName || item.item_name || 'Custom Item').trim();
 
         variant.total_quantity += qty;
         variant.total_revenue += total;

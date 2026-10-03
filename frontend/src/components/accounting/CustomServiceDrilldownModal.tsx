@@ -36,15 +36,15 @@ export default function CustomServiceDrilldownModal({
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const filteredTransactions = useMemo(() => {
-    if (!serviceData) return [];
+    if (!serviceData || !Array.isArray(serviceData.transaction_history)) return [];
     let txs = [...serviceData.transaction_history];
 
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       txs = txs.filter(
         (t) =>
-          t.bill_number.toLowerCase().includes(q) ||
-          t.customer_name.toLowerCase().includes(q)
+          String(t?.bill_number || '').toLowerCase().includes(q) ||
+          String(t?.customer_name || '').toLowerCase().includes(q)
       );
     }
 

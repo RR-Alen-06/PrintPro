@@ -8,6 +8,7 @@ export class LedgerService {
     bills,
     payments,
     advanceReturns = [],
+    openingBalance = 0,
   }: {
     bills: Array<{
       id: string | number;
@@ -38,6 +39,7 @@ export class LedgerService {
       paid_amount?: number;
       payment_method?: string;
       paymentType?: string;
+      payment_type?: string;
       notes?: string;
       bill_id?: string | number | null;
       billId?: string | number | null;
@@ -50,6 +52,7 @@ export class LedgerService {
       payment_method?: string;
       notes?: string;
     }>;
+    openingBalance?: number;
   }): {
     entries: CustomerLedgerEntry[];
     totalBilled: number;
