@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
@@ -16,7 +16,7 @@ import CustomServiceDrilldownModal from '../../components/accounting/CustomServi
 import {
   DollarSign, Wallet, FileText, RotateCcw, TrendingUp, Layers, Calculator,
   Calendar, CheckCircle, AlertTriangle, Smartphone, ChevronRight, BarChart2, Plus, MessageSquare, X, Tag, Wrench,
-  CreditCard, Clock, ArrowRight
+  CreditCard, Clock, ArrowRight, ArrowDownLeft, ArrowUpRight, Trash2, Edit2, Save, Send, ShieldAlert
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -26,8 +26,10 @@ const EXPENSE_CATEGORIES = [
   'Ink & Toners',
   'Equipment & Repairs',
   'Electricity & Utilities',
-  'Staff Wages',
+  'Staff Wages & Advance',
   'Shop Rent',
+  'Hand Loan / Personal Transfer',
+  'Owner Drawings / Cash Withdrawal',
   'General Supplies',
   'Miscellaneous',
 ]
@@ -46,7 +48,7 @@ export default function MobileAccounting() {
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverAdvancePayments = [] } = useAdvancePayments()
 
-  const { createExpenseMutation } = useExpenseMutations()
+  const { createExpense, deleteExpense } = useExpenseMutations()
 
   const bills = Array.isArray(serverBills) ? serverBills : []
   const payments = Array.isArray(serverPayments) ? serverPayments : []
@@ -59,10 +61,34 @@ export default function MobileAccounting() {
   const paramTab = searchParams.get('tab') || 'register'
   const [activeTab, setActiveTab] = useState(paramTab)
 
-  // Daybook state
+  // Daybook state & Dynamic Opening Cash
   const todayStr = new Date().toISOString().slice(0, 10)
   const [selectedDate, setSelectedDate] = useState(todayStr)
-  const [openingCash, setOpeningCash] = useState(1000)
+  
+  const [openingCash, setOpeningCash] = useState<number>(() => {
+    const saved = localStorage.getItem(`printpro_opening_cash_${todayStr}`)
+    if (saved !== null && !isNaN(Number(saved))) return Number(saved)
+    return 0
+  })
+  const [isEditingOpeningCash, setIsEditingOpeningCash] = useState(false)
+  const [tempOpeningCashInput, setTempOpeningCashInput] = useState('')
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`printpro_opening_cash_${selectedDate}`)
+    if (saved !== null && !isNaN(Number(saved))) {
+      setOpeningCash(Number(saved))
+    } else {
+      setOpeningCash(0)
+    }
+  }, [selectedDate])
+
+  const handleSaveOpeningCash = (val: number) => {
+    const clean = Math.max(0, Number(val) || 0)
+    setOpeningCash(clean)
+    localStorage.setItem(`printpro_opening_cash_${selectedDate}`, String(clean))
+    setIsEditingOpeningCash(false)
+    showToast(`Opening cash set to ₹${clean.toFixed(2)}`, 'success')
+  }
 
   // Item Sales Analytics state
   const [itemPeriod, setItemPeriod] = useState('this_month')
@@ -90,9 +116,10 @@ export default function MobileAccounting() {
   const [showDenomSheet, setShowDenomSheet] = useState(false)
   const [showAddExpenseSheet, setShowAddExpenseSheet] = useState(false)
   const [showRefundSheet, setShowRefundSheet] = useState(false)
+  const [expenseFilterCat, setExpenseFilterCat] = useState('all')
 
   // Denomination counter state
-  const [denomCounts, setDenomCounts] = useState({
+  const [denomCounts, setDenomCounts] = useState<Record<number, number>>({
     500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0
   })
 
@@ -100,7 +127,10 @@ export default function MobileAccounting() {
   const [expName, setExpName] = useState('')
   const [expCat, setExpCat] = useState('Paper & Media')
   const [expAmount, setExpAmount] = useState('')
-  const [expMethod, setExpMethod] = useState('cash')
+  const [expMethod, setExpMethod] = useState<'cash' | 'upi'>('cash')
+  const [expNotes, setExpNotes] = useState('')
+  const [expLoanPerson, setExpLoanPerson] = useState('')
+  const [expLoanDueDate, setExpLoanDueDate] = useState('')
   const [isSubmittingExp, setIsSubmittingExp] = useState(false)
 
   // Refund form state
@@ -121,14 +151,26 @@ export default function MobileAccounting() {
     })
   }, [bills, payments, customers])
 
-  // Daily Calculations
-  const dayCalculations = useMemo(() => {
-    let cashIn = 0
-    let upiIn = 0
-    let cashOut = 0
-    let upiOut = 0
+  // Daily Calculations & Chronological Daybook Timeline
+  const { dayCalculations, dayTransactions } = useMemo(() => {
+    let cashSales = 0
+    let cashAdvances = 0
+    let upiSales = 0
+    let upiAdvances = 0
 
-    // 1. Payments collected on this date (excluding non-cash advance applications)
+    let cashOperatingExp = 0
+    let cashLoans = 0
+    let cashDrawings = 0
+    let cashRefunds = 0
+
+    let upiOperatingExp = 0
+    let upiLoans = 0
+    let upiDrawings = 0
+    let upiRefunds = 0
+
+    const txList: any[] = []
+
+    // 1. Payments collected on this date (excluding non-cash advance allocations)
     payments.forEach((p) => {
       const pDate = (p.date || p.created_at || '').slice(0, 10)
       if (pDate === selectedDate && !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0) {
@@ -153,8 +195,31 @@ export default function MobileAccounting() {
           else cash = totalPaid
         }
 
-        cashIn += cash
-        upiIn += upi
+        cashSales += cash
+        upiSales += upi
+
+        if (cash > 0) {
+          txList.push({
+            id: `pay-cash-${p.id}`,
+            type: 'inflow',
+            category: 'Bill Payment',
+            title: p.customerName || `Bill Payment #${p.billId || p.id}`,
+            mode: 'cash',
+            amount: cash,
+            notes: p.notes || ''
+          })
+        }
+        if (upi > 0) {
+          txList.push({
+            id: `pay-upi-${p.id}`,
+            type: 'inflow',
+            category: 'Bill Payment (UPI)',
+            title: p.customerName || `Bill Payment #${p.billId || p.id}`,
+            mode: 'upi',
+            amount: upi,
+            notes: p.notes || ''
+          })
+        }
       }
     })
 
@@ -170,23 +235,142 @@ export default function MobileAccounting() {
           if (method === 'upi') upi = amt
           else cash = amt
         }
-        cashIn += cash
-        upiIn += upi
+
+        cashAdvances += cash
+        upiAdvances += upi
+
+        if (cash > 0) {
+          txList.push({
+            id: `adv-cash-${ap.id}`,
+            type: 'inflow',
+            category: 'Advance Deposit',
+            title: ap.customerName || `Customer Advance #${ap.id}`,
+            mode: 'cash',
+            amount: cash,
+            notes: ap.notes || ''
+          })
+        }
+        if (upi > 0) {
+          txList.push({
+            id: `adv-upi-${ap.id}`,
+            type: 'inflow',
+            category: 'Advance Deposit (UPI)',
+            title: ap.customerName || `Customer Advance #${ap.id}`,
+            mode: 'upi',
+            amount: upi,
+            notes: ap.notes || ''
+          })
+        }
       }
     })
 
+    // 3. Expenses & Hand Loans on this date
     expenses.forEach((e) => {
       const eDate = (e.date || '').slice(0, 10)
       if (eDate === selectedDate) {
         const c = Number(e.cashAmount !== undefined ? e.cashAmount : (e.upiAmount ? 0 : e.amount || e.total || 0))
         const u = Number(e.upiAmount || 0)
-        cashOut += c
-        upiOut += u
+        const cat = e.category || 'General'
+
+        if (cat === 'Hand Loan / Personal Transfer') {
+          cashLoans += c
+          upiLoans += u
+        } else if (cat === 'Owner Drawings / Cash Withdrawal') {
+          cashDrawings += c
+          upiDrawings += u
+        } else {
+          cashOperatingExp += c
+          upiOperatingExp += u
+        }
+
+        if (c > 0) {
+          txList.push({
+            id: `exp-cash-${e.id}`,
+            type: 'outflow',
+            category: cat,
+            title: e.itemName || e.description || 'Expense',
+            mode: 'cash',
+            amount: c,
+            notes: e.notes || ''
+          })
+        }
+        if (u > 0) {
+          txList.push({
+            id: `exp-upi-${e.id}`,
+            type: 'outflow',
+            category: cat,
+            title: e.itemName || e.description || 'Expense',
+            mode: 'upi',
+            amount: u,
+            notes: e.notes || ''
+          })
+        }
       }
     })
 
-    const closingCash = Number((openingCash + cashIn - cashOut).toFixed(2))
-    return { cashIn, upiIn, cashOut, upiOut, closingCash }
+    // 4. Refunds on this date
+    payments.forEach((p) => {
+      const pDate = (p.date || p.created_at || '').slice(0, 10)
+      if (pDate === selectedDate && (p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)) {
+        const amt = Math.abs(Number(p.amount || p.totalPaid || 0))
+        const method = String(p.paymentMethod || p.payment_method || 'cash').toLowerCase()
+        if (method === 'upi') {
+          upiRefunds += amt
+          txList.push({
+            id: `ref-upi-${p.id}`,
+            type: 'outflow',
+            category: 'Refund (UPI)',
+            title: p.customerName || 'Customer Refund',
+            mode: 'upi',
+            amount: amt,
+            notes: p.reason || p.notes || ''
+          })
+        } else {
+          cashRefunds += amt
+          txList.push({
+            id: `ref-cash-${p.id}`,
+            type: 'outflow',
+            category: 'Refund (Cash)',
+            title: p.customerName || 'Customer Refund',
+            mode: 'cash',
+            amount: amt,
+            notes: p.reason || p.notes || ''
+          })
+        }
+      }
+    })
+
+    const totalCashIn = Number((cashSales + cashAdvances).toFixed(2))
+    const totalCashOut = Number((cashOperatingExp + cashLoans + cashDrawings + cashRefunds).toFixed(2))
+    const closingCash = Number((openingCash + totalCashIn - totalCashOut).toFixed(2))
+
+    const totalUpiIn = Number((upiSales + upiAdvances).toFixed(2))
+    const totalUpiOut = Number((upiOperatingExp + upiLoans + upiDrawings + upiRefunds).toFixed(2))
+    const netUpi = Number((totalUpiIn - totalUpiOut).toFixed(2))
+
+    return {
+      dayCalculations: {
+        cashIn: totalCashIn,
+        cashSales,
+        cashAdvances,
+        cashOut: totalCashOut,
+        cashOperatingExp,
+        cashLoans,
+        cashDrawings,
+        cashRefunds,
+        closingCash,
+        upiIn: totalUpiIn,
+        upiSales,
+        upiAdvances,
+        upiOut: totalUpiOut,
+        upiOperatingExp,
+        upiLoans,
+        upiDrawings,
+        upiRefunds,
+        netUpi
+      },
+      dayTransactions: txList
+    }
   }, [payments, advancePayments, expenses, selectedDate, openingCash])
 
   // Counted cash in denomination modal
@@ -216,27 +400,39 @@ export default function MobileAccounting() {
     let msg = `*DAILY FINANCIAL Z-REPORT - ${business?.shopName || 'PrintPro'}*\n`
     msg += `*Date:* ${selectedDate}\n`
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
-    msg += `• Cash Collections: ₹${dayCalculations.cashIn.toFixed(2)}\n`
-    msg += `• Digital UPI: ₹${dayCalculations.upiIn.toFixed(2)}\n`
-    msg += `• Total Expenses: ₹${(dayCalculations.cashOut + dayCalculations.upiOut).toFixed(2)}\n`
-    msg += `• Opening Cash: ₹${openingCash.toFixed(2)}\n`
+    msg += `• Opening Cash in Drawer: ₹${openingCash.toFixed(2)}\n`
+    msg += `• Cash Collections: ₹${dayCalculations.cashIn.toFixed(2)} (Sales: ₹${dayCalculations.cashSales.toFixed(2)} | Adv: ₹${dayCalculations.cashAdvances.toFixed(2)})\n`
+    msg += `• Cash Outflows: ₹${dayCalculations.cashOut.toFixed(2)} (Exp: ₹${dayCalculations.cashOperatingExp.toFixed(2)} | Loans/Drawings: ₹${(dayCalculations.cashLoans + dayCalculations.cashDrawings).toFixed(2)} | Ref: ₹${dayCalculations.cashRefunds.toFixed(2)})\n`
     msg += `• *Closing Cash in Drawer: ₹${dayCalculations.closingCash.toFixed(2)}*\n`
+    msg += `──────────────────────\n`
+    msg += `• UPI Inflow: ₹${dayCalculations.upiIn.toFixed(2)}\n`
+    msg += `• UPI Outflows: ₹${dayCalculations.upiOut.toFixed(2)}\n`
+    msg += `• *Net Digital Liquidity: ₹${dayCalculations.netUpi.toFixed(2)}*\n`
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
     const encoded = encodeURIComponent(msg)
     window.open(`https://api.whatsapp.com/send?phone=${business?.phone || ''}&text=${encoded}`, '_blank')
   }
 
-  // Create Expense Submit
-  const handleExpenseSubmit = async (e) => {
+  // Create Expense / Hand Loan / Outflow Submit
+  const handleExpenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const amt = Number(expAmount || 0)
     if (!expName.trim() || amt <= 0) {
-      showToast('Enter valid expense details', 'error')
+      showToast('Enter valid expense title and amount', 'error')
       return
     }
     setIsSubmittingExp(true)
     try {
-      await createExpenseMutation.mutateAsync({
+      let notesCombined = expNotes.trim()
+      if (expCat === 'Hand Loan / Personal Transfer') {
+        const loanDetails = [
+          expLoanPerson ? `Borrower: ${expLoanPerson.trim()}` : '',
+          expLoanDueDate ? `Return Due: ${expLoanDueDate}` : '',
+        ].filter(Boolean).join(' | ')
+        notesCombined = notesCombined ? `${notesCombined} (${loanDetails})` : loanDetails
+      }
+
+      await createExpense({
         item_name: expName.trim(),
         category: expCat,
         total: amt,
@@ -244,21 +440,40 @@ export default function MobileAccounting() {
         cash_amount: expMethod === 'cash' ? amt : 0,
         upi_amount: expMethod === 'upi' ? amt : 0,
         date: selectedDate,
+        notes: notesCombined ? `${notesCombined} [${expMethod === 'upi' ? 'UPI' : 'Cash'}]` : `[Paid via ${expMethod === 'upi' ? 'UPI' : 'Cash'}]`
       })
+
       queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      showToast(`Expense of ₹${amt.toFixed(2)} saved!`, 'success')
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      showToast(`Saved ${expCat} of ₹${amt.toFixed(2)}`, 'success')
       setExpName('')
       setExpAmount('')
+      setExpNotes('')
+      setExpLoanPerson('')
+      setExpLoanDueDate('')
       setShowAddExpenseSheet(false)
-    } catch (err) {
-      showToast(err.message, 'error')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to record expense', 'error')
     } finally {
       setIsSubmittingExp(false)
     }
   }
 
+  // Delete Expense Handler
+  const handleDeleteExpense = async (id: string, name: string) => {
+    if (!window.confirm(`Delete expense '${name}'?`)) return
+    try {
+      await deleteExpense(id)
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['accounting'] })
+      showToast('Expense removed', 'success')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete expense', 'error')
+    }
+  }
+
   // Process Refund Submit
-  const handleRefundSubmit = async (e) => {
+  const handleRefundSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const amt = Number(refAmount || 0)
     if (amt <= 0) {
@@ -280,12 +495,21 @@ export default function MobileAccounting() {
       setRefAmount('')
       setRefReason('')
       setShowRefundSheet(false)
-    } catch (err) {
-      showToast(err.message, 'error')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to process refund', 'error')
     } finally {
       setIsSubmittingRef(false)
     }
   }
+
+  // Filtered Expenses
+  const filteredExpenses = useMemo(() => {
+    if (expenseFilterCat === 'all') return expenses
+    if (expenseFilterCat === 'loans') {
+      return expenses.filter(e => e.category === 'Hand Loan / Personal Transfer' || e.category === 'Owner Drawings / Cash Withdrawal')
+    }
+    return expenses.filter(e => e.category === expenseFilterCat)
+  }, [expenses, expenseFilterCat])
 
   return (
     <MobileLayout title="Finance & Accounts">
@@ -293,7 +517,7 @@ export default function MobileAccounting() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div>
           <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>FINANCIAL CENTER</span>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>ACCOUNTS</h2>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>ACCOUNTS & CASHBOOK</h2>
         </div>
 
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -385,7 +609,7 @@ export default function MobileAccounting() {
       {/* TAB 1: CASHBOOK & REGISTER */}
       {activeTab === 'register' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* Date Picker */}
+          {/* Date Picker Row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
             <Calendar size={16} color="var(--aurora-cyan, #00f0ff)" />
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Date:</span>
@@ -396,76 +620,333 @@ export default function MobileAccounting() {
               onChange={(e) => setSelectedDate(e.target.value)}
               style={{ minHeight: '32px', fontSize: '0.8rem', padding: '4px 8px', flex: 1 }}
             />
+            {selectedDate !== todayStr && (
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayStr)}
+                style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid #00f0ff', color: '#00f0ff', borderRadius: '4px', padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Today
+              </button>
+            )}
+          </div>
+
+          {/* DYNAMIC OPENING CASH CARD */}
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'rgba(0, 240, 255, 0.3)', padding: '12px 14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Wallet size={15} color="#00f0ff" />
+                <span style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase' }}>
+                  Opening Cash in Drawer
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTempOpeningCashInput(String(openingCash))
+                  setIsEditingOpeningCash(!isEditingOpeningCash)
+                }}
+                style={{ background: 'none', border: 'none', color: '#00f0ff', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Edit2 size={12} /> {isEditingOpeningCash ? 'Close' : 'Set Amount'}
+              </button>
+            </div>
+
+            {isEditingOpeningCash ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    className="mobile-input currency-num"
+                    style={{ height: '34px', fontSize: '0.85rem' }}
+                    placeholder="Enter opening cash..."
+                    value={tempOpeningCashInput}
+                    onChange={(e) => setTempOpeningCashInput(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="mobile-btn mobile-btn-primary"
+                    onClick={() => handleSaveOpeningCash(Number(tempOpeningCashInput))}
+                    style={{ width: 'auto', minHeight: '34px', padding: '0 12px', fontSize: '0.76rem' }}
+                  >
+                    <Save size={14} /> Save
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {[0, 500, 1000, 2000, 5000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleSaveOpeningCash(preset)}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid var(--border)',
+                        color: '#94a3b8',
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ₹{preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#f8fafc', fontFamily: 'var(--font-mono)' }}>
+                  ₹{openingCash.toFixed(2)}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  Starts today's physical drawer
+                </span>
+              </div>
+            )}
           </div>
 
           {/* KPI Cards Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div className="mobile-card" style={{ padding: '12px', borderLeft: '3px solid #10b981' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CASH IN DRAWER</div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#10b981' }}>
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>CLOSING CASH IN DRAWER</div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#10b981', margin: '2px 0' }}>
                 ₹{dayCalculations.closingCash.toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                Start ₹{openingCash} + In ₹{dayCalculations.cashIn} - Out ₹{dayCalculations.cashOut}
               </div>
             </div>
 
             <div className="mobile-card" style={{ padding: '12px', borderLeft: '3px solid var(--aurora-cyan, #00f0ff)' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>UPI INFLOW</div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--aurora-cyan, #00f0ff)' }}>
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>UPI / DIGITAL INFLOW</div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--aurora-cyan, #00f0ff)', margin: '2px 0' }}>
                 ₹{dayCalculations.upiIn.toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                Net digital: ₹{dayCalculations.netUpi.toFixed(2)}
               </div>
             </div>
 
-            <div className="mobile-card" style={{ padding: '12px' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CASH COLLECTED</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                ₹{dayCalculations.cashIn.toFixed(2)}
+            <div className="mobile-card" style={{ padding: '12px', borderLeft: '3px solid #3b82f6' }}>
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL CASH INFLOWS</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#60a5fa', margin: '2px 0' }}>
+                +₹{dayCalculations.cashIn.toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                Sales: ₹{dayCalculations.cashSales.toFixed(2)} · Adv: ₹{dayCalculations.cashAdvances.toFixed(2)}
               </div>
             </div>
 
             <div className="mobile-card" style={{ padding: '12px', borderLeft: '3px solid var(--aurora-amber, #f59e0b)' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CASH OUTFLOWS</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--aurora-amber, #f59e0b)' }}>
-                ₹{dayCalculations.cashOut.toFixed(2)}
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL CASH OUTFLOWS</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--aurora-amber, #f59e0b)', margin: '2px 0' }}>
+                -₹{dayCalculations.cashOut.toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                Exp: ₹{dayCalculations.cashOperatingExp.toFixed(2)} · Loans: ₹{dayCalculations.cashLoans.toFixed(2)} · Ref: ₹{dayCalculations.cashRefunds.toFixed(2)}
               </div>
             </div>
+          </div>
+
+          {/* HAND LOANS & SPECIAL TRANSFERS BANNER */}
+          {(dayCalculations.cashLoans > 0 || dayCalculations.upiLoans > 0 || dayCalculations.cashDrawings > 0 || dayCalculations.upiDrawings > 0) && (
+            <div className="mobile-card" style={{ background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '10px 12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#c084fc' }}>Hand Loans & Credit Out Today</div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    Cash: ₹{dayCalculations.cashLoans.toFixed(2)} · UPI: ₹{dayCalculations.upiLoans.toFixed(2)}
+                  </div>
+                </div>
+                <span className="mobile-badge" style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', fontWeight: 800 }}>
+                  ₹{(dayCalculations.cashLoans + dayCalculations.upiLoans + dayCalculations.cashDrawings + dayCalculations.upiDrawings).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* DAY TRANSACTIONS TIMELINE */}
+          <div className="mobile-card" style={{ padding: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase' }}>
+                Day Transactions Timeline ({dayTransactions.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAddExpenseSheet(true)}
+                style={{ background: 'none', border: 'none', color: '#00f0ff', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                + Outflow
+              </button>
+            </div>
+
+            {dayTransactions.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                No cash or UPI transactions recorded on this date.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {dayTransactions.map((tx) => {
+                  const isInflow = tx.type === 'inflow'
+                  const isLoan = tx.category === 'Hand Loan / Personal Transfer'
+                  return (
+                    <div
+                      key={tx.id}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div
+                          style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            background: isInflow ? 'rgba(16, 185, 129, 0.15)' : isLoan ? 'rgba(168, 85, 247, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          {isInflow ? (
+                            <ArrowDownLeft size={14} color="#10b981" />
+                          ) : (
+                            <ArrowUpRight size={14} color={isLoan ? '#c084fc' : '#f59e0b'} />
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#f8fafc' }}>
+                            {tx.title}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                            {tx.category} • <span style={{ textTransform: 'uppercase', fontWeight: 700, color: tx.mode === 'upi' ? '#00f0ff' : '#94a3b8' }}>{tx.mode}</span>
+                            {tx.notes ? ` • ${tx.notes}` : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <span
+                          style={{
+                            fontWeight: 900,
+                            fontSize: '0.88rem',
+                            fontFamily: 'var(--font-mono)',
+                            color: isInflow ? '#10b981' : isLoan ? '#c084fc' : '#f59e0b'
+                          }}
+                        >
+                          {isInflow ? '+' : '-'}₹{tx.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* TAB 2: EXPENSES */}
+      {/* TAB 2: EXPENSES & OUTFLOWS */}
       {activeTab === 'expenses' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>Operating Expenses</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f8fafc' }}>Expenses & Hand Loans</div>
             <button
               type="button"
               className="mobile-btn mobile-btn-primary"
               onClick={() => setShowAddExpenseSheet(true)}
               style={{ width: 'auto', minHeight: '34px', fontSize: '0.75rem', padding: '0 12px' }}
             >
-              <Plus size={14} /> + Record Expense
+              <Plus size={14} /> Record Outflow
             </button>
           </div>
 
-          {expenses.length === 0 ? (
+          {/* Quick Filter Pills */}
+          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'loans', label: 'Hand Loans' },
+              { id: 'Paper & Media', label: 'Paper & Ink' },
+              { id: 'Equipment & Repairs', label: 'Repairs' },
+              { id: 'Staff Wages & Advance', label: 'Wages' },
+              { id: 'Shop Rent', label: 'Rent' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setExpenseFilterCat(f.id)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  background: expenseFilterCat === f.id ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                  border: expenseFilterCat === f.id ? '1px solid #00f0ff' : '1px solid var(--border)',
+                  color: expenseFilterCat === f.id ? '#00f0ff' : '#94a3b8',
+                  cursor: 'pointer'
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {filteredExpenses.length === 0 ? (
             <div className="mobile-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-              No expenses recorded yet.
+              No expenses or hand loans recorded.
             </div>
           ) : (
-            expenses.slice(0, 30).map((exp) => (
-              <div key={exp.id} className="mobile-card" style={{ padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{exp.itemName || exp.description}</div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      {exp.category} • {exp.date ? exp.date.slice(0, 10) : ''}
+            filteredExpenses.slice(0, 50).map((exp) => {
+              const isLoan = exp.category === 'Hand Loan / Personal Transfer'
+              return (
+                <div key={exp.id} className="mobile-card" style={{ padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#f8fafc' }}>
+                          {exp.itemName || exp.description}
+                        </span>
+                        {isLoan && (
+                          <span className="mobile-badge" style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', fontSize: '0.62rem', padding: '1px 6px' }}>
+                            Hand Loan
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        <span style={{ color: isLoan ? '#c084fc' : '#94a3b8' }}>{exp.category}</span> • {exp.date ? exp.date.slice(0, 10) : ''} • {exp.cashAmount > 0 ? '💵 Cash' : '📱 UPI'}
+                      </div>
+                      {exp.notes && (
+                        <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '3px' }}>
+                          {exp.notes}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong style={{ color: isLoan ? '#c084fc' : 'var(--aurora-amber, #f59e0b)', fontSize: '0.95rem', fontFamily: 'var(--font-mono)' }}>
+                        -₹{Number(exp.amount || exp.total || 0).toFixed(2)}
+                      </strong>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(exp.id, exp.itemName || exp.description)}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
-                  <strong style={{ color: 'var(--aurora-amber, #f59e0b)', fontSize: '0.95rem' }}>
-                    -₹{Number(exp.amount || exp.total || 0).toFixed(2)}
-                  </strong>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}
@@ -714,37 +1195,103 @@ export default function MobileAccounting() {
         </div>
       </BottomSheet>
 
-      {/* Record Expense BottomSheet */}
-      <BottomSheet isOpen={showAddExpenseSheet} onClose={() => setShowAddExpenseSheet(false)} title="Record Business Expense">
+      {/* Record Expense / Hand Loan / Outflow BottomSheet */}
+      <BottomSheet isOpen={showAddExpenseSheet} onClose={() => setShowAddExpenseSheet(false)} title="Record Business Outflow">
         <form onSubmit={handleExpenseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <input
-            type="text"
-            className="mobile-input"
-            placeholder="Expense title *"
-            value={expName}
-            onChange={(e) => setExpName(e.target.value)}
-            required
-          />
-          <select className="mobile-input" value={expCat} onChange={(e) => setExpCat(e.target.value)}>
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            step="0.01"
-            className="mobile-input"
-            placeholder="Amount (₹) *"
-            value={expAmount}
-            onChange={(e) => setExpAmount(e.target.value)}
-            required
-          />
-          <select className="mobile-input" value={expMethod} onChange={(e) => setExpMethod(e.target.value)}>
-            <option value="cash">Cash from Register</option>
-            <option value="upi">UPI / Bank</option>
-          </select>
-          <button type="submit" className="mobile-btn mobile-btn-primary" disabled={isSubmittingExp}>
-            {isSubmittingExp ? 'Saving...' : 'Save Expense'}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+              Category *
+            </label>
+            <select className="mobile-input" value={expCat} onChange={(e) => setExpCat(e.target.value)}>
+              {EXPENSE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+              {expCat === 'Hand Loan / Personal Transfer' ? 'Loan / Transfer Purpose *' : 'Expense Title *'}
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              placeholder={expCat === 'Hand Loan / Personal Transfer' ? 'e.g. Hand loan to Ramesh' : 'e.g. A4 Paper Rim, Electricity Bill'}
+              value={expName}
+              onChange={(e) => setExpName(e.target.value)}
+              required
+            />
+          </div>
+
+          {expCat === 'Hand Loan / Personal Transfer' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                  Borrower Person Name
+                </label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  placeholder="e.g. Ramesh"
+                  value={expLoanPerson}
+                  onChange={(e) => setExpLoanPerson(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                  Expected Return Date
+                </label>
+                <input
+                  type="date"
+                  className="mobile-input"
+                  value={expLoanDueDate}
+                  onChange={(e) => setExpLoanDueDate(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                Amount (₹) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className="mobile-input currency-num"
+                placeholder="0.00"
+                value={expAmount}
+                onChange={(e) => setExpAmount(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                Payment Source
+              </label>
+              <select className="mobile-input" value={expMethod} onChange={(e) => setExpMethod(e.target.value as 'cash' | 'upi')}>
+                <option value="cash">💵 Cash Drawer</option>
+                <option value="upi">📱 UPI / Bank</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '3px' }}>
+              Additional Notes (Optional)
+            </label>
+            <input
+              type="text"
+              className="mobile-input"
+              placeholder="e.g. Receipt #, remarks"
+              value={expNotes}
+              onChange={(e) => setExpNotes(e.target.value)}
+            />
+          </div>
+
+          <button type="submit" className="mobile-btn mobile-btn-primary" disabled={isSubmittingExp} style={{ marginTop: '4px' }}>
+            {isSubmittingExp ? 'Saving Outflow...' : 'Save Outflow Record'}
           </button>
         </form>
       </BottomSheet>
@@ -800,3 +1347,4 @@ export default function MobileAccounting() {
     </MobileLayout>
   )
 }
+
