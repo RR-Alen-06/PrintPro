@@ -34,6 +34,7 @@ interface MetricsRowProps {
     periodExpenses: number
     totalRefunds: number
     netCashFlow: number
+    advancePool?: number
   }
 }
 
@@ -64,7 +65,7 @@ const MetricsRow = React.memo(({ stats }: MetricsRowProps) => {
           ₹{stats.pendingAmount.toLocaleString('en-IN')}
         </div>
         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-          {stats.unpaidCount} Pending Invoice(s)
+          {stats.unpaidCount} Pending Invoice(s){(stats.advancePool || 0) > 0 ? ` • Adv: ₹${(stats.advancePool || 0).toLocaleString('en-IN')}` : ''}
         </div>
       </div>
 
@@ -388,7 +389,8 @@ export default function MobileDashboard() {
     return (customers || []).filter(c => !c.deleted).length
   }, [customers])
 
-  const allTimePendingAmount = storeFinancials.totalGrossDue
+  const allTimePendingAmount = storeFinancials.totalAccountsReceivable
+  const allTimeGrossDue = storeFinancials.totalGrossDue
   const allTimeAdvancePool = storeFinancials.totalAdvancePool
   const allTimeNetDue = storeFinancials.totalAccountsReceivable
 
@@ -460,6 +462,7 @@ export default function MobileDashboard() {
       billCount: filteredBills.length,
       pendingAmount,
       unpaidCount: unpaidBills.length,
+      advancePool: allTimeAdvancePool,
       cashInflow,
       cashTotal,
       upiTotal,
@@ -467,7 +470,7 @@ export default function MobileDashboard() {
       totalRefunds,
       netCashFlow,
     }
-  }, [filteredBills, reconciledBills, allTimeReconciledBills, allTimePendingAmount, payments, expenses, activeDateRange])
+  }, [filteredBills, reconciledBills, allTimeReconciledBills, allTimePendingAmount, allTimeAdvancePool, payments, expenses, activeDateRange])
 
   // Handle Add Customer Form
   const handleAddCustomerSubmit = useCallback(async (e) => {
