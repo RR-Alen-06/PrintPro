@@ -692,6 +692,7 @@ export default function MobileCreateBill() {
                 )
               } catch (stockErr: unknown) {
                 console.error('Failed to deduct stock:', stockErr)
+                showToast('Invoice saved, but inventory stock deduction failed for some items', 'warning')
               }
             }
           })
