@@ -9,6 +9,7 @@ import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { SequenceService } from '../../services/sequenceService'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { CreditService } from '../../services/creditService'
+import { GroupBillingService } from '../../services/groupBillingService'
 import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import LoyaltyEnginePanel from '../../components/common/LoyaltyEnginePanel'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -33,8 +34,10 @@ interface ItemRow {
   pages?: number | string;
   unitPrice?: number | string;
   unit_price?: number | string;
+  gstRate?: number | string;
   amount?: number | string;
   isCustom?: boolean;
+  [key: string]: unknown;
 }
 
 interface PromoCodeItem {
@@ -197,38 +200,27 @@ export default function MobileCreateBill() {
     const qty = Math.max(1, Number(quickQty) || 1)
     const name = quickActiveInventoryObj.name || 'Print Item'
 
-    // Check if matching row already exists
-    const existingIndex = itemRows.findIndex(r => r.itemId === quickActiveInventoryObj.id && !r.isCustom && r.printType === 'color' && r.sides === 'single')
-    if (existingIndex > -1) {
-      setItemRows(prev => {
-        const copy = [...prev]
-        const current = copy[existingIndex]
-        const updatedQty = Number(current.qty || 1) + qty
-        copy[existingIndex] = {
-          ...current,
-          qty: updatedQty,
-          amount: Number(current.unitPrice || rate) * updatedQty * (Number(current.pages) || 1)
-        }
-        return copy
-      })
+    const newRow: ItemRow = {
+      id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      itemId: quickActiveInventoryObj.id,
+      itemName: name,
+      name: name,
+      isCustom: false,
+      printType: 'color',
+      sides: 'single',
+      qty: qty,
+      pages: 1,
+      unitPrice: rate,
+      unit_price: rate,
+      gstRate: Number(quickActiveInventoryObj.gstRate ?? quickActiveInventoryObj.gst_rate ?? 0),
+      amount: rate * qty
+    }
+
+    const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
+    setItemRows(updatedItems)
+    if (merged) {
       showToast(`Updated '${name}' quantity (+${qty})`, 'success')
     } else {
-      const newRow = {
-        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-        itemId: quickActiveInventoryObj.id,
-        itemName: name,
-        name: name,
-        isCustom: false,
-        printType: 'color',
-        sides: 'single',
-        qty: qty,
-        pages: 1,
-        unitPrice: rate,
-        unit_price: rate,
-        gstRate: Number(quickActiveInventoryObj.gstRate ?? quickActiveInventoryObj.gst_rate ?? 0),
-        amount: rate * qty
-      }
-      setItemRows(prev => [...prev, newRow])
       showToast(`Added '${name}' × ${qty}`, 'success')
     }
     setQuickQty(1)
@@ -243,7 +235,7 @@ export default function MobileCreateBill() {
     const pagesNum = Number(itemPages) || 1
     const totalAmount = rate * qtyNum * pagesNum
 
-    const newRow = {
+    const newRow: ItemRow = {
       id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       itemId: isCustomItem ? '' : selectedInventoryId,
       itemName: name,
@@ -259,7 +251,8 @@ export default function MobileCreateBill() {
       amount: totalAmount
     }
 
-    setItemRows(prev => [...prev, newRow])
+    const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
+    setItemRows(updatedItems)
     setShowAddItemSheet(false)
     setCustomItemName('')
     setIsCustomItem(false)
@@ -267,7 +260,11 @@ export default function MobileCreateBill() {
     setItemPages(1)
     setItemUnitPrice('')
     setItemGstRate(0)
-    showToast(`Added '${name}' to order`, 'success')
+    if (merged) {
+      showToast(`Updated '${name}' quantity (+${qtyNum})`, 'success')
+    } else {
+      showToast(`Added '${name}' to order`, 'success')
+    }
   }
 
   // Update Item Quantity inline
