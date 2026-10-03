@@ -124,6 +124,7 @@ export default function MobileCreateBill() {
   const [roundOffMode, setRoundOffMode] = useState<'none' | 'nearest' | 'up' | 'down'>('nearest')
   const [promoCodeInput, setPromoCodeInput] = useState('')
   const [appliedPromo, setAppliedPromo] = useState<PromoCodeItem | null>(null)
+  const [showBrowsePromos, setShowBrowsePromos] = useState(false)
   
   // Loyalty redemption state
   const [shouldRedeemLoyalty, setShouldRedeemLoyalty] = useState(false)
@@ -454,7 +455,12 @@ export default function MobileCreateBill() {
     }
     if (appliedPromo) {
       if (appliedPromo.type === 'percent') {
-        disc += (subtotal * Number(appliedPromo.value || 0)) / 100
+        let promoDisc = (subtotal * Number(appliedPromo.value || 0)) / 100
+        const maxCap = Number(appliedPromo.maxDiscount || appliedPromo.max_discount || 0)
+        if (maxCap > 0 && promoDisc > maxCap) {
+          promoDisc = maxCap
+        }
+        disc += promoDisc
       } else {
         disc += Number(appliedPromo.value || 0)
       }
@@ -496,21 +502,48 @@ export default function MobileCreateBill() {
 
   const grandTotal = roundedTotal
 
-  // Apply Promo Code
-  const handleApplyPromo = () => {
-    if (!promoCodeInput.trim()) return
-    const codeUpper = promoCodeInput.trim().toUpperCase()
-    const found = (promoCodes || []).find(p => p.code === codeUpper && p.enabled !== false)
-    if (!found) {
-      showToast(`Invalid or expired promo code '${codeUpper}'`, 'error')
+  // Apply Promo Code (via input code or direct selection)
+  const handleApplyPromo = (promoObj?: any) => {
+    let target = promoObj
+    if (!target) {
+      if (!promoCodeInput.trim()) return
+      const codeUpper = promoCodeInput.trim().toUpperCase()
+      target = (promoCodes || []).find((p: any) => p.code?.toUpperCase() === codeUpper)
+      if (!target) {
+        showToast(`Invalid promo code '${codeUpper}'`, 'error')
+        return
+      }
+    }
+
+    if (target.enabled === false) {
+      showToast(`Coupon '${target.code}' is currently disabled`, 'error')
       return
     }
-    if (found.minAmount && subtotal < found.minAmount) {
-      showToast(`Promo code '${codeUpper}' requires min order of ₹${found.minAmount}`, 'error')
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const startDate = target.startDate || target.start_date
+    const endDate = target.endDate || target.end_date
+
+    if (startDate && todayStr < startDate) {
+      showToast(`Coupon '${target.code}' starts on ${startDate}`, 'error')
       return
     }
-    setAppliedPromo(found)
-    showToast(`Applied Promo '${codeUpper}'!`, 'success')
+
+    if (endDate && todayStr > endDate) {
+      showToast(`Coupon '${target.code}' expired on ${endDate}`, 'error')
+      return
+    }
+
+    const minSpend = Number(target.minAmount || target.min_amount || target.minOrderAmount || target.min_order_amount || 0)
+    if (minSpend > 0 && subtotal < minSpend) {
+      showToast(`Coupon '${target.code}' requires min spend of ₹${minSpend}`, 'error')
+      return
+    }
+
+    setAppliedPromo(target)
+    setPromoCodeInput('')
+    setShowBrowsePromos(false)
+    showToast(`Applied Coupon '${target.code}'!`, 'success')
   }
 
   // Submit Final Bill
@@ -1300,23 +1333,38 @@ export default function MobileCreateBill() {
             </div>
 
             {/* Promo Code Row */}
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <input
-                type="text"
-                className="mobile-input"
-                style={{ height: '36px', fontSize: '0.8rem' }}
-                placeholder="Promo code (e.g. WELCOME10)"
-                value={promoCodeInput}
-                onChange={(e) => setPromoCodeInput(e.target.value)}
-              />
-              <button
-                type="button"
-                className="mobile-btn mobile-btn-secondary"
-                onClick={handleApplyPromo}
-                style={{ width: 'auto', minHeight: '36px', padding: '0 12px', fontSize: '0.76rem' }}
-              >
-                Apply
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Promo / Coupon Code
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowBrowsePromos(true)}
+                  style={{ background: 'none', border: 'none', color: '#06b6d4', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
+                >
+                  <Tag size={12} /> Browse Coupons ({promoCodes.length})
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  style={{ height: '36px', fontSize: '0.8rem', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}
+                  placeholder="Promo code (e.g. FESTIVE20)"
+                  value={promoCodeInput}
+                  onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                />
+                <button
+                  type="button"
+                  className="mobile-btn mobile-btn-secondary"
+                  onClick={() => handleApplyPromo()}
+                  style={{ width: 'auto', minHeight: '36px', padding: '0 12px', fontSize: '0.76rem' }}
+                >
+                  Apply
+                </button>
+              </div>
             </div>
 
             {appliedPromo && (
@@ -1978,6 +2026,122 @@ export default function MobileCreateBill() {
           )}
         </form>
       </BottomSheet>
+
+      {showBrowsePromos && (
+        <BottomSheet
+          isOpen={showBrowsePromos}
+          onClose={() => setShowBrowsePromos(false)}
+          title="Available Coupons & Promos"
+        >
+          <div style={{ padding: '8px 4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {promoCodes.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                <Tag size={28} style={{ opacity: 0.5, margin: '0 auto 8px auto', display: 'block', color: '#06b6d4' }} />
+                No active promo coupons found.<br />
+                You can create coupons in <strong>Settings → Coupons</strong>.
+              </div>
+            ) : (
+              promoCodes.map((p: any) => {
+                const todayStr = new Date().toISOString().slice(0, 10)
+                const startDate = p.startDate || p.start_date
+                const endDate = p.endDate || p.end_date
+                const isExpired = endDate ? todayStr > endDate : false
+                const isFuture = startDate ? todayStr < startDate : false
+                const isOff = p.enabled === false
+                const minSpend = Number(p.minAmount || p.min_amount || p.minOrderAmount || p.min_order_amount || 0)
+                const isMinSpendUnmet = minSpend > 0 && subtotal < minSpend
+
+                const isApplied = appliedPromo?.id === p.id || appliedPromo?.code?.toUpperCase() === p.code?.toUpperCase()
+                const canApply = !isOff && !isExpired && !isFuture && !isMinSpendUnmet
+
+                return (
+                  <div
+                    key={p.id || p.code}
+                    style={{
+                      padding: '12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isApplied ? 'rgba(0, 240, 255, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                      border: isApplied ? '1px solid #06b6d4' : '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 900, fontSize: '0.92rem', color: '#06b6d4', letterSpacing: '0.5px' }}>
+                          {p.code}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
+                          {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
+                        </span>
+                      </div>
+
+                      {isApplied ? (
+                        <button
+                          type="button"
+                          onClick={() => setAppliedPromo(null)}
+                          className="mobile-btn mobile-btn-secondary"
+                          style={{ width: 'auto', minHeight: '28px', padding: '2px 10px', fontSize: '0.72rem', color: 'var(--error)' }}
+                        >
+                          Remove
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canApply}
+                          onClick={() => handleApplyPromo(p)}
+                          className="mobile-btn mobile-btn-primary"
+                          style={{
+                            width: 'auto',
+                            minHeight: '28px',
+                            padding: '2px 12px',
+                            fontSize: '0.74rem',
+                            background: canApply ? '#06b6d4' : 'rgba(255,255,255,0.1)',
+                            opacity: canApply ? 1 : 0.5
+                          }}
+                        >
+                          Apply
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {minSpend > 0 && (
+                        <span style={{ color: isMinSpendUnmet ? 'var(--warning)' : 'inherit', fontWeight: isMinSpendUnmet ? 700 : 'normal' }}>
+                          Min Order: ₹{minSpend} {isMinSpendUnmet ? `(Need ₹${(minSpend - subtotal).toFixed(2)} more)` : '✓'}
+                        </span>
+                      )}
+                      {(p.maxDiscount || p.max_discount) && (
+                        <span>• Max Disc: ₹{p.maxDiscount || p.max_discount}</span>
+                      )}
+                      {(startDate || endDate) && (
+                        <span>• Valid: {startDate || 'Start'} to {endDate || 'No Expiry'}</span>
+                      )}
+                    </div>
+
+                    {isExpired && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--error)', fontWeight: 700 }}>
+                        ⚠️ Expired on {endDate}
+                      </span>
+                    )}
+                    {isFuture && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--warning)', fontWeight: 700 }}>
+                        ⏳ Starts on {startDate}
+                      </span>
+                    )}
+                    {isOff && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700 }}>
+                        🚫 Currently Disabled
+                      </span>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </BottomSheet>
+      )}
     </MobileLayout>
   )
 }
