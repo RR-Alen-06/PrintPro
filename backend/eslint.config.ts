@@ -1,6 +1,5 @@
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
-// @ts-expect-error - eslint-plugin-security does not provide TypeScript types
 import security from 'eslint-plugin-security';
 import globals from 'globals';
 import type { Linter } from 'eslint';
@@ -14,7 +13,7 @@ interface SecurityPlugin {
 }
 
 const typedSecurity = security as unknown as SecurityPlugin;
-const rootDir = new URL('.', import.meta.url).pathname;
+const rootDir = process.cwd();
 
 const config: Linter.Config[] = [
   {
