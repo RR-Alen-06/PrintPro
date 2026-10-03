@@ -133,7 +133,7 @@ describe('Deleted Bills Audit & Synchronization Suite', () => {
     expect(bills.length).toBe(2)
 
     // Empty recycle bin (purge all deleted)
-    bills = bills.filter((b) => !b.deleted && !b.deleted_at)
+    bills = bills.filter((b: any) => !b.deleted && !b.deleted_at)
     expect(bills.length).toBe(1)
     expect(bills[0].id).toBe('bill-1')
   })

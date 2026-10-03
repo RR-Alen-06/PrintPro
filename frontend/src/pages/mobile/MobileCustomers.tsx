@@ -14,9 +14,10 @@ import VirtualList from '../../components/mobile/VirtualList'
 import SkeletonCustomerRow from '../../components/mobile/SkeletonCustomerRow'
 import CustomerStatementModal from '../../components/customers/CustomerStatementModal'
 import { SequenceService } from '../../services/sequenceService'
+import UnifiedCustomerPaymentModal from '../../components/mobile/UnifiedCustomerPaymentModal'
 import {
   Users, Search, Plus, ChevronRight, Edit3, Trash2, Loader2, AlertCircle,
-  Wallet, FileText, BookOpen, MessageSquare, CheckCircle, ArrowRight, X
+  Wallet, FileText, BookOpen, MessageSquare, CheckCircle, ArrowRight, X, Zap, DollarSign
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -51,6 +52,8 @@ export default function MobileCustomers() {
   const [activeTab, setActiveTab] = useState(paramTab)
   const [isDetailOpen, setIsDetailOpen] = useState(!!paramCustomerId)
   const [showStatementModal, setShowStatementModal] = useState(false)
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
+  const [paymentModalDefaultMode, setPaymentModalDefaultMode] = useState<'settle' | 'advance'>('settle')
 
   useEffect(() => {
     if (paramCustomerId) {
@@ -682,62 +685,33 @@ export default function MobileCustomers() {
                   </div>
                 </div>
 
-                {/* 1-Click Advance Settlement */}
-                {selectedCustomerAdvance > 0 && selectedCustomerOutstanding > 0 && (
-                  <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                    <div style={{ fontSize: '0.78rem', color: '#ffffff', fontWeight: 600 }}>
-                      Available advance: ₹{selectedCustomerAdvance.toFixed(2)}
-                    </div>
+                {/* Unified Payment & Deposit Actions */}
+                <div style={{ display: 'grid', gridTemplateColumns: selectedCustomerOutstanding > 0 ? '1fr 1fr' : '1fr', gap: '8px', marginTop: '4px' }}>
+                  {selectedCustomerOutstanding > 0 && (
                     <button
                       type="button"
                       className="mobile-btn mobile-btn-primary"
-                      onClick={handleQuickAdvanceKnockoff}
-                      disabled={isSettleLoading}
-                      style={{ marginTop: '8px', minHeight: '34px', fontSize: '0.78rem', backgroundColor: '#10b981' }}
+                      onClick={() => {
+                        setPaymentModalDefaultMode('settle')
+                        setIsPaymentModalOpen(true)
+                      }}
+                      style={{ minHeight: '40px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     >
-                      {isSettleLoading ? 'Applying...' : `Apply ₹${Math.min(selectedCustomerAdvance, selectedCustomerOutstanding).toFixed(2)} to Dues`}
+                      <DollarSign size={16} /> Collect Payment
                     </button>
-                  </div>
-                )}
-
-                {/* Settle Form */}
-                {selectedCustomerOutstanding > 0 && (
-                  <form onSubmit={handleSettleSubmit} className="mobile-card" style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '8px' }}>Settle Bills</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-                      <input
-                        type="number"
-                        className="mobile-input"
-                        placeholder="Cash ₹"
-                        value={payCash}
-                        onChange={(e) => setPayCash(e.target.value)}
-                      />
-                      <input
-                        type="number"
-                        className="mobile-input"
-                        placeholder="UPI ₹"
-                        value={payUpi}
-                        onChange={(e) => setPayUpi(e.target.value)}
-                      />
-                      <input
-                        type="number"
-                        className="mobile-input"
-                        placeholder={selectedCustomerAdvance > 0 ? `Adv (Max ${selectedCustomerAdvance.toFixed(0)})` : 'No Adv'}
-                        disabled={selectedCustomerAdvance <= 0}
-                        value={payAdvance}
-                        onChange={(e) => setPayAdvance(e.target.value)}
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="mobile-btn mobile-btn-primary"
-                      disabled={isSettleLoading}
-                      style={{ minHeight: '36px', fontSize: '0.82rem' }}
-                    >
-                      {isSettleLoading ? 'Saving...' : 'Confirm Settle'}
-                    </button>
-                  </form>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    className={`mobile-btn ${selectedCustomerOutstanding > 0 ? 'mobile-btn-secondary' : 'mobile-btn-primary'}`}
+                    onClick={() => {
+                      setPaymentModalDefaultMode('advance')
+                      setIsPaymentModalOpen(true)
+                    }}
+                    style={{ minHeight: '40px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <Wallet size={16} /> Add Deposit
+                  </button>
+                </div>
 
                 {/* WhatsApp Reminder */}
                 {selectedCustomer.phone && selectedCustomerOutstanding > 0 && (
@@ -867,55 +841,18 @@ export default function MobileCustomers() {
                   </div>
                 </div>
 
-                <form onSubmit={handleAdvanceSubmit} className="mobile-card" style={{ padding: '12px' }}>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                    <button
-                      type="button"
-                      className={`mobile-btn ${advAction === 'deposit' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                      onClick={() => setAdvAction('deposit')}
-                      style={{ minHeight: '32px', fontSize: '0.75rem' }}
-                    >
-                      Deposit
-                    </button>
-                    <button
-                      type="button"
-                      className={`mobile-btn ${advAction === 'return' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                      onClick={() => setAdvAction('return')}
-                      style={{ minHeight: '32px', fontSize: '0.75rem' }}
-                    >
-                      Return
-                    </button>
-                  </div>
-
-                  <input
-                    type="number"
-                    className="mobile-input"
-                    placeholder="Amount (₹)"
-                    value={advAmount}
-                    onChange={(e) => setAdvAmount(e.target.value)}
-                    style={{ marginBottom: '10px' }}
-                  />
-
-                  {advAction === 'deposit' && selectedCustomerOutstanding > 0 && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', marginBottom: '10px' }}>
-                      <input
-                        type="checkbox"
-                        checked={autoApplyDues}
-                        onChange={(e) => setAutoApplyDues(e.target.checked)}
-                      />
-                      Auto-apply to pending dues (₹{selectedCustomerOutstanding.toFixed(2)}) first
-                    </label>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="mobile-btn mobile-btn-primary"
-                    disabled={isAdvSubmitting}
-                    style={{ minHeight: '36px', fontSize: '0.8rem' }}
-                  >
-                    {isAdvSubmitting ? 'Processing...' : advAction === 'deposit' ? 'Add Deposit' : 'Process Return'}
-                  </button>
-                </form>
+                {/* Unified Advance Action */}
+                <button
+                  type="button"
+                  className="mobile-btn mobile-btn-primary"
+                  onClick={() => {
+                    setPaymentModalDefaultMode('advance')
+                    setIsPaymentModalOpen(true)
+                  }}
+                  style={{ minHeight: '40px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <Plus size={16} /> Add Advance Deposit
+                </button>
 
                 {/* Advances Audit Log Stream */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1027,6 +964,17 @@ export default function MobileCustomers() {
         business={business}
         settings={settings}
       />
+
+      {/* Unified Customer Payment & Advance Modal */}
+      {selectedCustomer && (
+        <UnifiedCustomerPaymentModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          customer={selectedCustomer}
+          customerBills={selectedCustomerBills}
+          defaultMode={paymentModalDefaultMode}
+        />
+      )}
     </MobileLayout>
   )
 }

@@ -4,17 +4,11 @@ import path from 'path';
 
 describe('Unified Database Schema & Consolidation Audit', () => {
   const unifiedSchemaPath = path.resolve(__dirname, '../../../../backend/database/unified_schema.sql');
-  const backendSchemaPath = path.resolve(__dirname, '../../../../backend/schema.sql');
 
-  it('unified_schema.sql exists and is populated', () => {
+  it('unified_schema.sql exists as single canonical database schema and contains NO MySQL remnants', () => {
     expect(fs.existsSync(unifiedSchemaPath)).toBe(true);
     const content = fs.readFileSync(unifiedSchemaPath, 'utf8');
     expect(content.length).toBeGreaterThan(1000);
-  });
-
-  it('backend/schema.sql is synchronized with PostgreSQL unified schema and contains NO MySQL remnants', () => {
-    expect(fs.existsSync(backendSchemaPath)).toBe(true);
-    const content = fs.readFileSync(backendSchemaPath, 'utf8');
     
     // Must NOT contain MySQL artifacts
     expect(content).not.toContain('ENGINE=InnoDB');

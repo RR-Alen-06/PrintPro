@@ -235,18 +235,32 @@ export async function createBill(req: AuthenticatedRequest, res: Response, next:
     // Enforce tenant-scoped transaction concurrency lock to eliminate sequential invoice collision race conditions
     await conn.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [userId]);
 
-    // Generate human-readable invoice_number (e.g. BILL0001)
-    const [maxBill] = (await conn.query(
-      `SELECT invoice_number FROM bills WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    )) as [{ invoice_number?: string }[], unknown];
-
-    let nextNum = 1;
-    if (maxBill.length > 0 && maxBill[0].invoice_number) {
-      const numPart = maxBill[0].invoice_number.replace(/[^0-9]/g, '');
-      nextNum = parseInt(numPart || '0', 10) + 1;
+    // Check for client-provided UUID to enable idempotent creation
+    const clientId = typeof req.body.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.body.id) ? req.body.id : null;
+    if (clientId) {
+      const [existing] = (await conn.query('SELECT * FROM bills WHERE id = $1 AND user_id = $2', [clientId, userId])) as [BillDbRow[], unknown];
+      if (existing && existing.length > 0) {
+        await conn.rollback();
+        return res.json({ success: true, data: existing[0], message: 'Bill already exists (idempotent)' });
+      }
     }
-    const invoiceNumber = `BILL${String(nextNum).padStart(4, '0')}`;
+
+    // Standardize invoice number: adopt client-provided INV-XXXXXX or generate unified INV-00000X
+    const clientInvNum = (req.body.invoice_number || req.body.invoiceNumber || '').trim();
+    let invoiceNumber = clientInvNum;
+    if (!invoiceNumber) {
+      const [maxBill] = (await conn.query(
+        `SELECT invoice_number FROM bills WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      )) as [{ invoice_number?: string }[], unknown];
+
+      let nextNum = 1;
+      if (maxBill.length > 0 && maxBill[0].invoice_number) {
+        const numPart = maxBill[0].invoice_number.replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      invoiceNumber = `INV-${String(nextNum).padStart(6, '0')}`;
+    }
 
     // Calculate subtotal from items
     let subtotal = 0;
@@ -313,12 +327,25 @@ export async function createBill(req: AuthenticatedRequest, res: Response, next:
     balance = parseFloat(Math.max(0, total - amountPaid).toFixed(2));
     billStatus = balance <= 0 ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid');
 
-    // Insert bill (omitting id so gen_random_uuid() is assigned automatically)
-    const [insertedBills] = (await conn.query(
-      `INSERT INTO bills (user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, invoice_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-      [userId, resolvedCustId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', invoiceNumber]
-    )) as [BillDbRow[], unknown];
+    // Insert or idempotent upsert bill
+    let insertedBills: BillDbRow[];
+    if (clientId) {
+      const [rows] = (await conn.query(
+        `INSERT INTO bills (id, user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, invoice_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         ON CONFLICT (id) DO UPDATE SET total = EXCLUDED.total, amount_paid = EXCLUDED.amount_paid, balance = EXCLUDED.balance, status = EXCLUDED.status
+         RETURNING *`,
+        [clientId, userId, resolvedCustId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', invoiceNumber]
+      )) as [BillDbRow[], unknown];
+      insertedBills = rows;
+    } else {
+      const [rows] = (await conn.query(
+        `INSERT INTO bills (user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, invoice_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+        [userId, resolvedCustId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', invoiceNumber]
+      )) as [BillDbRow[], unknown];
+      insertedBills = rows;
+    }
 
     const createdBill = insertedBills && insertedBills.length > 0 ? insertedBills[0] : (insertedBills as unknown as BillDbRow);
 

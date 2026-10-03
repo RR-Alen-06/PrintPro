@@ -105,65 +105,90 @@ export default function MobileAccounting() {
   const [isExportingItemReport, setIsExportingItemReport] = useState(false)
 
   const variantAnalytics = useMemo(() => {
-    return ProductAnalyticsService.getPrintVariantsAnalytics({
-      filter: itemPeriod,
-      bills,
-      products: inventory,
-    })
+    try {
+      return ProductAnalyticsService.getPrintVariantsAnalytics({
+        filter: itemPeriod,
+        bills,
+        products: inventory,
+      }) || []
+    } catch (err) {
+      console.error('Error computing variantAnalytics:', err)
+      return []
+    }
   }, [itemPeriod, bills, inventory])
 
   const catalogAnalytics = useMemo(() => {
-    return ProductAnalyticsService.getAllCatalogProductsAnalytics({
-      filter: itemPeriod,
-      bills,
-      products: inventory,
-    })
+    try {
+      return ProductAnalyticsService.getAllCatalogProductsAnalytics({
+        filter: itemPeriod,
+        bills,
+        products: inventory,
+      }) || []
+    } catch (err) {
+      console.error('Error computing catalogAnalytics:', err)
+      return []
+    }
   }, [itemPeriod, bills, inventory])
 
   const customAnalytics = useMemo(() => {
-    return ProductAnalyticsService.getCustomItemsAnalytics({
-      filter: itemPeriod,
-      bills,
-      products: inventory,
-    })
+    try {
+      return ProductAnalyticsService.getCustomItemsAnalytics({
+        filter: itemPeriod,
+        bills,
+        products: inventory,
+      }) || []
+    } catch (err) {
+      console.error('Error computing customAnalytics:', err)
+      return []
+    }
   }, [itemPeriod, bills, inventory])
 
   const allItemsAnalytics = useMemo(() => {
-    const list = [
-      ...catalogAnalytics.map((c) => ({
-        type: 'catalog' as const,
-        id: c.product_id,
-        name: c.product_name,
-        code: c.product_code,
-        category: c.category || 'General',
-        qty: c.total_quantity_sold,
-        revenue: c.total_revenue,
-        avgRate: c.average_selling_rate,
-        hasPriceVariance: c.has_price_variance,
-        raw: c,
-      })),
-      ...customAnalytics.map((cu, idx) => ({
-        type: 'custom' as const,
-        id: `custom-${idx}`,
-        name: cu.product_name,
-        code: undefined,
-        category: 'Custom Service',
-        qty: cu.total_quantity,
-        revenue: cu.total_revenue,
-        avgRate: cu.average_selling_rate,
-        hasPriceVariance: cu.is_dynamic_rate,
-        raw: cu,
-      })),
-    ]
-    return list.sort((a, b) => b.revenue - a.revenue)
+    try {
+      const list = [
+        ...(catalogAnalytics || []).map((c) => ({
+          type: 'catalog' as const,
+          id: c.product_id,
+          name: c.product_name,
+          code: c.product_code,
+          category: c.category || 'General',
+          qty: Number(c.total_quantity_sold || 0),
+          revenue: Number(c.total_revenue || 0),
+          avgRate: Number(c.average_selling_rate || 0),
+          hasPriceVariance: Boolean(c.has_price_variance),
+          raw: c,
+        })),
+        ...(customAnalytics || []).map((cu, idx) => ({
+          type: 'custom' as const,
+          id: `custom-${idx}`,
+          name: cu.product_name,
+          code: undefined,
+          category: 'Custom Service',
+          qty: Number(cu.total_quantity || 0),
+          revenue: Number(cu.total_revenue || 0),
+          avgRate: Number(cu.average_selling_rate || 0),
+          hasPriceVariance: Boolean(cu.is_dynamic_rate),
+          raw: cu,
+        })),
+      ]
+      return list.sort((a, b) => (b.revenue || 0) - (a.revenue || 0))
+    } catch (err) {
+      console.error('Error computing allItemsAnalytics:', err)
+      return []
+    }
   }, [catalogAnalytics, customAnalytics])
 
   const itemSalesTotals = useMemo(() => {
-    const totalQty = allItemsAnalytics.reduce((sum, it) => sum + it.qty, 0)
-    const totalRev = allItemsAnalytics.reduce((sum, it) => sum + it.revenue, 0)
-    const activeVariants = variantAnalytics.filter(v => v.total_quantity > 0 || v.total_revenue > 0)
-    const topVariant = activeVariants.length > 0 ? activeVariants[0] : null
-    return { totalQty, totalRev, topVariant }
+    try {
+      const totalQty = (allItemsAnalytics || []).reduce((sum, it) => sum + (it.qty || 0), 0)
+      const totalRev = (allItemsAnalytics || []).reduce((sum, it) => sum + (it.revenue || 0), 0)
+      const activeVariants = (variantAnalytics || []).filter(v => (v?.total_quantity || 0) > 0 || (v?.total_revenue || 0) > 0)
+      const topVariant = activeVariants.length > 0 ? activeVariants[0] : null
+      return { totalQty, totalRev, topVariant }
+    } catch (err) {
+      console.error('Error computing itemSalesTotals:', err)
+      return { totalQty: 0, totalRev: 0, topVariant: null }
+    }
   }, [allItemsAnalytics, variantAnalytics])
 
   const handleExportItemSalesPDF = () => {
@@ -263,8 +288,20 @@ export default function MobileAccounting() {
     let upiLoans = 0
     let upiDrawings = 0
     let upiRefunds = 0
-
-    const txList: Array<{ id: string; type: string; label: string; amount: number; method: string; time: string; details?: string; [key: string]: unknown }> = []
+    interface DayTransactionItem {
+      id: string
+      type: string
+      amount: number
+      label?: string
+      method?: string
+      time?: string
+      details?: string
+      category?: string
+      title?: string
+      mode?: string
+      notes?: string
+    }
+    const txList: DayTransactionItem[] = []
 
     // 1. Payments collected on this date (excluding non-cash advance allocations)
     payments.forEach((p) => {
@@ -1302,19 +1339,20 @@ export default function MobileAccounting() {
           {/* SUBTAB 1: PRINT VARIANTS (A4/A3 Color & B/W, Sides, Binding) */}
           {itemSubTab === 'variants' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {variantAnalytics
+              {(variantAnalytics || [])
                 .filter((v) => {
+                  if (!v) return false
                   if (itemSearchQuery) {
                     const q = itemSearchQuery.toLowerCase()
-                    return v.variant_label.toLowerCase().includes(q) || v.variant_key.toLowerCase().includes(q)
+                    return (v.variant_label || '').toLowerCase().includes(q) || (v.variant_key || '').toLowerCase().includes(q)
                   }
                   return true
                 })
                 .map((v) => {
-                  const hasSales = v.total_quantity > 0 || v.total_revenue > 0
+                  const hasSales = (v.total_quantity || 0) > 0 || (v.total_revenue || 0) > 0
                   return (
                     <div
-                      key={v.variant_key}
+                      key={v.variant_key || v.variant_label}
                       className="mobile-card"
                       onClick={() => setSelectedItemVariant(v)}
                       style={{
@@ -1329,7 +1367,7 @@ export default function MobileAccounting() {
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.variant_label}</span>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.variant_label || 'Print Variant'}</span>
                           {v.paper_size && v.paper_size !== 'N/A' && (
                             <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,240,255,0.1)', color: '#00f0ff', fontFamily: 'monospace' }}>
                               {v.paper_size}
@@ -1342,12 +1380,12 @@ export default function MobileAccounting() {
                           )}
                         </div>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          {v.total_quantity} prints sold • {v.rates.length > 1 ? `₹${v.min_rate.toFixed(0)}-₹${v.max_rate.toFixed(0)} (Avg ₹${v.average_rate.toFixed(1)})` : `Rate: ₹${v.average_rate.toFixed(1)}`}
+                          {v.total_quantity || 0} prints sold • {v.min_rate !== v.max_rate ? `₹${(v.min_rate || 0).toFixed(0)}-₹${(v.max_rate || 0).toFixed(0)} (Avg ₹${(v.average_rate || 0).toFixed(1)})` : `Rate: ₹${(v.average_rate || 0).toFixed(1)}`}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <strong style={{ color: hasSales ? '#10b981' : 'var(--text-muted)', fontSize: '0.88rem' }}>
-                          ₹{v.total_revenue.toFixed(2)}
+                          ₹{(v.total_revenue || 0).toFixed(2)}
                         </strong>
                         <ChevronRight size={14} color="var(--text-muted)" />
                       </div>
@@ -1360,11 +1398,12 @@ export default function MobileAccounting() {
           {/* SUBTAB 2: ALL ITEMS (Combined Catalog & Custom) */}
           {itemSubTab === 'all' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {allItemsAnalytics
+              {(allItemsAnalytics || [])
                 .filter((item) => {
+                  if (!item) return false
                   if (itemSearchQuery) {
                     const q = itemSearchQuery.toLowerCase()
-                    return item.name.toLowerCase().includes(q) || (item.code && item.code.toLowerCase().includes(q))
+                    return (item.name || '').toLowerCase().includes(q) || ((item.code || '').toLowerCase().includes(q))
                   }
                   return true
                 })
@@ -1383,7 +1422,7 @@ export default function MobileAccounting() {
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name || 'Item'}</span>
                         <span style={{
                           fontSize: '0.62rem',
                           padding: '1px 5px',
@@ -1396,7 +1435,7 @@ export default function MobileAccounting() {
                         </span>
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {item.qty} sold • Avg ₹{item.avgRate.toFixed(1)}
+                        {item.qty || 0} sold • Avg ₹{(item.avgRate || 0).toFixed(1)}
                         {item.hasPriceVariance && (
                           <span style={{ marginLeft: '6px', color: '#f59e0b' }}>• Dynamic</span>
                         )}
@@ -1404,7 +1443,7 @@ export default function MobileAccounting() {
                     </div>
                     <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
-                        ₹{item.revenue.toFixed(2)}
+                        ₹{(item.revenue || 0).toFixed(2)}
                       </strong>
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
@@ -1415,16 +1454,17 @@ export default function MobileAccounting() {
 
           {/* SUBTAB 3: CATALOG ONLY */}
           {itemSubTab === 'catalog' && (
-            catalogAnalytics.length === 0 ? (
+            (catalogAnalytics || []).length === 0 ? (
               <div className="mobile-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                 No catalog sales in selected period.
               </div>
             ) : (
-              catalogAnalytics
+              (catalogAnalytics || [])
                 .filter((prod) => {
+                  if (!prod) return false
                   if (itemSearchQuery) {
                     const q = itemSearchQuery.toLowerCase()
-                    return prod.product_name.toLowerCase().includes(q) || (prod.product_code && prod.product_code.toLowerCase().includes(q))
+                    return (prod.product_name || '').toLowerCase().includes(q) || ((prod.product_code || '').toLowerCase().includes(q))
                   }
                   return true
                 })
@@ -1437,7 +1477,7 @@ export default function MobileAccounting() {
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod.product_name}</span>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod.product_name || 'Product'}</span>
                         {prod.product_code && (
                           <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '4px', background: 'rgba(0,240,255,0.1)', color: '#00f0ff', fontFamily: 'monospace' }}>
                             {prod.product_code}
@@ -1445,7 +1485,7 @@ export default function MobileAccounting() {
                         )}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {prod.total_quantity_sold} sold • Avg ₹{prod.average_selling_rate.toFixed(1)}
+                        {prod.total_quantity_sold || 0} sold • Avg ₹{(prod.average_selling_rate || 0).toFixed(1)}
                         {prod.has_price_variance && (
                           <span style={{ marginLeft: '6px', color: '#f59e0b' }}>• Dynamic</span>
                         )}
@@ -1453,7 +1493,7 @@ export default function MobileAccounting() {
                     </div>
                     <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
-                        ₹{prod.total_revenue.toFixed(2)}
+                        ₹{(prod.total_revenue || 0).toFixed(2)}
                       </strong>
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
@@ -1464,16 +1504,17 @@ export default function MobileAccounting() {
 
           {/* SUBTAB 4: CUSTOM ONLY */}
           {itemSubTab === 'custom' && (
-            customAnalytics.length === 0 ? (
+            (customAnalytics || []).length === 0 ? (
               <div className="mobile-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                 No custom services in selected period.
               </div>
             ) : (
-              customAnalytics
+              (customAnalytics || [])
                 .filter((item) => {
+                  if (!item) return false
                   if (itemSearchQuery) {
                     const q = itemSearchQuery.toLowerCase()
-                    return item.product_name.toLowerCase().includes(q)
+                    return (item.product_name || '').toLowerCase().includes(q)
                   }
                   return true
                 })
@@ -1486,15 +1527,15 @@ export default function MobileAccounting() {
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.product_name}
+                        {item.product_name || 'Custom Service'}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {item.total_quantity} qty • Rate: ₹{item.min_rate.toFixed(0)}-₹{item.max_rate.toFixed(0)}
+                        {item.total_quantity || 0} qty • Rate: ₹{(item.min_rate || 0).toFixed(0)}-₹{(item.max_rate || 0).toFixed(0)}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <strong style={{ color: '#10b981', fontSize: '0.88rem' }}>
-                        ₹{item.total_revenue.toFixed(2)}
+                        ₹{(item.total_revenue || 0).toFixed(2)}
                       </strong>
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>

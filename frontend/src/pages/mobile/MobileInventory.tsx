@@ -9,9 +9,11 @@ import { Inbox, Plus, Pencil, Trash2, Search, Loader2, AlertCircle } from 'lucid
 import { SequenceService } from '../../services/sequenceService'
 import '../../styles/mobile.css'
 
-const InventoryRow = React.memo(({ item, onEdit, onDelete }) => {
+const InventoryRow = React.memo(({ item, index, onEdit, onDelete }: any) => {
   const isProduct = item.type === 'product'
-  const itemCodeDisplay = item.itemCode || item.item_code || (typeof item.id === 'string' && item.id.length > 8 ? `ITM-${item.id.slice(-6).toUpperCase()}` : `ITM-${String(item.id).padStart(6, '0')}`)
+  const hasCleanCode = item.itemCode && typeof item.itemCode === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(item.itemCode);
+  const hasCleanDbCode = item.item_code && typeof item.item_code === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(item.item_code);
+  const itemCodeDisplay = (hasCleanCode ? item.itemCode : (hasCleanDbCode ? item.item_code : `ITM-${String(typeof index === 'number' ? index + 1 : 1).padStart(4, '0')}`))
 
   return (
     <div className="mobile-card" style={{ marginBottom: '10px' }}>
@@ -174,8 +176,14 @@ export default function MobileInventory() {
     const bd = isProd ? 0 : Number(bwDouble || 0)
     const hsn = hsnCode.trim() || null
 
+    const generatedItemCode = editingItem
+      ? (editingItem.itemCode || editingItem.item_code || SequenceService.formatDisplayCode('inventory', editingItem.id, 'ITM', 4))
+      : await SequenceService.getNextSequenceSafe('INVENTORY', serverInventory || [], 'ITM', 4);
+
     const payload = {
       name: formName.trim(),
+      item_code: generatedItemCode,
+      itemCode: generatedItemCode,
       type: formType,
       hsn_code: hsn,
       hsnCode: hsn || '',
@@ -197,7 +205,7 @@ export default function MobileInventory() {
         showToast(`Item '${formName.trim()}' updated successfully`, 'success')
       } else {
         await createItem(payload)
-        showToast(`Item '${formName.trim()}' added to catalog`, 'success')
+        showToast(`Item '${formName.trim()}' added to catalog (${generatedItemCode})`, 'success')
       }
       setShowAddModal(false)
     } catch (err) {
@@ -205,7 +213,7 @@ export default function MobileInventory() {
     }
   }, [
     formName, formType, sellingPrice, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
-    editingItem, createItem, updateItem, showToast
+    editingItem, serverInventory, createItem, updateItem, showToast
   ])
 
   return (
@@ -284,9 +292,11 @@ export default function MobileInventory() {
         <VirtualList
           items={filteredItems}
           estimateSize={95}
-          renderItem={(item) => (
+          renderItem={(item, index) => (
             <InventoryRow
+              key={item.id || index}
               item={item}
+              index={index}
               onEdit={openEditModal}
               onDelete={handleDelete}
             />

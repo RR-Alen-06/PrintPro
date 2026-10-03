@@ -10,7 +10,7 @@ describe('Advance Payments & Refunds Rewire Audit', () => {
 
   describe('Part A: Advance Payments & Excess Credit Reconciliation', () => {
     it('computes advance inflow and returns from server advance payments data structure', () => {
-      const serverAdvances = [
+      const serverAdvances: any[] = [
         { id: 'ADV-1', customerId: 'c1', amount: 500, cashAmount: 500, upiAmount: 0, date: '2026-09-01', isReturn: false },
         { id: 'ADV-2', customerId: 'c2', amount: 1000, cashAmount: 0, upiAmount: 1000, date: '2026-09-02', isReturn: false },
         { id: 'ADV-3', customerId: 'c1', amount: -200, cashAmount: -200, upiAmount: 0, date: '2026-09-05', isReturn: true },

@@ -33,7 +33,7 @@ export function useProfileMutations() {
       await queryClient.cancelQueries({ queryKey: userProfileKey })
       const previousProfile = (queryClient.getQueryData<any>(userProfileKey) || {}) as any
 
-      queryClient.setQueryData(userProfileKey, (old = {}) => ({
+      queryClient.setQueryData(userProfileKey, (old: any = {}) => ({
         ...old,
         ...newProfile,
       }))

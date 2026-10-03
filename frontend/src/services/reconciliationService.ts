@@ -392,41 +392,11 @@ export class ReconciliationService {
       hasOverdue: boolean;
     }>();
 
-    // Aggregate advance deductions from bills and payments for each customer
-    const advanceUsedByCust = new Map<string, number>();
-    (bills || []).forEach((b: any) => {
-      if (b && !b.deleted && !b.deleted_at) {
-        const cId = String(b.customerId || b.customer_id || '').trim();
-        const advUsed = Number(b.advanceUsed || b.advance_used || b.advanceDeducted || b.advance_deducted || 0);
-        if (cId && advUsed > 0) {
-          advanceUsedByCust.set(cId, Number(((advanceUsedByCust.get(cId) || 0) + advUsed).toFixed(2)));
-        }
-      }
-    });
-    (payments || []).forEach((p: any) => {
-      if (p && !p.isRefund && p.paymentType !== 'refund') {
-        const cId = String(p.customerId || p.customer_id || '').trim();
-        const isAdvMethod = String(p.payment_method || p.paymentType || p.method || '').toLowerCase() === 'advance';
-        const isKnockoff = Boolean(p.notes && (p.notes.includes('Knockoff using Advance Wallet') || p.notes.includes('Advance Balance applied')));
-        const advAmt = Number(p.advance_amount || p.advanceAmount || (isAdvMethod ? p.total_paid || p.amount || 0 : 0));
-        if (cId && (isKnockoff || isAdvMethod)) {
-          const bId = p.bill_id || p.billId;
-          const matchedBill = bId ? (bills || []).find((b: any) => String(b.id) === String(bId)) : null;
-          const billAdv = Number(matchedBill?.advanceUsed || matchedBill?.advance_used || 0);
-          if (!matchedBill || billAdv === 0) {
-            advanceUsedByCust.set(cId, Number(((advanceUsedByCust.get(cId) || 0) + (advAmt || Number(p.total_paid || p.amount || 0))).toFixed(2)));
-          }
-        }
-      }
-    });
-
-    // Initialize all active customers
+    // Initialize all active customers with authoritative server-enforced advance balances
     (customers || []).forEach((c: any) => {
       if (!c || c.deleted) return;
       const cId = String(c.id);
-      const rawAdv = Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0);
-      const usedAdv = advanceUsedByCust.get(cId) || 0;
-      const adv = Math.max(0, Number((rawAdv - usedAdv).toFixed(2)));
+      const adv = Math.max(0, Number(Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0).toFixed(2)));
       duesByCustomer.set(cId, {
         customerId: cId,
         customerName: c.name || 'Walk-in Client',

@@ -660,6 +660,7 @@ export default function MobileCreateBill() {
         navigate(`/bill/${editBillId}`)
       } else {
         const mutationPromise = createBillAndSync(billPayload)
+
         navigate(`/bill/${billPayload.id}?share=true`)
         showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
 
