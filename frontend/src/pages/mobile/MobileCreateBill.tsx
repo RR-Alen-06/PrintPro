@@ -602,7 +602,6 @@ export default function MobileCreateBill() {
         }
       }
 
-      const totalDirectPaid = finalCash + finalUpi
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
         invoice_number: generatedInvoiceNo,
