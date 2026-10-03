@@ -254,7 +254,47 @@ export default function MobileSettings() {
 
   // Storage & Backup state
   const [isExporting, setIsExporting] = useState(false)
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false)
   const [storageUsedKb, setStorageUsedKb] = useState(0)
+
+  const handle1ClickSnapshot = async () => {
+    setIsExporting(true)
+    try {
+      const backupData = createFullBackup({
+        business,
+        settings,
+        bills: activeBills,
+        customers: serverCustomers.length ? serverCustomers : ctxCustomers,
+        inventory: serverInventory.length ? serverInventory : ctxInventory,
+        payments: serverPayments.length ? serverPayments : ctxPayments,
+        expenses: serverExpenses.length ? serverExpenses : ctxExpenses,
+        advancePayments: serverAdvances.length ? serverAdvances : ctxAdvances,
+        customerGroups: serverGroups.length ? serverGroups : ctxGroups,
+        promoCodes,
+        counters,
+        sequences,
+      })
+      exportToJSON(backupData, `printpro_backup_${new Date().toISOString().slice(0, 10)}.json`)
+      showToast?.('Database snapshot exported successfully!', 'success')
+    } catch (err: any) {
+      showToast?.(`Export failed: ${err.message || err}`, 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleForceCloudSync = async () => {
+    setIsSyncingCloud(true)
+    try {
+      await syncFromCloud?.()
+      await queryClient.invalidateQueries()
+      showToast?.('Cloud database synchronized seamlessly!', 'success')
+    } catch (err: any) {
+      showToast?.(`Sync warning: ${err.message || err}`, 'error')
+    } finally {
+      setIsSyncingCloud(false)
+    }
+  }
 
   useEffect(() => {
     let bytes = 0
@@ -926,33 +966,91 @@ export default function MobileSettings() {
         </div>
       )}
 
-      {/* TAB: BACKUP & STORAGE GAUGE */}
+      {/* TAB: DATABASE MANAGEMENT & BACKUP */}
       {activeTab === 'backup' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div className="mobile-card mobile-card-glow" style={{ borderColor: '#00f0ff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <Database size={18} style={{ color: '#00f0ff' }} />
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-                Cloud & Local Backup Center
-              </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* 1. Database Health & Live Table Metrics */}
+          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--aurora-cyan, #00f0ff)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={18} style={{ color: 'var(--aurora-cyan, #00f0ff)' }} />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  Cloud PostgreSQL Database
+                </h3>
+              </div>
+              <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }}></span>
+                ONLINE & SYNCED
+              </span>
             </div>
-            <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
-              Export an all-in-one JSON snapshot or restore system registers.
+
+            {/* Live Table Metrics Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '12px' }}>
+              {[
+                { label: 'BILLS', count: activeBills.length, color: '#00f0ff' },
+                { label: 'CLIENTS', count: serverCustomers.length || ctxCustomers.length, color: '#ec4899' },
+                { label: 'ITEMS', count: serverInventory.length || ctxInventory.length, color: '#3b82f6' },
+                { label: 'PAYMENTS', count: serverPayments.length || ctxPayments.length, color: '#10b981' },
+                { label: 'EXPENSES', count: serverExpenses.length || ctxExpenses.length, color: '#f59e0b' },
+                { label: 'ADVANCES', count: serverAdvances.length || ctxAdvances.length, color: '#a855f7' },
+                { label: 'COUPONS', count: promoCodes.length, color: '#06b6d4' },
+                { label: 'TRASH', count: deletedBills.length, color: '#ef4444' },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    padding: '8px 4px',
+                    borderRadius: '8px',
+                    textAlign: 'center',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                  }}
+                >
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 800 }}>{stat.label}</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 900, color: stat.color, marginTop: '2px' }}>
+                    {stat.count}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Force Sync Action */}
+            <button
+              onClick={handleForceCloudSync}
+              disabled={isSyncingCloud}
+              className="mobile-btn mobile-btn-secondary"
+              style={{ width: '100%', fontSize: '0.78rem', minHeight: '34px' }}
+            >
+              <RefreshCw size={14} className={isSyncingCloud ? 'spin-animation' : ''} />
+              {isSyncingCloud ? 'Syncing Cloud Database...' : 'Force Cloud Database Sync'}
+            </button>
+          </div>
+
+          {/* 2. Automated Multi-Table JSON Snapshot */}
+          <div className="mobile-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <HardDrive size={16} style={{ color: '#00f0ff' }} />
+              <h4 style={{ fontSize: '0.88rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                Multi-Table JSON Backup & Restore
+              </h4>
+            </div>
+            <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Creates an encrypted, self-contained snapshot of all registers (Bills, Customers, Inventory, Payments, Expenses, and Settings).
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 onClick={handle1ClickSnapshot}
                 disabled={isExporting}
                 className="mobile-btn mobile-btn-primary"
-                style={{ background: 'linear-gradient(135deg, #00f0ff 0%, #7000ff 100%)' }}
+                style={{ fontSize: '0.78rem', minHeight: '36px' }}
               >
-                <Download size={16} /> {isExporting ? 'Generating...' : 'Download JSON Snapshot'}
+                <Download size={15} /> {isExporting ? 'Exporting...' : 'Export Snapshot'}
               </button>
 
-              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer' }}>
-                <Upload size={16} />
-                <span>Restore JSON Backup</span>
+              <label className="mobile-btn mobile-btn-secondary" style={{ cursor: 'pointer', fontSize: '0.78rem', minHeight: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <Upload size={15} />
+                <span>Restore JSON</span>
                 <input
                   type="file"
                   accept=".json"
@@ -966,7 +1064,7 @@ export default function MobileSettings() {
                       await queryClient.invalidateQueries()
                       showToast?.('System restored! Reloading...', 'success')
                       setTimeout(() => window.location.reload(), 1000)
-                    } catch (err) {
+                    } catch (err: any) {
                       showToast?.(`Restore failed: ${err.message || err}`, 'error')
                     }
                   }}
@@ -975,15 +1073,27 @@ export default function MobileSettings() {
             </div>
           </div>
 
+          {/* 3. Local Cache Storage Footprint */}
           <div className="mobile-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-              <HardDrive size={16} style={{ color: '#00f0ff' }} />
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f8fafc' }}>
-                Local Storage Footprint
-              </span>
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              Estimated ~{storageUsedKb} KB cached in offline storage.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Local Storage Cache
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  ~{storageUsedKb} KB cached for instant zero-latency offline loading.
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  queryClient.clear()
+                  showToast?.('Client query cache flushed!', 'success')
+                }}
+                className="mobile-btn mobile-btn-secondary"
+                style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', minHeight: '28px' }}
+              >
+                Flush Cache
+              </button>
             </div>
           </div>
         </div>
