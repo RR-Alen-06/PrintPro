@@ -32,12 +32,11 @@ export default function CustomServiceDrilldownModal({
   periodLabel = 'Selected Period',
   onInspectBill,
 }: CustomServiceDrilldownModalProps) {
-  if (!isOpen || !serviceData) return null;
-
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const filteredTransactions = useMemo(() => {
+    if (!serviceData) return [];
     let txs = [...serviceData.transaction_history];
 
     if (searchTerm) {
@@ -56,7 +55,9 @@ export default function CustomServiceDrilldownModal({
     });
 
     return txs;
-  }, [serviceData.transaction_history, searchTerm, sortOrder]);
+  }, [serviceData, searchTerm, sortOrder]);
+
+  if (!isOpen || !serviceData) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn">

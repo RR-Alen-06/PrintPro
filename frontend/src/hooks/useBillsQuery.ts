@@ -66,6 +66,7 @@ export function useBillMutations() {
       await queryClient.cancelQueries({ queryKey: userBillsKey, exact: false })
       const previousQueries = queryClient.getQueriesData<any[]>({ queryKey: userBillsKey, exact: false })
 
+      const totalPaidDirect = Number(newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0))
       const optimisticBill = {
         id: newBillData.id || `temp-bill-${Date.now()}`,
         invoice_number: newBillData.invoice_number || newBillData.invoiceNumber || 'BILL-SAVING...',
@@ -76,10 +77,10 @@ export function useBillMutations() {
         customerName: newBillData.customer_name || newBillData.customerName || 'Customer',
         date: newBillData.date,
         total: newBillData.total || 0,
-        amount_paid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
-        amountPaid: newBillData.amount_paid !== undefined ? newBillData.amount_paid : (newBillData.amountPaid || 0),
-        balance: newBillData.balance !== undefined ? newBillData.balance : 0,
-        status: newBillData.status || 'unpaid',
+        amount_paid: totalPaidDirect,
+        amountPaid: totalPaidDirect,
+        balance: newBillData.balance !== undefined ? newBillData.balance : Math.max(0, (newBillData.total || 0) - totalPaidDirect),
+        status: newBillData.status || (totalPaidDirect >= (newBillData.total || 0) ? 'paid' : totalPaidDirect > 0 ? 'partial' : 'unpaid'),
         items: newBillData.items || [],
         isOptimistic: true,
       }
@@ -88,6 +89,30 @@ export function useBillMutations() {
         optimisticBill,
         ...(Array.isArray(old) ? old : []),
       ])
+
+      if (totalPaidDirect > 0) {
+        const userPaymentsKey = ['payments', userId]
+        const optimisticPayment = {
+          id: `temp-pay-${Date.now()}`,
+          bill_id: optimisticBill.id,
+          billId: optimisticBill.id,
+          customer_id: optimisticBill.customer_id,
+          customerId: optimisticBill.customerId,
+          cash_amount: Number(newBillData.cash_amount || newBillData.cashAmount || 0),
+          cashAmount: Number(newBillData.cash_amount || newBillData.cashAmount || 0),
+          upi_amount: Number(newBillData.upi_amount || newBillData.upiAmount || 0),
+          upiAmount: Number(newBillData.upi_amount || newBillData.upiAmount || 0),
+          total_paid: totalPaidDirect,
+          totalPaid: totalPaidDirect,
+          date: newBillData.date,
+          payment_type: optimisticBill.status === 'paid' ? 'full' : 'partial',
+          notes: 'POS checkout payment'
+        }
+        queryClient.setQueriesData<any[]>({ queryKey: userPaymentsKey, exact: false }, (old = []) => [
+          optimisticPayment,
+          ...(Array.isArray(old) ? old : [])
+        ])
+      }
 
       return { previousQueries }
     },

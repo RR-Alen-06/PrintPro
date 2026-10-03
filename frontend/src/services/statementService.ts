@@ -690,4 +690,27 @@ export class StatementService {
     printFooter(pageNumber);
     return doc;
   }
+
+  /**
+   * Generates a formatted WhatsApp message summarizing the statement.
+   */
+  static buildWhatsAppStatementMessage(statementData: CustomerStatementData): string {
+    const netPeriodBalance = statementData.kpi.total_invoiced - statementData.kpi.total_paid;
+    return (
+      `*${statementData.store.shopName || 'PrintPro'} — Account Statement*\n` +
+      `Client: ${statementData.customer.name} (${statementData.customer.customer_code || ''})\n` +
+      `Period: ${statementData.period.label}\n\n` +
+      `*Summary:*\n` +
+      `• Total Invoiced: ₹${statementData.kpi.total_invoiced.toFixed(2)}\n` +
+      `• Total Paid: ₹${statementData.kpi.total_paid.toFixed(2)}\n` +
+      `• Net Period Balance: ₹${netPeriodBalance.toFixed(2)}\n` +
+      `• Total Units Purchased: ${statementData.kpi.total_units_bought} Items\n\n` +
+      `*Ledger Status:*\n` +
+      `• Current Outstanding Balance: ₹${statementData.reconciliation.current_outstanding_balance.toFixed(2)}\n` +
+      (statementData.reconciliation.advance_balance > 0
+        ? `• Available Advance/Credit: ₹${statementData.reconciliation.advance_balance.toFixed(2)}\n`
+        : '') +
+      `\nThank you for your business!`
+    );
+  }
 }
