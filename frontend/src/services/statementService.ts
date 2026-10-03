@@ -696,8 +696,18 @@ export class StatementService {
    */
   static buildWhatsAppStatementMessage(statementData: CustomerStatementData): string {
     const netPeriodBalance = statementData.kpi.total_invoiced - statementData.kpi.total_paid;
+    const currentDue = statementData.reconciliation.current_outstanding_balance;
+    const upiId = statementData.store.upiId;
+    const shopName = statementData.store.shopName || 'PrintPro';
+    
+    let upiSection = '';
+    if (currentDue > 0 && upiId) {
+      const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${currentDue.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Statement Due Settlement')}`;
+      upiSection = `\n*Quick Settle via UPI (GPay/PhonePe/Paytm):*\n${upiLink}\nUPI ID: \`${upiId}\`\n`;
+    }
+
     return (
-      `*${statementData.store.shopName || 'PrintPro'} — Account Statement*\n` +
+      `*${shopName} — Account Statement*\n` +
       `Client: ${statementData.customer.name} (${statementData.customer.customer_code || ''})\n` +
       `Period: ${statementData.period.label}\n\n` +
       `*Summary:*\n` +
@@ -706,10 +716,11 @@ export class StatementService {
       `• Net Period Balance: ₹${netPeriodBalance.toFixed(2)}\n` +
       `• Total Units Purchased: ${statementData.kpi.total_units_bought} Items\n\n` +
       `*Ledger Status:*\n` +
-      `• Current Outstanding Balance: ₹${statementData.reconciliation.current_outstanding_balance.toFixed(2)}\n` +
+      `• Current Outstanding Balance: ₹${currentDue.toFixed(2)}\n` +
       (statementData.reconciliation.advance_balance > 0
         ? `• Available Advance/Credit: ₹${statementData.reconciliation.advance_balance.toFixed(2)}\n`
         : '') +
+      upiSection +
       `\nThank you for your business!`
     );
   }

@@ -426,8 +426,8 @@ export default function MobileCreateBill() {
 
       const existingBill = editBillId ? serverBills.find(b => String(b.id) === String(editBillId)) : null
       const generatedInvoiceNo = editBillId
-        ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `BILL-${editBillId}`)
-        : await SequenceService.getNextSequence('BILL')
+        ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `INV-${editBillId}`)
+        : await SequenceService.getNextSequenceSafe('BILL', serverBills, settings?.invPrefix || 'INV', settings?.seqPadding || 6)
 
       // Resolve customer
       let resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId
@@ -502,13 +502,13 @@ export default function MobileCreateBill() {
         navigate(`/bill/${editBillId}`)
       } else {
         const mutationPromise = createBillAndSync(billPayload)
-        navigate(`/bill/${billPayload.id}`)
+        navigate(`/bill/${billPayload.id}?share=true`)
         showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
 
         mutationPromise
           .then(async (created) => {
             if (created?.id && created.id !== billPayload.id) {
-              navigate(`/bill/${created.id}`, { replace: true })
+              navigate(`/bill/${created.id}?share=true`, { replace: true })
             }
 
             // Deduct stock for product-type items

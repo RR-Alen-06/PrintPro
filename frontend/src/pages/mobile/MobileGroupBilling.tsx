@@ -543,7 +543,7 @@ export default function MobileGroupBilling() {
             : []),
         ]
 
-        const nextInvNum = await SequenceService.getNextSequence('BILL')
+        const nextInvNum = await SequenceService.getNextSequenceSafe('BILL', [...serverBills, ...createdChildBillIds.map(id => ({ invoiceNumber: id }))], settings?.invPrefix || 'INV', settings?.seqPadding || 6)
         const childBillPayload = {
           invoice_number: nextInvNum,
           invoiceNumber: nextInvNum,
@@ -647,7 +647,7 @@ export default function MobileGroupBilling() {
       const totalGroupBalance = selectedObjList.reduce((s, b) => s + Number(b.balance || 0), 0)
       const cust = serverCustomers.find((c) => String(c.id) === String(selectedConsolidateCustomerId))
 
-      const groupInvoiceNumber = await SequenceService.getNextSequence('BILL')
+      const groupInvoiceNumber = await SequenceService.getNextSequenceSafe('BILL', serverBills, settings?.invPrefix || 'INV', settings?.seqPadding || 6)
       const groupPayload = {
         invoice_number: groupInvoiceNumber,
         invoiceNumber: groupInvoiceNumber,

@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
-import { usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { usePayments, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import VirtualList from '../../components/mobile/VirtualList'
 import SkeletonBillCard from '../../components/mobile/SkeletonBillCard'
+import { formatWhatsAppReceipt } from '../../utils/receiptFormatter'
 import {
   Search, SlidersHorizontal, CheckCircle2, MessageSquare, Trash2,
   ChevronRight, FileText, PlusCircle
@@ -122,11 +123,12 @@ BillCard.displayName = 'BillCard'
 
 export default function MobileBillingList() {
   const navigate = useNavigate()
-  const { showToast, business } = useAppContext()
+  const { showToast, business, settings } = useAppContext()
 
   // TanStack Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
+  const { data: serverPayments = [] } = usePayments()
   const { deleteBill: deleteBillMutation, isDeletingBill } = useBillMutations()
   const { createPayment, isCreatingPayment } = usePaymentMutations()
 
@@ -254,17 +256,31 @@ export default function MobileBillingList() {
     const cust = serverCustomers.find(c => String(c.id) === String(bill.customerId || bill.customer_id))
     const phone = bill.customerPhone || cust?.phone || ''
     const cleanPhone = phone.replace(/[^0-9]/g, '')
-    const shopName = business?.shopName || 'PrintPro'
-    const invId = bill.invoiceNumber || bill.invoice_number || bill.id
-    const total = Number(bill.total || 0).toFixed(2)
-    const due = Number(bill.balance || 0).toFixed(2)
 
-    const text = `Invoice #${invId} from ${shopName}\nTotal Amount: ₹${total}\nBalance Due: ₹${due}\nStatus: ${(bill.status || 'unpaid').toUpperCase()}\nThank you for doing business with us!`
+    const text = formatWhatsAppReceipt(
+      bill,
+      settings,
+      business,
+      '',
+      {
+        bills: serverBills,
+        payments: serverPayments,
+        customers: serverCustomers
+      },
+      {
+        template: 'itemized',
+        includePreviousDues: true,
+        includeAdvanceBalance: true,
+        includeUpiPayLink: true,
+        includeItemSpecs: true
+      }
+    )
+
     const url = cleanPhone
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
     window.open(url, '_blank')
-  }, [serverCustomers, business])
+  }, [serverCustomers, serverBills, serverPayments, business, settings])
 
   const isLoading = isLoadingBills || isLoadingCustomers
 

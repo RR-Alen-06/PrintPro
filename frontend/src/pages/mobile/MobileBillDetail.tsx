@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
@@ -19,6 +19,7 @@ import '../../styles/mobile.css'
 
 export default function MobileBillDetail() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const {
     business, settings, showToast, applyPostDiscount, createCreditNote
@@ -50,8 +51,8 @@ export default function MobileBillDetail() {
     return (serverPayments || []).filter(p => String(p.billId || p.bill_id) === String(bill.id))
   }, [serverPayments, bill])
 
-  // Share Bottom Sheet state
-  const [showShareModal, setShowShareModal] = useState(false)
+  // Share Bottom Sheet state (auto opens if query param share=true)
+  const [showShareModal, setShowShareModal] = useState(() => searchParams.get('share') === 'true')
 
   // Payment Bottom Sheet state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
