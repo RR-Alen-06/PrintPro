@@ -178,7 +178,17 @@ export const createBill = async (data: any) => {
     notes: data.notes || '',
     cash_amount: Number(data.cash_amount !== undefined ? data.cash_amount : (data.cashAmount || 0)),
     upi_amount: Number(data.upi_amount !== undefined ? data.upi_amount : (data.upiAmount || 0)),
-    advance_used: Number(data.advance_used !== undefined ? data.advance_used : (data.advanceUsed || 0)),
+    advance_used: Number(
+      data.advance_used !== undefined
+        ? data.advance_used
+        : data.advanceUsed !== undefined
+        ? data.advanceUsed
+        : data.advance_deducted !== undefined
+        ? data.advance_deducted
+        : data.advanceDeducted !== undefined
+        ? data.advanceDeducted
+        : (data.advancePaid || 0)
+    ),
     return_change_upi: Number(data.return_change_upi !== undefined ? data.return_change_upi : (data.returnChangeUpi || 0)),
     items: (data.items || []).map((item: any) => {
       const uPrice = Number(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || 0));
