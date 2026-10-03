@@ -290,17 +290,21 @@ export const createBill = async (data: any) => {
       user_id: user?.id
     }]);
 
-    // Deduct from customer credit balance
+    // Deduct from customer advance balance and credit balance
     const { data: custData } = await supabase
       .from('customers')
-      .select('credit_balance')
+      .select('credit_balance, advance_balance')
       .eq('id', bill.customer_id)
       .maybeSingle();
     if (custData) {
-      const currentCredit = Number(custData.credit_balance || 0);
+      const currentAdv = Number(custData.advance_balance !== undefined ? custData.advance_balance : (custData.credit_balance || 0));
+      const newAdv = Math.max(0, currentAdv - advUsed);
       await supabase
         .from('customers')
-        .update({ credit_balance: Math.max(0, currentCredit - advUsed) })
+        .update({
+          advance_balance: newAdv,
+          credit_balance: newAdv
+        })
         .eq('id', bill.customer_id);
     }
   }
