@@ -524,23 +524,27 @@ export default function MobileCreateBill() {
     try {
       let finalCash = 0
       let finalUpi = 0
-      let finalStatus = 'unpaid'
 
-      if (paymentMode === 'full_cash') {
-        finalCash = grandTotal
-        finalStatus = 'paid'
-      } else if (paymentMode === 'full_upi') {
-        finalUpi = grandTotal
-        finalStatus = 'paid'
-      } else if (paymentMode === 'split') {
+      if (cashAmount !== '' || upiAmount !== '') {
         finalCash = Number(cashAmount || 0)
         finalUpi = Number(upiAmount || 0)
-        const totalPaid = finalCash + finalUpi
-        if (totalPaid >= grandTotal - 0.01) {
-          finalStatus = 'paid'
-        } else if (totalPaid > 0) {
-          finalStatus = 'partial'
-        }
+      } else if (paymentMode === 'full_cash') {
+        finalCash = grandTotal
+      } else if (paymentMode === 'full_upi') {
+        finalUpi = grandTotal
+      } else if (paymentMode === 'credit') {
+        finalCash = 0
+        finalUpi = 0
+      }
+
+      const totalDirectPaid = Number((finalCash + finalUpi).toFixed(2))
+      let finalStatus = 'unpaid'
+      if (totalDirectPaid >= grandTotal - 0.01) {
+        finalStatus = 'paid'
+      } else if (totalDirectPaid > 0) {
+        finalStatus = 'partial'
+      } else {
+        finalStatus = 'unpaid'
       }
 
       const existingBill = editBillId ? serverBills.find(b => String(b.id) === String(editBillId)) : null
@@ -1431,9 +1435,9 @@ export default function MobileCreateBill() {
         )}
 
         {advanceDeduction > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--success)', marginBottom: '4px' }}>
-            <span>Advance Credit Drawdown</span>
-            <span className="currency-num">-₹{advanceDeduction.toFixed(2)}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-secondary)', marginBottom: '4px' }}>
+            <span>⚡ Advance Used</span>
+            <span className="currency-num" style={{ fontWeight: 800 }}>-₹{advanceDeduction.toFixed(2)}</span>
           </div>
         )}
 
@@ -1452,6 +1456,21 @@ export default function MobileCreateBill() {
             ₹{grandTotal.toFixed(2)}
           </span>
         </div>
+
+        {/* Live Customer Balance Indicator */}
+        {selectedCustomerObj && (
+          <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(255, 255, 255, 0.08)', display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem' }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Advance Balance: <strong style={{ color: liveCustomerAdvance > 0 ? 'var(--accent-secondary)' : 'var(--text-secondary)' }}>₹{liveCustomerAdvance.toFixed(2)}</strong>
+              {advanceDeduction > 0 && ` (₹${(liveCustomerAdvance - advanceDeduction).toFixed(2)} remaining)`}
+            </span>
+            {Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due || 0) > 0 && (
+              <span style={{ color: 'var(--error)' }}>
+                Total Due: <strong>₹{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}</strong>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* SECTION 5: STICKY POS PAYMENT & SUBMISSION BAR */}
@@ -1469,85 +1488,166 @@ export default function MobileCreateBill() {
           marginBottom: '16px'
         }}
       >
-        {/* Payment Mode Pills */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
-          {[
-            { id: 'full_cash', label: '💵 Cash' },
-            { id: 'full_upi', label: '📱 UPI' },
-            { id: 'split', label: '⚡ Split' },
-            { id: 'credit', label: '📋 Credit' },
-          ].map(p => {
-            const isSelected = paymentMode === p.id
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setPaymentMode(p.id as 'full_cash' | 'full_upi' | 'split' | 'credit')}
-                style={{
-                  minHeight: '34px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.74rem',
-                  fontWeight: 800,
-                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
-                  background: isSelected ? 'linear-gradient(135deg, #ff2fb0 0%, #00f0ff 100%)' : 'var(--bg-card)',
-                  color: isSelected ? '#ffffff' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  transition: 'var(--transition)'
-                }}
-              >
-                {p.label}
-              </button>
-            )
-          })}
+        {/* Preset Quick Fill Pills */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setPaymentMode('full_cash')
+              setCashAmount(grandTotal)
+              setUpiAmount(0)
+            }}
+            style={{
+              minHeight: '32px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              border: paymentMode === 'full_cash' ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+              background: paymentMode === 'full_cash' ? 'rgba(255, 47, 176, 0.2)' : 'var(--bg-card)',
+              color: paymentMode === 'full_cash' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer'
+            }}
+          >
+            💵 Full Cash
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPaymentMode('full_upi')
+              setCashAmount(0)
+              setUpiAmount(grandTotal)
+            }}
+            style={{
+              minHeight: '32px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              border: paymentMode === 'full_upi' ? '1px solid var(--accent-secondary)' : '1px solid var(--border)',
+              background: paymentMode === 'full_upi' ? 'rgba(0, 240, 255, 0.2)' : 'var(--bg-card)',
+              color: paymentMode === 'full_upi' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer'
+            }}
+          >
+            📱 Full UPI
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPaymentMode('split')
+              const half = Number((grandTotal / 2).toFixed(2))
+              setCashAmount(half)
+              setUpiAmount(Number((grandTotal - half).toFixed(2)))
+            }}
+            style={{
+              minHeight: '32px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              border: paymentMode === 'split' ? '1px solid #a855f7' : '1px solid var(--border)',
+              background: paymentMode === 'split' ? 'rgba(168, 85, 247, 0.2)' : 'var(--bg-card)',
+              color: paymentMode === 'split' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer'
+            }}
+          >
+            ⚡ 50/50 Split
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPaymentMode('credit')
+              setCashAmount(0)
+              setUpiAmount(0)
+            }}
+            style={{
+              minHeight: '32px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              border: paymentMode === 'credit' ? '1px solid var(--warning)' : '1px solid var(--border)',
+              background: paymentMode === 'credit' ? 'rgba(234, 179, 8, 0.2)' : 'var(--bg-card)',
+              color: paymentMode === 'credit' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer'
+            }}
+          >
+            📋 Credit (₹0)
+          </button>
         </div>
 
-        {/* Split Payment Row (when active) */}
-        {paymentMode === 'split' && (
-          <div style={{ marginBottom: '10px', background: 'var(--bg-input)', padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
-                  <span>Cash (₹)</span>
-                  <button
-                    type="button"
-                    onClick={() => setCashAmount(Math.max(0, Number((grandTotal - Number(upiAmount || 0)).toFixed(2))))}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="mobile-input currency-num"
-                  style={{ height: '32px', fontSize: '0.78rem' }}
-                  value={cashAmount}
-                  onChange={(e) => setCashAmount(Number(e.target.value) || 0)}
-                />
+        {/* Direct Cash & UPI Amount Input Fields */}
+        <div style={{ marginBottom: '10px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>💵 CASH (₹)</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentUpi = Number(upiAmount || 0)
+                    const fill = Math.max(0, Number((grandTotal - currentUpi).toFixed(2)))
+                    setCashAmount(fill)
+                    setPaymentMode('split')
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
+                >
+                  Auto-Fill
+                </button>
               </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
-                  <span>UPI (₹)</span>
-                  <button
-                    type="button"
-                    onClick={() => setUpiAmount(Math.max(0, Number((grandTotal - Number(cashAmount || 0)).toFixed(2))))}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="mobile-input currency-num"
-                  style={{ height: '32px', fontSize: '0.78rem' }}
-                  value={upiAmount}
-                  onChange={(e) => setUpiAmount(Number(e.target.value) || 0)}
-                />
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className="mobile-input currency-num"
+                style={{ height: '36px', fontSize: '0.85rem', fontWeight: 800 }}
+                placeholder="0.00"
+                value={cashAmount}
+                onChange={(e) => {
+                  setCashAmount(e.target.value)
+                  setPaymentMode('split')
+                }}
+              />
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>📱 UPI (₹)</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentCash = Number(cashAmount || 0)
+                    const fill = Math.max(0, Number((grandTotal - currentCash).toFixed(2)))
+                    setUpiAmount(fill)
+                    setPaymentMode('split')
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
+                >
+                  Auto-Fill
+                </button>
               </div>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className="mobile-input currency-num"
+                style={{ height: '36px', fontSize: '0.85rem', fontWeight: 800 }}
+                placeholder="0.00"
+                value={upiAmount}
+                onChange={(e) => {
+                  setUpiAmount(e.target.value)
+                  setPaymentMode('split')
+                }}
+              />
             </div>
           </div>
-        )}
+
+          {/* Real-time Payment & Balance Indicator */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.72rem' }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Paying Now: <strong style={{ color: 'var(--success)' }}>₹{(Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0))).toFixed(2)}</strong>
+            </span>
+            <span style={{ color: Math.max(0, Number((grandTotal - (Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0)))).toFixed(2))) > 0 ? 'var(--error)' : 'var(--success)' }}>
+              Bill Due: <strong>₹{Math.max(0, Number((grandTotal - (Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0)))).toFixed(2))).toFixed(2)}</strong>
+            </span>
+          </div>
+        </div>
 
         {/* Primary Checkout Button */}
         <button
