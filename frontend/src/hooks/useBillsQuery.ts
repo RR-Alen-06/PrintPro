@@ -114,6 +114,30 @@ export function useBillMutations() {
         ])
       }
 
+      // Optimistically update customer advance balance if advance is used
+      const advUsed = Number(newBillData.advance_deducted || newBillData.advance_used || newBillData.advanceUsed || 0)
+      const targetCustId = newBillData.customer_id || newBillData.customerId
+      if (advUsed > 0 && targetCustId) {
+        const userCustKey = ['customers', userId]
+        queryClient.setQueriesData<any[]>({ queryKey: userCustKey, exact: false }, (old = []) => {
+          if (!Array.isArray(old)) return old
+          return old.map(c => {
+            if (String(c.id) === String(targetCustId) || String(c.customerCode) === String(targetCustId)) {
+              const curAdv = Number(c.advanceBalance || c.advance_balance || c.creditBalance || c.credit_balance || 0)
+              const newAdv = Math.max(0, curAdv - advUsed)
+              return {
+                ...c,
+                advanceBalance: newAdv,
+                advance_balance: newAdv,
+                creditBalance: newAdv,
+                credit_balance: newAdv
+              }
+            }
+            return c
+          })
+        })
+      }
+
       return { previousQueries }
     },
     onSuccess: (serverData: any, variables: any) => {
@@ -141,6 +165,7 @@ export function useBillMutations() {
       queryClient.invalidateQueries({ queryKey: BILLS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['advance-payments'] })
       queryClient.invalidateQueries({ queryKey: ['accounting'] })
     },
   })
