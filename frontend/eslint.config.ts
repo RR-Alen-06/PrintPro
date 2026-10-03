@@ -7,6 +7,8 @@ import security from 'eslint-plugin-security';
 import globals from 'globals';
 import type { Linter } from 'eslint';
 
+import { fileURLToPath } from 'url';
+
 interface SecurityPlugin {
   configs: {
     recommended: {
@@ -16,7 +18,7 @@ interface SecurityPlugin {
 }
 
 const typedSecurity = security as unknown as SecurityPlugin;
-const rootDir = new URL('.', import.meta.url).pathname;
+const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
 const config: Linter.Config[] = [
   {
