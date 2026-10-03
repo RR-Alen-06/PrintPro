@@ -14,9 +14,9 @@ import LoyaltyEnginePanel from '../../components/common/LoyaltyEnginePanel'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
-  UserCheck, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search,
+  UserCheck, Plus, Trash2, Check, Search, Minus,
   Tag, Percent, Wallet, FileText, UserPlus, AlertCircle, Printer, Calendar,
-  Gift, Award, Clock, Sparkles, Loader2
+  Gift, Award, Clock, Sparkles, Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal, ArrowRight
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -30,7 +30,6 @@ export default function MobileCreateBill() {
   const { promoCodes = [] } = usePromoCodes()
   const { getCustomerFinancials, createBillAndSync, updateBillAndSync, recordPaymentAndSync } = useUnifiedFinancialHub()
 
-
   // TanStack Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
   const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
@@ -40,30 +39,34 @@ export default function MobileCreateBill() {
   const { createPayment } = usePaymentMutations()
   const { adjustStock } = useInventoryMutations()
 
-  // Wizard Step State (1: Customer -> 2: Items -> 3: Payment)
-  const [step, setStep] = useState(1)
-
-  // Step 1: Customer Selection
-  const [customerType, setCustomerType] = useState('regular')
-  const [selectedCustomerId, setSelectedCustomerId] = useState('')
+  // Customer Selection State (Default: Walk-in)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [customerSearch, setCustomerSearch] = useState('')
+  const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false)
+  const [customerFilterTab, setCustomerFilterTab] = useState<'all' | 'regular' | 'random'>('all')
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
   const [newCustName, setNewCustName] = useState('')
   const [newCustPhone, setNewCustPhone] = useState('')
 
-  // Dates & Estimates
+  // Dates & Details
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState(() => {
     const next = new Date()
     next.setDate(next.getDate() + 7)
     return next.toISOString().slice(0, 10)
   })
+  const [showScheduleNotes, setShowScheduleNotes] = useState(false)
+  const [notes, setNotes] = useState('')
 
-  // Step 2: Print Items List
-  const [itemRows, setItemRows] = useState([])
+  // Items State
+  const [itemRows, setItemRows] = useState<any[]>([])
+
+  // Quick-Add Bar State
+  const [quickInventoryId, setQuickInventoryId] = useState('')
+  const [quickQty, setQuickQty] = useState(1)
+
+  // Advanced / Custom Item Bottom Sheet State
   const [showAddItemSheet, setShowAddItemSheet] = useState(false)
-
-  // Add Item Sheet State
   const [selectedInventoryId, setSelectedInventoryId] = useState('')
   const [customItemName, setCustomItemName] = useState('')
   const [isCustomItem, setIsCustomItem] = useState(false)
@@ -74,11 +77,12 @@ export default function MobileCreateBill() {
   const [itemUnitPrice, setItemUnitPrice] = useState('')
   const [itemGstRate, setItemGstRate] = useState(0)
 
-  // Step 3: Payment & Discounts
-  const [discountType, setDiscountType] = useState('flat') // 'flat' | 'percent'
-  const [discountValue, setDiscountValue] = useState(0)
+  // Discounts, Promos & Loyalty
+  const [showDiscountsSection, setShowDiscountsSection] = useState(false)
+  const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat')
+  const [discountValue, setDiscountValue] = useState<number | string>(0)
   const [promoCodeInput, setPromoCodeInput] = useState('')
-  const [appliedPromo, setAppliedPromo] = useState(null)
+  const [appliedPromo, setAppliedPromo] = useState<any>(null)
   
   // Loyalty redemption state
   const [shouldRedeemLoyalty, setShouldRedeemLoyalty] = useState(false)
@@ -87,27 +91,29 @@ export default function MobileCreateBill() {
   // Advance balance credit usage
   const [useAdvanceCredit, setUseAdvanceCredit] = useState(false)
 
-  const [paymentMode, setPaymentMode] = useState('full_cash') // 'full_cash' | 'full_upi' | 'split' | 'credit'
-  const [cashAmount, setCashAmount] = useState(0)
-  const [upiAmount, setUpiAmount] = useState(0)
-  const [notes, setNotes] = useState('')
+  // Payment Selection State (Defaults to Full Cash)
+  const [paymentMode, setPaymentMode] = useState<'full_cash' | 'full_upi' | 'split' | 'credit'>('full_cash')
+  const [cashAmount, setCashAmount] = useState<number | string>(0)
+  const [upiAmount, setUpiAmount] = useState<number | string>(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Sync selectedInventoryId when serverInventory loads
+  // Sync inventory selection defaults
   useEffect(() => {
-    if (!selectedInventoryId && serverInventory.length > 0) {
-      setSelectedInventoryId(serverInventory[0].id)
+    if (serverInventory.length > 0) {
+      if (!quickInventoryId) setQuickInventoryId(serverInventory[0].id)
+      if (!selectedInventoryId) setSelectedInventoryId(serverInventory[0].id)
     }
-  }, [serverInventory, selectedInventoryId])
+  }, [serverInventory, quickInventoryId, selectedInventoryId])
 
   // If in Edit Mode, populate existing bill data
   useEffect(() => {
     if (editBillId && serverBills.length > 0) {
       const existing = serverBills.find(b => String(b.id) === String(editBillId))
       if (existing) {
-        setSelectedCustomerId(existing.customerId || existing.customer_id)
+        setSelectedCustomerId(existing.customerId || existing.customer_id || '')
         setItemRows(existing.items || [])
         setDiscountValue(existing.discountValue || existing.discount_value || existing.discount || 0)
+        setDiscountType(existing.discountType || existing.discount_type || 'flat')
         setNotes(existing.notes || '')
         setBillDate(existing.date || new Date().toISOString().slice(0, 10))
         setDueDate(existing.dueDate || existing.due_date || new Date().toISOString().slice(0, 10))
@@ -116,29 +122,29 @@ export default function MobileCreateBill() {
     }
   }, [editBillId, serverBills, showToast])
 
-  // Filtered customer list
-  const filteredCustomers = useMemo(() => {
-    return (serverCustomers || []).filter(c => {
-      if (c.deleted) return false
-      if (customerType === 'regular' && c.type !== 'regular') return false
-      if (customerType === 'random' && c.type !== 'random') return false
-      if (customerSearch.trim()) {
-        const q = customerSearch.toLowerCase().trim()
-        return (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q)
-      }
-      return true
-    })
-  }, [serverCustomers, customerType, customerSearch])
-
   // Current selected customer object
   const selectedCustomerObj = useMemo(() => {
+    if (!selectedCustomerId || selectedCustomerId === 'walk-in') return null
     return (serverCustomers || []).find(c =>
       String(c.id) === String(selectedCustomerId) ||
       (c.customerCode && String(c.customerCode) === String(selectedCustomerId))
     )
   }, [serverCustomers, selectedCustomerId])
 
-  // Calculation helpers for Step 2 unit price
+  // Filtered customer list for search modal
+  const filteredCustomers = useMemo(() => {
+    return (serverCustomers || []).filter(c => {
+      if (c.deleted) return false
+      if (customerFilterTab !== 'all' && c.type !== customerFilterTab) return false
+      if (customerSearch.trim()) {
+        const q = customerSearch.toLowerCase().trim()
+        return (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q)
+      }
+      return true
+    })
+  }, [serverCustomers, customerFilterTab, customerSearch])
+
+  // Calculation helper for custom modal unit price
   const activeInventoryObj = useMemo(() => {
     return (serverInventory || []).find(i => String(i.id) === String(selectedInventoryId))
   }, [serverInventory, selectedInventoryId])
@@ -146,15 +152,64 @@ export default function MobileCreateBill() {
   const calculatedUnitPrice = useMemo(() => {
     if (isCustomItem) return Number(itemUnitPrice || 0)
     if (!activeInventoryObj) return 10.0
-    if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle !== undefined ? activeInventoryObj.colorSingle : (activeInventoryObj.color_single ?? 10.0)) || 10.0
-    if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble !== undefined ? activeInventoryObj.colorDouble : (activeInventoryObj.color_double ?? 18.0)) || 18.0
-    if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle !== undefined ? activeInventoryObj.bwSingle : (activeInventoryObj.bw_single ?? 3.0)) || 3.0
-    if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble !== undefined ? activeInventoryObj.bwDouble : (activeInventoryObj.bw_double ?? 5.0)) || 5.0
-    return 10.0
+    if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle ?? activeInventoryObj.color_single ?? 10.0) || 10.0
+    if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble ?? activeInventoryObj.color_double ?? 18.0) || 18.0
+    if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle ?? activeInventoryObj.bw_single ?? 3.0) || 3.0
+    if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble ?? activeInventoryObj.bw_double ?? 5.0) || 5.0
+    return Number(activeInventoryObj.price ?? activeInventoryObj.unit_price ?? 10.0) || 10.0
   }, [activeInventoryObj, itemPrintType, itemSides, isCustomItem, itemUnitPrice])
 
-  // Add Item to Bill List
-  const handleAddItemToBill = (e) => {
+  // Quick-Add active inventory object
+  const quickActiveInventoryObj = useMemo(() => {
+    return (serverInventory || []).find(i => String(i.id) === String(quickInventoryId))
+  }, [serverInventory, quickInventoryId])
+
+  // Quick Add Item to Bill
+  const handleQuickAddItem = () => {
+    if (!quickActiveInventoryObj) return
+    const rate = Number(quickActiveInventoryObj.price ?? quickActiveInventoryObj.unit_price ?? quickActiveInventoryObj.colorSingle ?? 10.0) || 10.0
+    const qty = Math.max(1, Number(quickQty) || 1)
+    const name = quickActiveInventoryObj.name || 'Print Item'
+
+    // Check if matching row already exists
+    const existingIndex = itemRows.findIndex(r => r.itemId === quickActiveInventoryObj.id && !r.isCustom && r.printType === 'color' && r.sides === 'single')
+    if (existingIndex > -1) {
+      setItemRows(prev => {
+        const copy = [...prev]
+        const current = copy[existingIndex]
+        const updatedQty = Number(current.qty || 1) + qty
+        copy[existingIndex] = {
+          ...current,
+          qty: updatedQty,
+          amount: Number(current.unitPrice || rate) * updatedQty * (Number(current.pages) || 1)
+        }
+        return copy
+      })
+      showToast(`Updated '${name}' quantity (+${qty})`, 'success')
+    } else {
+      const newRow = {
+        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+        itemId: quickActiveInventoryObj.id,
+        itemName: name,
+        name: name,
+        isCustom: false,
+        printType: 'color',
+        sides: 'single',
+        qty: qty,
+        pages: 1,
+        unitPrice: rate,
+        unit_price: rate,
+        gstRate: Number(quickActiveInventoryObj.gstRate ?? quickActiveInventoryObj.gst_rate ?? 0),
+        amount: rate * qty
+      }
+      setItemRows(prev => [...prev, newRow])
+      showToast(`Added '${name}' × ${qty}`, 'success')
+    }
+    setQuickQty(1)
+  }
+
+  // Add Item via Bottom Sheet Modal
+  const handleAddModalItem = (e: React.FormEvent) => {
     e.preventDefault()
     const rate = Number(itemUnitPrice || calculatedUnitPrice)
     const name = isCustomItem ? (customItemName || 'Custom Print') : (activeInventoryObj?.name || 'A4 Paper')
@@ -189,13 +244,30 @@ export default function MobileCreateBill() {
     showToast(`Added '${name}' to order`, 'success')
   }
 
+  // Update Item Quantity inline
+  const handleUpdateItemQty = (rowId: string, delta: number) => {
+    setItemRows(prev => prev.map(r => {
+      if (r.id === rowId) {
+        const newQty = Math.max(1, Number(r.qty || 1) + delta)
+        const pages = Number(r.pages || 1)
+        const rate = Number(r.unitPrice || r.unit_price || 0)
+        return {
+          ...r,
+          qty: newQty,
+          amount: rate * newQty * pages
+        }
+      }
+      return r
+    }))
+  }
+
   // Remove Item
-  const handleRemoveItem = (rowId) => {
+  const handleRemoveItem = (rowId: string) => {
     setItemRows(prev => prev.filter(r => r.id !== rowId))
   }
 
   // Quick Customer Creation
-  const handleAddNewCustomerSubmit = async (e) => {
+  const handleAddNewCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const trimmedName = newCustName.trim()
     if (!trimmedName) {
@@ -213,12 +285,12 @@ export default function MobileCreateBill() {
       balance_due: 0
     }
 
-    // Immediate UI feedback
     setSelectedCustomerId(tempId)
     setShowAddCustomerModal(false)
+    setIsCustomerPickerOpen(false)
     setNewCustName('')
     setNewCustPhone('')
-    showToast(`Client '${trimmedName}' added!`, 'success')
+    showToast(`Client '${trimmedName}' added & selected!`, 'success')
 
     try {
       createCustomerMutation(newCustPayload)
@@ -230,8 +302,8 @@ export default function MobileCreateBill() {
         .catch((err) => {
           showToast(err?.message || 'Failed to save customer', 'error')
         })
-    } catch (err) {
-      showToast(err.message || 'Failed to create customer', 'error')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to create customer', 'error')
     }
   }
 
@@ -240,7 +312,7 @@ export default function MobileCreateBill() {
     return itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
   }, [itemRows])
 
-  // Loyalty Discount Calculation via Headless LoyaltyService
+  // Loyalty Discount Calculation via LoyaltyService
   const loyaltyDiscount = useMemo(() => {
     if (!shouldRedeemLoyalty || !selectedCustomerObj) return 0
     const points = Number(loyaltyPointsRedeemed || 0)
@@ -267,7 +339,7 @@ export default function MobileCreateBill() {
     return Math.min(disc, subtotal)
   }, [subtotal, discountType, discountValue, appliedPromo, loyaltyDiscount])
 
-  // Advance Credit Deduction via Unified Financial Hub
+  // Customer Advance credit
   const customerFinancials = selectedCustomerId ? getCustomerFinancials(selectedCustomerId) : null
   const liveCustomerAdvance = customerFinancials?.advanceBalance ?? Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance || selectedCustomerObj?.advanceBalance || 0)
 
@@ -280,7 +352,6 @@ export default function MobileCreateBill() {
   const grandTotal = useMemo(() => {
     return Math.max(0, netBeforeAdvance - advanceDeduction)
   }, [netBeforeAdvance, advanceDeduction])
-
 
   // Apply Promo Code
   const handleApplyPromo = () => {
@@ -301,15 +372,8 @@ export default function MobileCreateBill() {
 
   // Submit Final Bill
   const handleFinalizeBillSubmit = async () => {
-    if (!selectedCustomerId) {
-      showToast('Please select a customer in Step 1', 'error')
-      setStep(1)
-      return
-    }
-
     if (itemRows.length === 0) {
-      showToast('Please add at least one print item in Step 2', 'error')
-      setStep(2)
+      showToast('Please add at least one item to generate bill', 'error')
       return
     }
 
@@ -341,7 +405,9 @@ export default function MobileCreateBill() {
         ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `BILL-${editBillId}`)
         : await SequenceService.getNextSequence('BILL')
 
-      const resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId
+      const resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId || 'walk-in'
+      const resolvedCustomerName = selectedCustomerObj?.name || 'Walk-in Customer'
+      const resolvedCustomerPhone = selectedCustomerObj?.phone || ''
 
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
@@ -352,17 +418,19 @@ export default function MobileCreateBill() {
         dueDate: dueDate,
         customer_id: resolvedCustomerId,
         customerId: resolvedCustomerId,
-        customer_name: selectedCustomerObj?.name || 'Walk-in Customer',
-        customerName: selectedCustomerObj?.name || 'Walk-in Customer',
-        customer_phone: selectedCustomerObj?.phone || '',
-        customerPhone: selectedCustomerObj?.phone || '',
+        customer_name: resolvedCustomerName,
+        customerName: resolvedCustomerName,
+        customer_phone: resolvedCustomerPhone,
+        customerPhone: resolvedCustomerPhone,
         items: itemRows.map(r => ({
+          itemId: r.itemId || '',
           item_name: r.itemName || r.name || 'Print Item',
           name: r.itemName || r.name || 'Print Item',
           print_type: r.printType || 'color',
           printType: r.printType || 'color',
           sides: r.sides || 'single',
           qty: Number(r.qty || 1),
+          pages: Number(r.pages || 1),
           unit_price: Number(r.unitPrice || r.unit_price || 0),
           unitPrice: Number(r.unitPrice || r.unit_price || 0),
           amount: Number(r.amount || 0)
@@ -388,7 +456,6 @@ export default function MobileCreateBill() {
         showToast(`Bill #${billPayload.invoiceNumber} updated successfully!`, 'success')
         navigate(`/bill/${editBillId}`)
       } else {
-        // Fire unified mutation and navigate immediately using optimistic id
         const mutationPromise = createBillAndSync(billPayload)
         navigate(`/bill/${billPayload.id}`)
         showToast(`Bill #${billPayload.invoiceNumber} created!`, 'success')
@@ -420,11 +487,11 @@ export default function MobileCreateBill() {
                 await Promise.all(
                   Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
                 )
-              } catch (stockErr) {
+              } catch (stockErr: any) {
                 console.error('Failed to deduct stock:', stockErr)
-                showToast(`Warning: Failed to update inventory stock: ${stockErr?.message}`, 'error')
               }
             }
+
             if (finalCash + finalUpi > 0) {
               try {
                 await recordPaymentAndSync({
@@ -435,7 +502,7 @@ export default function MobileCreateBill() {
                   upi_amount: finalUpi,
                   total_paid: finalCash + finalUpi,
                   payment_type: finalStatus === 'paid' ? 'full' : 'partial',
-                  notes: 'Initial bill payment at POS checkout'
+                  notes: 'Initial POS checkout payment'
                 })
               } catch (payErr) {
                 console.error('Upfront payment recording notice:', payErr)
@@ -443,10 +510,10 @@ export default function MobileCreateBill() {
             }
           })
           .catch((err) => {
-            showToast(err?.message || 'Failed to save bill to cloud', 'error')
+            showToast(err?.message || 'Failed to sync bill', 'error')
           })
       }
-    } catch (e) {
+    } catch (e: any) {
       showToast(e.message || 'Failed to save bill', 'error')
     } finally {
       setIsSubmitting(false)
@@ -464,327 +531,388 @@ export default function MobileCreateBill() {
 
   return (
     <MobileLayout
-      title={editBillId ? 'Edit Print Bill' : 'Create Print Bill'}
+      title={editBillId ? 'Edit POS Bill' : 'One-Step POS Billing'}
     >
-      {/* Header Info with Auto-Assigned Code Badge */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)' }}>
-          {editBillId ? `EDITING BILL #${editBillId}` : 'NEW ORDER'}
-        </span>
+      {/* Top Header Badge */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="mobile-badge mobile-badge-primary" style={{ fontSize: '0.72rem', letterSpacing: '0.05em', fontWeight: 800 }}>
+            ⚡ FAST POS
+          </span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+            {editBillId ? `EDITING #${editBillId}` : 'DIRECT CHECKOUT'}
+          </span>
+        </div>
         {!editBillId && (
-          <span className="mobile-badge mobile-badge-info" style={{ fontFamily: 'monospace', fontSize: '0.75rem', letterSpacing: '0.04em' }}>
-            Auto-ID: #{previewInvoiceNumber}
+          <span className="mobile-badge mobile-badge-info" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+            #{previewInvoiceNumber}
           </span>
         )}
       </div>
 
-      {/* 3-Step Glowing Progress Indicator */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-        {[
-          { num: 1, title: 'CUSTOMER' },
-          { num: 2, title: 'PRINT ITEMS' },
-          { num: 3, title: 'PAYMENT' },
-        ].map(s => {
-          const isActive = step === s.num
-          const isDone = step > s.num
-          return (
+      {/* SECTION 1: COMPACT CUSTOMER HEADER */}
+      <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div
-              key={s.num}
-              onClick={() => { if (s.num < step) setStep(s.num) }}
               style={{
-                background: isActive ? 'rgba(255, 47, 176, 0.15)' : isDone ? 'rgba(0, 255, 171, 0.15)' : 'var(--bg-card)',
-                border: isActive ? '1px solid var(--accent-primary)' : isDone ? '1px solid var(--success)' : '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                padding: '8px 4px',
-                textAlign: 'center',
-                boxShadow: isActive ? '0 0 10px rgba(255, 47, 176, 0.3)' : 'none',
-                cursor: s.num < step ? 'pointer' : 'default',
-                transition: 'var(--transition)'
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: selectedCustomerObj ? 'rgba(0, 240, 255, 0.15)' : 'rgba(255, 47, 176, 0.15)',
+                border: `1px solid ${selectedCustomerObj ? 'var(--accent-secondary)' : 'var(--accent-primary)'}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: selectedCustomerObj ? 'var(--accent-secondary)' : 'var(--accent-primary)'
               }}
             >
-              <div style={{ fontSize: '0.7rem', fontWeight: 900, color: isActive ? 'var(--accent-primary)' : isDone ? 'var(--success)' : 'var(--text-muted)' }}>
-                STEP 0{s.num}
+              {selectedCustomerObj ? <UserCheck size={18} /> : <UserPlus size={18} />}
+            </div>
+            <div>
+              <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                {selectedCustomerObj ? selectedCustomerObj.name : 'Walk-in Customer'}
               </div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {s.title}
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', gap: '8px' }}>
+                {selectedCustomerObj ? (
+                  <>
+                    <span>{selectedCustomerObj.phone || 'No phone'}</span>
+                    {Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due || 0) > 0 && (
+                      <span style={{ color: 'var(--error)' }}>
+                        Due: ₹{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span>Direct retail sale</span>
+                )}
               </div>
             </div>
-          )
-        })}
-      </div>
+          </div>
 
-      {/* STEP 1: CUSTOMER SELECTION */}
-      {step === 1 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              SELECT CLIENT / CUSTOMER
-            </h3>
+          <div style={{ display: 'flex', gap: '6px' }}>
             <button
+              type="button"
+              className="mobile-btn mobile-btn-secondary"
+              onClick={() => setIsCustomerPickerOpen(!isCustomerPickerOpen)}
+              style={{ minHeight: '34px', padding: '0 10px', fontSize: '0.74rem' }}
+            >
+              <Search size={13} /> {selectedCustomerObj ? 'Change' : 'Find Client'}
+            </button>
+            <button
+              type="button"
               className="mobile-btn mobile-btn-secondary"
               onClick={() => setShowAddCustomerModal(true)}
-              style={{ minHeight: '36px', padding: '0 12px', fontSize: '0.78rem', color: 'var(--accent-secondary)', borderColor: 'var(--accent-secondary)' }}
+              style={{ minHeight: '34px', padding: '0 8px', fontSize: '0.74rem', color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
             >
-              + New Client
+              <Plus size={14} />
             </button>
           </div>
-
-          {/* Customer Type Pills */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
-            <button
-              type="button"
-              className={`mobile-btn ${customerType === 'regular' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-              onClick={() => setCustomerType('regular')}
-              style={{ minHeight: '40px', fontSize: '0.85rem' }}
-            >
-              Regular Clients
-            </button>
-            <button
-              type="button"
-              className={`mobile-btn ${customerType === 'random' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-              onClick={() => setCustomerType('random')}
-              style={{ minHeight: '40px', fontSize: '0.85rem' }}
-            >
-              Walk-in Clients
-            </button>
-          </div>
-
-          {/* Customer Search */}
-          <div style={{ position: 'relative', marginBottom: '14px' }}>
-            <Search size={18} style={{ position: 'absolute', left: '14px', top: '15px', color: 'var(--accent-secondary)' }} />
-            <input
-              type="text"
-              className="mobile-input"
-              style={{ paddingLeft: '42px' }}
-              placeholder="Search customer name, phone..."
-              value={customerSearch}
-              onChange={(e) => setCustomerSearch(e.target.value)}
-            />
-          </div>
-
-          {/* Customer Selection Stack */}
-          {isLoadingCustomers ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '24px' }}>
-              <Loader2 size={24} className="spin" style={{ color: 'var(--accent-secondary)', margin: '0 auto 8px auto' }} />
-              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading customers...</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto', marginBottom: '16px' }}>
-              {filteredCustomers.length === 0 ? (
-                <div className="mobile-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                  No {customerType} customers found. Tap "+ New Client" to create one.
-                </div>
-              ) : (
-                filteredCustomers.map(c => {
-                  const isSelected = String(c.id) === String(selectedCustomerId)
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setSelectedCustomerId(c.id)}
-                      style={{
-                        padding: '12px',
-                        background: isSelected ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-card)',
-                        border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
-                        borderRadius: 'var(--radius-md)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        boxShadow: isSelected ? '0 0 10px rgba(255, 47, 176, 0.3)' : 'none'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                          {c.name}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {c.phone || 'No phone'} • Balance: ₹{Number(c.balanceDue || c.balance_due || 0).toFixed(2)}
-                        </div>
-                      </div>
-                      {isSelected && <Check size={20} style={{ color: 'var(--accent-primary)' }} />}
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          )}
-
-          {/* Dates & Estimates Card */}
-          <div className="mobile-card" style={{ marginBottom: '16px' }}>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-secondary)', margin: '0 0 12px 0' }}>
-              ORDER DATES & SCHEDULE
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  INVOICE DATE
-                </label>
-                <input
-                  type="date"
-                  className="mobile-input"
-                  value={billDate}
-                  onChange={(e) => setBillDate(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  DUE DATE
-                </label>
-                <input
-                  type="date"
-                  className="mobile-input"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-
-          <button
-            className="mobile-btn mobile-btn-primary"
-            onClick={() => {
-              if (!selectedCustomerId) {
-                showToast('Please select a customer first', 'error')
-                return
-              }
-              setStep(2)
-            }}
-          >
-            Continue to Print Items <ChevronRight size={18} />
-          </button>
         </div>
-      )}
 
-      {/* STEP 2: PRINT LINE ITEMS */}
-      {step === 2 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              PRINT ITEMS ({itemRows.length})
-            </h3>
-            <button
-              className="mobile-btn mobile-btn-primary"
-              onClick={() => setShowAddItemSheet(true)}
-              style={{ minHeight: '36px', padding: '0 12px', fontSize: '0.78rem', width: 'auto' }}
-            >
-              <Plus size={16} /> + Add Item
-            </button>
-          </div>
-
-          {/* Items Stack */}
-          {itemRows.length === 0 ? (
-            <div className="mobile-card" style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-              <Printer size={40} style={{ color: 'var(--accent-primary)', opacity: 0.6, marginBottom: '10px' }} />
-              <h4 style={{ margin: '0 0 6px 0', color: 'var(--text-primary)' }}>No Items in Bill</h4>
-              <p style={{ fontSize: '0.82rem', margin: 0 }}>Tap "+ Add Item" to specify paper type, sides, and copies.</p>
+        {/* Expandable Customer Search Dropdown */}
+        {isCustomerPickerOpen && (
+          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={15} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="mobile-input"
+                  style={{ paddingLeft: '32px', height: '38px', fontSize: '0.82rem' }}
+                  placeholder="Search name or phone..."
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <button
+                type="button"
+                className="mobile-btn mobile-btn-secondary"
+                onClick={() => {
+                  setSelectedCustomerId('')
+                  setIsCustomerPickerOpen(false)
+                }}
+                style={{ minHeight: '38px', padding: '0 10px', fontSize: '0.74rem' }}
+              >
+                Walk-in
+              </button>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-              {itemRows.map((item, idx) => (
-                <div key={item.id || idx} className="mobile-card" style={{ padding: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        {item.itemName || item.name}
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                        <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.65rem' }}>
-                          {(item.printType || 'Color').toUpperCase()}
-                        </span>
-                        <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.65rem' }}>
-                          {(item.sides || 'Single').toUpperCase()}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Qty: {item.qty} × ₹{Number(item.unitPrice || 0).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div className="currency-num" style={{ fontSize: '1.05rem', color: '#ffffff' }}>
-                        ₹{Number(item.amount || 0).toFixed(2)}
-                      </div>
-                      <button
-                        className="mobile-icon-btn"
-                        onClick={() => handleRemoveItem(item.id)}
-                        style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+            <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {filteredCustomers.slice(0, 10).map(c => (
+                <div
+                  key={c.id}
+                  onClick={() => {
+                    setSelectedCustomerId(c.id)
+                    setIsCustomerPickerOpen(false)
+                  }}
+                  style={{
+                    padding: '8px 10px',
+                    background: String(c.id) === String(selectedCustomerId) ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-input)',
+                    borderRadius: 'var(--radius-sm)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem'
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: 'var(--text-primary)' }}>{c.name}</strong>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '6px', fontSize: '0.74rem' }}>{c.phone}</span>
                   </div>
+                  {Number(c.balanceDue || c.balance_due || 0) > 0 && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--error)' }}>
+                      ₹{Number(c.balanceDue || c.balance_due).toFixed(2)}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Subtotal Banner */}
-          <div className="mobile-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', background: 'var(--bg-input)' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>ORDER SUBTOTAL</span>
-            <span className="currency-num" style={{ fontSize: '1.25rem', color: 'var(--accent-primary)' }}>
-              ₹{subtotal.toFixed(2)}
+        {/* Collapsible Dates & Order Notes Toggle */}
+        <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setShowScheduleNotes(!showScheduleNotes)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--text-muted)',
+              fontSize: '0.74rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <Calendar size={13} />
+            <span>Date: {billDate} {notes ? '• Has Notes' : ''}</span>
+            {showScheduleNotes ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+
+          {selectedCustomerObj && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--accent-secondary)' }}>
+              Points: {Number(selectedCustomerObj.loyalty_points || selectedCustomerObj.loyaltyPoints || 0)}
             </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-            <button className="mobile-btn mobile-btn-secondary" onClick={() => setStep(1)}>
-              <ChevronLeft size={18} /> Back
-            </button>
-            <button
-              className="mobile-btn mobile-btn-primary"
-              onClick={() => {
-                if (itemRows.length === 0) {
-                  showToast('Please add at least one item', 'error')
-                  return
-                }
-                setStep(3)
-              }}
-            >
-              Continue to Payment <ChevronRight size={18} />
-            </button>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* STEP 3: PAYMENT & SUMMARY */}
-      {step === 3 && (
-        <div>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 14px 0', color: 'var(--text-primary)' }}>
-            BILL SUMMARY & PAYMENT
-          </h3>
-
-          {/* Discount & Promo Accordion */}
-          <div className="mobile-card" style={{ marginBottom: '14px' }}>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-secondary)', margin: '0 0 10px 0' }}>
-              DISCOUNTS & PROMOTIONS
-            </h4>
-
-            {/* Discount Inputs */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-              <select
-                className="mobile-input"
-                value={discountType}
-                onChange={(e) => setDiscountType(e.target.value)}
-              >
-                <option value="flat">Flat Amount (₹)</option>
-                <option value="percent">Percentage (%)</option>
-              </select>
+        {showScheduleNotes && (
+          <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '3px' }}>Invoice Date</label>
               <input
-                type="number"
-                step="0.01"
-                className="mobile-input currency-num"
-                placeholder="0.00"
-                value={discountValue}
-                onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
+                type="date"
+                className="mobile-input"
+                style={{ height: '36px', fontSize: '0.78rem' }}
+                value={billDate}
+                onChange={(e) => setBillDate(e.target.value)}
               />
             </div>
-
-            {/* Promo Code Input */}
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '3px' }}>Due Date</label>
+              <input
+                type="date"
+                className="mobile-input"
+                style={{ height: '36px', fontSize: '0.78rem' }}
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+            <div style={{ gridColumn: 'span 2' }}>
               <input
                 type="text"
                 className="mobile-input"
-                placeholder="Enter Promo Code..."
+                style={{ height: '36px', fontSize: '0.78rem' }}
+                placeholder="Internal order remarks / notes..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 2: ITEMS CART & QUICK-ADD */}
+      <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Printer size={16} style={{ color: 'var(--accent-primary)' }} />
+            <h3 style={{ fontSize: '0.92rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+              PRINT & BILL ITEMS ({itemRows.length})
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="mobile-btn mobile-btn-secondary"
+            onClick={() => setShowAddItemSheet(true)}
+            style={{ minHeight: '32px', padding: '0 10px', fontSize: '0.74rem', color: 'var(--accent-secondary)', borderColor: 'var(--accent-secondary)' }}
+          >
+            <SlidersHorizontal size={13} /> + Print Specs
+          </button>
+        </div>
+
+        {/* Quick Add Bar */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', background: 'var(--bg-input)', padding: '6px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <select
+            className="mobile-input"
+            style={{ flex: 1, height: '38px', fontSize: '0.8rem', padding: '0 8px' }}
+            value={quickInventoryId}
+            onChange={(e) => setQuickInventoryId(e.target.value)}
+          >
+            {(serverInventory || []).map(i => (
+              <option key={i.id} value={i.id}>
+                {i.name} (₹{Number(i.price ?? i.unit_price ?? i.colorSingle ?? 10).toFixed(2)})
+              </option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <button
+              type="button"
+              onClick={() => setQuickQty(Math.max(1, quickQty - 1))}
+              style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Minus size={13} />
+            </button>
+            <span style={{ fontSize: '0.82rem', fontWeight: 800, minWidth: '22px', textAlign: 'center' }}>
+              {quickQty}
+            </span>
+            <button
+              type="button"
+              onClick={() => setQuickQty(quickQty + 1)}
+              style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="mobile-btn mobile-btn-primary"
+            onClick={handleQuickAddItem}
+            style={{ width: 'auto', minHeight: '38px', padding: '0 12px', fontSize: '0.78rem' }}
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Added Items List */}
+        {itemRows.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 12px', background: 'rgba(0, 0, 0, 0.2)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
+            <Layers size={28} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '6px' }} />
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Bill is empty</div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Quick-add an item above or click "+ Print Specs" for custom prints
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {itemRows.map((item, idx) => (
+              <div
+                key={item.id || idx}
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0, marginRight: '8px' }}>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.itemName || item.name}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                    <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.62rem', padding: '2px 5px' }}>
+                      {(item.printType || 'Color').toUpperCase()}
+                    </span>
+                    <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.62rem', padding: '2px 5px' }}>
+                      {(item.sides || 'Single').toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      @ ₹{Number(item.unitPrice || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Inline Stepper & Price & Delete */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateItemQty(item.id, -1)}
+                      style={{ width: '26px', height: '30px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Minus size={12} />
+                    </button>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, minWidth: '22px', textAlign: 'center' }}>
+                      {item.qty}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateItemQty(item.id, 1)}
+                      style={{ width: '26px', height: '30px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </div>
+
+                  <div className="currency-num" style={{ fontSize: '0.98rem', fontWeight: 800, color: 'var(--text-primary)', minWidth: '60px', textAlign: 'right' }}>
+                    ₹{Number(item.amount || 0).toFixed(2)}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="mobile-icon-btn"
+                    onClick={() => handleRemoveItem(item.id)}
+                    style={{ width: '28px', height: '28px', minWidth: '28px', minHeight: '28px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3: DISCOUNTS, PROMOS & LOYALTY (COMPACT ACCORDION) */}
+      <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px' }}>
+        <div
+          onClick={() => setShowDiscountsSection(!showDiscountsSection)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Tag size={15} style={{ color: 'var(--accent-secondary)' }} />
+            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              DISCOUNTS & OFFERS
+            </span>
+            {(calculatedDiscount > 0 || advanceDeduction > 0) && (
+              <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
+                -₹{(calculatedDiscount + advanceDeduction).toFixed(2)}
+              </span>
+            )}
+          </div>
+          {showDiscountsSection ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
+        </div>
+
+        {showDiscountsSection && (
+          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Promo Code Row */}
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input
+                type="text"
+                className="mobile-input"
+                style={{ height: '36px', fontSize: '0.8rem' }}
+                placeholder="Promo code (e.g. WELCOME10)"
                 value={promoCodeInput}
                 onChange={(e) => setPromoCodeInput(e.target.value)}
               />
@@ -792,263 +920,238 @@ export default function MobileCreateBill() {
                 type="button"
                 className="mobile-btn mobile-btn-secondary"
                 onClick={handleApplyPromo}
-                style={{ width: 'auto', padding: '0 12px', minHeight: '44px', fontSize: '0.8rem' }}
+                style={{ width: 'auto', minHeight: '36px', padding: '0 12px', fontSize: '0.76rem' }}
               >
                 Apply
               </button>
             </div>
-          </div>
 
-          {/* Loyalty Engine Panel */}
-          <LoyaltyEnginePanel
-            customer={selectedCustomerObj}
-            subtotal={subtotal}
-            settings={settings}
-            shouldRedeem={shouldRedeemLoyalty}
-            onToggleRedeem={setShouldRedeemLoyalty}
-            pointsToRedeem={loyaltyPointsRedeemed}
-            onPointsChange={setLoyaltyPointsRedeemed}
-            loyaltyDiscount={loyaltyDiscount}
-          />
-
-          {/* Payment Method Selector */}
-          <div className="mobile-card" style={{ marginBottom: '14px' }}>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px 0' }}>
-              SELECT PAYMENT METHOD
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-              <button
-                type="button"
-                className={`mobile-btn ${paymentMode === 'full_cash' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setPaymentMode('full_cash')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
-              >
-                Full Cash
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${paymentMode === 'full_upi' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setPaymentMode('full_upi')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
-              >
-                Full UPI
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${paymentMode === 'split' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setPaymentMode('split')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
-              >
-                Split Pay
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${paymentMode === 'credit' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setPaymentMode('credit')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
-              >
-                On Credit (Unpaid)
-              </button>
-            </div>
-
-            {/* Split Mode Inputs */}
-            {paymentMode === 'split' && (
-              <div style={{ marginTop: '10px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>CASH (₹)</label>
-                      <button
-                        type="button"
-                        onClick={() => setCashAmount(Math.max(0, Number((grandTotal - Number(upiAmount || 0)).toFixed(2))))}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--accent-secondary, #00f0ff)',
-                          fontSize: '0.68rem',
-                          cursor: 'pointer',
-                          padding: 0,
-                          fontWeight: 600,
-                          textDecoration: 'underline'
-                        }}
-                      >
-                        Fill Rem.
-                      </button>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="mobile-input currency-num"
-                      value={cashAmount}
-                      onChange={(e) => setCashAmount(Number(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>UPI (₹)</label>
-                      <button
-                        type="button"
-                        onClick={() => setUpiAmount(Math.max(0, Number((grandTotal - Number(cashAmount || 0)).toFixed(2))))}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--accent-secondary, #00f0ff)',
-                          fontSize: '0.68rem',
-                          cursor: 'pointer',
-                          padding: 0,
-                          fontWeight: 600,
-                          textDecoration: 'underline'
-                        }}
-                      >
-                        Fill Rem.
-                      </button>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="mobile-input currency-num"
-                      value={upiAmount}
-                      onChange={(e) => setUpiAmount(Number(e.target.value) || 0)}
-                    />
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'right' }}>
-                  Total Entered: ₹{(Number(cashAmount || 0) + Number(upiAmount || 0)).toFixed(2)} / ₹{grandTotal.toFixed(2)}
-                </div>
+            {appliedPromo && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 240, 255, 0.1)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-secondary)' }}>
+                <span style={{ fontSize: '0.76rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
+                  ✓ Promo '{appliedPromo.code}' Applied ({appliedPromo.type === 'percent' ? `${appliedPromo.value}%` : `₹${appliedPromo.value}`})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAppliedPromo(null)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}
+                >
+                  <X size={14} />
+                </button>
               </div>
             )}
-          </div>
 
-          {/* Advance Credit Usage */}
-          {liveCustomerAdvance > 0 && (
-            <div className="mobile-card" style={{ marginBottom: '14px', background: 'rgba(0, 240, 255, 0.05)', borderColor: 'var(--accent-secondary)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Manual Discount Inputs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <select
+                className="mobile-input"
+                style={{ height: '36px', fontSize: '0.8rem' }}
+                value={discountType}
+                onChange={(e: any) => setDiscountType(e.target.value)}
+              >
+                <option value="flat">Flat Discount (₹)</option>
+                <option value="percent">Percentage (%)</option>
+              </select>
+              <input
+                type="number"
+                step="0.01"
+                className="mobile-input currency-num"
+                style={{ height: '36px', fontSize: '0.8rem' }}
+                placeholder="0.00"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
+              />
+            </div>
+
+            {/* Advance Credit Usage */}
+            {liveCustomerAdvance > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 240, 255, 0.05)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-secondary)' }}>
                 <div>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>
-                    CUSTOMER ADVANCE CREDIT
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Available: ₹{liveCustomerAdvance.toFixed(2)}
-                  </div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>Customer Advance Available</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹{liveCustomerAdvance.toFixed(2)}</div>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={useAdvanceCredit}
                     onChange={(e) => setUseAdvanceCredit(e.target.checked)}
-                    style={{ width: '16px', height: '16px', accentColor: 'var(--accent-secondary)' }}
+                    style={{ width: '15px', height: '15px', accentColor: 'var(--accent-secondary)' }}
                   />
                   <span>Use Advance</span>
                 </label>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Notes */}
-          <div className="mobile-card" style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              INTERNAL ORDER NOTES
-            </label>
-            <input
-              type="text"
-              className="mobile-input"
-              placeholder="e.g. Urgent banner print for festival"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            {/* Loyalty Engine */}
+            {selectedCustomerObj && (
+              <LoyaltyEnginePanel
+                customer={selectedCustomerObj}
+                subtotal={subtotal}
+                settings={settings}
+                shouldRedeem={shouldRedeemLoyalty}
+                onToggleRedeem={setShouldRedeemLoyalty}
+                pointsToRedeem={loyaltyPointsRedeemed}
+                onPointsChange={setLoyaltyPointsRedeemed}
+                loyaltyDiscount={loyaltyDiscount}
+              />
+            )}
           </div>
+        )}
+      </div>
 
-          {/* Grand Total Final Card */}
-          <div className="mobile-card mobile-card-glow" style={{ borderColor: 'var(--accent-primary)', marginBottom: '16px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              <span>Subtotal</span>
-              <span className="currency-num">₹{subtotal.toFixed(2)}</span>
+      {/* SECTION 4: LIVE FINANCIAL BREAKDOWN SUMMARY */}
+      <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+          <span>Subtotal ({itemRows.reduce((sum, r) => sum + Number(r.qty || 1), 0)} items)</span>
+          <span className="currency-num">₹{subtotal.toFixed(2)}</span>
+        </div>
+
+        {calculatedDiscount > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-primary)', marginBottom: '4px' }}>
+            <span>Total Discount</span>
+            <span className="currency-num">-₹{calculatedDiscount.toFixed(2)}</span>
+          </div>
+        )}
+
+        {advanceDeduction > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--success)', marginBottom: '4px' }}>
+            <span>Advance Credit Drawdown</span>
+            <span className="currency-num">-₹{advanceDeduction.toFixed(2)}</span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '6px', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
+          <span>NET PAYABLE</span>
+          <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 12px rgba(255, 47, 176, 0.4)' }}>
+            ₹{grandTotal.toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      {/* SECTION 5: STICKY POS PAYMENT & SUBMISSION BAR */}
+      <div
+        style={{
+          position: 'sticky',
+          bottom: 'calc(var(--bottom-nav-height) + 8px)',
+          background: 'rgba(12, 6, 24, 0.95)',
+          backdropFilter: 'blur(16px)',
+          padding: '12px',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border-light)',
+          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.9)',
+          zIndex: 30,
+          marginBottom: '16px'
+        }}
+      >
+        {/* Payment Mode Pills */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
+          {[
+            { id: 'full_cash', label: '💵 Cash' },
+            { id: 'full_upi', label: '📱 UPI' },
+            { id: 'split', label: '⚡ Split' },
+            { id: 'credit', label: '📋 Credit' },
+          ].map(p => {
+            const isSelected = paymentMode === p.id
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPaymentMode(p.id as any)}
+                style={{
+                  minHeight: '34px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.74rem',
+                  fontWeight: 800,
+                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+                  background: isSelected ? 'linear-gradient(135deg, #ff2fb0 0%, #00f0ff 100%)' : 'var(--bg-card)',
+                  color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  transition: 'var(--transition)'
+                }}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Split Payment Row (when active) */}
+        {paymentMode === 'split' && (
+          <div style={{ marginBottom: '10px', background: 'var(--bg-input)', padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                  <span>Cash (₹)</span>
+                  <button
+                    type="button"
+                    onClick={() => setCashAmount(Math.max(0, Number((grandTotal - Number(upiAmount || 0)).toFixed(2))))}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
+                  >
+                    Auto-Fill
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="mobile-input currency-num"
+                  style={{ height: '32px', fontSize: '0.78rem' }}
+                  value={cashAmount}
+                  onChange={(e) => setCashAmount(Number(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                  <span>UPI (₹)</span>
+                  <button
+                    type="button"
+                    onClick={() => setUpiAmount(Math.max(0, Number((grandTotal - Number(cashAmount || 0)).toFixed(2))))}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.65rem', cursor: 'pointer', padding: 0 }}
+                  >
+                    Auto-Fill
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="mobile-input currency-num"
+                  style={{ height: '32px', fontSize: '0.78rem' }}
+                  value={upiAmount}
+                  onChange={(e) => setUpiAmount(Number(e.target.value) || 0)}
+                />
+              </div>
             </div>
+          </div>
+        )}
 
-            {Number(discountValue || 0) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-primary)', marginBottom: '6px' }}>
-                <span>Manual Discount</span>
-                <span className="currency-num">
-                  -₹{Number(discountType === 'flat' ? discountValue : (subtotal * Number(discountValue || 0)) / 100).toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {appliedPromo && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-secondary)', marginBottom: '6px' }}>
-                <span>Promo Discount ({appliedPromo.code})</span>
-                <span className="currency-num">
-                  -₹{Number(appliedPromo.type === 'percent' ? (subtotal * appliedPromo.value) / 100 : appliedPromo.value).toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {loyaltyDiscount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--accent-tertiary)', marginBottom: '6px' }}>
-                <span>Loyalty Discount ({loyaltyPointsRedeemed || 0} pts)</span>
-                <span className="currency-num">-₹{loyaltyDiscount.toFixed(2)}</span>
-              </div>
-            )}
-
-            {advanceDeduction > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--success)', marginBottom: '6px' }}>
-                <span>Advance Deducted</span>
-                <span className="currency-num">-₹{advanceDeduction.toFixed(2)}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)', marginBottom: '8px' }}>
-              <span>GRAND TOTAL</span>
-              <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 10px rgba(255, 47, 176, 0.4)' }}>
+        {/* Primary Checkout Button */}
+        <button
+          type="button"
+          className="mobile-btn mobile-btn-primary"
+          onClick={handleFinalizeBillSubmit}
+          disabled={isSubmitting || isCreatingBill || isUpdatingBill || itemRows.length === 0}
+          style={{ minHeight: '46px', fontSize: '0.92rem', fontWeight: 900, letterSpacing: '0.03em' }}
+        >
+          {isSubmitting || isCreatingBill || isUpdatingBill ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+              <Loader2 size={18} className="spin" /> GENERATING INVOICE...
+            </span>
+          ) : (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+              <span>{editBillId ? 'UPDATE INVOICE' : '⚡ COMPLETE & GENERATE BILL'}</span>
+              <span className="currency-num" style={{ background: 'rgba(0,0,0,0.25)', padding: '2px 8px', borderRadius: '6px' }}>
                 ₹{grandTotal.toFixed(2)}
               </span>
-            </div>
-
-            {/* Live Balance to Pay Row */}
-            {(() => {
-              let paidNowCalc = 0
-              if (paymentMode === 'full_cash' || paymentMode === 'full_upi') paidNowCalc = grandTotal
-              else if (paymentMode === 'split') paidNowCalc = Number(cashAmount || 0) + Number(upiAmount || 0)
-              const balanceDueCalc = Math.max(0, grandTotal - paidNowCalc)
-
-              return (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', fontWeight: 800, paddingTop: '8px', borderTop: '1px dashed var(--border-light)' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Balance to Pay</span>
-                  <span className="currency-num" style={{ color: balanceDueCalc > 0 ? 'var(--error)' : 'var(--success)', textShadow: balanceDueCalc > 0 ? '0 0 8px rgba(255, 56, 96, 0.4)' : 'none' }}>
-                    ₹{balanceDueCalc.toFixed(2)} {balanceDueCalc === 0 && '✓ PAID'}
-                  </span>
-                </div>
-              )
-            })()}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-            <button className="mobile-btn mobile-btn-secondary" onClick={() => setStep(2)}>
-              <ChevronLeft size={18} /> Back
-            </button>
-            <button
-              className="mobile-btn mobile-btn-primary"
-              onClick={handleFinalizeBillSubmit}
-              disabled={isSubmitting || isCreatingBill || isUpdatingBill}
-            >
-              {isSubmitting || isCreatingBill || isUpdatingBill ? (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                  <Loader2 size={18} className="spin" /> SAVING...
-                </span>
-              ) : (
-                editBillId ? 'Update Invoice' : 'Finalize & Print Invoice'
-              )}
-            </button>
-          </div>
-        </div>
-      )}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Quick Add Customer Modal */}
       {showAddCustomerModal && (
         <div className="bottom-sheet-overlay" onClick={() => setShowAddCustomerModal(false)}>
           <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
             <div className="bottom-sheet-drag-handle" />
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '12px', color: 'var(--text-primary)' }}>
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, marginBottom: '12px', color: 'var(--text-primary)' }}>
               Register New Client
             </h3>
             <form onSubmit={handleAddNewCustomerSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1059,29 +1162,30 @@ export default function MobileCreateBill() {
                 value={newCustName}
                 onChange={(e) => setNewCustName(e.target.value)}
                 required
+                autoFocus
               />
               <input
                 type="tel"
                 className="mobile-input"
-                placeholder="Phone Number"
+                placeholder="Phone Number (e.g. 9876543210)"
                 value={newCustPhone}
                 onChange={(e) => setNewCustPhone(e.target.value)}
               />
               <button type="submit" className="mobile-btn mobile-btn-primary" disabled={isCreatingCustomer}>
-                {isCreatingCustomer ? 'Creating Client...' : 'Save & Select Client'}
+                {isCreatingCustomer ? 'Registering...' : 'Save & Select Client'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Add Item Bottom Sheet Drawer */}
+      {/* Advanced Print Specification Bottom Sheet Drawer */}
       <BottomSheet
         isOpen={showAddItemSheet}
         onClose={() => setShowAddItemSheet(false)}
-        title="Add Print Specification Item"
+        title="Custom Item & Print Specification"
       >
-        <form onSubmit={handleAddItemToBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form onSubmit={handleAddModalItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* Custom vs Inventory Toggle */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <button
@@ -1098,13 +1202,13 @@ export default function MobileCreateBill() {
               onClick={() => setIsCustomItem(true)}
               style={{ minHeight: '38px', fontSize: '0.82rem' }}
             >
-              Custom Item
+              Custom Print
             </button>
           </div>
 
           {!isCustomItem ? (
             <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
                 SELECT ITEM
               </label>
               <select
@@ -1119,13 +1223,13 @@ export default function MobileCreateBill() {
             </div>
           ) : (
             <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
                 CUSTOM ITEM NAME
               </label>
               <input
                 type="text"
                 className="mobile-input"
-                placeholder="e.g. Vinyl Banner 3x2"
+                placeholder="e.g. Vinyl Banner 3x2, Flex Board"
                 value={customItemName}
                 onChange={(e) => setCustomItemName(e.target.value)}
                 required
@@ -1135,15 +1239,15 @@ export default function MobileCreateBill() {
 
           {/* Color vs B&W */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              PRINT TYPE
+            <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+              PRINT COLOR
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 type="button"
                 className={`mobile-btn ${itemPrintType === 'color' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setItemPrintType('color')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
+                style={{ minHeight: '38px', fontSize: '0.8rem' }}
               >
                 Full Color
               </button>
@@ -1151,7 +1255,7 @@ export default function MobileCreateBill() {
                 type="button"
                 className={`mobile-btn ${itemPrintType === 'bw' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setItemPrintType('bw')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
+                style={{ minHeight: '38px', fontSize: '0.8rem' }}
               >
                 Black & White
               </button>
@@ -1160,15 +1264,15 @@ export default function MobileCreateBill() {
 
           {/* Single vs Double Sided */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              SIDES
+            <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+              SIDES CONFIGURATION
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 type="button"
                 className={`mobile-btn ${itemSides === 'single' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setItemSides('single')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
+                style={{ minHeight: '38px', fontSize: '0.8rem' }}
               >
                 Single-Sided
               </button>
@@ -1176,7 +1280,7 @@ export default function MobileCreateBill() {
                 type="button"
                 className={`mobile-btn ${itemSides === 'double' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
                 onClick={() => setItemSides('double')}
-                style={{ minHeight: '40px', fontSize: '0.82rem' }}
+                style={{ minHeight: '38px', fontSize: '0.8rem' }}
               >
                 Double-Sided
               </button>
@@ -1186,7 +1290,7 @@ export default function MobileCreateBill() {
           {/* Quantity & Unit Price & GST */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                 QTY
               </label>
               <input
@@ -1198,7 +1302,7 @@ export default function MobileCreateBill() {
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                 UNIT (₹)
               </label>
               <input
@@ -1211,7 +1315,7 @@ export default function MobileCreateBill() {
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                 GST %
               </label>
               <input
@@ -1224,8 +1328,8 @@ export default function MobileCreateBill() {
             </div>
           </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '6px' }}>
-            Add Item to Order
+          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '4px' }}>
+            Add Custom Specification to Order
           </button>
         </form>
       </BottomSheet>

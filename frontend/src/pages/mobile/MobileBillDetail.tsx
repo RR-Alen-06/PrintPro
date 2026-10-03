@@ -13,7 +13,7 @@ import html2canvas from 'html2canvas'
 import {
   FileText, Download, CreditCard, QrCode, ArrowLeft, CheckCircle2,
   Clock, AlertTriangle, Phone, Mail, User, ShieldCheck, Share2, Wallet, DollarSign,
-  Pencil, Tag, RotateCcw, Percent, Check, Loader2
+  Pencil, Tag, RotateCcw, Percent, Check, Loader2, Plus
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -303,13 +303,22 @@ export default function MobileBillDetail() {
               <span className={`mobile-badge ${isPaid ? 'mobile-badge-success' : isPartial ? 'mobile-badge-warning' : 'mobile-badge-error'}`}>
                 {(bill.status || 'unpaid').toUpperCase()}
               </span>
-              <button
-                className="mobile-btn mobile-btn-secondary"
-                onClick={() => navigate(`/create-bill?edit=${bill.id}`)}
-                style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
-              >
-                <Pencil size={12} /> Edit Bill
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  className="mobile-btn mobile-btn-primary"
+                  onClick={() => navigate('/create-bill')}
+                  style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                >
+                  <Plus size={12} /> New Bill
+                </button>
+                <button
+                  className="mobile-btn mobile-btn-secondary"
+                  onClick={() => navigate(`/create-bill?edit=${bill.id}`)}
+                  style={{ minHeight: '30px', padding: '0 8px', fontSize: '0.72rem', color: 'var(--accent-secondary)' }}
+                >
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
             </div>
           </div>
 
