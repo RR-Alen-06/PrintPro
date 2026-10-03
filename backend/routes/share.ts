@@ -51,11 +51,31 @@ const upload = multer({
   }
 });
 
+import { getPool } from '../config/db';
+
 // POST /api/share/upload-pdf
-router.post('/upload-pdf', upload.single('pdf'), (req: any, res: any) => {
+router.post('/upload-pdf', upload.single('pdf'), async (req: any, res: any) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No PDF file uploaded.' });
+    }
+
+    const rawBillId = (req.body && req.body.billId) ? String(req.body.billId).trim() : '';
+    if (rawBillId && rawBillId !== 'receipt') {
+      const pool = getPool();
+      const [rows] = await pool.query(
+        'SELECT id FROM bills WHERE (id::text = $1 OR invoice_number = $1) AND user_id = $2',
+        [rawBillId, req.user.id]
+      );
+      if (!rows || (rows as any[]).length === 0) {
+        // Remove uploaded file if not owned by requesting user
+        try {
+          if (req.file.path && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+        } catch (_) {}
+        return res.status(404).json({ success: false, error: 'Bill not found or unauthorized' });
+      }
     }
 
     const host = req.get('host');
@@ -70,9 +90,10 @@ router.post('/upload-pdf', upload.single('pdf'), (req: any, res: any) => {
       fileUrl,
       filename: req.file.filename
     });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 export default router;
+

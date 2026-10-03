@@ -114,17 +114,13 @@ router.post('/', async (req: any, res: any, next: any) => {
     // 2. Adjust customer advance_balance and credit_balance safely
     if (custId && UUID_REGEX.test(String(custId))) {
       const delta = isReturn ? -Math.abs(numAmount) : Math.abs(numAmount);
-      try {
-        await conn.query(
-          `UPDATE customers 
-           SET advance_balance = COALESCE(advance_balance, 0) + $1, 
-               credit_balance = COALESCE(credit_balance, 0) + $1 
-           WHERE id = $2 AND user_id = $3`,
-          [delta, custId, req.user.id]
-        );
-      } catch (custErr: any) {
-        logger.warn(`Could not update customer balance for ${custId}: ${custErr.message}`);
-      }
+      await conn.query(
+        `UPDATE customers 
+         SET advance_balance = COALESCE(advance_balance, 0) + $1, 
+             credit_balance = COALESCE(credit_balance, 0) + $1 
+         WHERE id = $2 AND user_id = $3`,
+        [delta, custId, req.user.id]
+      );
     }
 
     await conn.commit();
@@ -182,17 +178,13 @@ router.delete('/:id', async (req: any, res: any, next: any) => {
       const delta = isReturn ? -Math.abs(numAmount) : Math.abs(numAmount);
 
       if (custId && UUID_REGEX.test(String(custId))) {
-        try {
-          await conn.query(
-            `UPDATE customers 
-             SET advance_balance = COALESCE(advance_balance, 0) - $1, 
-                 credit_balance = COALESCE(credit_balance, 0) - $1 
-             WHERE id = $2 AND user_id = $3`,
-            [delta, custId, req.user.id]
-          );
-        } catch (custErr: any) {
-          logger.warn(`Could not reverse customer balance for ${custId}: ${custErr.message}`);
-        }
+        await conn.query(
+          `UPDATE customers 
+           SET advance_balance = COALESCE(advance_balance, 0) - $1, 
+               credit_balance = COALESCE(credit_balance, 0) - $1 
+           WHERE id = $2 AND user_id = $3`,
+          [delta, custId, req.user.id]
+        );
       }
     }
 

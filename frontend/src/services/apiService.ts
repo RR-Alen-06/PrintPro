@@ -14,6 +14,36 @@ import {
   ExpenseCategory,
 } from '../types/billing';
 
+export interface CreateCustomerDto {
+  name: string;
+  phone?: string;
+  mobile?: string;
+  email?: string;
+  type?: 'regular' | 'walkin';
+  creditLimit?: number;
+  credit_limit?: number;
+  advanceBalance?: number;
+  advance_balance?: number;
+  openingCash?: number;
+  opening_cash?: number;
+  openingUpi?: number;
+  opening_upi?: number;
+}
+
+export interface UpdateCustomerDto {
+  name?: string;
+  phone?: string;
+  mobile?: string;
+  email?: string;
+  type?: 'regular' | 'walkin';
+  creditLimit?: number;
+  credit_limit?: number;
+  advanceBalance?: number;
+  advance_balance?: number;
+  loyaltyPoints?: number;
+  loyalty_points?: number;
+}
+
 export class ApiService {
   // ── SEQUENCE MANAGEMENT ──────────────────────────────────────────────────
   static async getNextSequence(key: string): Promise<string> {
@@ -41,23 +71,12 @@ export class ApiService {
     }
   }
 
-  static async addCustomer(customer: {
-    name: string;
-    mobile?: string;
-    phone?: string;
-    email?: string;
-    type?: 'regular' | 'walkin';
-    credit_limit?: number;
-    creditLimit?: number;
-    advance_balance?: number;
-    creditBalance?: number;
-    opening_cash?: number;
-    opening_upi?: number;
-  }): Promise<Record<string, unknown>> {
+  static async addCustomer(customer: CreateCustomerDto): Promise<Record<string, unknown>> {
     const { data: { user } } = await supabase.auth.getUser();
     const customer_code = await SequenceService.getNextSequence('CUSTOMER');
-    const mobileVal = customer.mobile || customer.phone || null;
-    const initialAdvance = Number(customer.advance_balance || customer.creditBalance || 0);
+    const phoneVal = customer.phone?.trim() || customer.mobile?.trim() || null;
+    const initialAdvance = Number(customer.advanceBalance ?? customer.advance_balance ?? 0);
+    const limit = Number(customer.creditLimit ?? customer.credit_limit ?? 0);
 
     const { data, error } = await supabase
       .from('customers')
@@ -66,10 +85,11 @@ export class ApiService {
           user_id: user?.id || null,
           customer_code,
           name: customer.name.trim(),
-          mobile: mobileVal,
+          phone: phoneVal,
+          mobile: phoneVal,
           email: customer.email?.trim() || null,
           type: customer.type || 'regular',
-          credit_limit: Number(customer.credit_limit || customer.creditLimit || 0),
+          credit_limit: limit,
           advance_balance: initialAdvance,
           loyalty_points: 0,
         },
@@ -81,8 +101,8 @@ export class ApiService {
 
     // If opening advance provided, record initial payment
     if (initialAdvance > 0) {
-      const opCash = Number(customer.opening_cash || 0);
-      const opUpi = Number(customer.opening_upi || 0);
+      const opCash = Number(customer.openingCash ?? customer.opening_cash ?? 0);
+      const opUpi = Number(customer.openingUpi ?? customer.opening_upi ?? 0);
       const payMethod: PaymentMethod = opCash > 0 && opUpi > 0 ? 'Split Payment' : (opUpi > 0 ? 'UPI' : 'Cash');
       const pNum = await SequenceService.getNextSequence('PAYMENT');
 
@@ -100,7 +120,7 @@ export class ApiService {
 
     return {
       ...data,
-      phone: data.mobile || data.phone,
+      phone: data.phone || data.mobile,
       advanceBalance: Number(data.advance_balance || 0),
       creditBalance: Number(data.advance_balance || 0),
       creditLimit: Number(data.credit_limit || 0),
@@ -110,41 +130,29 @@ export class ApiService {
 
   static async updateCustomer(
     id: string,
-    updates: {
-      name?: string;
-      mobile?: string;
-      phone?: string;
-      email?: string;
-      type?: 'regular' | 'walkin';
-      credit_limit?: number;
-      creditLimit?: number;
-      advance_balance?: number;
-      advanceBalance?: number;
-      credit_balance?: number;
-      creditBalance?: number;
-      loyalty_points?: number;
-    }
+    updates: UpdateCustomerDto
   ): Promise<Record<string, unknown>> {
     const payload: Record<string, unknown> = {};
     if (updates.name !== undefined) payload.name = updates.name.trim();
-    if (updates.mobile !== undefined || updates.phone !== undefined) {
-      payload.mobile = updates.mobile || updates.phone || null;
+    if (updates.phone !== undefined || updates.mobile !== undefined) {
+      const p = updates.phone?.trim() || updates.mobile?.trim() || null;
+      payload.phone = p;
+      payload.mobile = p;
     }
     if (updates.email !== undefined) payload.email = updates.email?.trim() || null;
     if (updates.type !== undefined) payload.type = updates.type;
-    if (updates.credit_limit !== undefined || updates.creditLimit !== undefined) {
-      payload.credit_limit = Number(updates.credit_limit !== undefined ? updates.credit_limit : updates.creditLimit);
-    }
-    const advVal = updates.advance_balance !== undefined 
-      ? updates.advance_balance 
-      : (updates.advanceBalance !== undefined 
-        ? updates.advanceBalance 
-        : (updates.credit_balance !== undefined ? updates.credit_balance : updates.creditBalance));
+    
+    const limit = updates.creditLimit ?? updates.credit_limit;
+    if (limit !== undefined) payload.credit_limit = Number(limit);
+
+    const advVal = updates.advanceBalance ?? updates.advance_balance;
     if (advVal !== undefined) {
       payload.advance_balance = Number(advVal);
       payload.credit_balance = Number(advVal);
     }
-    if (updates.loyalty_points !== undefined) payload.loyalty_points = Number(updates.loyalty_points);
+    
+    const points = updates.loyaltyPoints ?? updates.loyalty_points;
+    if (points !== undefined) payload.loyalty_points = Number(points);
 
     const { data, error } = await supabase
       .from('customers')
@@ -156,7 +164,7 @@ export class ApiService {
     if (error) throw new Error(error.message);
     return {
       ...data,
-      phone: data.mobile || data.phone,
+      phone: data.phone || data.mobile,
       advanceBalance: Number(data.advance_balance || 0),
       creditBalance: Number(data.advance_balance || 0),
       creditLimit: Number(data.credit_limit || 0),

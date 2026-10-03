@@ -6,6 +6,7 @@ import { useBills } from '../../hooks/useBillsQuery'
 import { usePayments, useInventory, useAdvancePayments } from '../../hooks/useEntitiesQuery'
 import { useExpenses, useExpenseMutations } from '../../hooks/useExpensesQuery'
 import { useCustomers } from '../../hooks/useCustomersQuery'
+import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import { ProductAnalyticsService } from '../../services/productAnalyticsService'
@@ -52,8 +53,10 @@ export default function MobileAccounting() {
   const { data: serverInventory = [] } = useInventory()
   const { data: serverCustomers = [] } = useCustomers()
   const { data: serverAdvancePayments = [] } = useAdvancePayments()
+  const { data: serverSettings = {} } = useSettings()
 
   const { createExpense, deleteExpense } = useExpenseMutations()
+  const { updateSettings } = useSettingsMutations()
 
   const bills = Array.isArray(serverBills) ? serverBills : []
   const payments = Array.isArray(serverPayments) ? serverPayments : []
@@ -71,6 +74,8 @@ export default function MobileAccounting() {
   const [selectedDate, setSelectedDate] = useState(todayStr)
   
   const [openingCash, setOpeningCash] = useState<number>(() => {
+    const cloudVal = (serverSettings as Record<string, unknown>)?.[`opening_cash_${todayStr}`]
+    if (cloudVal !== undefined && !isNaN(Number(cloudVal))) return Number(cloudVal)
     const saved = localStorage.getItem(`printpro_opening_cash_${todayStr}`)
     if (saved !== null && !isNaN(Number(saved))) return Number(saved)
     return 0
@@ -79,18 +84,35 @@ export default function MobileAccounting() {
   const [tempOpeningCashInput, setTempOpeningCashInput] = useState('')
 
   useEffect(() => {
+    const cloudVal = (serverSettings as Record<string, unknown>)?.[`opening_cash_${selectedDate}`]
+    if (cloudVal !== undefined && !isNaN(Number(cloudVal))) {
+      setOpeningCash(Number(cloudVal))
+      localStorage.setItem(`printpro_opening_cash_${selectedDate}`, String(cloudVal))
+      return
+    }
     const saved = localStorage.getItem(`printpro_opening_cash_${selectedDate}`)
     if (saved !== null && !isNaN(Number(saved))) {
       setOpeningCash(Number(saved))
     } else {
       setOpeningCash(0)
     }
-  }, [selectedDate])
+  }, [selectedDate, serverSettings])
 
-  const handleSaveOpeningCash = (val: number) => {
-    const clean = Math.max(0, Number(val) || 0)
+  const handleSaveOpeningCash = async (val: number) => {
+    if (isNaN(val) || val < 0) {
+      showToast('Opening cash cannot be negative', 'error')
+      return
+    }
+    const clean = Number(val.toFixed(2))
     setOpeningCash(clean)
     localStorage.setItem(`printpro_opening_cash_${selectedDate}`, String(clean))
+    try {
+      await updateSettings({
+        [`opening_cash_${selectedDate}`]: clean,
+      })
+    } catch (_) {
+      // Offline fallback preserved in localStorage
+    }
     setIsEditingOpeningCash(false)
     showToast(`Opening cash set to ₹${clean.toFixed(2)}`, 'success')
   }
@@ -458,7 +480,7 @@ export default function MobileAccounting() {
             amount: amt,
             notes: p.reason || p.notes || ''
           })
-        } else {
+        } else if (method === 'cash') {
           cashRefunds += amt
           txList.push({
             id: `ref-cash-${p.id}`,
@@ -466,6 +488,17 @@ export default function MobileAccounting() {
             category: 'Refund (Cash)',
             title: p.customerName || 'Customer Refund',
             mode: 'cash',
+            amount: amt,
+            notes: p.reason || p.notes || ''
+          })
+        } else {
+          // 'credit' / 'advance' / ledger credit refunds affect customer balance, not physical drawer cash
+          txList.push({
+            id: `ref-credit-${p.id}`,
+            type: 'outflow',
+            category: 'Refund (Advance Credit)',
+            title: p.customerName || 'Customer Refund',
+            mode: 'credit',
             amount: amt,
             notes: p.reason || p.notes || ''
           })
@@ -543,7 +576,12 @@ export default function MobileAccounting() {
     msg += `• *Net Digital Liquidity: ₹${dayCalculations.netUpi.toFixed(2)}*\n`
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n`
     const encoded = encodeURIComponent(msg)
-    window.open(`https://api.whatsapp.com/send?phone=${business?.phone || ''}&text=${encoded}`, '_blank')
+    const phone = (business?.phone || '').trim().replace(/[^0-9]/g, '')
+    if (phone) {
+      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encoded}`, '_blank')
+    } else {
+      window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank')
+    }
   }
 
   // Create Expense / Hand Loan / Outflow Submit
@@ -552,6 +590,10 @@ export default function MobileAccounting() {
     const amt = Number(expAmount || 0)
     if (!expName.trim() || amt <= 0) {
       showToast('Enter valid expense title and amount', 'error')
+      return
+    }
+    if (expCat === 'Hand Loan / Personal Transfer' && !expLoanPerson.trim()) {
+      showToast('Enter borrower person name for Hand Loan', 'error')
       return
     }
     setIsSubmittingExp(true)
@@ -613,6 +655,10 @@ export default function MobileAccounting() {
     const amt = Number(refAmount || 0)
     if (amt <= 0) {
       showToast('Enter valid refund amount', 'error')
+      return
+    }
+    if (refMethod === 'credit' && !refCustomerId) {
+      showToast('Please select a customer for Advance Credit refund', 'error')
       return
     }
     setIsSubmittingRef(true)
@@ -1572,12 +1618,14 @@ export default function MobileAccounting() {
               <input
                 type="number"
                 min="0"
+                step="1"
                 className="mobile-input"
                 style={{ width: '80px', minHeight: '32px', textAlign: 'center' }}
                 placeholder="0"
                 value={denomCounts[denom] || ''}
                 onChange={(e) => {
-                  const val = parseInt(e.target.value || '0', 10) || 0
+                  const raw = e.target.value
+                  const val = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0))
                   setDenomCounts((prev) => ({ ...prev, [denom]: val }))
                 }}
               />
@@ -1588,7 +1636,18 @@ export default function MobileAccounting() {
             type="button"
             className="mobile-btn mobile-btn-primary"
             onClick={() => {
-              showToast(`Drawer verified: ₹${totalCountedCash.toFixed(2)}`, 'success')
+              if (cashVariance !== 0) {
+                const isShort = cashVariance < 0
+                const diffAbs = Math.abs(cashVariance).toFixed(2)
+                const confirmed = window.confirm(
+                  `Cash Discrepancy Detected:\n\n• Counted in Drawer: ₹${totalCountedCash.toFixed(2)}\n• Expected Closing Cash: ₹${dayCalculations.closingCash.toFixed(2)}\n• Variance: ${isShort ? 'SHORTAGE' : 'EXCESS'} of ₹${diffAbs}\n\nDo you want to confirm this count with the recorded variance?`
+                )
+                if (!confirmed) return
+              }
+              showToast(
+                `Drawer verified: ₹${totalCountedCash.toFixed(2)}${cashVariance !== 0 ? ` (${cashVariance > 0 ? '+' : ''}₹${cashVariance.toFixed(2)} variance)` : ''}`,
+                cashVariance !== 0 ? 'warning' : 'success'
+              )
               setShowDenomSheet(false)
             }}
           >
