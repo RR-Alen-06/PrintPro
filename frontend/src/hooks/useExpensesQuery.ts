@@ -142,6 +142,8 @@ export function useExpenseMutations() {
   return {
     createExpense: createExpenseMutation.mutateAsync,
     deleteExpense: deleteExpenseMutation.mutateAsync,
+    createExpenseMutation,
+    deleteExpenseMutation,
     isCreatingExpense: createExpenseMutation.isPending,
     isDeletingExpense: deleteExpenseMutation.isPending,
   }
