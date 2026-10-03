@@ -1,22 +1,18 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, usePaymentMutations } from '../../hooks/useEntitiesQuery'
 import { useGroupBills, useGroupBillMutations } from '../../hooks/useGroupBillsQuery'
-import { useSettings } from '../../hooks/useSettingsQuery'
-import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { SequenceService } from '../../services/sequenceService'
+import { GroupBillingService } from '../../services/groupBillingService'
 import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
-  Users, Layers, Plus, Trash2, ChevronRight, ChevronDown, User, Loader2, CheckCircle,
-  AlertCircle, Tag, Percent, Wallet, DollarSign, Gift, Sparkles, PlusCircle,
-  FileText, Calendar, RotateCcw, ArrowLeftRight, Check, X
+  Layers, Plus, Trash2, ChevronDown, Loader2,
+  Tag, PlusCircle, ArrowLeftRight, CheckCircle
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -31,16 +27,50 @@ const getItemBasePrice = (inventory, itemId, printType, sides) => {
   return 0
 }
 
+interface MemberTotalCalculation {
+  customer?: Record<string, unknown>;
+  subtotal: number;
+  gstAmount: number;
+  manualDiscount: number;
+  promoDiscount: number;
+  loyaltyDiscount: number;
+  totalDiscounts: number;
+  grossTotal: number;
+  advanceDeducted: number;
+  netTotalDue: number;
+  cashPaid: number;
+  upiPaid: number;
+  totalPaid: number;
+  balanceToPay: number;
+  isPaid: boolean;
+}
+
+const defaultMemberTotal: MemberTotalCalculation = {
+  customer: undefined,
+  subtotal: 0,
+  gstAmount: 0,
+  manualDiscount: 0,
+  promoDiscount: 0,
+  loyaltyDiscount: 0,
+  totalDiscounts: 0,
+  grossTotal: 0,
+  advanceDeducted: 0,
+  netTotalDue: 0,
+  cashPaid: 0,
+  upiPaid: 0,
+  totalPaid: 0,
+  balanceToPay: 0,
+  isPaid: false,
+};
+
 export default function MobileGroupBilling() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const { showToast, settings, promoCodes, recordSplitGroupPayment } = useAppContext()
   const { invalidateAllFinancialQueries, getCustomerFinancials } = useUnifiedFinancialHub()
 
   // Queries & Mutations
   const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
-  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
   const { groupBills = [], isLoading: isLoadingGroupBills } = useGroupBills()
   const { createBill: createBillMutation, isCreatingBill } = useBillMutations()
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
@@ -201,7 +231,6 @@ export default function MobileGroupBilling() {
 
   // Split Calculations
   const memberCount = Math.max(1, members.length)
-  const rawSplitSubtotal = sharedSubtotal / memberCount
   const rawSplitGst = sharedGstTotal / memberCount
   const rawSplitAmount = (sharedSubtotal + sharedGstTotal) / memberCount
   const splitAmount = roundingMode === 'exact' 
@@ -212,10 +241,9 @@ export default function MobileGroupBilling() {
   const ownerDiff = sharedSubtotal + sharedGstTotal - splitAmount * memberCount
 
   // Member-by-Member Financial Breakdown
-  const memberTotals = useMemo(() => {
+  const memberTotals = useMemo<MemberTotalCalculation[]>(() => {
     return members.map((m) => {
       const cust = serverCustomers.find((c) => String(c.id) === String(m.customerId))
-      const isRegular = (cust?.type || 'regular') === 'regular'
       const custAdvance = getCustomerFinancials(m.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.credit_balance || 0)
       const custPoints = Number(cust?.loyaltyPoints || cust?.loyalty_points || 0)
 
@@ -361,16 +389,29 @@ export default function MobileGroupBilling() {
     }
 
     if (itemSheetTarget === 'shared') {
-      setSharedItems((prev) => [...prev, newItem])
+      const { items: updatedShared, merged: mergedShared } = GroupBillingService.mergeLineItem(sharedItems, newItem)
+      setSharedItems(updatedShared)
+      if (mergedShared) {
+        showToast(`Updated "${name}" quantity (+${qtyNum})`, 'success')
+      } else {
+        showToast(`Added "${name}"`, 'success')
+      }
     } else {
       // Addon for specific member
+      const currentMember = members.find((m) => m.id === itemSheetTarget)
+      const existingAddons = currentMember?.addonItems || []
+      const { items: updatedAddons, merged: mergedAddon } = GroupBillingService.mergeLineItem(existingAddons, newItem)
       updateMember(itemSheetTarget, {
-        addonItems: [...(members.find((m) => m.id === itemSheetTarget)?.addonItems || []), newItem],
+        addonItems: updatedAddons,
       })
+      if (mergedAddon) {
+        showToast(`Updated addon "${name}" quantity (+${qtyNum})`, 'success')
+      } else {
+        showToast(`Added addon "${name}"`, 'success')
+      }
     }
 
     setShowItemSheet(false)
-    showToast(`Added "${name}"`, 'success')
   }
 
   // ── Quick Add Customer Modal Handler ─────────────────────────────────────────
@@ -390,6 +431,10 @@ export default function MobileGroupBilling() {
       })
 
       if (created?.id && newCustMemberId) {
+        if (members.some((m) => m.id !== newCustMemberId && String(m.customerId) === String(created.id))) {
+          showToast('Customer is already selected for another member in this group', 'error')
+          return
+        }
         updateMember(newCustMemberId, { customerId: created.id })
       }
 
@@ -397,8 +442,9 @@ export default function MobileGroupBilling() {
       setNewCustName('')
       setNewCustPhone('')
       setShowNewCustModal(false)
-    } catch (err) {
-      showToast(err.message || 'Failed to create customer', 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to create customer'
+      showToast(msg, 'error')
     }
   }
 
@@ -679,7 +725,7 @@ export default function MobileGroupBilling() {
       }
     }
 
-    return list.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    return list.sort((a: { date: string }, b: { date: string }) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [groupBills, groupMasterBills])
 
   const getGroupStats = useCallback((grp) => {
@@ -1106,7 +1152,7 @@ export default function MobileGroupBilling() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {members.map((member, idx) => {
-                const mTotal: any = memberTotals[idx] || {}
+                const mTotal = memberTotals[idx] || defaultMemberTotal
                 const cust = mTotal.customer
                 const custAdvance = getCustomerFinancials(member.customerId)?.advanceBalance ?? Number(cust?.advanceBalance || cust?.credit_balance || 0)
                 const custPoints = Number(cust?.loyaltyPoints || cust?.loyalty_points || 0)
@@ -1160,17 +1206,29 @@ export default function MobileGroupBilling() {
                       <select
                         className="mobile-input"
                         value={member.customerId}
-                        onChange={(e) => updateMember(member.id, { customerId: e.target.value })}
+                        onChange={(e) => {
+                          const chosenCustId = e.target.value
+                          if (chosenCustId && members.some((m) => m.id !== member.id && String(m.customerId) === String(chosenCustId))) {
+                            showToast('Customer is already selected for another member in this group', 'error')
+                            return
+                          }
+                          updateMember(member.id, { customerId: chosenCustId })
+                        }}
                         style={{ fontSize: '0.82rem' }}
                       >
                         <option value="">— Select Customer —</option>
                         {serverCustomers
                           .filter((c) => !c.deleted)
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name} {c.phone ? `(${c.phone})` : ''}
-                            </option>
-                          ))}
+                          .map((c) => {
+                            const isSelectedInOtherMember = members.some(
+                              (m) => m.id !== member.id && String(m.customerId) === String(c.id)
+                            )
+                            return (
+                              <option key={c.id} value={c.id} disabled={isSelectedInOtherMember}>
+                                {c.name} {c.phone ? `(${c.phone})` : ''} {isSelectedInOtherMember ? '— (Already Selected)' : ''}
+                              </option>
+                            )
+                          })}
                       </select>
                       <button
                         type="button"
@@ -1585,7 +1643,7 @@ export default function MobileGroupBilling() {
             !isLoadingBills && !isLoadingGroupBills && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {allGroups.map((grp) => {
-                  const { memberBills, totalAmount, paidAmount, balanceAmount } = getGroupStats(grp)
+                  const { memberBills, totalAmount, balanceAmount } = getGroupStats(grp)
                   const isExpanded = expandedGroupId === grp.id
                   const isPaid = balanceAmount <= 0.01
 
