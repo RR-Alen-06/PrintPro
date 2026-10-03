@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
-import { useInventory, useInventoryMutations, usePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { useInventory, useInventoryMutations } from '../../hooks/useEntitiesQuery'
 import { useSettings } from '../../hooks/useSettingsQuery'
 import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { SequenceService } from '../../services/sequenceService'
@@ -14,11 +14,38 @@ import LoyaltyEnginePanel from '../../components/common/LoyaltyEnginePanel'
 import MobileLayout from '../../components/mobile/MobileLayout'
 import BottomSheet from '../../components/mobile/BottomSheet'
 import {
-  UserCheck, Plus, Trash2, Check, Search, Minus,
-  Tag, Percent, Wallet, FileText, UserPlus, AlertCircle, Printer, Calendar,
-  Gift, Award, Clock, Sparkles, Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal, ArrowRight
+  UserCheck, Plus, Trash2, Search, Minus,
+  Tag, UserPlus, Printer, Calendar,
+  Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal
 } from 'lucide-react'
 import '../../styles/mobile.css'
+
+interface ItemRow {
+  itemId?: string;
+  id?: string;
+  itemName?: string;
+  name?: string;
+  printType?: string;
+  print_type?: string;
+  sides?: string;
+  qty?: number | string;
+  quantity?: number | string;
+  pages?: number | string;
+  unitPrice?: number | string;
+  unit_price?: number | string;
+  amount?: number | string;
+  isCustom?: boolean;
+}
+
+interface PromoCodeItem {
+  id?: string;
+  code: string;
+  type: 'flat' | 'percent';
+  value: number;
+  min_order_amount?: number;
+  minOrderAmount?: number;
+  [key: string]: unknown;
+}
 
 export default function MobileCreateBill() {
   const navigate = useNavigate()
@@ -28,15 +55,14 @@ export default function MobileCreateBill() {
   const { showToast, editBill } = useAppContext()
   const { settings = {} } = useSettings()
   const { promoCodes = [] } = usePromoCodes()
-  const { getCustomerFinancials, createBillAndSync, updateBillAndSync, recordPaymentAndSync } = useUnifiedFinancialHub()
+  const { getCustomerFinancials, createBillAndSync, updateBillAndSync } = useUnifiedFinancialHub()
 
   // TanStack Queries & Mutations
-  const { data: serverCustomers = [], isLoading: isLoadingCustomers } = useCustomers()
-  const { data: serverInventory = [], isLoading: isLoadingInventory } = useInventory()
-  const { data: serverBills = [], isLoading: isLoadingBills } = useBills()
-  const { createBill: createBillMutation, updateBill: updateBillMutation, isCreatingBill, isUpdatingBill } = useBillMutations()
+  const { data: serverCustomers = [] } = useCustomers()
+  const { data: serverInventory = [] } = useInventory()
+  const { data: serverBills = [] } = useBills()
+  const { isCreatingBill, isUpdatingBill } = useBillMutations()
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
-  const { createPayment } = usePaymentMutations()
   const { adjustStock } = useInventoryMutations()
 
   // Customer Selection State (Default: Walk-in)
@@ -59,7 +85,7 @@ export default function MobileCreateBill() {
   const [notes, setNotes] = useState('')
 
   // Items State
-  const [itemRows, setItemRows] = useState<any[]>([])
+  const [itemRows, setItemRows] = useState<ItemRow[]>([])
 
   // Quick-Add Bar State
   const [quickInventoryId, setQuickInventoryId] = useState('')
@@ -82,7 +108,7 @@ export default function MobileCreateBill() {
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat')
   const [discountValue, setDiscountValue] = useState<number | string>(0)
   const [promoCodeInput, setPromoCodeInput] = useState('')
-  const [appliedPromo, setAppliedPromo] = useState<any>(null)
+  const [appliedPromo, setAppliedPromo] = useState<PromoCodeItem | null>(null)
   
   // Loyalty redemption state
   const [shouldRedeemLoyalty, setShouldRedeemLoyalty] = useState(false)
@@ -302,8 +328,9 @@ export default function MobileCreateBill() {
         .catch((err) => {
           showToast(err?.message || 'Failed to save customer', 'error')
         })
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to create customer', 'error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to create customer'
+      showToast(message, 'error')
     }
   }
 
@@ -405,10 +432,24 @@ export default function MobileCreateBill() {
         ? (existingBill?.invoiceNumber || existingBill?.invoice_number || `BILL-${editBillId}`)
         : await SequenceService.getNextSequence('BILL')
 
-      const resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId || 'walk-in'
-      const resolvedCustomerName = selectedCustomerObj?.name || 'Walk-in Customer'
-      const resolvedCustomerPhone = selectedCustomerObj?.phone || ''
+      // Resolve customer
+      let resolvedCustomerId = selectedCustomerObj?.id || selectedCustomerId
+      let resolvedCustomerName = selectedCustomerObj?.name
+      let resolvedCustomerPhone = selectedCustomerObj?.phone || ''
 
+      if (!resolvedCustomerId || resolvedCustomerId === 'walk-in') {
+        const defaultWalkIn = (serverCustomers || []).find((c) => !c.deleted && (c.type === 'random' || c.name?.toLowerCase().includes('walk-in')))
+        if (defaultWalkIn) {
+          resolvedCustomerId = defaultWalkIn.id
+          resolvedCustomerName = defaultWalkIn.name
+          resolvedCustomerPhone = defaultWalkIn.phone || ''
+        } else {
+          resolvedCustomerId = 'walk-in'
+          resolvedCustomerName = 'Walk-in Customer'
+        }
+      }
+
+      const totalDirectPaid = finalCash + finalUpi
       const billPayload = {
         id: editBillId || `BILL-${Date.now()}`,
         invoice_number: generatedInvoiceNo,
@@ -441,11 +482,18 @@ export default function MobileCreateBill() {
         discount_type: discountType,
         advance_deducted: advanceDeduction,
         advanceDeducted: advanceDeduction,
+        advance_used: advanceDeduction,
+        advanceUsed: advanceDeduction,
         total: grandTotal,
-        amount_paid: finalCash + finalUpi,
-        amountPaid: finalCash + finalUpi,
-        balance: Math.max(0, grandTotal - (finalCash + finalUpi)),
+        amount_paid: totalDirectPaid + advanceDeduction,
+        amountPaid: totalDirectPaid + advanceDeduction,
+        cash_amount: finalCash,
+        cashAmount: finalCash,
+        upi_amount: finalUpi,
+        upiAmount: finalUpi,
+        balance: Math.max(0, grandTotal - totalDirectPaid),
         status: finalStatus,
+        payment_mode: paymentMode,
         notes,
         created_at: new Date().toISOString()
       }
@@ -462,20 +510,19 @@ export default function MobileCreateBill() {
 
         mutationPromise
           .then(async (created) => {
-            const savedResultId = created?.id || billPayload.id
             if (created?.id && created.id !== billPayload.id) {
               navigate(`/bill/${created.id}`, { replace: true })
             }
 
             // Deduct stock for product-type items
-            const deductions = new Map()
+            const deductions = new Map<string, number>()
             const billItemsList = billPayload.items || []
-            for (const item of (billItemsList as any[])) {
+            for (const item of billItemsList) {
               const invItem = (serverInventory || []).find(
-                (i: any) => String(i.id) === String(item.itemId || item.id) || i.name === (item.item_name || item.itemName || item.name)
+                (i) => String(i.id) === String(item.itemId) || i.name === item.name
               )
               if (invItem && invItem.type === 'product') {
-                const qty = Number(item.qty || item.quantity || 0)
+                const qty = Number(item.qty || 0)
                 if (qty > 0) {
                   deductions.set(invItem.id, (deductions.get(invItem.id) || 0) + qty)
                 }
@@ -487,34 +534,18 @@ export default function MobileCreateBill() {
                 await Promise.all(
                   Array.from(deductions.entries()).map(([itemId, qty]) => adjustStock(itemId, -qty))
                 )
-              } catch (stockErr: any) {
+              } catch (stockErr: unknown) {
                 console.error('Failed to deduct stock:', stockErr)
-              }
-            }
-
-            if (finalCash + finalUpi > 0) {
-              try {
-                await recordPaymentAndSync({
-                  bill_id: savedResultId,
-                  customer_id: resolvedCustomerId,
-                  date: billDate,
-                  cash_amount: finalCash,
-                  upi_amount: finalUpi,
-                  total_paid: finalCash + finalUpi,
-                  payment_type: finalStatus === 'paid' ? 'full' : 'partial',
-                  notes: 'Initial POS checkout payment'
-                })
-              } catch (payErr) {
-                console.error('Upfront payment recording notice:', payErr)
               }
             }
           })
           .catch((err) => {
-            showToast(err?.message || 'Failed to sync bill', 'error')
+            console.error('Bill sync notice:', err)
           })
       }
-    } catch (e: any) {
-      showToast(e.message || 'Failed to save bill', 'error')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to save bill'
+      showToast(msg, 'error')
     } finally {
       setIsSubmitting(false)
     }
@@ -637,6 +668,29 @@ export default function MobileCreateBill() {
               >
                 Walk-in
               </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+              {(['all', 'regular', 'random'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setCustomerFilterTab(tab)}
+                  style={{
+                    flex: 1,
+                    minHeight: '26px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-sm)',
+                    border: customerFilterTab === tab ? '1px solid var(--accent-secondary)' : '1px solid var(--border)',
+                    background: customerFilterTab === tab ? 'rgba(0, 240, 255, 0.15)' : 'var(--bg-card)',
+                    color: customerFilterTab === tab ? 'var(--accent-secondary)' : 'var(--text-muted)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {tab === 'all' ? 'All Clients' : tab === 'regular' ? 'Regular' : 'Walk-in'}
+                </button>
+              ))}
             </div>
 
             <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -947,7 +1001,7 @@ export default function MobileCreateBill() {
                 className="mobile-input"
                 style={{ height: '36px', fontSize: '0.8rem' }}
                 value={discountType}
-                onChange={(e: any) => setDiscountType(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDiscountType(e.target.value as 'flat' | 'percent')}
               >
                 <option value="flat">Flat Discount (₹)</option>
                 <option value="percent">Percentage (%)</option>
@@ -1056,7 +1110,7 @@ export default function MobileCreateBill() {
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setPaymentMode(p.id as any)}
+                onClick={() => setPaymentMode(p.id as 'full_cash' | 'full_upi' | 'split' | 'credit')}
                 style={{
                   minHeight: '34px',
                   borderRadius: 'var(--radius-sm)',
