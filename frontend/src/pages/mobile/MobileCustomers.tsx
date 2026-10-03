@@ -5,6 +5,7 @@ import { useAppContext } from '../../context/AppContext'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { usePayments, usePaymentMutations, useAdvancePayments, useAdvancePaymentMutations } from '../../hooks/useEntitiesQuery'
+import { useUnifiedFinancialHub } from '../../hooks/useUnifiedFinancialHub'
 import { ReminderService } from '../../services/reminderService'
 import { LedgerService } from '../../services/ledgerService'
 import MobileLayout from '../../components/mobile/MobileLayout'
@@ -24,6 +25,7 @@ export default function MobileCustomers() {
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const { business, settings, showToast, bills: contextBills = [], payments: contextPayments = [] } = useAppContext()
+  const { getCustomerFinancials } = useUnifiedFinancialHub()
 
   // Queries & Mutations
   const { data: serverCustomers = [], isLoading: isLoadingCustomers, isError, error } = useCustomers()
@@ -114,6 +116,8 @@ export default function MobileCustomers() {
 
   const selectedCustomerAdvance = useMemo(() => {
     if (!selectedCustomer) return 0
+    const fin = getCustomerFinancials(selectedCustomer.id)
+    if (fin?.advanceBalance !== undefined) return Number(fin.advanceBalance || 0)
     return Number(
       selectedCustomer.advanceBalance ||
       selectedCustomer.advance_balance ||
@@ -121,7 +125,7 @@ export default function MobileCustomers() {
       selectedCustomer.credit_balance ||
       0
     )
-  }, [selectedCustomer])
+  }, [selectedCustomer, getCustomerFinancials])
 
   // Ledger calculations for mobile
   const ledgerEntries = useMemo(() => {
@@ -141,14 +145,100 @@ export default function MobileCustomers() {
     }
   }, [selectedCustomer?.id, bills, payments, advancePayments, ledgerPeriod, settings])
 
-  // Customer advances history
+  // Customer advances history (inclusive of deposits, returns, bill advance deductions, and knockoffs)
   const customerAdvances = useMemo(() => {
     if (!selectedCustomer?.id) return []
     const strId = String(selectedCustomer.id)
-    return advancePayments
-      .filter((ap) => String(ap.customerId || ap.customer_id) === strId)
-      .sort((a, b) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
-  }, [selectedCustomer?.id, advancePayments])
+    const code = selectedCustomer.customerCode ? String(selectedCustomer.customerCode).toLowerCase() : ''
+
+    const list = []
+
+    // 1. Deposits & Returns from advance_payments table
+    advancePayments.forEach((ap) => {
+      const apCustId = String(ap.customerId || ap.customer_id || '')
+      if (apCustId === strId || (code && String(ap.customerCode || '').toLowerCase() === code)) {
+        const isRet = Boolean(ap.isReturn || ap.type === 'return' || Number(ap.amount || 0) < 0)
+        const amt = Math.abs(Number(ap.amount || 0))
+        if (amt > 0) {
+          list.push({
+            id: `adv-pmt-${ap.id}`,
+            type: isRet ? 'return' : 'deposit',
+            amount: isRet ? -amt : amt,
+            date: ap.date || ap.created_at || new Date().toISOString(),
+            title: isRet ? 'Advance Refund / Return' : 'Advance Deposit',
+            description: ap.notes || (ap.paymentMethod ? `Method: ${String(ap.paymentMethod).toUpperCase()}` : 'Advance Wallet'),
+            badge: isRet ? 'RETURN' : 'DEPOSIT',
+            badgeColor: isRet ? 'var(--aurora-pink, #ff2fb0)' : '#10b981',
+          })
+        }
+      }
+    })
+
+    // 2. Advance used directly on bills
+    selectedCustomerBills.forEach((b) => {
+      const advUsed = Number(b.advanceUsed || b.advance_used || b.advanceDeducted || b.advance_deducted || 0)
+      if (advUsed > 0) {
+        const billNo = b.billNumber || b.bill_number || b.invoiceNumber || SequenceService.formatDisplayCode('bill', b, 'BILL')
+        list.push({
+          id: `bill-adv-${b.id}`,
+          type: 'bill_usage',
+          amount: -advUsed,
+          date: b.date || b.created_at || new Date().toISOString(),
+          title: `Used on Bill #${billNo}`,
+          description: `Bill Total: ₹${Number(b.total || 0).toFixed(2)} • Due: ₹${Number(b.balance || 0).toFixed(2)}`,
+          badge: 'BILL USAGE',
+          badgeColor: 'var(--aurora-amber, #f59e0b)',
+        })
+      }
+    })
+
+    // 3. Multi-method payments / Advance settlements
+    payments.forEach((p) => {
+      const pCustId = String(p.customerId || p.customer_id || '')
+      if (pCustId === strId || (code && String(p.customerCode || '').toLowerCase() === code)) {
+        const advMethod = String(p.payment_method || p.paymentType || p.method || '').toLowerCase() === 'advance'
+        const advAmt = Number(p.advance_amount || p.advanceAmount || (advMethod ? p.total_paid || p.amount || 0 : 0))
+        const isKnockoff = p.notes && p.notes.includes('Knockoff using Advance Wallet')
+        if (advAmt > 0 && isKnockoff) {
+          list.push({
+            id: `pmt-adv-${p.id}`,
+            type: 'settlement',
+            amount: -advAmt,
+            date: p.date || p.created_at || new Date().toISOString(),
+            title: 'Applied to Dues (Knockoff)',
+            description: p.notes || 'Settlement via Advance Wallet',
+            badge: 'KNOCKOFF',
+            badgeColor: 'var(--aurora-amber, #f59e0b)',
+          })
+        }
+      }
+    })
+
+    return list.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+  }, [selectedCustomer, advancePayments, selectedCustomerBills, payments])
+
+  const advanceMetrics = useMemo(() => {
+    let totalDeposited = 0
+    let totalUsed = 0
+    let totalReturned = 0
+
+    customerAdvances.forEach((item) => {
+      if (item.type === 'deposit') {
+        totalDeposited += item.amount
+      } else if (item.type === 'bill_usage' || item.type === 'settlement') {
+        totalUsed += Math.abs(item.amount)
+      } else if (item.type === 'return') {
+        totalReturned += Math.abs(item.amount)
+      }
+    })
+
+    return {
+      totalDeposited,
+      totalUsed,
+      totalReturned,
+      availableBalance: selectedCustomerAdvance,
+    }
+  }, [customerAdvances, selectedCustomerAdvance])
 
   const openCustomerDetail = (cust, tab = 'overview') => {
     const targetKey = cust.customerCode || String(cust.id)
@@ -492,7 +582,10 @@ export default function MobileCustomers() {
           items={filteredCustomers}
           estimateSize={85}
           renderItem={(customer) => {
-            const custBal = Number(customer.advanceBalance || customer.creditBalance || 0)
+            const fin = getCustomerFinancials(customer.id)
+            const custBal = fin?.advanceBalance !== undefined
+              ? Number(fin.advanceBalance || 0)
+              : Number(customer.advanceBalance || customer.advance_balance || customer.creditBalance || customer.credit_balance || 0)
             return (
               <div
                 key={customer.id}
@@ -747,6 +840,28 @@ export default function MobileCustomers() {
             {/* TAB 4: ADVANCE */}
             {activeTab === 'advances' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Advance Wallet Metrics Summary Card */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <div className="mobile-card" style={{ padding: '10px 6px', borderLeft: '3px solid #10b981', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>AVAILABLE</div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#10b981', marginTop: '2px' }}>
+                      ₹{advanceMetrics.availableBalance.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="mobile-card" style={{ padding: '10px 6px', borderLeft: '3px solid var(--aurora-cyan, #00f0ff)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>DEPOSITED</div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--aurora-cyan, #00f0ff)', marginTop: '2px' }}>
+                      ₹{advanceMetrics.totalDeposited.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="mobile-card" style={{ padding: '10px 6px', borderLeft: '3px solid var(--aurora-amber, #f59e0b)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>USED / RET</div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--aurora-amber, #f59e0b)', marginTop: '2px' }}>
+                      ₹{(advanceMetrics.totalUsed + advanceMetrics.totalReturned).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
                 <form onSubmit={handleAdvanceSubmit} className="mobile-card" style={{ padding: '12px' }}>
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <button
@@ -797,19 +912,50 @@ export default function MobileCustomers() {
                   </button>
                 </form>
 
-                {/* Advances List */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {customerAdvances.map((adv) => (
-                    <div key={adv.id} className="mobile-card" style={{ padding: '8px 12px', fontSize: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{adv.date ? adv.date.slice(0, 10) : ''}</span>
-                        <strong style={{ color: adv.isReturn ? 'var(--aurora-amber, #f59e0b)' : '#10b981' }}>
-                          {adv.isReturn ? '-' : '+'}₹{Math.abs(Number(adv.amount || 0)).toFixed(2)}
-                        </strong>
-                      </div>
-                      <div style={{ color: 'var(--text-muted)' }}>{adv.notes || adv.paymentMethod}</div>
+                {/* Advances Audit Log Stream */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                    ADVANCE AUDIT LOG ({customerAdvances.length})
+                  </div>
+                  {customerAdvances.length === 0 ? (
+                    <div className="mobile-card" style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      No advance deposits, deductions, or returns recorded yet.
                     </div>
-                  ))}
+                  ) : (
+                    customerAdvances.map((adv) => (
+                      <div key={adv.id} className="mobile-card" style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.82rem' }}>
+                              {adv.title}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {adv.date ? String(adv.date).slice(0, 10) : ''} • {adv.description}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <strong style={{ fontSize: '0.88rem', color: adv.badgeColor }}>
+                              {adv.amount > 0 ? '+' : ''}₹{Math.abs(adv.amount).toFixed(2)}
+                            </strong>
+                            <div style={{ marginTop: '2px' }}>
+                              <span
+                                className="mobile-badge"
+                                style={{
+                                  fontSize: '0.62rem',
+                                  padding: '1px 5px',
+                                  backgroundColor: 'rgba(255,255,255,0.06)',
+                                  color: adv.badgeColor,
+                                  border: `1px solid ${adv.badgeColor}40`,
+                                }}
+                              >
+                                {adv.badge}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
