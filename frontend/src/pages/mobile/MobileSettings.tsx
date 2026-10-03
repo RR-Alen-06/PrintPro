@@ -37,7 +37,8 @@ import {
   Building2, Palette, BarChart3, Hash, MessageSquare, Gift, Tag,
   Database, FileSpreadsheet, Trash2, Sliders, HardDrive, Download,
   Upload, RefreshCw, RotateCcw, Check, Save, AlertTriangle, Eye,
-  ShieldAlert, ShieldCheck, CheckSquare, Square, X, Plus, Sparkles
+  ShieldAlert, ShieldCheck, CheckSquare, Square, X, Plus, Sparkles,
+  Edit3, Calendar, Clock, CheckCircle2
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -163,18 +164,93 @@ export default function MobileSettings() {
     showUpiQrCode: settings.showUpiQrCode !== false,
   })
 
-  // Loyalty state
+  // Loyalty program configuration state
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled !== false)
-  const [loyaltyEarningRate, setLoyaltyEarningRate] = useState(settings.loyaltyEarningRate ?? 30)
-  const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 150)
-  const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 5)
+  const [loyaltyForRandomCustomers, setLoyaltyForRandomCustomers] = useState(settings.loyaltyForRandomCustomers ?? true)
+  const [loyaltyEarningRate, setLoyaltyEarningRate] = useState(settings.loyaltyEarningRate ?? 100) // Spend ₹X per 1 pt
+  const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 100)
+  const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 10)
+  const [loyaltyMinRedemptionPoints, setLoyaltyMinRedemptionPoints] = useState(settings.loyaltyMinRedemptionPoints ?? 20)
 
-  // Promo modal state
-  const [showAddPromo, setShowAddPromo] = useState(false)
-  const [newPromoCode, setNewPromoCode] = useState('')
-  const [newPromoType, setNewPromoType] = useState('percent')
-  const [newPromoValue, setNewPromoValue] = useState('')
-  const [newPromoMinAmount, setNewPromoMinAmount] = useState('')
+  // Promo Code Modal & CRUD State
+  const [showPromoModal, setShowPromoModal] = useState(false)
+  const [editingPromoId, setEditingPromoId] = useState<string | null>(null)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoType, setPromoType] = useState<'percent' | 'flat'>('percent')
+  const [promoValue, setPromoValue] = useState<number | string>('')
+  const [promoMinAmount, setPromoMinAmount] = useState<number | string>('')
+  const [promoMaxDiscount, setPromoMaxDiscount] = useState<number | string>('')
+  const [promoStartDate, setPromoStartDate] = useState('')
+  const [promoEndDate, setPromoEndDate] = useState('')
+  const [promoEnabled, setPromoEnabled] = useState(true)
+
+  const resetPromoForm = () => {
+    setEditingPromoId(null)
+    setPromoCode('')
+    setPromoType('percent')
+    setPromoValue('')
+    setPromoMinAmount('')
+    setPromoMaxDiscount('')
+    setPromoStartDate('')
+    setPromoEndDate('')
+    setPromoEnabled(true)
+  }
+
+  const handleOpenAddPromo = () => {
+    resetPromoForm()
+    setShowPromoModal(true)
+  }
+
+  const handleOpenEditPromo = (p: any) => {
+    setEditingPromoId(p.id)
+    setPromoCode(p.code)
+    setPromoType(p.type || 'percent')
+    setPromoValue(p.value || '')
+    setPromoMinAmount(p.minAmount || p.min_amount || '')
+    setPromoMaxDiscount(p.maxDiscount || p.max_discount || '')
+    setPromoStartDate(p.startDate || p.start_date || '')
+    setPromoEndDate(p.endDate || p.end_date || '')
+    setPromoEnabled(p.enabled !== false)
+    setShowPromoModal(true)
+  }
+
+  const handleSavePromo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!promoCode.trim()) {
+      showToast?.('Coupon Code is required', 'error')
+      return
+    }
+    const val = Number(promoValue)
+    if (isNaN(val) || val <= 0) {
+      showToast?.('Valid discount value is required', 'error')
+      return
+    }
+
+    const payload: any = {
+      code: promoCode.trim().toUpperCase(),
+      type: promoType,
+      value: val,
+      minAmount: promoMinAmount ? Number(promoMinAmount) : 0,
+      maxDiscount: promoMaxDiscount ? Number(promoMaxDiscount) : null,
+      startDate: promoStartDate || null,
+      endDate: promoEndDate || null,
+      enabled: promoEnabled,
+    }
+
+    try {
+      if (editingPromoId) {
+        await updatePromoCode({ id: editingPromoId, data: payload })
+        showToast?.(`Updated Coupon '${payload.code}'`, 'success')
+      } else {
+        await createPromoCode(payload)
+        showToast?.(`Created Coupon '${payload.code}'`, 'success')
+      }
+      setShowPromoModal(false)
+      resetPromoForm()
+    } catch (err: any) {
+      showToast?.(`Failed to save coupon: ${err.message || err}`, 'error')
+    }
+  }
 
   // Storage & Backup state
   const [isExporting, setIsExporting] = useState(false)
@@ -243,9 +319,11 @@ export default function MobileSettings() {
         ...branding,
         gstRate: Number(gstRate),
         loyaltyEnabled,
+        loyaltyForRandomCustomers,
         loyaltyEarningRate: Number(loyaltyEarningRate),
         loyaltyRedeemRatioPoints: Number(loyaltyRedeemRatioPoints),
         loyaltyRedeemRatioRupees: Number(loyaltyRedeemRatioRupees),
+        loyaltyMinRedemptionPoints: Number(loyaltyMinRedemptionPoints),
       })
       showToast?.('Configuration saved', 'success')
     } catch (err) {
@@ -634,24 +712,106 @@ export default function MobileSettings() {
 
       {/* TAB: LOYALTY */}
       {activeTab === 'loyalty' && (
-        <div className="mobile-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <div className="mobile-card mobile-card-glow" style={{ borderColor: '#a855f7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <Gift size={18} style={{ color: '#a855f7' }} />
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-              Customer Loyalty Program
+              Customer Loyalty & Rewards Program
             </h3>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f8fafc' }}>Enable Loyalty Points</span>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(168, 85, 247, 0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f8fafc' }}>Enable Loyalty System</div>
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Reward clients with points on every order</div>
+              </div>
               <input
                 type="checkbox"
                 checked={loyaltyEnabled}
                 onChange={(e) => setLoyaltyEnabled(e.target.checked)}
-                style={{ width: '18px', height: '18px' }}
+                style={{ width: '20px', height: '20px', accentColor: '#a855f7' }}
               />
             </div>
-            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255, 255, 255, 0.03)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f8fafc' }}>Allow Walk-in / Cash Clients</div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Include unregistered walk-ins in loyalty points</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={loyaltyForRandomCustomers}
+                onChange={(e) => setLoyaltyForRandomCustomers(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: '#a855f7' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Earning Rate (₹ Spend to Earn 1 Point)
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="number"
+                  className="mobile-input"
+                  value={loyaltyEarningRate}
+                  onChange={(e) => setLoyaltyEarningRate(Number(e.target.value))}
+                  placeholder="100"
+                />
+                <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
+                  ₹ per 1 pt
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Redemption Value Ratio (Points to Cash Value)
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '8px', alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    value={loyaltyRedeemRatioPoints}
+                    onChange={(e) => setLoyaltyRedeemRatioPoints(Number(e.target.value))}
+                    placeholder="100"
+                  />
+                  <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.68rem', color: '#94a3b8' }}>
+                    pts
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a855f7' }}>=</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    className="mobile-input"
+                    value={loyaltyRedeemRatioRupees}
+                    onChange={(e) => setLoyaltyRedeemRatioRupees(Number(e.target.value))}
+                    placeholder="10"
+                  />
+                  <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.68rem', color: '#94a3b8' }}>
+                    ₹
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Minimum Points Threshold to Redeem
+              </label>
+              <input
+                type="number"
+                className="mobile-input"
+                value={loyaltyMinRedemptionPoints}
+                onChange={(e) => setLoyaltyMinRedemptionPoints(Number(e.target.value))}
+                placeholder="20"
+              />
+            </div>
+
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary" style={{ background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', marginTop: '6px' }}>
               <Save size={16} /> Save Loyalty Program
             </button>
           </div>
@@ -660,57 +820,107 @@ export default function MobileSettings() {
 
       {/* TAB: PROMOS */}
       {activeTab === 'promos' && (
-        <div className="mobile-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div className="mobile-card mobile-card-glow" style={{ borderColor: '#06b6d4' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Tag size={18} style={{ color: '#06b6d4' }} />
               <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-                Coupons & Discounts
+                Promo Codes & Coupons
               </h3>
             </div>
             <button
-              onClick={() => setShowAddPromo(true)}
-              className="mobile-btn mobile-btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+              onClick={handleOpenAddPromo}
+              className="mobile-btn mobile-btn-primary"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '0.75rem', background: '#06b6d4' }}
             >
-              <Plus size={14} /> Add
+              <Plus size={14} /> New Coupon
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {promoCodes.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '16px' }}>
-                No active promo codes.
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '24px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px' }}>
+                <Tag size={28} style={{ color: '#94a3b8', opacity: 0.5, margin: '0 auto 8px auto', display: 'block' }} />
+                No promo codes configured yet.<br />
+                Create your first promotional discount coupon above!
               </div>
             ) : (
-              promoCodes.map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    padding: '10px',
-                    borderRadius: '8px',
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#06b6d4' }}>
-                      {p.code}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '8px' }}>
-                      {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => deletePromoCode(p.id)}
-                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+              promoCodes.map((p) => {
+                const todayStr = new Date().toISOString().slice(0, 10)
+                const isExpired = p.endDate || p.end_date ? todayStr > (p.endDate || p.end_date) : false
+                const isFuture = p.startDate || p.start_date ? todayStr < (p.startDate || p.start_date) : false
+                const isOff = p.enabled === false
+
+                let statusBadge = { label: 'Active', bg: 'rgba(0, 255, 171, 0.15)', color: '#00ffab' }
+                if (isOff) {
+                  statusBadge = { label: 'Disabled', bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8' }
+                } else if (isExpired) {
+                  statusBadge = { label: 'Expired', bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }
+                } else if (isFuture) {
+                  statusBadge = { label: `Starts ${(p.startDate || p.start_date)}`, bg: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }
+                }
+
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
                   >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 900, fontSize: '0.95rem', color: '#06b6d4', letterSpacing: '0.5px' }}>
+                          {p.code}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: statusBadge.bg, color: statusBadge.color }}>
+                          {statusBadge.label}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => handleOpenEditPromo(p)}
+                          style={{ background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#94a3b8', cursor: 'pointer' }}
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => deletePromoCode(p.id)}
+                          style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#ef4444', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.72rem', color: '#cbd5e1' }}>
+                      <span style={{ background: 'rgba(6, 182, 212, 0.12)', color: '#06b6d4', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                        {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
+                      </span>
+                      {(p.minAmount || p.min_amount) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                          Min Spend: ₹{p.minAmount || p.min_amount}
+                        </span>
+                      ) : null}
+                      {(p.maxDiscount || p.max_discount) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                          Max Cap: ₹{p.maxDiscount || p.max_discount}
+                        </span>
+                      ) : null}
+                      {(p.startDate || p.start_date || p.endDate || p.end_date) ? (
+                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Calendar size={11} /> {p.startDate || p.start_date || 'Anytime'} → {p.endDate || p.end_date || 'No Expiry'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
@@ -1066,6 +1276,153 @@ export default function MobileSettings() {
               Execute Factory Reset
             </button>
           </div>
+        </BottomSheet>
+      )}
+
+      {showPromoModal && (
+        <BottomSheet
+          isOpen={showPromoModal}
+          onClose={() => {
+            setShowPromoModal(false)
+            resetPromoForm()
+          }}
+          title={editingPromoId ? 'Edit Promo Coupon' : 'Create Promo Coupon'}
+        >
+          <form onSubmit={handleSavePromo} style={{ padding: '10px 4px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                Coupon Code *
+              </label>
+              <input
+                type="text"
+                required
+                className="mobile-input"
+                style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}
+                placeholder="e.g. FESTIVE20, SAVE50"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Discount Type
+                </label>
+                <select
+                  className="mobile-input"
+                  value={promoType}
+                  onChange={(e) => setPromoType(e.target.value as 'percent' | 'flat')}
+                >
+                  <option value="percent">Percentage (%)</option>
+                  <option value="flat">Flat Amount (₹)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Discount Value *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  step="any"
+                  className="mobile-input currency-num"
+                  placeholder={promoType === 'percent' ? '10%' : '₹50'}
+                  value={promoValue}
+                  onChange={(e) => setPromoValue(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Min Order Spend (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="mobile-input"
+                  placeholder="0 (No minimum)"
+                  value={promoMinAmount}
+                  onChange={(e) => setPromoMinAmount(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Max Discount Cap (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="mobile-input"
+                  placeholder="Optional cap"
+                  value={promoMaxDiscount}
+                  onChange={(e) => setPromoMaxDiscount(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  Start Date (Validity)
+                </label>
+                <input
+                  type="date"
+                  className="mobile-input"
+                  value={promoStartDate}
+                  onChange={(e) => setPromoStartDate(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
+                  End Date (Expiry)
+                </label>
+                <input
+                  type="date"
+                  className="mobile-input"
+                  value={promoEndDate}
+                  onChange={(e) => setPromoEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc' }}>Status: Active / Enabled</span>
+              <input
+                type="checkbox"
+                checked={promoEnabled}
+                onChange={(e) => setPromoEnabled(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: '#06b6d4' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPromoModal(false)
+                  resetPromoForm()
+                }}
+                className="mobile-btn mobile-btn-secondary"
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="mobile-btn mobile-btn-primary"
+                style={{ flex: 1, background: '#06b6d4' }}
+              >
+                <Save size={16} /> {editingPromoId ? 'Update Coupon' : 'Create Coupon'}
+              </button>
+            </div>
+          </form>
         </BottomSheet>
       )}
     </MobileLayout>
