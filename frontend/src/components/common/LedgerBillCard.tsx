@@ -50,7 +50,7 @@ export default function LedgerBillCard({
         return sum + (isNaN(bal) ? 0 : bal)
       }, 0)
     } else if (customer) {
-      const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || b.amount_paid || 0))
+      const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0))
       const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0)
       previousOutstanding = Math.max(0, totalCustCredit - currentBillBal)
     }
@@ -64,13 +64,21 @@ export default function LedgerBillCard({
   const billPayments = payments.filter(p => !p.deleted && !p.deleted_at && String(p.billId || p.bill_id) === String(bill.id))
   const cashPaid = billPayments.reduce((sum, p) => sum + Number(p.cashAmount || p.cash_amount || 0), 0)
   const upiPaid = billPayments.reduce((sum, p) => sum + Number(p.upiAmount || p.upi_amount || 0), 0)
-  const advanceUsed = Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || 0)
+  const advanceUsed = Number(bill.advanceDeducted || bill.advance_deducted || bill.advanceUsed || bill.advance_used || 0)
   const directPaid = Number(bill.amountPaid !== undefined ? bill.amountPaid : (bill.amount_paid !== undefined ? bill.amount_paid : (bill.paidTotal || (cashPaid + upiPaid))))
   const paidNow = Math.max(directPaid, cashPaid + upiPaid) + advanceUsed
 
-  // 5. Remaining Balance
+  // 5. Remaining Balances & Total Outstanding
+  const currentBillBalanceDue = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, currentBill - paidNow)
   const remainingBalance = Math.max(0, totalAmountDue - paidNow)
-  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || customer?.credit_balance || 0)
+  const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || 0)
+  const totalCustomerDue = customerId
+    ? bills.filter(b => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(customerId))
+        .reduce((sum, b) => {
+          const bal = b.balance !== undefined ? Number(b.balance) : Math.max(0, Number(b.total || 0) - Number(b.amountPaid || b.amount_paid || 0) - Number(b.advance_used || b.advanceUsed || 0))
+          return sum + (isNaN(bal) ? 0 : bal)
+        }, 0)
+    : currentBillBalanceDue
 
   // 6. Loyalty Lifecycle Calculation
   const isRegular = (customer?.type || 'regular') === 'regular'
@@ -261,13 +269,13 @@ export default function LedgerBillCard({
             <span>₹{upiPaid.toFixed(2)}</span>
           </div>
           {advanceUsed > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Advance Used</span>
-              <span>₹{advanceUsed.toFixed(2)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--accent-secondary)' }}>
+              <span>⚡ Advance Used</span>
+              <span style={{ fontWeight: 800 }}>-₹{advanceUsed.toFixed(2)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: 'var(--success)', paddingTop: '3px', borderTop: '1px dashed var(--border-light, rgba(255,255,255,0.1))' }}>
-            <span>Paid Now</span>
+            <span>Total Paid (This Bill)</span>
             <span>₹{paidNow.toFixed(2)}</span>
           </div>
         </div>
@@ -278,17 +286,23 @@ export default function LedgerBillCard({
       {/* BALANCE SUMMARY */}
       <div style={{ marginBottom: '10px' }}>
         <div style={{ fontWeight: 800, fontSize: '0.8rem', color: 'var(--accent-secondary)', marginBottom: '6px' }}>
-          BALANCE SUMMARY
+          CURRENT BALANCES
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', fontWeight: 800, color: remainingBalance > 0 ? 'var(--error)' : 'var(--success)' }}>
-            <span>Remaining to Pay (Balance Due)</span>
-            <span>₹{remainingBalance.toFixed(2)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', fontWeight: 800, color: currentBillBalanceDue > 0 ? 'var(--error)' : 'var(--success)' }}>
+            <span>Bill Balance Due</span>
+            <span>₹{currentBillBalanceDue.toFixed(2)}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: customerAdvanceBal > 0 ? 'var(--accent-secondary)' : 'var(--text-muted)' }}>
             <span>Customer Advance Balance</span>
-            <span>₹{customerAdvanceBal.toFixed(2)}</span>
+            <span style={{ fontWeight: customerAdvanceBal > 0 ? 800 : 400 }}>₹{customerAdvanceBal.toFixed(2)}</span>
           </div>
+          {customerId && totalCustomerDue > currentBillBalanceDue && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--warning)', paddingTop: '2px', borderTop: '1px dashed rgba(255,255,255,0.05)' }}>
+              <span>Total Outstanding Due (All Bills)</span>
+              <span style={{ fontWeight: 800 }}>₹{totalCustomerDue.toFixed(2)}</span>
+            </div>
+          )}
         </div>
       </div>
 
