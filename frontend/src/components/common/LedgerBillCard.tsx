@@ -2,12 +2,12 @@ import React from 'react'
 import { LoyaltyService } from '../../services/loyaltyService'
 
 export interface LedgerBillCardProps {
-  bill: any
-  business?: any
-  settings?: any
-  customers?: any[]
-  bills?: any[]
-  payments?: any[]
+  bill: Record<string, any>
+  business?: Record<string, any>
+  settings?: Record<string, any>
+  customers?: Record<string, any>[]
+  bills?: Record<string, any>[]
+  payments?: Record<string, any>[]
 }
 
 export default function LedgerBillCard({
@@ -51,8 +51,8 @@ export default function LedgerBillCard({
       }, 0)
     } else if (customer) {
       const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0))
-      const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0)
-      previousOutstanding = Math.max(0, totalCustCredit - currentBillBal)
+      const totalCustDue = Number(customer.balanceDue || customer.balance_due || 0)
+      previousOutstanding = Math.max(0, totalCustDue - currentBillBal)
     }
   }
 
@@ -70,7 +70,7 @@ export default function LedgerBillCard({
 
   // 5. Remaining Balances & Total Outstanding
   const currentBillBalanceDue = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, currentBill - paidNow)
-  const remainingBalance = Math.max(0, totalAmountDue - paidNow)
+  const _remainingBalance = Math.max(0, totalAmountDue - paidNow)
   const customerAdvanceBal = Number(customer?.advanceBalance || customer?.advance_balance || 0)
   const totalCustomerDue = customerId
     ? bills.filter(b => !b.deleted && !b.deleted_at && String(b.customerId || b.customer_id) === String(customerId))
@@ -86,8 +86,12 @@ export default function LedgerBillCard({
   const pointsEarned = Number(bill.loyaltyPointsEarned !== undefined ? bill.loyaltyPointsEarned : (bill.pointsEarned !== undefined ? bill.pointsEarned : LoyaltyService.calculatePointsEarned(bill.subtotal || bill.total, isRegular, settings)))
   const pointsRedeemed = Number(bill.loyaltyPointsRedeemed || bill.pointsRedeemed || 0)
   const customerTotalPoints = Number(customer?.loyaltyPoints || customer?.loyalty_points || bill.customerTotalLoyaltyPoints || 0)
-  const previousPoints = isFullyPaid ? Math.max(0, customerTotalPoints - pointsEarned + pointsRedeemed) : customerTotalPoints
-  const netAvailablePoints = isFullyPaid ? customerTotalPoints : customerTotalPoints
+  const previousPoints = customerTotalPoints >= pointsEarned
+    ? Math.max(0, customerTotalPoints - pointsEarned + pointsRedeemed)
+    : customerTotalPoints
+  const netAvailablePoints = isFullyPaid
+    ? Math.max(customerTotalPoints, previousPoints + pointsEarned - pointsRedeemed)
+    : customerTotalPoints
 
   // Format date cleanly
   let formattedDate = bill.date || ''

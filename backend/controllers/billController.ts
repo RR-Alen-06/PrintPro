@@ -300,7 +300,7 @@ export async function createBill(req: AuthenticatedRequest, res: Response, next:
 
     if (creditUsed > 0) {
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance - $1 WHERE id = $2 AND user_id = $3',
+        'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - $1), advance_balance = GREATEST(0, COALESCE(advance_balance, credit_balance) - $1) WHERE id = $2 AND user_id = $3',
         [creditUsed, resolvedCustId, userId]
       );
     }

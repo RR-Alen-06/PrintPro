@@ -232,11 +232,16 @@ export default function MobileCustomers() {
       }
     })
 
+    const netFromHistory = Math.max(0, Number((totalDeposited - totalUsed - totalReturned).toFixed(2)))
+    const available = selectedCustomerAdvance !== undefined && customerAdvances.length > 0
+      ? Math.min(selectedCustomerAdvance, netFromHistory)
+      : (selectedCustomerAdvance || netFromHistory)
+
     return {
       totalDeposited,
       totalUsed,
       totalReturned,
-      availableBalance: selectedCustomerAdvance,
+      availableBalance: available,
     }
   }, [customerAdvances, selectedCustomerAdvance])
 

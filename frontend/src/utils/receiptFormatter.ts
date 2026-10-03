@@ -105,8 +105,8 @@ export const formatWhatsAppReceipt = (
       }, 0);
     } else if (customer) {
       const currentBillBal = bill.balance !== undefined ? Number(bill.balance) : Math.max(0, Number(bill.total || 0) - Number(bill.amountPaid || bill.amount_paid || 0));
-      const totalCustCredit = Number(customer.creditBalance || customer.credit_balance || customer.balanceDue || customer.balance_due || 0);
-      previousOutstanding = Math.max(0, totalCustCredit - currentBillBal);
+      const totalCustDue = Number(customer.balanceDue || customer.balance_due || 0);
+      previousOutstanding = Math.max(0, totalCustDue - currentBillBal);
     }
   }
 
@@ -401,8 +401,12 @@ export const formatWhatsAppReceipt = (
   const pointsRedeemed = Number(bill.loyaltyPointsRedeemed || bill.pointsRedeemed || 0);
   const custTotalPoints = Number(customer?.loyaltyPoints || customer?.loyalty_points || bill.customerTotalLoyaltyPoints || 0);
   const isFullySettled = remainingBalance <= 0;
-  const prevPoints = isFullySettled ? Math.max(0, custTotalPoints - pointsEarned + pointsRedeemed) : custTotalPoints;
-  const netPoints = custTotalPoints;
+  const prevPoints = custTotalPoints >= pointsEarned
+    ? Math.max(0, custTotalPoints - pointsEarned + pointsRedeemed)
+    : custTotalPoints;
+  const netPoints = isFullySettled
+    ? Math.max(custTotalPoints, prevPoints + pointsEarned - pointsRedeemed)
+    : custTotalPoints;
 
   if (pointsEarned > 0 || pointsRedeemed > 0 || custTotalPoints > 0) {
     result += `${divider}\n`;
