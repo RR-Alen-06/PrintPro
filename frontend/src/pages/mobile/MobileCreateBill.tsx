@@ -17,7 +17,8 @@ import BottomSheet from '../../components/mobile/BottomSheet'
 import {
   UserCheck, Plus, Trash2, Search, Minus,
   Tag, UserPlus, Printer, Calendar,
-  Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal
+  Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal,
+  Package, BookOpen, Sparkles
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -26,6 +27,7 @@ interface ItemRow {
   id?: string;
   itemName?: string;
   name?: string;
+  itemType?: 'product' | 'print';
   printType?: string;
   print_type?: string;
   sides?: string;
@@ -96,9 +98,18 @@ export default function MobileCreateBill() {
 
   // Advanced / Custom Item Bottom Sheet State
   const [showAddItemSheet, setShowAddItemSheet] = useState(false)
+  const [modalTab, setModalTab] = useState<'product' | 'print'>('product')
+  
+  // General Product Form State (Book, Pen, Stationery, etc.)
+  const [productName, setProductName] = useState('')
+  const [productPrice, setProductPrice] = useState<number | string>('')
+  const [productQty, setProductQty] = useState<number | string>(1)
+  const [productGstRate, setProductGstRate] = useState<number>(0)
+
+  // Print Specs Form State
+  const [isCustomPrint, setIsCustomPrint] = useState(false)
+  const [customPrintName, setCustomPrintName] = useState('')
   const [selectedInventoryId, setSelectedInventoryId] = useState('')
-  const [customItemName, setCustomItemName] = useState('')
-  const [isCustomItem, setIsCustomItem] = useState(false)
   const [itemPrintType, setItemPrintType] = useState('color')
   const [itemSides, setItemSides] = useState('single')
   const [itemQty, setItemQty] = useState(1)
@@ -106,10 +117,11 @@ export default function MobileCreateBill() {
   const [itemUnitPrice, setItemUnitPrice] = useState('')
   const [itemGstRate, setItemGstRate] = useState(0)
 
-  // Discounts, Promos & Loyalty
+  // Discounts, Promos, Loyalty & Round Off
   const [showDiscountsSection, setShowDiscountsSection] = useState(false)
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat')
-  const [discountValue, setDiscountValue] = useState<number | string>(0)
+  const [discountValue, setDiscountValue] = useState<number | string>('')
+  const [roundOffMode, setRoundOffMode] = useState<'none' | 'nearest' | 'up' | 'down'>('nearest')
   const [promoCodeInput, setPromoCodeInput] = useState('')
   const [appliedPromo, setAppliedPromo] = useState<PromoCodeItem | null>(null)
   
@@ -122,8 +134,8 @@ export default function MobileCreateBill() {
 
   // Payment Selection State (Defaults to Full Cash)
   const [paymentMode, setPaymentMode] = useState<'full_cash' | 'full_upi' | 'split' | 'credit'>('full_cash')
-  const [cashAmount, setCashAmount] = useState<number | string>(0)
-  const [upiAmount, setUpiAmount] = useState<number | string>(0)
+  const [cashAmount, setCashAmount] = useState<number | string>('')
+  const [upiAmount, setUpiAmount] = useState<number | string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Sync inventory selection defaults
@@ -179,14 +191,14 @@ export default function MobileCreateBill() {
   }, [serverInventory, selectedInventoryId])
 
   const calculatedUnitPrice = useMemo(() => {
-    if (isCustomItem) return Number(itemUnitPrice || 0)
+    if (isCustomPrint) return Number(itemUnitPrice || 0)
     if (!activeInventoryObj) return 10.0
     if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle ?? activeInventoryObj.color_single ?? 10.0) || 10.0
     if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble ?? activeInventoryObj.color_double ?? 18.0) || 18.0
     if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle ?? activeInventoryObj.bw_single ?? 3.0) || 3.0
     if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble ?? activeInventoryObj.bw_double ?? 5.0) || 5.0
     return Number(activeInventoryObj.price ?? activeInventoryObj.unit_price ?? 10.0) || 10.0
-  }, [activeInventoryObj, itemPrintType, itemSides, isCustomItem, itemUnitPrice])
+  }, [activeInventoryObj, itemPrintType, itemSides, isCustomPrint, itemUnitPrice])
 
   // Quick-Add active inventory object
   const quickActiveInventoryObj = useMemo(() => {
@@ -199,15 +211,17 @@ export default function MobileCreateBill() {
     const rate = Number(quickActiveInventoryObj.price ?? quickActiveInventoryObj.unit_price ?? quickActiveInventoryObj.colorSingle ?? 10.0) || 10.0
     const qty = Math.max(1, Number(quickQty) || 1)
     const name = quickActiveInventoryObj.name || 'Print Item'
+    const isPrint = Boolean(quickActiveInventoryObj.colorSingle || quickActiveInventoryObj.colorDouble || quickActiveInventoryObj.bwSingle || quickActiveInventoryObj.bwDouble)
 
     const newRow: ItemRow = {
       id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       itemId: quickActiveInventoryObj.id,
       itemName: name,
       name: name,
+      itemType: isPrint ? 'print' : 'product',
       isCustom: false,
-      printType: 'color',
-      sides: 'single',
+      printType: isPrint ? 'color' : undefined,
+      sides: isPrint ? 'single' : undefined,
       qty: qty,
       pages: 1,
       unitPrice: rate,
@@ -229,45 +243,81 @@ export default function MobileCreateBill() {
   // Add Item via Bottom Sheet Modal
   const handleAddModalItem = (e: React.FormEvent) => {
     e.preventDefault()
-    const rate = Number(itemUnitPrice || calculatedUnitPrice)
-    const name = isCustomItem ? (customItemName || 'Custom Print') : (activeInventoryObj?.name || 'A4 Paper')
-    const qtyNum = Number(itemQty) || 1
-    const pagesNum = Number(itemPages) || 1
-    const totalAmount = rate * qtyNum * pagesNum
+    if (modalTab === 'product') {
+      const name = productName.trim() || 'General Item'
+      const rate = Math.max(0, Number(productPrice) || 0)
+      const qtyNum = Math.max(1, Number(productQty) || 1)
+      const totalAmount = Number((rate * qtyNum).toFixed(2))
 
-    const newRow: ItemRow = {
-      id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      itemId: isCustomItem ? '' : selectedInventoryId,
-      itemName: name,
-      name: name,
-      isCustom: isCustomItem,
-      printType: itemPrintType,
-      sides: itemSides,
-      qty: qtyNum,
-      pages: pagesNum,
-      unitPrice: rate,
-      unit_price: rate,
-      gstRate: Number(itemGstRate || 0),
-      amount: totalAmount
-    }
+      const newRow: ItemRow = {
+        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+        itemId: '',
+        itemName: name,
+        name: name,
+        itemType: 'product',
+        isCustom: true,
+        qty: qtyNum,
+        pages: 1,
+        unitPrice: rate,
+        unit_price: rate,
+        gstRate: Number(productGstRate || 0),
+        amount: totalAmount
+      }
 
-    const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
-    setItemRows(updatedItems)
-    setShowAddItemSheet(false)
-    setCustomItemName('')
-    setIsCustomItem(false)
-    setItemQty(1)
-    setItemPages(1)
-    setItemUnitPrice('')
-    setItemGstRate(0)
-    if (merged) {
-      showToast(`Updated '${name}' quantity (+${qtyNum})`, 'success')
+      const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
+      setItemRows(updatedItems)
+      setShowAddItemSheet(false)
+      setProductName('')
+      setProductPrice('')
+      setProductQty(1)
+      setProductGstRate(0)
+      if (merged) {
+        showToast(`Updated '${name}' quantity (+${qtyNum})`, 'success')
+      } else {
+        showToast(`Added '${name}' × ${qtyNum}`, 'success')
+      }
     } else {
-      showToast(`Added '${name}' to order`, 'success')
+      const rate = Number(itemUnitPrice || calculatedUnitPrice)
+      const name = isCustomPrint ? (customPrintName.trim() || 'Custom Print') : (activeInventoryObj?.name || 'A4 Print')
+      const qtyNum = Math.max(1, Number(itemQty) || 1)
+      const pagesNum = Math.max(1, Number(itemPages) || 1)
+      const totalAmount = Number((rate * qtyNum * pagesNum).toFixed(2))
+
+      const newRow: ItemRow = {
+        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+        itemId: isCustomPrint ? '' : selectedInventoryId,
+        itemName: name,
+        name: name,
+        itemType: 'print',
+        isCustom: isCustomPrint,
+        printType: itemPrintType,
+        sides: itemSides,
+        qty: qtyNum,
+        pages: pagesNum,
+        unitPrice: rate,
+        unit_price: rate,
+        gstRate: Number(itemGstRate || 0),
+        amount: totalAmount
+      }
+
+      const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
+      setItemRows(updatedItems)
+      setShowAddItemSheet(false)
+      setCustomPrintName('')
+      setIsCustomPrint(false)
+      setItemQty(1)
+      setItemPages(1)
+      setItemUnitPrice('')
+      setItemGstRate(0)
+      if (merged) {
+        showToast(`Updated '${name}' quantity (+${qtyNum})`, 'success')
+      } else {
+        showToast(`Added '${name}' to order`, 'success')
+      }
     }
   }
 
-  // Update Item Quantity inline
+  // Update Item Quantity inline with stepper
   const handleUpdateItemQty = (rowId: string, delta: number) => {
     setItemRows(prev => prev.map(r => {
       if (r.id === rowId) {
@@ -277,7 +327,56 @@ export default function MobileCreateBill() {
         return {
           ...r,
           qty: newQty,
-          amount: rate * newQty * pages
+          amount: Number((rate * newQty * pages).toFixed(2))
+        }
+      }
+      return r
+    }))
+  }
+
+  // Set Item Quantity directly
+  const handleSetItemQty = (rowId: string, val: number | string) => {
+    const newQty = Math.max(1, Number(val) || 1)
+    setItemRows(prev => prev.map(r => {
+      if (r.id === rowId) {
+        const pages = Number(r.pages || 1)
+        const rate = Number(r.unitPrice || r.unit_price || 0)
+        return {
+          ...r,
+          qty: val,
+          amount: Number((rate * newQty * pages).toFixed(2))
+        }
+      }
+      return r
+    }))
+  }
+
+  // Update Item Unit Price inline
+  const handleUpdateItemPrice = (rowId: string, newRate: number | string) => {
+    const rateNum = Math.max(0, Number(newRate) || 0)
+    setItemRows(prev => prev.map(r => {
+      if (r.id === rowId) {
+        const qty = Number(r.qty || 1)
+        const pages = Number(r.pages || 1)
+        return {
+          ...r,
+          unitPrice: newRate,
+          unit_price: newRate,
+          amount: Number((rateNum * qty * pages).toFixed(2))
+        }
+      }
+      return r
+    }))
+  }
+
+  // Update Item Name inline
+  const handleUpdateItemName = (rowId: string, newName: string) => {
+    setItemRows(prev => prev.map(r => {
+      if (r.id === rowId) {
+        return {
+          ...r,
+          itemName: newName,
+          name: newName
         }
       }
       return r
@@ -333,7 +432,7 @@ export default function MobileCreateBill() {
 
   // Subtotal & Financial Totals
   const subtotal = useMemo(() => {
-    return itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
+    return Number(itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0).toFixed(2))
   }, [itemRows])
 
   // Loyalty Discount Calculation via LoyaltyService
@@ -347,10 +446,11 @@ export default function MobileCreateBill() {
 
   const calculatedDiscount = useMemo(() => {
     let disc = 0
+    const val = Number(discountValue || 0)
     if (discountType === 'flat') {
-      disc = Number(discountValue || 0)
+      disc = val
     } else {
-      disc = (subtotal * Number(discountValue || 0)) / 100
+      disc = (subtotal * val) / 100
     }
     if (appliedPromo) {
       if (appliedPromo.type === 'percent') {
@@ -360,22 +460,41 @@ export default function MobileCreateBill() {
       }
     }
     disc += loyaltyDiscount
-    return Math.min(disc, subtotal)
+    return Number(Math.min(disc, subtotal).toFixed(2))
   }, [subtotal, discountType, discountValue, appliedPromo, loyaltyDiscount])
 
   // Customer Advance credit
   const customerFinancials = selectedCustomerId ? getCustomerFinancials(selectedCustomerId) : null
   const liveCustomerAdvance = customerFinancials?.advanceBalance ?? Number(selectedCustomerObj?.creditBalance || selectedCustomerObj?.credit_balance || selectedCustomerObj?.advanceBalance || 0)
 
-  const netBeforeAdvance = Math.max(0, subtotal - calculatedDiscount)
+  const netBeforeAdvance = Math.max(0, Number((subtotal - calculatedDiscount).toFixed(2)))
   const advanceDeduction = useMemo(() => {
     if (!useAdvanceCredit || liveCustomerAdvance <= 0) return 0
-    return CreditService.calculateAdvanceDrawdown(liveCustomerAdvance, netBeforeAdvance).advanceUsed
+    return Number(CreditService.calculateAdvanceDrawdown(liveCustomerAdvance, netBeforeAdvance).advanceUsed.toFixed(2))
   }, [useAdvanceCredit, liveCustomerAdvance, netBeforeAdvance])
 
-  const grandTotal = useMemo(() => {
-    return Math.max(0, netBeforeAdvance - advanceDeduction)
-  }, [netBeforeAdvance, advanceDeduction])
+  const netBeforeRound = Math.max(0, Number((netBeforeAdvance - advanceDeduction).toFixed(2)))
+
+  // Smart Round-Off Calculation (Nearest, Up, Down, None)
+  const { roundedTotal, roundOffAmount } = useMemo(() => {
+    if (netBeforeRound <= 0) {
+      return { roundedTotal: 0, roundOffAmount: 0 }
+    }
+    if (roundOffMode === 'up') {
+      const r = Math.ceil(netBeforeRound)
+      return { roundedTotal: r, roundOffAmount: Number((r - netBeforeRound).toFixed(2)) }
+    } else if (roundOffMode === 'down') {
+      const r = Math.floor(netBeforeRound)
+      return { roundedTotal: r, roundOffAmount: Number((r - netBeforeRound).toFixed(2)) }
+    } else if (roundOffMode === 'nearest') {
+      const r = Math.round(netBeforeRound)
+      return { roundedTotal: r, roundOffAmount: Number((r - netBeforeRound).toFixed(2)) }
+    } else {
+      return { roundedTotal: Number(netBeforeRound.toFixed(2)), roundOffAmount: 0 }
+    }
+  }, [netBeforeRound, roundOffMode])
+
+  const grandTotal = roundedTotal
 
   // Apply Promo Code
   const handleApplyPromo = () => {
@@ -481,6 +600,9 @@ export default function MobileCreateBill() {
         advanceDeducted: advanceDeduction,
         advance_used: advanceDeduction,
         advanceUsed: advanceDeduction,
+        round_off: roundOffAmount,
+        roundOff: roundOffAmount,
+        round_off_mode: roundOffMode,
         total: grandTotal,
         amount_paid: totalDirectPaid + advanceDeduction,
         amountPaid: totalDirectPaid + advanceDeduction,
@@ -488,7 +610,7 @@ export default function MobileCreateBill() {
         cashAmount: finalCash,
         upi_amount: finalUpi,
         upiAmount: finalUpi,
-        balance: Math.max(0, grandTotal - totalDirectPaid),
+        balance: Math.max(0, Number((grandTotal - totalDirectPaid).toFixed(2))),
         status: finalStatus,
         payment_mode: paymentMode,
         notes,
@@ -790,12 +912,12 @@ export default function MobileCreateBill() {
       </div>
 
       {/* SECTION 2: ITEMS CART & QUICK-ADD */}
-      <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Printer size={16} style={{ color: 'var(--accent-primary)' }} />
-            <h3 style={{ fontSize: '0.92rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              PRINT & BILL ITEMS ({itemRows.length})
+      <div className="mobile-card mobile-card-glow" style={{ marginBottom: '14px', padding: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Layers size={18} style={{ color: 'var(--accent-primary)' }} />
+            <h3 style={{ fontSize: '0.94rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+              BILL ITEMS ({itemRows.length})
             </h3>
           </div>
           <button
@@ -804,138 +926,271 @@ export default function MobileCreateBill() {
             onClick={() => setShowAddItemSheet(true)}
             style={{ minHeight: '32px', padding: '0 10px', fontSize: '0.74rem', color: 'var(--accent-secondary)', borderColor: 'var(--accent-secondary)' }}
           >
-            <SlidersHorizontal size={13} /> + Print Specs
+            <SlidersHorizontal size={13} /> + Custom Item / Specs
           </button>
         </div>
 
-        {/* Quick Add Bar */}
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', background: 'var(--bg-input)', padding: '6px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-          <select
-            className="mobile-input"
-            style={{ flex: 1, height: '38px', fontSize: '0.8rem', padding: '0 8px' }}
-            value={quickInventoryId}
-            onChange={(e) => setQuickInventoryId(e.target.value)}
-          >
-            {(serverInventory || []).map(i => (
-              <option key={i.id} value={i.id}>
-                {i.name} (₹{Number(i.price ?? i.unit_price ?? i.colorSingle ?? 10).toFixed(2)})
-              </option>
-            ))}
-          </select>
-
-          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+        {/* Dynamic Quick Items Tap Chips */}
+        {serverInventory.length > 0 ? (
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+              ⚡ Quick Tap Add
+            </div>
+            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {(serverInventory || []).slice(0, 8).map((inv: any) => {
+                const p = Number(inv.price ?? inv.unit_price ?? inv.colorSingle ?? inv.bwSingle ?? 10)
+                const isPrint = Boolean(inv.colorSingle || inv.colorDouble || inv.bwSingle || inv.bwDouble)
+                return (
+                  <button
+                    key={inv.id}
+                    type="button"
+                    onClick={() => {
+                      const newRow: ItemRow = {
+                        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+                        itemId: inv.id,
+                        itemName: inv.name || 'Item',
+                        name: inv.name || 'Item',
+                        itemType: isPrint ? 'print' : 'product',
+                        isCustom: false,
+                        printType: isPrint ? 'color' : undefined,
+                        sides: isPrint ? 'single' : undefined,
+                        qty: 1,
+                        pages: 1,
+                        unitPrice: p,
+                        unit_price: p,
+                        gstRate: Number(inv.gstRate ?? inv.gst_rate ?? 0),
+                        amount: p
+                      }
+                      const { items: updatedItems, merged } = GroupBillingService.mergeLineItem(itemRows, newRow)
+                      setItemRows(updatedItems)
+                      showToast(merged ? `+1 ${inv.name}` : `Added ${inv.name}`, 'success')
+                    }}
+                    style={{
+                      flex: '0 0 auto',
+                      padding: '5px 9px',
+                      background: 'var(--bg-input)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-full)',
+                      color: 'var(--text-secondary)',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                      transition: 'var(--transition)'
+                    }}
+                  >
+                    {isPrint ? <Printer size={11} style={{ color: 'var(--accent-primary)' }} /> : <Package size={11} style={{ color: 'var(--accent-secondary)' }} />}
+                    <span>{inv.name}</span>
+                    <span className="currency-num" style={{ color: 'var(--accent-secondary)' }}>₹{p.toFixed(0)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '10px' }}>
             <button
               type="button"
-              onClick={() => setQuickQty(Math.max(1, quickQty - 1))}
-              style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              className="mobile-btn mobile-btn-secondary"
+              onClick={() => {
+                setModalTab('product')
+                setShowAddItemSheet(true)
+              }}
+              style={{ width: '100%', minHeight: '36px', fontSize: '0.78rem', justifyContent: 'center', borderStyle: 'dashed' }}
             >
-              <Minus size={13} />
-            </button>
-            <span style={{ fontSize: '0.82rem', fontWeight: 800, minWidth: '22px', textAlign: 'center' }}>
-              {quickQty}
-            </span>
-            <button
-              type="button"
-              onClick={() => setQuickQty(quickQty + 1)}
-              style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Plus size={13} />
+              <Plus size={14} /> + Add Custom Retail / Stationery Item
             </button>
           </div>
+        )}
 
-          <button
-            type="button"
-            className="mobile-btn mobile-btn-primary"
-            onClick={handleQuickAddItem}
-            style={{ width: 'auto', minHeight: '38px', padding: '0 12px', fontSize: '0.78rem' }}
-          >
-            Add
-          </button>
-        </div>
+        {/* Full Inventory Dropdown Selector (if inventory exists) */}
+        {serverInventory.length > 0 && (
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', background: 'var(--bg-input)', padding: '6px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <select
+              className="mobile-input"
+              style={{ flex: 1, height: '38px', fontSize: '0.8rem', padding: '0 8px' }}
+              value={quickInventoryId}
+              onChange={(e) => setQuickInventoryId(e.target.value)}
+            >
+              {(serverInventory || []).map((i: any) => (
+                <option key={i.id} value={i.id}>
+                  {i.name} (₹{Number(i.price ?? i.unit_price ?? i.colorSingle ?? 10).toFixed(2)})
+                </option>
+              ))}
+            </select>
 
-        {/* Added Items List */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => setQuickQty(Math.max(1, quickQty - 1))}
+                style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Minus size={13} />
+              </button>
+              <span style={{ fontSize: '0.82rem', fontWeight: 800, minWidth: '22px', textAlign: 'center' }}>
+                {quickQty}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuickQty(quickQty + 1)}
+                style={{ width: '28px', height: '36px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="mobile-btn mobile-btn-primary"
+              onClick={handleQuickAddItem}
+              style={{ width: 'auto', minHeight: '38px', padding: '0 12px', fontSize: '0.78rem' }}
+            >
+              Add
+            </button>
+          </div>
+        )}
+
+        {/* Added Items List with Inline Rate & Qty Editing */}
         {itemRows.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '24px 12px', background: 'rgba(0, 0, 0, 0.2)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
+          <div style={{ textAlign: 'center', padding: '24px 12px', background: 'rgba(0, 0, 0, 0.25)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
             <Layers size={28} style={{ color: 'var(--accent-primary)', opacity: 0.5, marginBottom: '6px' }} />
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Bill is empty</div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Quick-add an item above or click "+ Print Specs" for custom prints
+              Tap a quick chip above or click "+ Custom Item / Specs"
             </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {itemRows.map((item, idx) => (
-              <div
-                key={item.id || idx}
-                style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '10px 12px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0, marginRight: '8px' }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.itemName || item.name}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
-                    <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.62rem', padding: '2px 5px' }}>
-                      {(item.printType || 'Color').toUpperCase()}
-                    </span>
-                    <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.62rem', padding: '2px 5px' }}>
-                      {(item.sides || 'Single').toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      @ ₹{Number(item.unitPrice || 0).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
+            {itemRows.map((item, idx) => {
+              const isPrint = item.itemType === 'print' || Boolean(item.printType && item.sides && item.printType !== 'none')
+              const pagesCount = Number(item.pages || 1)
 
-                {/* Inline Stepper & Price & Delete */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              return (
+                <div
+                  key={item.id || idx}
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
+                  {/* Header: Type Icon + Name + Spec Badges + Remove */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0, marginRight: '8px' }}>
+                      {isPrint ? (
+                        <Printer size={15} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                      ) : (
+                        <Package size={15} style={{ color: 'var(--accent-secondary)', flexShrink: 0 }} />
+                      )}
+                      <span style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.itemName || item.name}
+                      </span>
+                      {isPrint && (
+                        <>
+                          <span className="mobile-badge mobile-badge-info" style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
+                            {(item.printType || 'Color').toUpperCase()}
+                          </span>
+                          <span className="mobile-badge mobile-badge-warning" style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
+                            {(item.sides || 'Single').toUpperCase()}
+                          </span>
+                          {pagesCount > 1 && (
+                            <span className="mobile-badge mobile-badge-secondary" style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
+                              {pagesCount} pgs
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
                     <button
                       type="button"
-                      onClick={() => handleUpdateItemQty(item.id, -1)}
-                      style={{ width: '26px', height: '30px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      className="mobile-icon-btn"
+                      onClick={() => handleRemoveItem(item.id as string)}
+                      style={{ width: '26px', height: '26px', minWidth: '26px', minHeight: '26px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
                     >
-                      <Minus size={12} />
-                    </button>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 800, minWidth: '22px', textAlign: 'center' }}>
-                      {item.qty}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateItemQty(item.id, 1)}
-                      style={{ width: '26px', height: '30px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Plus size={12} />
+                      <Trash2 size={13} />
                     </button>
                   </div>
 
-                  <div className="currency-num" style={{ fontSize: '0.98rem', fontWeight: 800, color: 'var(--text-primary)', minWidth: '60px', textAlign: 'right' }}>
-                    ₹{Number(item.amount || 0).toFixed(2)}
-                  </div>
+                  {/* Bottom Row: Editable Rate + Stepper Qty + Total Amount */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                    {/* Inline Editable Unit Price */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.3)', padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Rate ₹</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        className="currency-num"
+                        style={{
+                          width: '58px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--accent-secondary)',
+                          fontSize: '0.85rem',
+                          fontWeight: 800,
+                          outline: 'none',
+                          padding: '1px 0'
+                        }}
+                        value={item.unitPrice !== undefined ? item.unitPrice : (item.unit_price || 0)}
+                        onChange={(e) => handleUpdateItemPrice(item.id as string, e.target.value)}
+                      />
+                    </div>
 
-                  <button
-                    type="button"
-                    className="mobile-icon-btn"
-                    onClick={() => handleRemoveItem(item.id)}
-                    style={{ width: '28px', height: '28px', minWidth: '28px', minHeight: '28px', color: 'var(--error)', borderColor: 'var(--error-bg)' }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                    {/* Quantity Stepper & Input */}
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateItemQty(item.id as string, -1)}
+                        style={{ width: '26px', height: '28px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.qty}
+                        onChange={(e) => handleSetItemQty(item.id as string, e.target.value)}
+                        style={{
+                          width: '30px',
+                          height: '28px',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-primary)',
+                          fontSize: '0.8rem',
+                          fontWeight: 800,
+                          textAlign: 'center',
+                          outline: 'none'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateItemQty(item.id as string, 1)}
+                        style={{ width: '26px', height: '28px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+
+                    {/* Line Total Amount */}
+                    <div className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-primary)', minWidth: '60px', textAlign: 'right' }}>
+                      ₹{Number(item.amount || 0).toFixed(2)}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* SECTION 3: DISCOUNTS, PROMOS & LOYALTY (COMPACT ACCORDION) */}
+      {/* SECTION 3: DISCOUNTS, OFFERS & ROUND-OFF (COMPACT ACCORDION) */}
       <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px' }}>
         <div
           onClick={() => setShowDiscountsSection(!showDiscountsSection)}
@@ -944,11 +1199,12 @@ export default function MobileCreateBill() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Tag size={15} style={{ color: 'var(--accent-secondary)' }} />
             <span style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-              DISCOUNTS & OFFERS
+              DISCOUNTS & ROUND-OFF
             </span>
-            {(calculatedDiscount > 0 || advanceDeduction > 0) && (
+            {(calculatedDiscount > 0 || advanceDeduction > 0 || roundOffAmount !== 0) && (
               <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
-                -₹{(calculatedDiscount + advanceDeduction).toFixed(2)}
+                {calculatedDiscount > 0 ? `-₹${calculatedDiscount.toFixed(2)} Disc` : ''}
+                {roundOffAmount !== 0 ? ` ${roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`} Round` : ''}
               </span>
             )}
           </div>
@@ -956,7 +1212,89 @@ export default function MobileCreateBill() {
         </div>
 
         {showDiscountsSection && (
-          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Quick Discount Presets Chips */}
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                Quick Discount Presets
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {[
+                  { label: '₹5 Off', type: 'flat' as const, val: 5 },
+                  { label: '₹10 Off', type: 'flat' as const, val: 10 },
+                  { label: '₹20 Off', type: 'flat' as const, val: 20 },
+                  { label: '5% Off', type: 'percent' as const, val: 5 },
+                  { label: '10% Off', type: 'percent' as const, val: 10 },
+                  { label: '15% Off', type: 'percent' as const, val: 15 },
+                ].map((preset, pIdx) => {
+                  const isActive = discountType === preset.type && Number(discountValue) === preset.val
+                  return (
+                    <button
+                      key={pIdx}
+                      type="button"
+                      onClick={() => {
+                        setDiscountType(preset.type)
+                        setDiscountValue(preset.val)
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        border: isActive ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+                        background: isActive ? 'rgba(255, 47, 176, 0.2)' : 'var(--bg-input)',
+                        color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  )
+                })}
+                {Number(discountValue) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDiscountValue('')}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      border: '1px solid var(--error-bg)',
+                      background: 'rgba(255, 56, 96, 0.1)',
+                      color: 'var(--error)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Manual Discount Inputs (Flat vs %) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '6px' }}>
+              <select
+                className="mobile-input"
+                style={{ height: '36px', fontSize: '0.8rem' }}
+                value={discountType}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDiscountType(e.target.value as 'flat' | 'percent')}
+              >
+                <option value="flat">Flat Discount (₹)</option>
+                <option value="percent">Percentage (%)</option>
+              </select>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className="mobile-input currency-num"
+                style={{ height: '36px', fontSize: '0.84rem' }}
+                placeholder="Enter discount value..."
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+              />
+            </div>
+
             {/* Promo Code Row */}
             <div style={{ display: 'flex', gap: '6px' }}>
               <input
@@ -992,26 +1330,54 @@ export default function MobileCreateBill() {
               </div>
             )}
 
-            {/* Manual Discount Inputs */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-              <select
-                className="mobile-input"
-                style={{ height: '36px', fontSize: '0.8rem' }}
-                value={discountType}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDiscountType(e.target.value as 'flat' | 'percent')}
-              >
-                <option value="flat">Flat Discount (₹)</option>
-                <option value="percent">Percentage (%)</option>
-              </select>
-              <input
-                type="number"
-                step="0.01"
-                className="mobile-input currency-num"
-                style={{ height: '36px', fontSize: '0.8rem' }}
-                placeholder="0.00"
-                value={discountValue}
-                onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
-              />
+            {/* Smart Round Off Selector (Exact, Up, Down, Nearest) */}
+            <div style={{ paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Bill Round-Off Mode
+                </span>
+                {roundOffAmount !== 0 && (
+                  <span className="currency-num" style={{ fontSize: '0.72rem', color: roundOffAmount > 0 ? 'var(--accent-secondary)' : 'var(--warning)', fontWeight: 800 }}>
+                    {roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                {[
+                  { id: 'nearest', label: '≈ Auto', val: Math.round(netBeforeRound) },
+                  { id: 'up', label: '▲ Up', val: Math.ceil(netBeforeRound) },
+                  { id: 'down', label: '▼ Down', val: Math.floor(netBeforeRound) },
+                  { id: 'none', label: 'Exact', val: netBeforeRound }
+                ].map(r => {
+                  const isSel = roundOffMode === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setRoundOffMode(r.id as any)}
+                      style={{
+                        padding: '6px 4px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: isSel ? '1px solid var(--accent-secondary)' : '1px solid var(--border)',
+                        background: isSel ? 'rgba(0, 240, 255, 0.15)' : 'var(--bg-input)',
+                        color: isSel ? 'var(--accent-secondary)' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px',
+                        transition: 'var(--transition)'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.68rem', fontWeight: 800 }}>{r.label}</span>
+                      <span className="currency-num" style={{ fontSize: '0.76rem', fontWeight: 900, color: isSel ? '#ffffff' : 'var(--text-secondary)' }}>
+                        ₹{r.val.toFixed(2)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Advance Credit Usage */}
@@ -1071,9 +1437,18 @@ export default function MobileCreateBill() {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '6px', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
+        {roundOffAmount !== 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: roundOffAmount > 0 ? 'var(--accent-secondary)' : 'var(--warning)', marginBottom: '4px' }}>
+            <span>Round Off Adjustment ({roundOffMode.toUpperCase()})</span>
+            <span className="currency-num">
+              {roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`}
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
           <span>NET PAYABLE</span>
-          <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 12px rgba(255, 47, 176, 0.4)' }}>
+          <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 14px rgba(255, 47, 176, 0.5)' }}>
             ₹{grandTotal.toFixed(2)}
           </span>
         </div>
@@ -1230,158 +1605,277 @@ export default function MobileCreateBill() {
         </div>
       )}
 
-      {/* Advanced Print Specification Bottom Sheet Drawer */}
+      {/* Advanced Print & Custom Product Bottom Sheet Drawer */}
       <BottomSheet
         isOpen={showAddItemSheet}
         onClose={() => setShowAddItemSheet(false)}
-        title="Custom Item & Print Specification"
+        title="Add Item to Bill"
       >
         <form onSubmit={handleAddModalItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* Custom vs Inventory Toggle */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          {/* Segment Selector: General Product vs Print Specs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
             <button
               type="button"
-              className={`mobile-btn ${!isCustomItem ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-              onClick={() => setIsCustomItem(false)}
-              style={{ minHeight: '38px', fontSize: '0.82rem' }}
+              className={`mobile-btn ${modalTab === 'product' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+              onClick={() => setModalTab('product')}
+              style={{ minHeight: '38px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
-              From Inventory
+              <Package size={15} /> Product / Stationery
             </button>
             <button
               type="button"
-              className={`mobile-btn ${isCustomItem ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-              onClick={() => setIsCustomItem(true)}
-              style={{ minHeight: '38px', fontSize: '0.82rem' }}
+              className={`mobile-btn ${modalTab === 'print' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+              onClick={() => setModalTab('print')}
+              style={{ minHeight: '38px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
-              Custom Print
+              <Printer size={15} /> Print Specifications
             </button>
           </div>
 
-          {!isCustomItem ? (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                SELECT ITEM
-              </label>
-              <select
-                className="mobile-input"
-                value={selectedInventoryId}
-                onChange={(e) => setSelectedInventoryId(e.target.value)}
-              >
-                {(serverInventory || []).map(i => (
-                  <option key={i.id} value={i.id}>{i.name}</option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                CUSTOM ITEM NAME
-              </label>
-              <input
-                type="text"
-                className="mobile-input"
-                placeholder="e.g. Vinyl Banner 3x2, Flex Board"
-                value={customItemName}
-                onChange={(e) => setCustomItemName(e.target.value)}
-                required
-              />
+          {/* TAB 1: GENERAL PRODUCT / STATIONERY (Book, Pen, Notebook, etc.) */}
+          {modalTab === 'product' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  ITEM / PRODUCT NAME *
+                </label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  placeholder="e.g. Spiral Notebook, Ball Pen, Stamp, Binding"
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    QTY *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="mobile-input currency-num"
+                    value={productQty}
+                    onChange={(e) => setProductQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    UNIT PRICE (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    className="mobile-input currency-num"
+                    placeholder="0.00"
+                    value={productPrice}
+                    onChange={(e) => setProductPrice(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    GST %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mobile-input currency-num"
+                    placeholder="0%"
+                    value={productGstRate}
+                    onChange={(e) => setProductGstRate(Number(e.target.value) || 0)}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item Line Total:</span>
+                <span className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-secondary)' }}>
+                  ₹{(Math.max(0, Number(productPrice) || 0) * Math.max(1, Number(productQty) || 1)).toFixed(2)}
+                </span>
+              </div>
+
+              <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '6px' }}>
+                <Plus size={16} /> Add Product to Cart
+              </button>
             </div>
           )}
 
-          {/* Color vs B&W */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-              PRINT COLOR
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <button
-                type="button"
-                className={`mobile-btn ${itemPrintType === 'color' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setItemPrintType('color')}
-                style={{ minHeight: '38px', fontSize: '0.8rem' }}
-              >
-                Full Color
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${itemPrintType === 'bw' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setItemPrintType('bw')}
-                style={{ minHeight: '38px', fontSize: '0.8rem' }}
-              >
-                Black & White
-              </button>
-            </div>
-          </div>
+          {/* TAB 2: CUSTOM PRINT SPECS */}
+          {modalTab === 'print' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Paper source toggle */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={`mobile-btn ${!isCustomPrint ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                  onClick={() => setIsCustomPrint(false)}
+                  style={{ minHeight: '34px', fontSize: '0.78rem' }}
+                >
+                  From Paper Inventory
+                </button>
+                <button
+                  type="button"
+                  className={`mobile-btn ${isCustomPrint ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                  onClick={() => setIsCustomPrint(true)}
+                  style={{ minHeight: '34px', fontSize: '0.78rem' }}
+                >
+                  Custom Print Title
+                </button>
+              </div>
 
-          {/* Single vs Double Sided */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-              SIDES CONFIGURATION
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <button
-                type="button"
-                className={`mobile-btn ${itemSides === 'single' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setItemSides('single')}
-                style={{ minHeight: '38px', fontSize: '0.8rem' }}
-              >
-                Single-Sided
-              </button>
-              <button
-                type="button"
-                className={`mobile-btn ${itemSides === 'double' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                onClick={() => setItemSides('double')}
-                style={{ minHeight: '38px', fontSize: '0.8rem' }}
-              >
-                Double-Sided
-              </button>
-            </div>
-          </div>
+              {!isCustomPrint ? (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    SELECT PAPER / MATERIAL
+                  </label>
+                  <select
+                    className="mobile-input"
+                    value={selectedInventoryId}
+                    onChange={(e) => setSelectedInventoryId(e.target.value)}
+                  >
+                    {(serverInventory || []).map((i: any) => (
+                      <option key={i.id} value={i.id}>{i.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    CUSTOM PRINT TITLE *
+                  </label>
+                  <input
+                    type="text"
+                    className="mobile-input"
+                    placeholder="e.g. Vinyl Banner 3x2, Thesis Binding"
+                    value={customPrintName}
+                    onChange={(e) => setCustomPrintName(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
 
-          {/* Quantity & Unit Price & GST */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                QTY
-              </label>
-              <input
-                type="number"
-                min="1"
-                className="mobile-input currency-num"
-                value={itemQty}
-                onChange={(e) => setItemQty(Math.max(1, parseInt(e.target.value) || 1))}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                UNIT (₹)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                className="mobile-input currency-num"
-                placeholder={calculatedUnitPrice.toFixed(2)}
-                value={itemUnitPrice}
-                onChange={(e) => setItemUnitPrice(e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                GST %
-              </label>
-              <input
-                type="number"
-                className="mobile-input currency-num"
-                placeholder="0%"
-                value={itemGstRate}
-                onChange={(e) => setItemGstRate(Number(e.target.value) || 0)}
-              />
-            </div>
-          </div>
+              {/* Color vs B&W */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  PRINT COLOR
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={`mobile-btn ${itemPrintType === 'color' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                    onClick={() => setItemPrintType('color')}
+                    style={{ minHeight: '36px', fontSize: '0.78rem' }}
+                  >
+                    Full Color
+                  </button>
+                  <button
+                    type="button"
+                    className={`mobile-btn ${itemPrintType === 'bw' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                    onClick={() => setItemPrintType('bw')}
+                    style={{ minHeight: '36px', fontSize: '0.78rem' }}
+                  >
+                    Black & White
+                  </button>
+                </div>
+              </div>
 
-          <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '4px' }}>
-            Add Custom Specification to Order
-          </button>
+              {/* Single vs Double Sided */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  SIDES CONFIGURATION
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={`mobile-btn ${itemSides === 'single' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                    onClick={() => setItemSides('single')}
+                    style={{ minHeight: '36px', fontSize: '0.78rem' }}
+                  >
+                    Single-Sided
+                  </button>
+                  <button
+                    type="button"
+                    className={`mobile-btn ${itemSides === 'double' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                    onClick={() => setItemSides('double')}
+                    style={{ minHeight: '36px', fontSize: '0.78rem' }}
+                  >
+                    Double-Sided
+                  </button>
+                </div>
+              </div>
+
+              {/* Copies, Pages, Unit Price & GST */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                    COPIES
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="mobile-input currency-num"
+                    value={itemQty}
+                    onChange={(e) => setItemQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                    PAGES
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="mobile-input currency-num"
+                    value={itemPages}
+                    onChange={(e) => setItemPages(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                    RATE (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="mobile-input currency-num"
+                    placeholder={calculatedUnitPrice.toFixed(2)}
+                    value={itemUnitPrice}
+                    onChange={(e) => setItemUnitPrice(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                    GST %
+                  </label>
+                  <input
+                    type="number"
+                    className="mobile-input currency-num"
+                    placeholder="0%"
+                    value={itemGstRate}
+                    onChange={(e) => setItemGstRate(Number(e.target.value) || 0)}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Print Line Total:</span>
+                <span className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-primary)' }}>
+                  ₹{(Number(itemUnitPrice || calculatedUnitPrice) * Math.max(1, Number(itemQty) || 1) * Math.max(1, Number(itemPages) || 1)).toFixed(2)}
+                </span>
+              </div>
+
+              <button type="submit" className="mobile-btn mobile-btn-primary" style={{ marginTop: '6px' }}>
+                <Plus size={16} /> Add Print Job to Cart
+              </button>
+            </div>
+          )}
         </form>
       </BottomSheet>
     </MobileLayout>
