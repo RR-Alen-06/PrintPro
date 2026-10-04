@@ -13,7 +13,7 @@ on:
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: "20"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -88,7 +88,6 @@ jobs:
   secret-scan:
     name: Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,7 +97,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE || '' }}  # Optional for personal repos
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # only needed for org repos
 
   # ---------------------------------------------------------------------------
   # 4. ESLint Security Plugin – Backend SARIF
@@ -133,7 +132,7 @@ jobs:
         working-directory: backend
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: backend/eslint-backend.sarif
           category: eslint-backend
@@ -171,7 +170,7 @@ jobs:
         working-directory: frontend
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: frontend/eslint-frontend.sarif
           category: eslint-frontend
