@@ -16,15 +16,17 @@ import {
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
-const getItemBasePrice = (inventory, itemId, printType, sides) => {
+const getItemBasePrice = (inventory: any[], itemId: string, printType?: string, sides?: string) => {
   const item = (inventory || []).find((e) => String(e.id) === String(itemId))
   if (!item) return 0
-  if (item.type === 'product' || item.itemType === 'product') return Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || item.colorSingle || item.color_single || 0)) || 0
-  if (printType === 'color' && sides === 'single') return Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)) || 0
-  if (printType === 'color' && sides === 'double') return Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)) || 0
-  if (printType === 'bw' && sides === 'single') return Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)) || 0
-  if (printType === 'bw' && sides === 'double') return Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)) || 0
-  return 0
+  if (item.type === 'product' || item.itemType === 'product') {
+    return Number(item.unitPrice ?? item.unit_price ?? item.sellingPrice ?? item.selling_price ?? item.price ?? 0) || 0
+  }
+  if (printType === 'color' && sides === 'single') return Number(item.colorSingle ?? item.color_single ?? item.unitPrice ?? item.unit_price ?? 0) || 0
+  if (printType === 'color' && sides === 'double') return Number(item.colorDouble ?? item.color_double ?? item.unitPrice ?? item.unit_price ?? 0) || 0
+  if (printType === 'bw' && sides === 'single') return Number(item.bwSingle ?? item.bw_single ?? item.unitPrice ?? item.unit_price ?? 0) || 0
+  if (printType === 'bw' && sides === 'double') return Number(item.bwDouble ?? item.bw_double ?? item.unitPrice ?? item.unit_price ?? 0) || 0
+  return Number(item.unitPrice ?? item.unit_price ?? item.sellingPrice ?? item.selling_price ?? item.price ?? 0) || 0
 }
 
 interface MemberTotalCalculation {

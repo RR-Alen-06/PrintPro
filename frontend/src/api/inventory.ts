@@ -11,13 +11,14 @@ export const mapItemFromApi = (i: any) => {
   };
 
   const itemCode = i.item_code || i.itemCode || SequenceService.formatDisplayCode('inventory', i.id, 'ITM');
-  const sellingPrice = parseNum(i.selling_price !== undefined ? i.selling_price : i.sellingPrice, 0);
+  const unitPrice = parseNum(i.unit_price !== undefined ? i.unit_price : (i.unitPrice !== undefined ? i.unitPrice : (i.price !== undefined ? i.price : i.selling_price)), 0);
+  const sellingPrice = parseNum(i.selling_price !== undefined ? i.selling_price : (i.sellingPrice !== undefined ? i.sellingPrice : unitPrice), 0);
   const colorSingle = parseNum(i.color_single !== undefined ? i.color_single : i.colorSingle, 0);
   const colorDouble = parseNum(i.color_double !== undefined ? i.color_double : i.colorDouble, 0);
   const bwSingle = parseNum(i.bw_single !== undefined ? i.bw_single : i.bwSingle, 0);
   const bwDouble = parseNum(i.bw_double !== undefined ? i.bw_double : i.bwDouble, 0);
   const stock = parseNum(i.stock, 0);
-  const lowStockAlert = parseNum(i.low_stock_alert !== undefined ? i.low_stock_alert : i.lowStockAlert, 50);
+  const lowStockAlert = parseNum(i.low_stock_alert !== undefined ? i.low_stock_alert : i.lowStockAlert, 0);
 
   return {
     ...i,
@@ -25,7 +26,15 @@ export const mapItemFromApi = (i: any) => {
     itemCode,
     item_code: itemCode,
     name: i.name || '',
-    type: i.type || 'print',
+    type: i.type || 'product',
+    category: i.category || '',
+    sku: i.sku || '',
+    attributes: i.attributes || {},
+    pricingTiers: i.pricing_tiers || i.pricingTiers || [],
+    pricing_tiers: i.pricing_tiers || i.pricingTiers || [],
+    unitPrice,
+    unit_price: unitPrice,
+    price: unitPrice,
     hsnCode: i.hsn_code || i.hsnCode || '',
     hsn_code: i.hsn_code || i.hsnCode || '',
     sellingPrice,
@@ -68,17 +77,23 @@ export const getItems = async () => {
 
 export const createItem = async (data: any) => {
   const { data: { user } } = await supabase.auth.getUser();
+  const unitPrice = Number(data.unit_price !== undefined ? data.unit_price : (data.unitPrice !== undefined ? data.unitPrice : (data.price !== undefined ? data.price : (data.selling_price || 0)))) || 0;
   const payload: any = {
     name: data.name,
-    type: data.type || 'print',
+    type: data.type || 'product',
+    category: data.category || '',
+    sku: data.sku || '',
+    unit_price: unitPrice,
     hsn_code: data.hsn_code || data.hsnCode || null,
-    selling_price: Number(data.selling_price !== undefined ? data.selling_price : (data.sellingPrice || 0)),
+    selling_price: unitPrice,
     color_single: Number(data.color_single !== undefined ? data.color_single : (data.colorSingle || 0)),
     color_double: Number(data.color_double !== undefined ? data.color_double : (data.colorDouble || 0)),
     bw_single: Number(data.bw_single !== undefined ? data.bw_single : (data.bwSingle || 0)),
     bw_double: Number(data.bw_double !== undefined ? data.bw_double : (data.bwDouble || 0)),
     stock: Number(data.stock !== undefined ? data.stock : 0),
-    low_stock_alert: Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert || 50)),
+    low_stock_alert: Number(data.low_stock_alert !== undefined ? data.low_stock_alert : (data.lowStockAlert || 0)),
+    attributes: data.attributes || {},
+    pricing_tiers: data.pricing_tiers || data.pricingTiers || [],
   };
 
   if (isBackendAvailable()) {
@@ -105,11 +120,15 @@ export const updateItem = async (id, data) => {
   const payload: any = {};
   if (data.name !== undefined) payload.name = data.name;
   if (data.type !== undefined) payload.type = data.type;
+  if (data.category !== undefined) payload.category = data.category;
+  if (data.sku !== undefined) payload.sku = data.sku;
+  if (data.unit_price !== undefined || data.unitPrice !== undefined || data.price !== undefined) {
+    const p = Number(data.unit_price !== undefined ? data.unit_price : (data.unitPrice !== undefined ? data.unitPrice : data.price));
+    payload.unit_price = isNaN(p) ? 0 : p;
+    payload.selling_price = payload.unit_price;
+  }
   if (data.hsn_code !== undefined || data.hsnCode !== undefined) {
     payload.hsn_code = data.hsn_code || data.hsnCode || null;
-  }
-  if (data.selling_price !== undefined || data.sellingPrice !== undefined) {
-    payload.selling_price = Number(data.selling_price !== undefined ? data.selling_price : data.sellingPrice);
   }
   if (data.color_single !== undefined || data.colorSingle !== undefined) {
     payload.color_single = Number(data.color_single !== undefined ? data.color_single : data.colorSingle);
@@ -128,6 +147,12 @@ export const updateItem = async (id, data) => {
   }
   if (data.low_stock_alert !== undefined || data.lowStockAlert !== undefined) {
     payload.low_stock_alert = Number(data.low_stock_alert !== undefined ? data.low_stock_alert : data.lowStockAlert);
+  }
+  if (data.attributes !== undefined) {
+    payload.attributes = data.attributes;
+  }
+  if (data.pricing_tiers !== undefined || data.pricingTiers !== undefined) {
+    payload.pricing_tiers = data.pricing_tiers || data.pricingTiers;
   }
 
   if (isBackendAvailable()) {

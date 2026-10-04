@@ -5,7 +5,6 @@ import { useBills, useBillMutations } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, useInventoryMutations } from '../../hooks/useEntitiesQuery'
 import { useSettings } from '../../hooks/useSettingsQuery'
-import { usePromoCodes } from '../../hooks/usePromoCodesQuery'
 import { SequenceService } from '../../services/sequenceService'
 import { LoyaltyService } from '../../services/loyaltyService'
 import { CreditService } from '../../services/creditService'
@@ -18,7 +17,7 @@ import {
   UserCheck, Plus, Trash2, Search, Minus,
   Tag, UserPlus, Printer, Calendar,
   Loader2, X, ChevronDown, ChevronUp, Layers, SlidersHorizontal,
-  Package, BookOpen, Sparkles
+  Package
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
@@ -42,13 +41,22 @@ interface ItemRow {
   [key: string]: unknown;
 }
 
-interface PromoCodeItem {
+interface PromoItem {
   id?: string;
-  code: string;
-  type: 'flat' | 'percent';
-  value: number;
-  min_order_amount?: number;
+  code?: string;
+  type?: 'flat' | 'percent';
+  value?: number | string;
+  maxDiscount?: number;
+  max_discount?: number;
+  minAmount?: number;
+  min_amount?: number;
   minOrderAmount?: number;
+  min_order_amount?: number;
+  startDate?: string;
+  start_date?: string;
+  endDate?: string;
+  end_date?: string;
+  enabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -57,9 +65,10 @@ export default function MobileCreateBill() {
   const [searchParams] = useSearchParams()
   const editBillId = searchParams.get('edit')
 
-  const { showToast, editBill } = useAppContext()
+  const { showToast, editBill, business } = useAppContext()
   const { settings = {} } = useSettings()
-  const { promoCodes = [] } = usePromoCodes()
+  const currSymbol = business?.currencySymbol || settings?.currencySymbol || '₹'
+  const promoCodes: PromoItem[] = []
   const { getCustomerFinancials, createBillAndSync, updateBillAndSync } = useUnifiedFinancialHub()
 
   // TanStack Queries & Mutations
@@ -69,6 +78,21 @@ export default function MobileCreateBill() {
   const { isCreatingBill, isUpdatingBill } = useBillMutations()
   const { createCustomer: createCustomerMutation, isCreating: isCreatingCustomer } = useCustomerMutations()
   const { adjustStock } = useInventoryMutations()
+
+  // Items State
+  const [itemRows, setItemRows] = useState<ItemRow[]>([])
+
+  // Prevent accidental tab close/refresh when items are in cart
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (itemRows.length > 0) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [itemRows.length])
 
   // Customer Selection State (Default: Walk-in)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
@@ -88,9 +112,6 @@ export default function MobileCreateBill() {
   })
   const [showScheduleNotes, setShowScheduleNotes] = useState(false)
   const [notes, setNotes] = useState('')
-
-  // Items State
-  const [itemRows, setItemRows] = useState<ItemRow[]>([])
 
   // Quick-Add Bar State
   const [quickInventoryId, setQuickInventoryId] = useState('')
@@ -123,7 +144,7 @@ export default function MobileCreateBill() {
   const [discountValue, setDiscountValue] = useState<number | string>('')
   const [roundOffMode, setRoundOffMode] = useState<'none' | 'nearest' | 'up' | 'down'>('nearest')
   const [promoCodeInput, setPromoCodeInput] = useState('')
-  const [appliedPromo, setAppliedPromo] = useState<PromoCodeItem | null>(null)
+  const [appliedPromo, setAppliedPromo] = useState<PromoItem | null>(null)
   const [showBrowsePromos, setShowBrowsePromos] = useState(false)
   
   // Loyalty redemption state
@@ -193,12 +214,12 @@ export default function MobileCreateBill() {
 
   const calculatedUnitPrice = useMemo(() => {
     if (isCustomPrint) return Number(itemUnitPrice || 0)
-    if (!activeInventoryObj) return 10.0
-    if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle ?? activeInventoryObj.color_single ?? 10.0) || 10.0
-    if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble ?? activeInventoryObj.color_double ?? 18.0) || 18.0
-    if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle ?? activeInventoryObj.bw_single ?? 3.0) || 3.0
-    if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble ?? activeInventoryObj.bw_double ?? 5.0) || 5.0
-    return Number(activeInventoryObj.price ?? activeInventoryObj.unit_price ?? 10.0) || 10.0
+    if (!activeInventoryObj) return 0
+    if (itemPrintType === 'color' && itemSides === 'single') return Number(activeInventoryObj.colorSingle ?? activeInventoryObj.color_single ?? activeInventoryObj.unitPrice ?? activeInventoryObj.unit_price ?? activeInventoryObj.sellingPrice ?? 0) || 0
+    if (itemPrintType === 'color' && itemSides === 'double') return Number(activeInventoryObj.colorDouble ?? activeInventoryObj.color_double ?? activeInventoryObj.unitPrice ?? activeInventoryObj.unit_price ?? activeInventoryObj.sellingPrice ?? 0) || 0
+    if (itemPrintType === 'bw' && itemSides === 'single') return Number(activeInventoryObj.bwSingle ?? activeInventoryObj.bw_single ?? activeInventoryObj.unitPrice ?? activeInventoryObj.unit_price ?? activeInventoryObj.sellingPrice ?? 0) || 0
+    if (itemPrintType === 'bw' && itemSides === 'double') return Number(activeInventoryObj.bwDouble ?? activeInventoryObj.bw_double ?? activeInventoryObj.unitPrice ?? activeInventoryObj.unit_price ?? activeInventoryObj.sellingPrice ?? 0) || 0
+    return Number(activeInventoryObj.unitPrice ?? activeInventoryObj.price ?? activeInventoryObj.unit_price ?? activeInventoryObj.sellingPrice ?? activeInventoryObj.selling_price ?? 0) || 0
   }, [activeInventoryObj, itemPrintType, itemSides, isCustomPrint, itemUnitPrice])
 
   // Quick-Add active inventory object
@@ -209,9 +230,9 @@ export default function MobileCreateBill() {
   // Quick Add Item to Bill
   const handleQuickAddItem = () => {
     if (!quickActiveInventoryObj) return
-    const rate = Number(quickActiveInventoryObj.price ?? quickActiveInventoryObj.unit_price ?? quickActiveInventoryObj.colorSingle ?? 10.0) || 10.0
+    const rate = Number(quickActiveInventoryObj.unitPrice ?? quickActiveInventoryObj.price ?? quickActiveInventoryObj.unit_price ?? quickActiveInventoryObj.sellingPrice ?? quickActiveInventoryObj.selling_price ?? quickActiveInventoryObj.colorSingle ?? 0) || 0
     const qty = Math.max(1, Number(quickQty) || 1)
-    const name = quickActiveInventoryObj.name || 'Print Item'
+    const name = quickActiveInventoryObj.name || 'Catalog Item'
     const isPrint = Boolean(quickActiveInventoryObj.colorSingle || quickActiveInventoryObj.colorDouble || quickActiveInventoryObj.bwSingle || quickActiveInventoryObj.bwDouble)
 
     const newRow: ItemRow = {
@@ -245,9 +266,13 @@ export default function MobileCreateBill() {
   const handleAddModalItem = (e: React.FormEvent) => {
     e.preventDefault()
     if (modalTab === 'product') {
+      const qtyNum = parseInt(String(productQty), 10)
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        showToast('Quantity must be greater than 0', 'error')
+        return
+      }
       const name = productName.trim() || 'General Item'
       const rate = Math.max(0, Number(productPrice) || 0)
-      const qtyNum = Math.max(1, Number(productQty) || 1)
       const totalAmount = Number((rate * qtyNum).toFixed(2))
 
       const newRow: ItemRow = {
@@ -278,10 +303,18 @@ export default function MobileCreateBill() {
         showToast(`Added '${name}' × ${qtyNum}`, 'success')
       }
     } else {
+      const qtyNum = parseInt(String(itemQty), 10)
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        showToast('Quantity/Copies must be greater than 0', 'error')
+        return
+      }
+      const pagesNum = parseInt(String(itemPages), 10)
+      if (isNaN(pagesNum) || pagesNum <= 0) {
+        showToast('Pages count must be greater than 0', 'error')
+        return
+      }
       const rate = Number(itemUnitPrice || calculatedUnitPrice)
       const name = isCustomPrint ? (customPrintName.trim() || 'Custom Print') : (activeInventoryObj?.name || 'A4 Print')
-      const qtyNum = Math.max(1, Number(itemQty) || 1)
-      const pagesNum = Math.max(1, Number(itemPages) || 1)
       const totalAmount = Number((rate * qtyNum * pagesNum).toFixed(2))
 
       const newRow: ItemRow = {
@@ -371,7 +404,7 @@ export default function MobileCreateBill() {
   }
 
   // Update Item Name inline
-  const handleUpdateItemName = (rowId: string, newName: string) => {
+  const _handleUpdateItemName = (rowId: string, newName: string) => {
     setItemRows(prev => prev.map(r => {
       if (r.id === rowId) {
         return {
@@ -447,7 +480,7 @@ export default function MobileCreateBill() {
 
   const calculatedDiscount = useMemo(() => {
     let disc = 0
-    const val = Number(discountValue || 0)
+    const val = Math.max(0, Number(discountValue || 0))
     if (discountType === 'flat') {
       disc = val
     } else {
@@ -466,7 +499,7 @@ export default function MobileCreateBill() {
       }
     }
     disc += loyaltyDiscount
-    return Number(Math.min(disc, subtotal).toFixed(2))
+    return Number(Math.max(0, Math.min(disc, subtotal)).toFixed(2))
   }, [subtotal, discountType, discountValue, appliedPromo, loyaltyDiscount])
 
   // Customer Advance credit
@@ -503,12 +536,12 @@ export default function MobileCreateBill() {
   const grandTotal = roundedTotal
 
   // Apply Promo Code (via input code or direct selection)
-  const handleApplyPromo = (promoObj?: any) => {
+  const handleApplyPromo = (promoObj?: PromoItem) => {
     let target = promoObj
     if (!target) {
       if (!promoCodeInput.trim()) return
       const codeUpper = promoCodeInput.trim().toUpperCase()
-      target = (promoCodes || []).find((p: any) => p.code?.toUpperCase() === codeUpper)
+      target = (promoCodes || []).find((p) => p.code?.toUpperCase() === codeUpper)
       if (!target) {
         showToast(`Invalid promo code '${codeUpper}'`, 'error')
         return
@@ -536,7 +569,7 @@ export default function MobileCreateBill() {
 
     const minSpend = Number(target.minAmount || target.min_amount || target.minOrderAmount || target.min_order_amount || 0)
     if (minSpend > 0 && subtotal < minSpend) {
-      showToast(`Coupon '${target.code}' requires min spend of ₹${minSpend}`, 'error')
+      showToast(`Coupon '${target.code}' requires min spend of ${currSymbol}${minSpend}`, 'error')
       return
     }
 
@@ -553,21 +586,45 @@ export default function MobileCreateBill() {
       return
     }
 
+    // Chronology check: Due Date cannot be before Bill Date
+    if (dueDate && billDate && dueDate < billDate) {
+      showToast('Due Date cannot be earlier than Invoice Date', 'error')
+      return
+    }
+
+    // Walk-in Credit check
+    if (paymentMode === 'credit' && (!selectedCustomerId || selectedCustomerId === 'walk-in')) {
+      showToast('Please select or add a client name for Credit/Unpaid bills', 'error')
+      setIsCustomerPickerOpen(true)
+      return
+    }
+
     setIsSubmitting(true)
     try {
       let finalCash = 0
       let finalUpi = 0
+      let rawCashInput = 0
+      let rawUpiInput = 0
 
       if (cashAmount !== '' || upiAmount !== '') {
-        finalCash = Number(cashAmount || 0)
-        finalUpi = Number(upiAmount || 0)
+        rawCashInput = Math.max(0, Number(cashAmount || 0))
+        rawUpiInput = Math.max(0, Number(upiAmount || 0))
       } else if (paymentMode === 'full_cash') {
-        finalCash = grandTotal
+        rawCashInput = grandTotal
       } else if (paymentMode === 'full_upi') {
-        finalUpi = grandTotal
+        rawUpiInput = grandTotal
       } else if (paymentMode === 'credit') {
-        finalCash = 0
-        finalUpi = 0
+        rawCashInput = 0
+        rawUpiInput = 0
+      }
+
+      // If customer overpaid (cash received > total payable), cap recorded amounts to exact payable to prevent register skew
+      if (rawCashInput + rawUpiInput > grandTotal && grandTotal > 0) {
+        finalUpi = Math.min(rawUpiInput, grandTotal)
+        finalCash = Math.min(rawCashInput, Number((grandTotal - finalUpi).toFixed(2)))
+      } else {
+        finalCash = rawCashInput
+        finalUpi = rawUpiInput
       }
 
       const totalDirectPaid = Number((finalCash + finalUpi).toFixed(2))
@@ -767,7 +824,7 @@ export default function MobileCreateBill() {
                     <span>{selectedCustomerObj.phone || 'No phone'}</span>
                     {Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due || 0) > 0 && (
                       <span style={{ color: 'var(--error)' }}>
-                        Due: ₹{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}
+                        Due: {currSymbol}{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}
                       </span>
                     )}
                   </>
@@ -875,7 +932,7 @@ export default function MobileCreateBill() {
                   </div>
                   {Number(c.balanceDue || c.balance_due || 0) > 0 && (
                     <span style={{ fontSize: '0.72rem', color: 'var(--error)' }}>
-                      ₹{Number(c.balanceDue || c.balance_due).toFixed(2)}
+                      {currSymbol}{Number(c.balanceDue || c.balance_due).toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -932,6 +989,7 @@ export default function MobileCreateBill() {
                 className="mobile-input"
                 style={{ height: '36px', fontSize: '0.78rem' }}
                 value={dueDate}
+                min={billDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
             </div>
@@ -1022,7 +1080,7 @@ export default function MobileCreateBill() {
                   >
                     {isPrint ? <Printer size={11} style={{ color: 'var(--accent-primary)' }} /> : <Package size={11} style={{ color: 'var(--accent-secondary)' }} />}
                     <span>{inv.name}</span>
-                    <span className="currency-num" style={{ color: 'var(--accent-secondary)' }}>₹{p.toFixed(0)}</span>
+                    <span className="currency-num" style={{ color: 'var(--accent-secondary)' }}>{currSymbol}{p.toFixed(0)}</span>
                   </button>
                 )
               })}
@@ -1055,7 +1113,7 @@ export default function MobileCreateBill() {
             >
               {(serverInventory || []).map((i: any) => (
                 <option key={i.id} value={i.id}>
-                  {i.name} (₹{Number(i.price ?? i.unit_price ?? i.colorSingle ?? 10).toFixed(2)})
+                  {i.name} ({currSymbol}{Number(i.price ?? i.unit_price ?? i.colorSingle ?? 10).toFixed(2)})
                 </option>
               ))}
             </select>
@@ -1160,7 +1218,7 @@ export default function MobileCreateBill() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                     {/* Inline Editable Unit Price */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.3)', padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Rate ₹</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Rate {currSymbol}</span>
                       <input
                         type="number"
                         step="any"
@@ -1218,7 +1276,7 @@ export default function MobileCreateBill() {
 
                     {/* Line Total Amount */}
                     <div className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-primary)', minWidth: '60px', textAlign: 'right' }}>
-                      ₹{Number(item.amount || 0).toFixed(2)}
+                      {currSymbol}{Number(item.amount || 0).toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -1241,8 +1299,8 @@ export default function MobileCreateBill() {
             </span>
             {(calculatedDiscount > 0 || advanceDeduction > 0 || roundOffAmount !== 0) && (
               <span className="mobile-badge mobile-badge-success" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
-                {calculatedDiscount > 0 ? `-₹${calculatedDiscount.toFixed(2)} Disc` : ''}
-                {roundOffAmount !== 0 ? ` ${roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`} Round` : ''}
+                {calculatedDiscount > 0 ? `-${currSymbol}${calculatedDiscount.toFixed(2)} Disc` : ''}
+                {roundOffAmount !== 0 ? ` ${roundOffAmount > 0 ? `+${currSymbol}${roundOffAmount.toFixed(2)}` : `-${currSymbol}${Math.abs(roundOffAmount).toFixed(2)}`} Round` : ''}
               </span>
             )}
           </div>
@@ -1258,9 +1316,9 @@ export default function MobileCreateBill() {
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {[
-                  { label: '₹5 Off', type: 'flat' as const, val: 5 },
-                  { label: '₹10 Off', type: 'flat' as const, val: 10 },
-                  { label: '₹20 Off', type: 'flat' as const, val: 20 },
+                  { label: `${currSymbol}5 Off`, type: 'flat' as const, val: 5 },
+                  { label: `${currSymbol}10 Off`, type: 'flat' as const, val: 10 },
+                  { label: `${currSymbol}20 Off`, type: 'flat' as const, val: 20 },
                   { label: '5% Off', type: 'percent' as const, val: 5 },
                   { label: '10% Off', type: 'percent' as const, val: 10 },
                   { label: '15% Off', type: 'percent' as const, val: 15 },
@@ -1311,26 +1369,33 @@ export default function MobileCreateBill() {
             </div>
 
             {/* Manual Discount Inputs (Flat vs %) */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '6px' }}>
-              <select
-                className="mobile-input"
-                style={{ height: '36px', fontSize: '0.8rem' }}
-                value={discountType}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDiscountType(e.target.value as 'flat' | 'percent')}
-              >
-                <option value="flat">Flat Discount (₹)</option>
-                <option value="percent">Percentage (%)</option>
-              </select>
-              <input
-                type="number"
-                step="any"
-                min="0"
-                className="mobile-input currency-num"
-                style={{ height: '36px', fontSize: '0.84rem' }}
-                placeholder="Enter discount value..."
-                value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
-              />
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '6px' }}>
+                <select
+                  className="mobile-input"
+                  style={{ height: '36px', fontSize: '0.8rem' }}
+                  value={discountType}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDiscountType(e.target.value as 'flat' | 'percent')}
+                >
+                  <option value="flat">Flat Discount ({currSymbol})</option>
+                  <option value="percent">Percentage (%)</option>
+                </select>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  className="mobile-input currency-num"
+                  style={{ height: '36px', fontSize: '0.84rem' }}
+                  placeholder="Enter discount value..."
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                />
+              </div>
+              {discountType === 'flat' && Number(discountValue) > subtotal && subtotal > 0 && (
+                <div style={{ fontSize: '0.7rem', color: 'var(--warning)', fontWeight: 700, marginTop: '4px' }}>
+                  ⚠️ Discount exceeds subtotal (capped at {currSymbol}{subtotal.toFixed(2)})
+                </div>
+              )}
             </div>
 
             {/* Promo Code Row */}
@@ -1371,7 +1436,7 @@ export default function MobileCreateBill() {
             {appliedPromo && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 240, 255, 0.1)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-secondary)' }}>
                 <span style={{ fontSize: '0.76rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>
-                  ✓ Promo '{appliedPromo.code}' Applied ({appliedPromo.type === 'percent' ? `${appliedPromo.value}%` : `₹${appliedPromo.value}`})
+                  ✓ Promo '{appliedPromo.code}' Applied ({appliedPromo.type === 'percent' ? `${appliedPromo.value}%` : `${currSymbol}${appliedPromo.value}`})
                 </span>
                 <button
                   type="button"
@@ -1391,7 +1456,7 @@ export default function MobileCreateBill() {
                 </span>
                 {roundOffAmount !== 0 && (
                   <span className="currency-num" style={{ fontSize: '0.72rem', color: roundOffAmount > 0 ? 'var(--accent-secondary)' : 'var(--warning)', fontWeight: 800 }}>
-                    {roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`}
+                    {roundOffAmount > 0 ? `+${currSymbol}${roundOffAmount.toFixed(2)}` : `-${currSymbol}${Math.abs(roundOffAmount).toFixed(2)}`}
                   </span>
                 )}
               </div>
@@ -1425,7 +1490,7 @@ export default function MobileCreateBill() {
                     >
                       <span style={{ fontSize: '0.68rem', fontWeight: 800 }}>{r.label}</span>
                       <span className="currency-num" style={{ fontSize: '0.76rem', fontWeight: 900, color: isSel ? '#ffffff' : 'var(--text-secondary)' }}>
-                        ₹{r.val.toFixed(2)}
+                        {currSymbol}{r.val.toFixed(2)}
                       </span>
                     </button>
                   )
@@ -1438,7 +1503,7 @@ export default function MobileCreateBill() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 240, 255, 0.05)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-secondary)' }}>
                 <div>
                   <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>Customer Advance Available</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹{liveCustomerAdvance.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{currSymbol}{liveCustomerAdvance.toFixed(2)}</div>
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                   <input
@@ -1473,20 +1538,20 @@ export default function MobileCreateBill() {
       <div className="mobile-card" style={{ marginBottom: '14px', padding: '12px 14px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
           <span>Subtotal ({itemRows.reduce((sum, r) => sum + Number(r.qty || 1), 0)} items)</span>
-          <span className="currency-num">₹{subtotal.toFixed(2)}</span>
+          <span className="currency-num">{currSymbol}{subtotal.toFixed(2)}</span>
         </div>
 
         {calculatedDiscount > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-primary)', marginBottom: '4px' }}>
             <span>Total Discount</span>
-            <span className="currency-num">-₹{calculatedDiscount.toFixed(2)}</span>
+            <span className="currency-num">-{currSymbol}{calculatedDiscount.toFixed(2)}</span>
           </div>
         )}
 
         {advanceDeduction > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-secondary)', marginBottom: '4px' }}>
             <span>⚡ Advance Used</span>
-            <span className="currency-num" style={{ fontWeight: 800 }}>-₹{advanceDeduction.toFixed(2)}</span>
+            <span className="currency-num" style={{ fontWeight: 800 }}>-{currSymbol}{advanceDeduction.toFixed(2)}</span>
           </div>
         )}
 
@@ -1494,7 +1559,7 @@ export default function MobileCreateBill() {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: roundOffAmount > 0 ? 'var(--accent-secondary)' : 'var(--warning)', marginBottom: '4px' }}>
             <span>Round Off Adjustment ({roundOffMode.toUpperCase()})</span>
             <span className="currency-num">
-              {roundOffAmount > 0 ? `+₹${roundOffAmount.toFixed(2)}` : `-₹${Math.abs(roundOffAmount).toFixed(2)}`}
+              {roundOffAmount > 0 ? `+${currSymbol}${roundOffAmount.toFixed(2)}` : `-${currSymbol}${Math.abs(roundOffAmount).toFixed(2)}`}
             </span>
           </div>
         )}
@@ -1502,7 +1567,7 @@ export default function MobileCreateBill() {
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', paddingTop: '8px', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
           <span>NET PAYABLE</span>
           <span className="currency-num" style={{ color: 'var(--accent-primary)', textShadow: '0 0 14px rgba(255, 47, 176, 0.5)' }}>
-            ₹{grandTotal.toFixed(2)}
+            {currSymbol}{grandTotal.toFixed(2)}
           </span>
         </div>
 
@@ -1510,12 +1575,12 @@ export default function MobileCreateBill() {
         {selectedCustomerObj && (
           <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(255, 255, 255, 0.08)', display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem' }}>
             <span style={{ color: 'var(--text-muted)' }}>
-              Advance Balance: <strong style={{ color: liveCustomerAdvance > 0 ? 'var(--accent-secondary)' : 'var(--text-secondary)' }}>₹{liveCustomerAdvance.toFixed(2)}</strong>
-              {advanceDeduction > 0 && ` (₹${(liveCustomerAdvance - advanceDeduction).toFixed(2)} remaining)`}
+              Advance Balance: <strong style={{ color: liveCustomerAdvance > 0 ? 'var(--accent-secondary)' : 'var(--text-secondary)' }}>{currSymbol}{liveCustomerAdvance.toFixed(2)}</strong>
+              {advanceDeduction > 0 && ` (${currSymbol}${(liveCustomerAdvance - advanceDeduction).toFixed(2)} remaining)`}
             </span>
             {Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due || 0) > 0 && (
               <span style={{ color: 'var(--error)' }}>
-                Total Due: <strong>₹{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}</strong>
+                Total Due: <strong>{currSymbol}{Number(selectedCustomerObj.balanceDue || selectedCustomerObj.balance_due).toFixed(2)}</strong>
               </span>
             )}
           </div>
@@ -1537,6 +1602,24 @@ export default function MobileCreateBill() {
           marginBottom: '16px'
         }}
       >
+        {/* Soft UPI Warning Banner if business UPI ID is missing */}
+        {(paymentMode === 'full_upi' || Number(upiAmount) > 0) && !business?.upiId && (
+          <div style={{
+            background: 'rgba(234, 179, 8, 0.12)',
+            border: '1px solid rgba(234, 179, 8, 0.4)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '6px 8px',
+            marginBottom: '8px',
+            fontSize: '0.72rem',
+            color: 'var(--warning)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <span>⚠️ No business UPI ID configured in Settings. Dynamic QR code cannot be generated on invoice.</span>
+          </div>
+        )}
+
         {/* Preset Quick Fill Pills */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' }}>
           <button
@@ -1618,7 +1701,7 @@ export default function MobileCreateBill() {
               cursor: 'pointer'
             }}
           >
-            📋 Credit (₹0)
+            📋 Credit ({currSymbol}0)
           </button>
         </div>
 
@@ -1627,7 +1710,7 @@ export default function MobileCreateBill() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
-                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>💵 CASH (₹)</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>💵 CASH ({currSymbol})</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -1657,7 +1740,7 @@ export default function MobileCreateBill() {
             </div>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
-                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>📱 UPI (₹)</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>📱 UPI ({currSymbol})</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -1690,12 +1773,42 @@ export default function MobileCreateBill() {
           {/* Real-time Payment & Balance Indicator */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.72rem' }}>
             <span style={{ color: 'var(--text-muted)' }}>
-              Paying Now: <strong style={{ color: 'var(--success)' }}>₹{(Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0))).toFixed(2)}</strong>
+              Paying Now: <strong style={{ color: 'var(--success)' }}>{currSymbol}{(Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0))).toFixed(2)}</strong>
             </span>
             <span style={{ color: Math.max(0, Number((grandTotal - (Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0)))).toFixed(2))) > 0 ? 'var(--error)' : 'var(--success)' }}>
-              Bill Due: <strong>₹{Math.max(0, Number((grandTotal - (Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0)))).toFixed(2))).toFixed(2)}</strong>
+              Bill Due: <strong>{currSymbol}{Math.max(0, Number((grandTotal - (Number(cashAmount || (paymentMode === 'full_cash' ? grandTotal : 0)) + Number(upiAmount || (paymentMode === 'full_upi' ? grandTotal : 0)))).toFixed(2))).toFixed(2)}</strong>
             </span>
           </div>
+
+          {/* Real-time Change to Return Badge if Cash Overpaid */}
+          {(() => {
+            const effCash = cashAmount !== '' ? Number(cashAmount || 0) : (paymentMode === 'full_cash' ? grandTotal : 0)
+            const effUpi = upiAmount !== '' ? Number(upiAmount || 0) : (paymentMode === 'full_upi' ? grandTotal : 0)
+            const totalPaid = Number((effCash + effUpi).toFixed(2))
+            const changeDue = Math.max(0, Number((totalPaid - grandTotal).toFixed(2)))
+            if (changeDue > 0) {
+              return (
+                <div style={{
+                  background: 'rgba(0, 240, 255, 0.15)',
+                  border: '1px solid var(--accent-secondary)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '6px 10px',
+                  marginTop: '6px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>
+                    💵 Change to Return to Client:
+                  </span>
+                  <span className="currency-num" style={{ fontSize: '0.92rem', fontWeight: 900, color: '#ffffff' }}>
+                    {currSymbol}{changeDue.toFixed(2)}
+                  </span>
+                </div>
+              )
+            }
+            return null
+          })()}
         </div>
 
         {/* Primary Checkout Button */}
@@ -1714,7 +1827,7 @@ export default function MobileCreateBill() {
             <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
               <span>{editBillId ? 'UPDATE INVOICE' : '⚡ COMPLETE & GENERATE BILL'}</span>
               <span className="currency-num" style={{ background: 'rgba(0,0,0,0.25)', padding: '2px 8px', borderRadius: '6px' }}>
-                ₹{grandTotal.toFixed(2)}
+                {currSymbol}{grandTotal.toFixed(2)}
               </span>
             </span>
           )}
@@ -1815,7 +1928,7 @@ export default function MobileCreateBill() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    UNIT PRICE (₹) *
+                    UNIT PRICE ({currSymbol}) *
                   </label>
                   <input
                     type="number"
@@ -1846,7 +1959,7 @@ export default function MobileCreateBill() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item Line Total:</span>
                 <span className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-secondary)' }}>
-                  ₹{(Math.max(0, Number(productPrice) || 0) * Math.max(1, Number(productQty) || 1)).toFixed(2)}
+                  {currSymbol}{(Math.max(0, Number(productPrice) || 0) * Math.max(1, Number(productQty) || 1)).toFixed(2)}
                 </span>
               </div>
 
@@ -1988,7 +2101,7 @@ export default function MobileCreateBill() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
-                    RATE (₹)
+                    RATE ({currSymbol})
                   </label>
                   <input
                     type="number"
@@ -2016,7 +2129,7 @@ export default function MobileCreateBill() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Print Line Total:</span>
                 <span className="currency-num" style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--accent-primary)' }}>
-                  ₹{(Number(itemUnitPrice || calculatedUnitPrice) * Math.max(1, Number(itemQty) || 1) * Math.max(1, Number(itemPages) || 1)).toFixed(2)}
+                  {currSymbol}{(Number(itemUnitPrice || calculatedUnitPrice) * Math.max(1, Number(itemQty) || 1) * Math.max(1, Number(itemPages) || 1)).toFixed(2)}
                 </span>
               </div>
 
@@ -2042,7 +2155,7 @@ export default function MobileCreateBill() {
                 You can create coupons in <strong>Settings → Coupons</strong>.
               </div>
             ) : (
-              promoCodes.map((p: any) => {
+              promoCodes.map((p: PromoItem) => {
                 const todayStr = new Date().toISOString().slice(0, 10)
                 const startDate = p.startDate || p.start_date
                 const endDate = p.endDate || p.end_date
@@ -2074,7 +2187,7 @@ export default function MobileCreateBill() {
                           {p.code}
                         </span>
                         <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
-                          {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
+                          {p.type === 'percent' ? `${p.value}% OFF` : `${currSymbol}${p.value} OFF`}
                         </span>
                       </div>
 
@@ -2110,11 +2223,11 @@ export default function MobileCreateBill() {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                       {minSpend > 0 && (
                         <span style={{ color: isMinSpendUnmet ? 'var(--warning)' : 'inherit', fontWeight: isMinSpendUnmet ? 700 : 'normal' }}>
-                          Min Order: ₹{minSpend} {isMinSpendUnmet ? `(Need ₹${(minSpend - subtotal).toFixed(2)} more)` : '✓'}
+                          Min Order: {currSymbol}{minSpend} {isMinSpendUnmet ? `(Need ${currSymbol}${(minSpend - subtotal).toFixed(2)} more)` : '✓'}
                         </span>
                       )}
                       {(p.maxDiscount || p.max_discount) && (
-                        <span>• Max Disc: ₹{p.maxDiscount || p.max_discount}</span>
+                        <span>• Max Disc: {currSymbol}{p.maxDiscount || p.max_discount}</span>
                       )}
                       {(startDate || endDate) && (
                         <span>• Valid: {startDate || 'Start'} to {endDate || 'No Expiry'}</span>

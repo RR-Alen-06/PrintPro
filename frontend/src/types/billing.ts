@@ -1,4 +1,4 @@
-export type PaymentMethod = 'Cash' | 'UPI' | 'Split Payment' | 'Advance Used';
+export type PaymentMethod = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Cheque' | 'Split Payment' | 'Advance Used' | 'Other';
 
 export type ExpenseCategory = 
   | 'Shop Expense' 

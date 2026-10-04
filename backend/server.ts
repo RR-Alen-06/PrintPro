@@ -130,7 +130,6 @@ app.get('/api/health', async (req, res) => {
 import settingsRoutes from './routes/settings';
 import advancePaymentRoutes from './routes/advancePayments';
 import groupBillRoutes from './routes/groupBills';
-import promoCodeRoutes from './routes/promoCodes';
 
 // ── Authenticated API routes ─────────────────────────────────────────────────
 app.use('/api', auth);
@@ -148,7 +147,6 @@ app.use('/api/share',            shareRoutes);
 app.use('/api/settings',         settingsRoutes);
 app.use('/api/advance-payments', advancePaymentRoutes);
 app.use('/api/group-bills',      groupBillRoutes);
-app.use('/api/promo-codes',      promoCodeRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {
