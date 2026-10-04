@@ -78,6 +78,10 @@ export default function CustomerStatementModal({
 
   if (!isOpen || !customerId || !statementData) return null;
 
+  const currencySymbol = (settings?.currency as string) || '₹';
+  const currencyCode = (settings?.currencyCode as string) || 'INR';
+  const enableUpi = settings?.enableUpi !== false;
+
   const toggleBillExpand = (billId: string) => {
     setExpandedBills((prev) => ({
       ...prev,
@@ -90,7 +94,7 @@ export default function CustomerStatementModal({
       setIsExporting(true);
       const doc = StatementService.generateStatementPDF(statementData, {
         detailed: isDetailed,
-        currency: '₹',
+        currency: currencySymbol,
       });
       const filename = `${statementData.customer.name.replace(/\s+/g, '_')}_Statement_${statementData.period.key}.pdf`;
       doc.save(filename);
@@ -105,7 +109,7 @@ export default function CustomerStatementModal({
     try {
       const doc = StatementService.generateStatementPDF(statementData, {
         detailed: isDetailed,
-        currency: '₹',
+        currency: currencySymbol,
       });
       doc.autoPrint();
       const blobUrl = doc.output('bloburl');
@@ -121,13 +125,13 @@ export default function CustomerStatementModal({
       `Customer: ${statementData.customer.name} (${statementData.customer.customer_code || ''})\n` +
       `Period: ${statementData.period.label}\n\n` +
       `*KPI Summary:*\n` +
-      `• Total Invoiced: ₹${statementData.kpi.total_invoiced.toFixed(2)} (${statementData.kpi.invoices_count} Bills)\n` +
-      `• Total Paid in Period: ₹${statementData.kpi.total_paid.toFixed(2)}\n` +
+      `• Total Invoiced: ${currencySymbol}${statementData.kpi.total_invoiced.toFixed(2)} (${statementData.kpi.invoices_count} Bills)\n` +
+      `• Total Paid in Period: ${currencySymbol}${statementData.kpi.total_paid.toFixed(2)}\n` +
       `• Total Units Purchased: ${statementData.kpi.total_units_bought} Items\n\n` +
       `*Ledger Status:*\n` +
-      `• Current Outstanding Balance: ₹${statementData.reconciliation.current_outstanding_balance.toFixed(2)}\n` +
+      `• Current Outstanding Balance: ${currencySymbol}${statementData.reconciliation.current_outstanding_balance.toFixed(2)}\n` +
       (statementData.reconciliation.advance_balance > 0
-        ? `• Available Advance/Credit: ₹${statementData.reconciliation.advance_balance.toFixed(2)}\n`
+        ? `• Available Advance/Credit: ${currencySymbol}${statementData.reconciliation.advance_balance.toFixed(2)}\n`
         : '');
 
     navigator.clipboard.writeText(summaryText);
@@ -136,9 +140,13 @@ export default function CustomerStatementModal({
   };
 
   const handleWhatsAppShare = () => {
-    const message = StatementService.buildWhatsAppStatementMessage(statementData);
+    const message = StatementService.buildWhatsAppStatementMessage(statementData, {
+      currency: currencySymbol,
+      currencyCode,
+      enableUpi,
+    });
     const cleanPhone = (statementData.customer.mobile || '').replace(/[^0-9]/g, '');
-    const phoneParam = cleanPhone.length >= 10 ? (cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone) : '';
+    const phoneParam = cleanPhone.length >= 10 ? cleanPhone : '';
     const url = `https://wa.me/${phoneParam}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -295,7 +303,7 @@ export default function CustomerStatementModal({
               <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Invoiced</span>
               <div className="mt-1 flex items-baseline justify-between">
                 <span className="text-lg sm:text-xl font-bold text-white font-mono">
-                  ₹{statementData.kpi.total_invoiced.toFixed(2)}
+                  {currencySymbol}{statementData.kpi.total_invoiced.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-cyan-400 font-mono">
                   {statementData.kpi.invoices_count} bills
@@ -307,7 +315,7 @@ export default function CustomerStatementModal({
               <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Paid in Period</span>
               <div className="mt-1 flex items-baseline justify-between">
                 <span className="text-lg sm:text-xl font-bold text-emerald-400 font-mono">
-                  ₹{statementData.kpi.total_paid.toFixed(2)}
+                  {currencySymbol}{statementData.kpi.total_paid.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-emerald-400/70 font-medium">Verified</span>
               </div>
@@ -327,11 +335,11 @@ export default function CustomerStatementModal({
               <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Net Outstanding</span>
               <div className="mt-1 flex items-baseline justify-between">
                 <span className="text-lg sm:text-xl font-bold text-rose-400 font-mono">
-                  ₹{statementData.reconciliation.current_outstanding_balance.toFixed(2)}
+                  {currencySymbol}{statementData.reconciliation.current_outstanding_balance.toFixed(2)}
                 </span>
                 {statementData.reconciliation.advance_balance > 0 && (
                   <span className="text-[10px] text-emerald-400 font-mono" title="Available Advance">
-                    +₹{statementData.reconciliation.advance_balance.toFixed(0)} adv
+                    +{currencySymbol}{statementData.reconciliation.advance_balance.toFixed(0)} adv
                   </span>
                 )}
               </div>
@@ -362,7 +370,7 @@ export default function CustomerStatementModal({
                     <div className="bg-[#1c1438] px-4 py-2 border-b border-purple-900/40 flex items-center justify-between text-xs font-semibold text-purple-200">
                       <span>Date: {group.date}</span>
                       <span className="font-mono text-cyan-300">
-                        Day Total: ₹{group.day_total.toFixed(2)}
+                        Day Total: {currencySymbol}{group.day_total.toFixed(2)}
                       </span>
                     </div>
 
@@ -387,9 +395,9 @@ export default function CustomerStatementModal({
                             </div>
 
                             <div className="flex items-center gap-3 font-mono">
-                              <span className="text-white font-bold">₹{inv.grand_total.toFixed(2)}</span>
+                              <span className="text-white font-bold">{currencySymbol}{inv.grand_total.toFixed(2)}</span>
                               {inv.balance_due > 0 && (
-                                <span className="text-rose-400 text-[11px]">(Due: ₹{inv.balance_due.toFixed(2)})</span>
+                                <span className="text-rose-400 text-[11px]">(Due: {currencySymbol}{inv.balance_due.toFixed(2)})</span>
                               )}
                               {onInspectBill && (
                                 <button
@@ -421,8 +429,8 @@ export default function CustomerStatementModal({
                                       <tr key={idx}>
                                         <td className="py-1 px-2 font-medium">{it.product_name}</td>
                                         <td className="py-1 px-2 text-right font-mono text-cyan-300">{it.quantity} {it.unit || ''}</td>
-                                        <td className="py-1 px-2 text-right font-mono text-slate-300">₹{it.price.toFixed(2)}</td>
-                                        <td className="py-1 px-2 text-right font-mono font-bold text-white">₹{it.total.toFixed(2)}</td>
+                                        <td className="py-1 px-2 text-right font-mono text-slate-300">{currencySymbol}{it.price.toFixed(2)}</td>
+                                        <td className="py-1 px-2 text-right font-mono font-bold text-white">{currencySymbol}{it.total.toFixed(2)}</td>
                                       </tr>
                                     ))}
                                   </tbody>

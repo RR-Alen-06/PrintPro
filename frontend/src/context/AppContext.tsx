@@ -65,18 +65,22 @@ export const initialState = {
     ],
     // Invoice Customizer & Branding Settings
     primaryColor: '#0f172a',
+    currencyCode: 'INR',
+    taxLabel: 'GST',
+    enableUpi: true,
     logoUrl: '',
     headerNotes: '',
     footerNotes: '',
     showGstBreakdown: true,
     showUpiQrCode: true,
     silentThermalPrint: false,
+    customCategories: ['Standard Print', 'Document Services', 'Binding & Lamination', 'Merchandise', 'Design & Scanning'],
+    customUnits: ['pages', 'pcs', 'copies', 'sets', 'sq ft', 'books', 'meters', 'hrs'],
   },
   currentUser: null,
   customerGroups: [],
   groupBills: [],
   deletedPayments: [],
-  promoCodes: [],
   idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
 }
 
@@ -660,12 +664,6 @@ const baseReducer = (state, action) => {
         customers: updatedCustomers,
         payments: updatedPayments,
         deletedPayments: updatedDeletedPayments,
-      }
-    }
-    case 'SET_PROMO_CODES': {
-      return {
-        ...state,
-        promoCodes: action.payload,
       }
     }
     default:
@@ -2421,7 +2419,6 @@ export const AppProvider = ({ children }: any) => {
       recordSpecificBillPayment,
       recordSplitGroupPayment,
       updateGroupBill: (id, updates) => dispatch({ type: 'UPDATE_GROUP_BILL', payload: { id, updates } }),
-      setPromoCodes: (promoCodes) => dispatch({ type: 'SET_PROMO_CODES', payload: promoCodes }),
     }),
     [state, toast, dialog]
   )

@@ -84,6 +84,8 @@ export const importCustomersFromCSV = (data: any[]): any[] => {
 
 export const importInventoryFromCSV = (data: any[]): any[] => {
   return data.map((row) => {
+    const up = parseFloat(row['Unit Price'] || row['unitPrice'] || row['unit_price'] || row['selling_price'] || 0) || 0
+    const type = row['Type'] || row['type'] || 'product'
     const cs = parseFloat(row['Color Single'] || row['colorSingle'] || row['color_single'] || 0) || 0
     const cd = parseFloat(row['Color Double'] || row['colorDouble'] || row['color_double'] || 0) || 0
     const bs = parseFloat(row['B/W Single'] || row['bwSingle'] || row['bw_single'] || 0) || 0
@@ -91,6 +93,11 @@ export const importInventoryFromCSV = (data: any[]): any[] => {
     const st = parseInt(row['Stock'] || row['stock'] || 0, 10) || 0
     return {
       name: row['Name'] || row['name'] || 'Unnamed Item',
+      type,
+      unitPrice: up,
+      unit_price: up,
+      sellingPrice: up,
+      selling_price: up,
       colorSingle: cs,
       color_single: cs,
       colorDouble: cd,
