@@ -21,20 +21,20 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL · JavaScript/TypeScript
+    name: CodeQL · JavaScript
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript-typescript']
+        language: [javascript]  # JS covers JSX and Node.js
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
           # Use the security-extended query suite for broader coverage
@@ -42,9 +42,9 @@ jobs:
 
       # Let CodeQL auto-build (works fine for JS/TS)
       - name: Auto-build
-        uses: github/codeql-action/autobuild@v4
+        uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"

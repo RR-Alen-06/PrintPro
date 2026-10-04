@@ -71,47 +71,23 @@ A comprehensive React-based billing, accounting, and syncing application designe
 
 ## Getting Started
 
-### Local Development Quickstart
+### Frontend Setup
 
-1. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-2. **Environment Variables**:
-   Copy `.env.example` configurations to local environment files:
-   - Frontend: `frontend/.env` (or `.env.local`) with `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_BASE_URL`
-   - Backend: `backend/.env` with `PORT`, `DATABASE_URL` (or `SUPABASE_DB_PASSWORD`)
+The frontend will be available locally at `http://localhost:5173`
 
-3. **Database Setup**:
-   Apply the unified master database schema to Supabase:
-   ```bash
-   npm run db:setup --prefix backend
-   ```
-   *(Or execute `backend/database/unified_schema.sql` in the Supabase SQL Editor)*
+### Backend Setup
 
-4. **Start Development Services**:
-   Run both the Node backend and Vite frontend concurrently with a single command:
-   ```bash
-   npm run dev
-   ```
-   - **Frontend UI**: `http://localhost:5173`
-   - **Backend API**: `http://localhost:5000`
-
-### Running Tests & Quality Audits
-
-- **Run all frontend test suites**:
-  ```bash
-  npm test
-  ```
-- **Run linter and security checks**:
-  ```bash
-  npm run security-check
-  ```
-- **Build for production**:
-  ```bash
-  npm run build
-  ```
+```bash
+cd backend
+npm install
+npm start
+```
 
 ## Usage
 
