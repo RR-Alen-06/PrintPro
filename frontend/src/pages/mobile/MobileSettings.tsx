@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext'
 import { useProfile, useProfileMutations } from '../../hooks/useProfileQuery'
 import { useSettings, useSettingsMutations } from '../../hooks/useSettingsQuery'
-import { usePromoCodes, usePromoCodeMutations } from '../../hooks/usePromoCodesQuery'
 import { useBills, useBillMutations, useDeletedBills } from '../../hooks/useBillsQuery'
 import { useCustomers, useCustomerMutations } from '../../hooks/useCustomersQuery'
 import { useInventory, useInventoryMutations, usePayments, useAdvancePayments } from '../../hooks/useEntitiesQuery'
@@ -32,20 +31,20 @@ import {
   restoreFromBackup,
 } from '../../utils/dataImport'
 import {
-  Building2, Palette, BarChart3, Hash, MessageSquare, Gift, Tag,
+  Building2, Palette, Hash, MessageSquare, Gift, Globe,
   Database, FileSpreadsheet, Trash2, Sliders, HardDrive, Download,
-  Upload, RefreshCw, RotateCcw, Save, AlertTriangle, Plus, Edit3, Calendar
+  Upload, RefreshCw, RotateCcw, Save, AlertTriangle, Tag, Plus
 } from 'lucide-react'
 import '../../styles/mobile.css'
 
 const MODULE_TABS = [
   { id: 'profile', label: 'Profile', icon: Building2, color: 'var(--accent-primary)' },
   { id: 'branding', label: 'Branding', icon: Palette, color: '#ec4899' },
-  { id: 'accounting', label: 'GST & Tax', icon: BarChart3, color: 'var(--warning)' },
+  { id: 'accounting', label: 'Regional & Tax', icon: Globe, color: 'var(--warning)' },
+  { id: 'categories', label: 'Categories & Units', icon: Tag, color: '#f59e0b' },
   { id: 'sequences', label: 'Prefixes', icon: Hash, color: '#3b82f6' },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, color: '#25D366' },
   { id: 'loyalty', label: 'Loyalty', icon: Gift, color: '#a855f7' },
-  { id: 'promos', label: 'Coupons', icon: Tag, color: '#06b6d4' },
   { id: 'backup', label: 'Backup', icon: Database, color: '#00f0ff' },
   { id: 'import-export', label: 'CSV Hub', icon: FileSpreadsheet, color: '#10b981' },
   { id: 'recycle-bin', label: 'Trash', icon: Trash2, color: '#ef4444' },
@@ -77,8 +76,6 @@ export default function MobileSettings() {
   const { updateProfile } = useProfileMutations()
   const { settings = {} } = useSettings()
   const { updateSettings } = useSettingsMutations()
-  const { promoCodes = [] } = usePromoCodes()
-  const { createPromoCode, updatePromoCode, deletePromoCode } = usePromoCodeMutations()
 
   // Queries for Data & Trash
   const { data: serverBills = [] } = useBills()
@@ -144,8 +141,12 @@ export default function MobileSettings() {
     includeUpiInWhatsApp: settings.includeUpiInWhatsApp !== false,
   })
 
-  // Accounting & Tax state
+  // Regional, Currency & Tax preferences state
+  const [currencySymbol, setCurrencySymbol] = useState(settings.currency || '₹')
+  const [currencyCode, setCurrencyCode] = useState(settings.currencyCode || 'INR')
+  const [taxLabel, setTaxLabel] = useState(settings.taxLabel || 'GST')
   const [gstRate, setGstRate] = useState(settings.gstRate ?? 0)
+  const [enableUpi, setEnableUpi] = useState(settings.enableUpi !== false)
 
   // Branding state
   const [branding, setBranding] = useState({
@@ -156,6 +157,17 @@ export default function MobileSettings() {
     showUpiQrCode: settings.showUpiQrCode !== false,
   })
 
+  // Custom Business Categories & Units State
+  const [customCategories, setCustomCategories] = useState<string[]>(
+    settings.customCategories || ['Standard Print', 'Document Services', 'Binding & Lamination', 'Merchandise', 'Design & Scanning']
+  )
+  const [newCatInput, setNewCatInput] = useState('')
+
+  const [customUnits, setCustomUnits] = useState<string[]>(
+    settings.customUnits || ['pages', 'pcs', 'copies', 'sets', 'sq ft', 'books', 'meters', 'hrs']
+  )
+  const [newUnitInput, setNewUnitInput] = useState('')
+
   // Loyalty program configuration state
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled !== false)
   const [loyaltyForRandomCustomers, setLoyaltyForRandomCustomers] = useState(settings.loyaltyForRandomCustomers ?? true)
@@ -163,101 +175,6 @@ export default function MobileSettings() {
   const [loyaltyRedeemRatioPoints, setLoyaltyRedeemRatioPoints] = useState(settings.loyaltyRedeemRatioPoints ?? 100)
   const [loyaltyRedeemRatioRupees, setLoyaltyRedeemRatioRupees] = useState(settings.loyaltyRedeemRatioRupees ?? 10)
   const [loyaltyMinRedemptionPoints, setLoyaltyMinRedemptionPoints] = useState(settings.loyaltyMinRedemptionPoints ?? 20)
-
-  // Promo Code Modal & CRUD State
-  const [showPromoModal, setShowPromoModal] = useState(false)
-  const [editingPromoId, setEditingPromoId] = useState<string | null>(null)
-  const [promoCode, setPromoCode] = useState('')
-  const [promoType, setPromoType] = useState<'percent' | 'flat'>('percent')
-  const [promoValue, setPromoValue] = useState<number | string>('')
-  const [promoMinAmount, setPromoMinAmount] = useState<number | string>('')
-  const [promoMaxDiscount, setPromoMaxDiscount] = useState<number | string>('')
-  const [promoStartDate, setPromoStartDate] = useState('')
-  const [promoEndDate, setPromoEndDate] = useState('')
-  const [promoEnabled, setPromoEnabled] = useState(true)
-
-  const resetPromoForm = () => {
-    setEditingPromoId(null)
-    setPromoCode('')
-    setPromoType('percent')
-    setPromoValue('')
-    setPromoMinAmount('')
-    setPromoMaxDiscount('')
-    setPromoStartDate('')
-    setPromoEndDate('')
-    setPromoEnabled(true)
-  }
-
-  const handleOpenAddPromo = () => {
-    resetPromoForm()
-    setShowPromoModal(true)
-  }
-
-  const handleOpenEditPromo = (p: {
-    id: string
-    code?: string
-    type?: 'percent' | 'fixed' | string
-    value?: number | string
-    minAmount?: number | string
-    min_amount?: number | string
-    maxDiscount?: number | string
-    max_discount?: number | string
-    startDate?: string
-    start_date?: string
-    endDate?: string
-    end_date?: string
-    enabled?: boolean
-  }) => {
-    setEditingPromoId(p.id)
-    setPromoCode(p.code || '')
-    setPromoType((p.type === 'fixed' || p.type === 'flat') ? 'flat' : 'percent')
-    setPromoValue(p.value || '')
-    setPromoMinAmount(p.minAmount || p.min_amount || '')
-    setPromoMaxDiscount(p.maxDiscount || p.max_discount || '')
-    setPromoStartDate(p.startDate || p.start_date || '')
-    setPromoEndDate(p.endDate || p.end_date || '')
-    setPromoEnabled(p.enabled !== false)
-    setShowPromoModal(true)
-  }
-
-  const handleSavePromo = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!promoCode.trim()) {
-      showToast?.('Coupon Code is required', 'error')
-      return
-    }
-    const val = Number(promoValue)
-    if (isNaN(val) || val <= 0) {
-      showToast?.('Valid discount value is required', 'error')
-      return
-    }
-
-    const payload = {
-      code: promoCode.trim().toUpperCase(),
-      type: promoType,
-      value: val,
-      minAmount: promoMinAmount ? Number(promoMinAmount) : 0,
-      maxDiscount: promoMaxDiscount ? Number(promoMaxDiscount) : null,
-      startDate: promoStartDate || null,
-      endDate: promoEndDate || null,
-      enabled: promoEnabled,
-    }
-
-    try {
-      if (editingPromoId) {
-        await updatePromoCode({ id: editingPromoId, data: payload })
-        showToast?.(`Updated Coupon '${payload.code}'`, 'success')
-      } else {
-        await createPromoCode(payload)
-        showToast?.(`Created Coupon '${payload.code}'`, 'success')
-      }
-      setShowPromoModal(false)
-      resetPromoForm()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      showToast?.(`Failed to save coupon: ${msg}`, 'error')
-    }
-  }
 
   // Storage & Backup state
   const [isExporting, setIsExporting] = useState(false)
@@ -277,7 +194,7 @@ export default function MobileSettings() {
         expenses: serverExpenses.length ? serverExpenses : ctxExpenses,
         advancePayments: serverAdvances.length ? serverAdvances : ctxAdvances,
         customerGroups: serverGroups.length ? serverGroups : ctxGroups,
-        promoCodes,
+        promoCodes: [],
         counters,
         sequences,
       })
@@ -365,7 +282,14 @@ export default function MobileSettings() {
         ...seqConfigs,
         ...waTemplates,
         ...branding,
+        currency: currencySymbol,
+        currencyCode: currencyCode,
+        taxLabel: taxLabel,
         gstRate: Number(gstRate),
+        enableUpi: enableUpi,
+        showUpiQrCode: enableUpi,
+        customCategories,
+        customUnits,
         loyaltyEnabled,
         loyaltyForRandomCustomers,
         loyaltyEarningRate: Number(loyaltyEarningRate),
@@ -374,20 +298,22 @@ export default function MobileSettings() {
         loyaltyMinRedemptionPoints: Number(loyaltyMinRedemptionPoints),
       })
       showToast?.('Configuration saved', 'success')
-    } catch (err) {
-      showToast?.(`Save failed: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Save failed: ${msg}`, 'error')
     }
   }
 
-  const handleRestoreOneTrash = async (id) => {
+  const handleRestoreOneTrash = async (id: string) => {
     try {
       setIsProcessingTrash(true)
       await restoreBillMutation(id)
       setSelectedTrashIds((prev) => prev.filter((i) => i !== id))
       showToast?.('Bill restored to active list', 'success')
       refetchDeleted()
-    } catch (err) {
-      showToast?.(`Restore failed: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Restore failed: ${msg}`, 'error')
     } finally {
       setIsProcessingTrash(false)
     }
@@ -403,8 +329,9 @@ export default function MobileSettings() {
       showToast?.(`Restored ${selectedTrashIds.length} bills`, 'success')
       setSelectedTrashIds([])
       refetchDeleted()
-    } catch (err) {
-      showToast?.(`Bulk restore error: ${err.message || err}`, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(`Bulk restore error: ${msg}`, 'error')
     } finally {
       setIsProcessingTrash(false)
     }
@@ -633,31 +560,237 @@ export default function MobileSettings() {
         </div>
       )}
 
-      {/* TAB: GST & TAX */}
+      {/* TAB: REGIONAL, CURRENCY & TAX */}
       {activeTab === 'accounting' && (
         <div className="mobile-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <BarChart3 size={18} style={{ color: 'var(--warning)' }} />
+            <Globe size={18} style={{ color: 'var(--warning)' }} />
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-              GST & Tax Preferences
+              Regional, Currency & Tax Preferences
             </h3>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
-                Default GST Rate (%)
-              </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                  Currency Symbol
+                </label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  value={currencySymbol}
+                  onChange={(e) => setCurrencySymbol(e.target.value)}
+                  placeholder="₹, $, €, £"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                  Currency Code
+                </label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  value={currencyCode}
+                  onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
+                  placeholder="INR, USD, EUR"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                  Tax Label
+                </label>
+                <input
+                  type="text"
+                  className="mobile-input"
+                  value={taxLabel}
+                  onChange={(e) => setTaxLabel(e.target.value)}
+                  placeholder="GST, VAT, Sales Tax"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '3px' }}>
+                  Default Tax Rate (%)
+                </label>
+                <input
+                  type="number"
+                  className="mobile-input"
+                  value={gstRate}
+                  onChange={(e) => setGstRate(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f8fafc' }}>UPI Payment Links & QR Codes</div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Include UPI settlement links and printable QR on receipts</div>
+              </div>
               <input
-                type="number"
-                className="mobile-input"
-                value={gstRate}
-                onChange={(e) => setGstRate(e.target.value)}
+                type="checkbox"
+                checked={enableUpi}
+                onChange={(e) => setEnableUpi(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: 'var(--accent-secondary)' }}
               />
             </div>
-            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
-              <Save size={16} /> Save GST Configuration
+
+            <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary" style={{ marginTop: '4px' }}>
+              <Save size={16} /> Save Regional Configuration
             </button>
           </div>
+        </div>
+      )}
+
+      {/* TAB: CATEGORIES & MEASUREMENT UNITS */}
+      {activeTab === 'categories' && (
+        <div className="mobile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Tag size={18} style={{ color: '#f59e0b' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
+              Custom Categories & Units
+            </h3>
+          </div>
+
+          {/* Service & Product Categories */}
+          <div style={{ marginBottom: '18px' }}>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#f59e0b', marginBottom: '6px' }}>
+              BUSINESS SERVICE CATEGORIES
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+              {customCategories.map((cat, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    color: '#fbbf24',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {cat}
+                  <button
+                    type="button"
+                    onClick={() => setCustomCategories(customCategories.filter((_, i) => i !== idx))}
+                    style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '0.85rem' }}
+                    title="Remove Category"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                className="mobile-input"
+                placeholder="e.g. 3D Printing, Vinyl/Flex, Photography..."
+                value={newCatInput}
+                onChange={(e) => setNewCatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newCatInput.trim()) {
+                    e.preventDefault()
+                    if (!customCategories.includes(newCatInput.trim())) {
+                      setCustomCategories([...customCategories, newCatInput.trim()])
+                    }
+                    setNewCatInput('')
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="mobile-btn"
+                style={{ width: 'auto', padding: '0 14px', background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.4)' }}
+                onClick={() => {
+                  if (newCatInput.trim() && !customCategories.includes(newCatInput.trim())) {
+                    setCustomCategories([...customCategories, newCatInput.trim()])
+                    setNewCatInput('')
+                  }
+                }}
+              >
+                <Plus size={16} /> Add
+              </button>
+            </div>
+          </div>
+
+          {/* Measurement Units */}
+          <div style={{ marginBottom: '18px' }}>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#38bdf8', marginBottom: '6px' }}>
+              MEASUREMENT UNITS & QUANTITY TYPES
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+              {customUnits.map((unit, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    color: '#38bdf8',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {unit}
+                  <button
+                    type="button"
+                    onClick={() => setCustomUnits(customUnits.filter((_, i) => i !== idx))}
+                    style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '0.85rem' }}
+                    title="Remove Unit"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                className="mobile-input"
+                placeholder="e.g. sq ft, pages, pcs, copies, sets, books, hrs..."
+                value={newUnitInput}
+                onChange={(e) => setNewUnitInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newUnitInput.trim()) {
+                    e.preventDefault()
+                    if (!customUnits.includes(newUnitInput.trim())) {
+                      setCustomUnits([...customUnits, newUnitInput.trim()])
+                    }
+                    setNewUnitInput('')
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="mobile-btn"
+                style={{ width: 'auto', padding: '0 14px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)' }}
+                onClick={() => {
+                  if (newUnitInput.trim() && !customUnits.includes(newUnitInput.trim())) {
+                    setCustomUnits([...customUnits, newUnitInput.trim()])
+                    setNewUnitInput('')
+                  }
+                }}
+              >
+                <Plus size={16} /> Add
+              </button>
+            </div>
+          </div>
+
+          <button onClick={handleSaveSettings} className="mobile-btn mobile-btn-primary">
+            <Save size={16} /> Save Categories & Units
+          </button>
         </div>
       )}
 
@@ -839,114 +972,6 @@ export default function MobileSettings() {
         </div>
       )}
 
-      {/* TAB: PROMOS */}
-      {activeTab === 'promos' && (
-        <div className="mobile-card mobile-card-glow" style={{ borderColor: '#06b6d4' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Tag size={18} style={{ color: '#06b6d4' }} />
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#f8fafc' }}>
-                Promo Codes & Coupons
-              </h3>
-            </div>
-            <button
-              onClick={handleOpenAddPromo}
-              className="mobile-btn mobile-btn-primary"
-              style={{ width: 'auto', padding: '6px 12px', fontSize: '0.75rem', background: '#06b6d4' }}
-            >
-              <Plus size={14} /> New Coupon
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {promoCodes.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '24px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px' }}>
-                <Tag size={28} style={{ color: '#94a3b8', opacity: 0.5, margin: '0 auto 8px auto', display: 'block' }} />
-                No promo codes configured yet.<br />
-                Create your first promotional discount coupon above!
-              </div>
-            ) : (
-              promoCodes.map((p) => {
-                const todayStr = new Date().toISOString().slice(0, 10)
-                const isExpired = p.endDate || p.end_date ? todayStr > (p.endDate || p.end_date) : false
-                const isFuture = p.startDate || p.start_date ? todayStr < (p.startDate || p.start_date) : false
-                const isOff = p.enabled === false
-
-                let statusBadge = { label: 'Active', bg: 'rgba(0, 255, 171, 0.15)', color: '#00ffab' }
-                if (isOff) {
-                  statusBadge = { label: 'Disabled', bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8' }
-                } else if (isExpired) {
-                  statusBadge = { label: 'Expired', bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }
-                } else if (isFuture) {
-                  statusBadge = { label: `Starts ${(p.startDate || p.start_date)}`, bg: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }
-                }
-
-                return (
-                  <div
-                    key={p.id}
-                    style={{
-                      padding: '12px',
-                      borderRadius: '8px',
-                      background: 'rgba(255, 255, 255, 0.04)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 900, fontSize: '0.95rem', color: '#06b6d4', letterSpacing: '0.5px' }}>
-                          {p.code}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: statusBadge.bg, color: statusBadge.color }}>
-                          {statusBadge.label}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          onClick={() => handleOpenEditPromo(p)}
-                          style={{ background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#94a3b8', cursor: 'pointer' }}
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          onClick={() => deletePromoCode(p.id)}
-                          style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', borderRadius: '4px', padding: '4px 8px', color: '#ef4444', cursor: 'pointer' }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.72rem', color: '#cbd5e1' }}>
-                      <span style={{ background: 'rgba(6, 182, 212, 0.12)', color: '#06b6d4', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                        {p.type === 'percent' ? `${p.value}% OFF` : `₹${p.value} OFF`}
-                      </span>
-                      {(p.minAmount || p.min_amount) ? (
-                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
-                          Min Spend: ₹{p.minAmount || p.min_amount}
-                        </span>
-                      ) : null}
-                      {(p.maxDiscount || p.max_discount) ? (
-                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px' }}>
-                          Max Cap: ₹{p.maxDiscount || p.max_discount}
-                        </span>
-                      ) : null}
-                      {(p.startDate || p.start_date || p.endDate || p.end_date) ? (
-                        <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <Calendar size={11} /> {p.startDate || p.start_date || 'Anytime'} → {p.endDate || p.end_date || 'No Expiry'}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-      )}
-
       {/* TAB: DATABASE MANAGEMENT & BACKUP */}
       {activeTab === 'backup' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -974,7 +999,6 @@ export default function MobileSettings() {
                 { label: 'PAYMENTS', count: serverPayments.length || ctxPayments.length, color: '#10b981' },
                 { label: 'EXPENSES', count: serverExpenses.length || ctxExpenses.length, color: '#f59e0b' },
                 { label: 'ADVANCES', count: serverAdvances.length || ctxAdvances.length, color: '#a855f7' },
-                { label: 'COUPONS', count: promoCodes.length, color: '#06b6d4' },
                 { label: 'TRASH', count: deletedBills.length, color: '#ef4444' },
               ].map((stat) => (
                 <div
@@ -1377,152 +1401,6 @@ export default function MobileSettings() {
         </BottomSheet>
       )}
 
-      {showPromoModal && (
-        <BottomSheet
-          isOpen={showPromoModal}
-          onClose={() => {
-            setShowPromoModal(false)
-            resetPromoForm()
-          }}
-          title={editingPromoId ? 'Edit Promo Coupon' : 'Create Promo Coupon'}
-        >
-          <form onSubmit={handleSavePromo} style={{ padding: '10px 4px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                Coupon Code *
-              </label>
-              <input
-                type="text"
-                required
-                className="mobile-input"
-                style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}
-                placeholder="e.g. FESTIVE20, SAVE50"
-                value={promoCode}
-                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  Discount Type
-                </label>
-                <select
-                  className="mobile-input"
-                  value={promoType}
-                  onChange={(e) => setPromoType(e.target.value as 'percent' | 'flat')}
-                >
-                  <option value="percent">Percentage (%)</option>
-                  <option value="flat">Flat Amount (₹)</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  Discount Value *
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="any"
-                  className="mobile-input currency-num"
-                  placeholder={promoType === 'percent' ? '10%' : '₹50'}
-                  value={promoValue}
-                  onChange={(e) => setPromoValue(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  Min Order Spend (₹)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  className="mobile-input"
-                  placeholder="0 (No minimum)"
-                  value={promoMinAmount}
-                  onChange={(e) => setPromoMinAmount(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  Max Discount Cap (₹)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  className="mobile-input"
-                  placeholder="Optional cap"
-                  value={promoMaxDiscount}
-                  onChange={(e) => setPromoMaxDiscount(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  Start Date (Validity)
-                </label>
-                <input
-                  type="date"
-                  className="mobile-input"
-                  value={promoStartDate}
-                  onChange={(e) => setPromoStartDate(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>
-                  End Date (Expiry)
-                </label>
-                <input
-                  type="date"
-                  className="mobile-input"
-                  value={promoEndDate}
-                  onChange={(e) => setPromoEndDate(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc' }}>Status: Active / Enabled</span>
-              <input
-                type="checkbox"
-                checked={promoEnabled}
-                onChange={(e) => setPromoEnabled(e.target.checked)}
-                style={{ width: '18px', height: '18px', accentColor: '#06b6d4' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPromoModal(false)
-                  resetPromoForm()
-                }}
-                className="mobile-btn mobile-btn-secondary"
-                style={{ flex: 1 }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="mobile-btn mobile-btn-primary"
-                style={{ flex: 1, background: '#06b6d4' }}
-              >
-                <Save size={16} /> {editingPromoId ? 'Update Coupon' : 'Create Coupon'}
-              </button>
-            </div>
-          </form>
-        </BottomSheet>
-      )}
     </MobileLayout>
   )
 }

@@ -32,15 +32,43 @@ export async function recordPayment(req: any, res: any, next: any) {
   try {
     await conn.beginTransaction();
 
-    const { bill_id, customer_id, cash_amount, upi_amount, notes } = req.body;
+    const {
+      bill_id,
+      customer_id,
+      cash_amount,
+      upi_amount,
+      card_amount,
+      bank_transfer_amount,
+      cheque_amount,
+      total_paid,
+      amount,
+      payment_mode,
+      notes
+    } = req.body;
 
     const cashAmt = parseFloat(cash_amount) || 0;
     const upiAmt = parseFloat(upi_amount) || 0;
-    const totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
+    const cardAmt = parseFloat(card_amount) || 0;
+    const bankAmt = parseFloat(bank_transfer_amount) || 0;
+    const chequeAmt = parseFloat(cheque_amount) || 0;
+
+    let totalPaid = parseFloat((cashAmt + upiAmt + cardAmt + bankAmt + chequeAmt).toFixed(2));
+    if (totalPaid <= 0 && (total_paid !== undefined || amount !== undefined)) {
+      totalPaid = parseFloat(total_paid || amount || 0);
+    }
 
     if (totalPaid <= 0) {
       return res.status(400).json({ success: false, error: 'Payment amount must be greater than zero' });
     }
+
+    // Determine primary payment mode
+    const mode = payment_mode || (
+      cardAmt > 0 ? 'card' :
+      bankAmt > 0 ? 'bank_transfer' :
+      chequeAmt > 0 ? 'cheque' :
+      upiAmt > 0 && cashAmt > 0 ? 'split' :
+      upiAmt > 0 ? 'upi' : 'cash'
+    );
 
     // Resolve customer_id: either passed directly or derived from bill_id
     let customerId = customer_id;
@@ -73,6 +101,7 @@ export async function recordPayment(req: any, res: any, next: any) {
       [customerId, req.user.id]
     );
 
+    let remainingTotal = totalPaid;
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
     const paymentRecords: any[] = [];
@@ -81,20 +110,21 @@ export async function recordPayment(req: any, res: any, next: any) {
       const outstanding = parseFloat(bill.balance);
       if (outstanding <= 0) continue;
 
+      const applyTotal = Math.min(remainingTotal, outstanding);
+      remainingTotal = parseFloat((remainingTotal - applyTotal).toFixed(2));
+
       let applyCash = 0;
       let applyUpi = 0;
-
       if (remainingCash > 0) {
-        applyCash = Math.min(remainingCash, outstanding);
+        applyCash = Math.min(remainingCash, applyTotal);
         remainingCash = parseFloat((remainingCash - applyCash).toFixed(2));
       }
-      const remainingAfterCash = parseFloat((outstanding - applyCash).toFixed(2));
-      if (remainingUpi > 0 && remainingAfterCash > 0) {
-        applyUpi = Math.min(remainingUpi, remainingAfterCash);
+      if (remainingUpi > 0) {
+        const leftToCover = parseFloat((applyTotal - applyCash).toFixed(2));
+        applyUpi = Math.min(remainingUpi, leftToCover);
         remainingUpi = parseFloat((remainingUpi - applyUpi).toFixed(2));
       }
 
-      const applyTotal = parseFloat((applyCash + applyUpi).toFixed(2));
       if (applyTotal <= 0) continue;
 
       const newAmountPaid = parseFloat((parseFloat(bill.amount_paid) + applyTotal).toFixed(2));
@@ -106,7 +136,7 @@ export async function recordPayment(req: any, res: any, next: any) {
       const [payResult] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [req.user.id, bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment']
+        [req.user.id, bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || `${mode.toUpperCase()} payment`]
       );
 
       const createdPayId = payResult.id || (payResult[0] && payResult[0].id);
@@ -123,17 +153,17 @@ export async function recordPayment(req: any, res: any, next: any) {
         [
           req.user.id, 'PAYMENT', 'payment', String(createdPayId),
           JSON.stringify({ bill_id: bill.id, old_balance: outstanding, old_status: bill.status }),
-          JSON.stringify({ applied: applyTotal, new_balance: newBalance, new_status: newStatus })
+          JSON.stringify({ applied: applyTotal, new_balance: newBalance, new_status: newStatus, mode })
         ]
       );
 
-      paymentRecords.push({ paymentId: createdPayId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
+      paymentRecords.push({ paymentId: createdPayId, billId: bill.id, applied: applyTotal, newBalance, newStatus, mode });
 
-      if (remainingCash <= 0 && remainingUpi <= 0) break;
+      if (remainingTotal <= 0) break;
     }
 
     // ── Handle excess (overpayment) ───────────────────────────────────────────
-    const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
+    const excess = remainingTotal;
     if (excess > 0) {
       await conn.query(
         'UPDATE customers SET credit_balance = credit_balance + $1, advance_balance = COALESCE(advance_balance, credit_balance) + $1 WHERE id = $2 AND user_id = $3',
@@ -148,7 +178,7 @@ export async function recordPayment(req: any, res: any, next: any) {
           [req.user.id, bill_id, customerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit']
         );
         const createdPayId = pr.id || (pr[0] && pr[0].id);
-        paymentRecords.push({ paymentId: createdPayId, billId: bill_id, applied: excess, excess });
+        paymentRecords.push({ paymentId: createdPayId, billId: bill_id, applied: excess, excess, mode });
       }
 
       logger.info(`FIFO: Excess credit added to customer balance`, { customerId, excess: process.env.NODE_ENV === 'production' ? '[REDACTED]' : excess.toFixed(2) });

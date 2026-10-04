@@ -59,7 +59,10 @@ export const formatWhatsAppReceipt = (
   const template = options.template || 'itemized';
   const includePreviousDues = options.includePreviousDues !== false;
   const includeAdvanceBalance = options.includeAdvanceBalance !== false;
-  const includeUpiPayLink = options.includeUpiPayLink !== false;
+  const currency = (settings?.currency || business?.currency || '₹') as string;
+  const taxLabel = (settings?.taxLabel || 'GST') as string;
+  const isUpiActive = settings?.enableUpi !== false && settings?.showUpiQrCode !== false && business?.enableUpi !== false;
+  const includeUpiPayLink = options.includeUpiPayLink !== false && isUpiActive;
   const includeItemSpecs = options.includeItemSpecs !== false;
   const includePdfLink = options.includePdfLink !== false;
 
@@ -208,16 +211,16 @@ export const formatWhatsAppReceipt = (
     msg += `This is a friendly reminder regarding your outstanding balance with *${shopName}*.\n\n`;
     msg += `📄 *Bill Reference:* #${billNumber}\n`;
     msg += `📅 *Bill Date:* ${formattedDate}\n`;
-    msg += `💵 *Bill Amount:* ₹${currentBill.toFixed(2)}\n`;
+    msg += `💵 *Bill Amount:* ${currency}${currentBill.toFixed(2)}\n`;
     if (includePreviousDues && previousOutstanding > 0) {
-      msg += `⏮️ *Past Outstanding:* ₹${previousOutstanding.toFixed(2)}\n`;
+      msg += `⏮️ *Past Outstanding:* ${currency}${previousOutstanding.toFixed(2)}\n`;
     }
-    msg += `💳 *Total Amount Due:* *₹${(remainingBalance > 0 ? remainingBalance : currentBill).toFixed(2)}*\n\n`;
+    msg += `💳 *Total Amount Due:* *${currency}${(remainingBalance > 0 ? remainingBalance : currentBill).toFixed(2)}*\n\n`;
     msg += `${divider}\n`;
 
     if (includeUpiPayLink && upiId && remainingBalance > 0) {
       const upiLink = getUpiPaymentLink(upiId, shopName, remainingBalance, billNumber);
-      msg += `📲 *Pay Instantly via UPI (GPay / PhonePe / Paytm):*\n${upiLink}\n\n`;
+      msg += `📲 *Pay Instantly via UPI:*\n${upiLink}\n\n`;
       msg += `*UPI ID:* \`${upiId}\`\n\n`;
     }
 
@@ -240,17 +243,17 @@ export const formatWhatsAppReceipt = (
     msg += `Invoice: *#${billNumber}* • Date: ${formattedDate}\n`;
     msg += `Customer: *${customerDisplay}*${customerSuffix}\n`;
     msg += `${divider}\n`;
-    msg += `*Total Amount:* ₹${currentBill.toFixed(2)}\n`;
-    msg += `*Paid Amount:* ₹${paidNow.toFixed(2)}\n`;
+    msg += `*Total Amount:* ${currency}${currentBill.toFixed(2)}\n`;
+    msg += `*Paid Amount:* ${currency}${paidNow.toFixed(2)}\n`;
 
     if (remainingBalance <= 0) {
       msg += `*Status:* ✅ *Paid in Full*\n`;
     } else {
-      msg += `*Balance Due:* ⚠️ *₹${remainingBalance.toFixed(2)}*\n`;
+      msg += `*Balance Due:* ⚠️ *${currency}${remainingBalance.toFixed(2)}*\n`;
     }
 
     if (includeAdvanceBalance && customerAdvanceBalance > 0) {
-      msg += `*Advance Wallet:* ₹${customerAdvanceBalance.toFixed(2)}\n`;
+      msg += `*Advance Wallet:* ${currency}${customerAdvanceBalance.toFixed(2)}\n`;
     }
 
     if (includeUpiPayLink && upiId && remainingBalance > 0) {
@@ -275,7 +278,7 @@ export const formatWhatsAppReceipt = (
     let msg = `📋 *ACCOUNT STATEMENT & INVOICE*\n`;
     msg += `🏪 *${shopName}*\n`;
     if (address) msg += `📍 ${address}\n`;
-    if (gstin) msg += `🏛️ GSTIN: ${gstin}\n`;
+    if (gstin) msg += `🏛️ ${taxLabel} No: ${gstin}\n`;
     if (phone) msg += `📞 Phone: ${phone}\n`;
     msg += `${divider}\n`;
     msg += `*Customer:* ${customerDisplay}${customerSuffix}\n`;
@@ -283,32 +286,32 @@ export const formatWhatsAppReceipt = (
     msg += `*Date:* ${formattedDate}\n`;
     msg += `${divider}\n`;
     msg += `*TRANSACTION RECONCILIATION*\n`;
-    msg += `Current Bill Subtotal:   ₹${Number(bill.subtotal || currentBill).toFixed(2)}\n`;
+    msg += `Current Bill Subtotal:   ${currency}${Number(bill.subtotal || currentBill).toFixed(2)}\n`;
     if (Number(bill.discount_value || bill.discount || 0) > 0) {
-      msg += `Discount Applied:        -₹${Number(bill.discount_value || bill.discount || 0).toFixed(2)}\n`;
+      msg += `Discount Applied:        -${currency}${Number(bill.discount_value || bill.discount || 0).toFixed(2)}\n`;
     }
     if (Number(bill.gst_amount || 0) > 0) {
-      msg += `GST:                     +₹${Number(bill.gst_amount || 0).toFixed(2)}\n`;
+      msg += `${taxLabel}:                     +${currency}${Number(bill.gst_amount || 0).toFixed(2)}\n`;
     }
-    msg += `Current Invoice Total:    ₹${currentBill.toFixed(2)}\n`;
+    msg += `Current Invoice Total:    ${currency}${currentBill.toFixed(2)}\n`;
 
     if (includePreviousDues) {
-      msg += `Previous Ledger Balance:  ₹${previousOutstanding.toFixed(2)}\n`;
-      msg += `Gross Total Due:          ₹${totalAmountDue.toFixed(2)}\n`;
+      msg += `Previous Ledger Balance:  ${currency}${previousOutstanding.toFixed(2)}\n`;
+      msg += `Gross Total Due:          ${currency}${totalAmountDue.toFixed(2)}\n`;
     }
 
     msg += `${divider}\n`;
     msg += `*SETTLEMENT STATUS*\n`;
-    msg += `Total Paid (This Bill):   ₹${paidNow.toFixed(2)}\n`;
-    msg += `Net Outstanding Balance:  *₹${remainingBalance.toFixed(2)}*\n`;
+    msg += `Total Paid (This Bill):   ${currency}${paidNow.toFixed(2)}\n`;
+    msg += `Net Outstanding Balance:  *${currency}${remainingBalance.toFixed(2)}*\n`;
 
     if (includeAdvanceBalance && customerAdvanceBalance > 0) {
-      msg += `Customer Advance Credit:  ₹${customerAdvanceBalance.toFixed(2)}\n`;
+      msg += `Customer Advance Credit:  ${currency}${customerAdvanceBalance.toFixed(2)}\n`;
     }
 
     if (includeUpiPayLink && upiId && remainingBalance > 0) {
       const upiLink = getUpiPaymentLink(upiId, shopName, remainingBalance, billNumber);
-      msg += `\n💳 *Direct UPI Settlement Link:*\n${upiLink}\n`;
+      msg += `\n💳 *Direct Settlement Link:*\n${upiLink}\n`;
     }
 
     if (includePdfLink && pdfUrl) {
@@ -328,7 +331,7 @@ export const formatWhatsAppReceipt = (
   result += `🏪 *${shopName.toUpperCase()}*\n`;
   if (address) result += `📍 ${address}\n`;
   if (phone) result += `📞 ${phone}\n`;
-  if (gstin) result += `🏛️ GSTIN: ${gstin}\n`;
+  if (gstin) result += `🏛️ ${taxLabel} No: ${gstin}\n`;
   result += `\n`;
   result += `Bill No : ${billNumber}\n`;
   result += `Date : ${formattedDate}\n`;
@@ -348,53 +351,53 @@ export const formatWhatsAppReceipt = (
       const lineTotal = Number(item.amount || item.lineTotal || item.total || (Number(qty) * rate));
 
       result += `${index + 1}. ${itemName}${printTypeSuffix}${sidesSuffix}\n`;
-      result += `   Qty : ${qty} × ₹${rate.toFixed(2)} = ₹${lineTotal.toFixed(2)}\n\n`;
+      result += `   Qty : ${qty} × ${currency}${rate.toFixed(2)} = ${currency}${lineTotal.toFixed(2)}\n\n`;
     });
   } else {
     result += `No items\n\n`;
   }
 
   result += `${divider}\n\n`;
-  result += `Subtotal              ₹${Number(bill.subtotal || currentBill).toFixed(2)}\n`;
+  result += `Subtotal              ${currency}${Number(bill.subtotal || currentBill).toFixed(2)}\n`;
 
   const totalDiscount = Number(bill.discountAmount || 0) + Number(bill.promoDiscount || 0) + Number(bill.loyaltyDiscount || 0) + Number(bill.discount || bill.discount_value || 0);
   if (totalDiscount > 0) {
-    result += `Discount              -₹${totalDiscount.toFixed(2)}\n`;
+    result += `Discount              -${currency}${totalDiscount.toFixed(2)}\n`;
   }
 
   const gstAmount = Number(bill.gstAmount || bill.gst_amount || bill.tax || 0);
   if (gstAmount > 0) {
-    result += `GST                   +₹${gstAmount.toFixed(2)}\n`;
+    result += `${taxLabel}                   +${currency}${gstAmount.toFixed(2)}\n`;
   }
   result += `\n`;
-  result += `🧾 *Current Bill Total* ₹${currentBill.toFixed(2)}\n\n`;
+  result += `🧾 *Current Bill Total* ${currency}${currentBill.toFixed(2)}\n\n`;
 
   if (includePreviousDues) {
     result += `${divider}\n`;
     result += `*LEDGER SUMMARY*\n\n`;
-    result += `Previous Outstanding      ₹${previousOutstanding.toFixed(2)}\n`;
-    result += `Current Bill              ₹${currentBill.toFixed(2)}\n\n`;
-    result += `Total Amount Due          ₹${totalAmountDue.toFixed(2)}\n\n`;
+    result += `Previous Outstanding      ${currency}${previousOutstanding.toFixed(2)}\n`;
+    result += `Current Bill              ${currency}${currentBill.toFixed(2)}\n\n`;
+    result += `Total Amount Due          ${currency}${totalAmountDue.toFixed(2)}\n\n`;
   }
 
   result += `${divider}\n`;
   result += `*PAYMENT RECEIVED*\n\n`;
-  result += `Cash Paid                 ₹${cashPaid.toFixed(2)}\n`;
-  result += `UPI Paid                  ₹${upiPaid.toFixed(2)}\n`;
+  result += `Cash Paid                 ${currency}${cashPaid.toFixed(2)}\n`;
+  result += `UPI Paid                  ${currency}${upiPaid.toFixed(2)}\n`;
   if (advanceUsed > 0) {
-    result += `Advance Used              ₹${advanceUsed.toFixed(2)}\n`;
+    result += `Advance Used              ${currency}${advanceUsed.toFixed(2)}\n`;
   }
-  result += `\nPaid Now                  ₹${paidNow.toFixed(2)}\n\n`;
+  result += `\nPaid Now                  ${currency}${paidNow.toFixed(2)}\n\n`;
 
   result += `${divider}\n`;
   result += `*BALANCE SUMMARY*\n\n`;
   if (remainingBalance <= 0) {
     result += `Status                    Paid in Full\n\n`;
   } else {
-    result += `Remaining to Pay          ₹${remainingBalance.toFixed(2)}\n\n`;
+    result += `Remaining to Pay          ${currency}${remainingBalance.toFixed(2)}\n\n`;
   }
   if (includeAdvanceBalance && customerAdvanceBalance > 0) {
-    result += `Customer Advance Balance  ₹${customerAdvanceBalance.toFixed(2)}\n\n`;
+    result += `Customer Advance Balance  ${currency}${customerAdvanceBalance.toFixed(2)}\n\n`;
   }
 
   const pointsEarned = Number(bill.loyaltyPointsEarned !== undefined ? bill.loyaltyPointsEarned : (bill.pointsEarned !== undefined ? bill.pointsEarned : 0));
@@ -430,7 +433,7 @@ export const formatWhatsAppReceipt = (
 
   if (includeUpiPayLink && remainingBalance > 0 && upiId) {
     const upiLink = getUpiPaymentLink(upiId, shopName, remainingBalance, billNumber);
-    result += `💳 *Pay Online via UPI (Net Due: ₹${remainingBalance.toFixed(2)}):*\n${upiLink}\nUPI ID: ${upiId}\n\n`;
+    result += `💳 *Pay Online via UPI (Net Due: ${currency}${remainingBalance.toFixed(2)}):*\n${upiLink}\nUPI ID: ${upiId}\n\n`;
   }
 
   if (includePdfLink && pdfUrl) {
@@ -442,7 +445,7 @@ export const formatWhatsAppReceipt = (
   }
 
   result += `Thank you for visiting.\n`;
-  result += `Powered by PrintPro ERP`;
+  result += `Powered by ${shopName} ERP`;
 
   return result;
 };

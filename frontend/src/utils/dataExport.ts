@@ -95,6 +95,8 @@ export const exportInventoryToCSV = (inventory: any[], filename = 'inventory-exp
   const flatInventory = inventory.map((item) => ({
     'Item Code': item.itemCode || SequenceService.formatDisplayCode('inventory', item.id, 'ITM'),
     'Name': item.name,
+    'Type': item.type || 'product',
+    'Unit Price': item.unitPrice !== undefined ? item.unitPrice : (item.unit_price ?? item.sellingPrice ?? item.selling_price ?? 0),
     'Color Single': item.colorSingle !== undefined ? item.colorSingle : (item.color_single ?? 0),
     'Color Double': item.colorDouble !== undefined ? item.colorDouble : (item.color_double ?? 0),
     'B/W Single': item.bwSingle !== undefined ? item.bwSingle : (item.bw_single ?? 0),
