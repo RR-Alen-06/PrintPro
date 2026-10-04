@@ -694,16 +694,22 @@ export class StatementService {
   /**
    * Generates a formatted WhatsApp message summarizing the statement.
    */
-  static buildWhatsAppStatementMessage(statementData: CustomerStatementData): string {
+  static buildWhatsAppStatementMessage(
+    statementData: CustomerStatementData,
+    options?: { currency?: string; currencyCode?: string; enableUpi?: boolean }
+  ): string {
+    const currency = options?.currency || '₹';
+    const currencyCode = options?.currencyCode || 'INR';
+    const enableUpi = options?.enableUpi !== false;
     const netPeriodBalance = statementData.kpi.total_invoiced - statementData.kpi.total_paid;
     const currentDue = statementData.reconciliation.current_outstanding_balance;
     const upiId = statementData.store.upiId;
     const shopName = statementData.store.shopName || 'PrintPro';
     
     let upiSection = '';
-    if (currentDue > 0 && upiId) {
-      const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${currentDue.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Statement Due Settlement')}`;
-      upiSection = `\n*Quick Settle via UPI (GPay/PhonePe/Paytm):*\n${upiLink}\nUPI ID: \`${upiId}\`\n`;
+    if (currentDue > 0 && upiId && enableUpi) {
+      const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${currentDue.toFixed(2)}&cu=${currencyCode}&tn=${encodeURIComponent('Statement Due Settlement')}`;
+      upiSection = `\n*Quick Settle via UPI:*\n${upiLink}\nUPI ID: \`${upiId}\`\n`;
     }
 
     return (
@@ -711,14 +717,14 @@ export class StatementService {
       `Client: ${statementData.customer.name} (${statementData.customer.customer_code || ''})\n` +
       `Period: ${statementData.period.label}\n\n` +
       `*Summary:*\n` +
-      `• Total Invoiced: ₹${statementData.kpi.total_invoiced.toFixed(2)}\n` +
-      `• Total Paid: ₹${statementData.kpi.total_paid.toFixed(2)}\n` +
-      `• Net Period Balance: ₹${netPeriodBalance.toFixed(2)}\n` +
+      `• Total Invoiced: ${currency}${statementData.kpi.total_invoiced.toFixed(2)}\n` +
+      `• Total Paid: ${currency}${statementData.kpi.total_paid.toFixed(2)}\n` +
+      `• Net Period Balance: ${currency}${netPeriodBalance.toFixed(2)}\n` +
       `• Total Units Purchased: ${statementData.kpi.total_units_bought} Items\n\n` +
       `*Ledger Status:*\n` +
-      `• Current Outstanding Balance: ₹${currentDue.toFixed(2)}\n` +
+      `• Current Outstanding Balance: ${currency}${currentDue.toFixed(2)}\n` +
       (statementData.reconciliation.advance_balance > 0
-        ? `• Available Advance/Credit: ₹${statementData.reconciliation.advance_balance.toFixed(2)}\n`
+        ? `• Available Advance/Credit: ${currency}${statementData.reconciliation.advance_balance.toFixed(2)}\n`
         : '') +
       upiSection +
       `\nThank you for your business!`

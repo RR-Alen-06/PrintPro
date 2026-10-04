@@ -6,24 +6,31 @@ export interface ReminderBusinessInfo {
   upiId?: string;
   address?: string;
   email?: string;
+  currency?: string;
+  currencyCode?: string;
 }
 
 export interface ReminderSettings {
+  currency?: string;
+  currencyCode?: string;
+  enableUpi?: boolean;
+  taxLabel?: string;
   whatsappGreeting?: string;
   whatsappFooter?: string;
   includeUpiInWhatsApp?: boolean;
+  defaultCountryCode?: string;
 }
 
 export class ReminderService {
   /**
    * Cleans and sanitizes phone numbers for WhatsApp API links.
-   * Strips spaces, dashes, parentheses and adds default country code (91) if missing.
+   * Strips spaces, dashes, parentheses and adds default country code if missing.
    */
-  static cleanPhone(phone?: string | null): string {
+  static cleanPhone(phone?: string | null, defaultCountryCode = '91'): string {
     if (!phone) return '';
     let digits = phone.replace(/[^0-9]/g, '');
-    if (digits.length === 10) {
-      digits = '91' + digits;
+    if (digits.length === 10 && defaultCountryCode) {
+      digits = defaultCountryCode.replace(/[^0-9]/g, '') + digits;
     }
     return digits;
   }
@@ -31,8 +38,8 @@ export class ReminderService {
   /**
    * Generates a direct WhatsApp web/app link.
    */
-  static getWhatsAppUrl(phone: string, text: string): string {
-    const cleaned = this.cleanPhone(phone);
+  static getWhatsAppUrl(phone: string, text: string, defaultCountryCode?: string): string {
+    const cleaned = this.cleanPhone(phone, defaultCountryCode);
     const encoded = encodeURIComponent(text);
     return cleaned
       ? `https://api.whatsapp.com/send?phone=${cleaned}&text=${encoded}`
@@ -48,8 +55,9 @@ export class ReminderService {
     settings?: ReminderSettings
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
+    const curr = settings?.currency || business?.currency || '₹';
     const invCode = bill.invoiceNumber || bill.bill_number || `INV-${String(bill.id).slice(0, 6)}`;
-    const dateStr = bill.date ? new Date(bill.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const dateStr = bill.date ? new Date(bill.date).toLocaleDateString() : new Date().toLocaleDateString();
     const custName = bill.customerName || bill.customer_name || 'Valued Customer';
     const items = bill.items || [];
     const total = Number(bill.total !== undefined ? bill.total : (bill.grand_total || 0));
@@ -71,21 +79,23 @@ export class ReminderService {
         const name = it.name || it.description || `Item ${idx + 1}`;
         const qty = Number(it.qty || it.quantity || 1);
         const amt = Number(it.amount || it.total || (qty * (it.rate || 0)));
-        lines.push(`• ${name} × ${qty} = ₹${amt.toFixed(2)}`);
+        lines.push(`• ${name} × ${qty} = ${curr}${amt.toFixed(2)}`);
       });
       lines.push('');
     }
 
-    lines.push(`💰 *Total Amount:* ₹${total.toFixed(2)}`);
-    lines.push(`✅ *Amount Paid:* ₹${paid.toFixed(2)}`);
+    lines.push(`💰 *Total Amount:* ${curr}${total.toFixed(2)}`);
+    lines.push(`✅ *Amount Paid:* ${curr}${paid.toFixed(2)}`);
     if (balance > 0) {
-      lines.push(`⚠️ *Balance Due:* ₹${balance.toFixed(2)}`);
+      lines.push(`⚠️ *Balance Due:* ${curr}${balance.toFixed(2)}`);
     } else {
       lines.push(`🎉 *Payment Status:* FULLY PAID`);
     }
 
-    if (balance > 0 && business?.upiId && settings?.includeUpiInWhatsApp !== false) {
-      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${balance.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Invoice ${invCode}`)}`;
+    const showUpi = settings?.enableUpi !== false && settings?.includeUpiInWhatsApp !== false && Boolean(business?.upiId);
+    if (balance > 0 && showUpi && business?.upiId) {
+      const currCode = settings?.currencyCode || 'INR';
+      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${balance.toFixed(2)}&cu=${currCode}&tn=${encodeURIComponent(`Invoice ${invCode}`)}`;
       lines.push(`\n💳 *Pay Instantly via UPI:*`);
       lines.push(upiLink);
     }
@@ -108,6 +118,7 @@ export class ReminderService {
     settings?: ReminderSettings
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
+    const curr = settings?.currency || business?.currency || '₹';
     const custName = customer.name || 'Customer';
     const balDue = Math.abs(closingBalance);
 
@@ -120,10 +131,12 @@ export class ReminderService {
     lines.push(greeting);
     lines.push(`We hope you are having a wonderful day.`);
     lines.push(`This is a gentle reminder regarding your outstanding ledger balance with *${shop}*.\n`);
-    lines.push(`📊 *Outstanding Balance Due:* ₹${balDue.toFixed(2)}`);
+    lines.push(`📊 *Outstanding Balance Due:* ${curr}${balDue.toFixed(2)}`);
 
-    if (business?.upiId && settings?.includeUpiInWhatsApp !== false) {
-      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${balDue.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Ledger Balance Clear - ${custName}`)}`;
+    const showUpi = settings?.enableUpi !== false && settings?.includeUpiInWhatsApp !== false && Boolean(business?.upiId);
+    if (showUpi && business?.upiId) {
+      const currCode = settings?.currencyCode || 'INR';
+      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${balDue.toFixed(2)}&cu=${currCode}&tn=${encodeURIComponent(`Ledger Balance Clear - ${custName}`)}`;
       lines.push(`\n💳 *1-Click Instant UPI Payment:*`);
       lines.push(upiLink);
       lines.push(`_UPI ID: ${business.upiId}_`);
@@ -143,21 +156,23 @@ export class ReminderService {
   static buildAdvanceConfirmationMessage(
     advance: any,
     customer: any,
-    business?: ReminderBusinessInfo
+    business?: ReminderBusinessInfo,
+    settings?: ReminderSettings
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
+    const curr = settings?.currency || business?.currency || '₹';
     const custName = customer.name || 'Valued Customer';
     const isReturn = advance.isReturn || Number(advance.amount || 0) < 0;
     const amt = Math.abs(Number(advance.amount || 0));
     const ref = advance.id ? `ADV-${String(advance.id).slice(0, 6).toUpperCase()}` : 'ADV';
-    const dateStr = advance.date ? new Date(advance.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const dateStr = advance.date ? new Date(advance.date).toLocaleDateString() : new Date().toLocaleDateString();
 
     let lines: string[] = [];
     lines.push(`📑 *${shop.toUpperCase()} — ${isReturn ? 'REFUND RECEIPT' : 'ADVANCE DEPOSIT RECEIPT'}*`);
     lines.push(`Dear *${custName}*,`);
-    lines.push(`This confirms that an ${isReturn ? 'advance refund' : 'advance deposit'} of *₹${amt.toFixed(2)}* was recorded on *${dateStr}*.\n`);
+    lines.push(`This confirms that an ${isReturn ? 'advance refund' : 'advance deposit'} of *${curr}${amt.toFixed(2)}* was recorded on *${dateStr}*.\n`);
     lines.push(`• *Reference No:* ${ref}`);
-    lines.push(`• *Amount:* ₹${amt.toFixed(2)}`);
+    lines.push(`• *Amount:* ${curr}${amt.toFixed(2)}`);
     if (advance.notes) {
       lines.push(`• *Notes:* ${advance.notes}`);
     }
@@ -173,32 +188,34 @@ export class ReminderService {
       id?: string;
       date?: string;
       amount: number;
-      mode?: string; // 'cash' | 'upi' | 'advance' | 'store_credit'
+      mode?: string; // 'cash' | 'upi' | 'advance' | 'store_credit' | 'card' | 'bank_transfer'
       invoiceNumber?: string;
       notes?: string;
     },
     customer: any,
-    business?: ReminderBusinessInfo
+    business?: ReminderBusinessInfo,
+    settings?: ReminderSettings
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
+    const curr = settings?.currency || business?.currency || '₹';
     const custName = customer?.name || 'Valued Customer';
     const amt = Math.abs(Number(refund.amount || 0));
     const ref = refund.id ? `REF-${String(refund.id).slice(0, 6).toUpperCase()}` : 'REFUND';
-    const dateStr = refund.date ? new Date(refund.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const dateStr = refund.date ? new Date(refund.date).toLocaleDateString() : new Date().toLocaleDateString();
     const modeLabel = refund.mode === 'advance' || refund.mode === 'store_credit'
       ? 'STORE CREDIT / ADVANCE WALLET'
-      : (refund.mode === 'upi' ? 'UPI TRANSFER' : 'CASH REFUND');
+      : (refund.mode === 'upi' ? 'UPI TRANSFER' : (refund.mode === 'card' ? 'CARD REFUND' : (refund.mode === 'bank_transfer' ? 'BANK TRANSFER' : 'CASH REFUND')));
 
     let lines: string[] = [];
     lines.push(`💳 *${shop.toUpperCase()} — REFUND VOUCHER*`);
     lines.push(`Dear *${custName}*,`);
-    lines.push(`This confirms that a refund of *₹${amt.toFixed(2)}* has been processed on *${dateStr}*.\n`);
+    lines.push(`This confirms that a refund of *${curr}${amt.toFixed(2)}* has been processed on *${dateStr}*.\n`);
     lines.push(`• *Voucher Reference:* ${ref}`);
     if (refund.invoiceNumber) {
       lines.push(`• *Original Invoice:* #${refund.invoiceNumber}`);
     }
     lines.push(`• *Refund Mode:* ${modeLabel}`);
-    lines.push(`• *Refunded Amount:* ₹${amt.toFixed(2)}`);
+    lines.push(`• *Refunded Amount:* ${curr}${amt.toFixed(2)}`);
     if (refund.notes) {
       lines.push(`• *Reason / Notes:* ${refund.notes}`);
     }
@@ -229,9 +246,10 @@ export class ReminderService {
     settings?: ReminderSettings
   ): string {
     const shop = business?.shopName || 'PrintPro Studio';
+    const curr = settings?.currency || business?.currency || '₹';
     const custName = customer?.name || 'Valued Customer';
     const custCode = customer?.customerCode || (customer?.id ? SequenceService.formatDisplayCode('customer', customer, 'CUS') : '');
-    const dateStr = new Date().toLocaleDateString('en-IN');
+    const dateStr = new Date().toLocaleDateString();
     const isDue = summary.finalBalance > 0;
     const isCredit = summary.finalBalance < 0;
 
@@ -239,25 +257,27 @@ export class ReminderService {
     lines.push(`📊 *${shop.toUpperCase()} — ACCOUNT STATEMENT*`);
     lines.push(`Dear *${custName}* ${custCode ? `(${custCode})` : ''},`);
     lines.push(`Here is your latest account statement summary as of *${dateStr}*${summary.period && summary.period !== 'all' ? ` (${summary.period.toUpperCase()})` : ''}:\n`);
-    lines.push(`• *Total Invoiced (Debits):* ₹${summary.totalDebits.toFixed(2)}`);
-    lines.push(`• *Total Paid (Credits):* ₹${summary.totalCredits.toFixed(2)}`);
+    lines.push(`• *Total Invoiced (Debits):* ${curr}${summary.totalDebits.toFixed(2)}`);
+    lines.push(`• *Total Paid (Credits):* ${curr}${summary.totalCredits.toFixed(2)}`);
     if (summary.totalAdvanceIn && summary.totalAdvanceIn > 0) {
-      lines.push(`• *Advance Deposited:* ₹${summary.totalAdvanceIn.toFixed(2)}`);
+      lines.push(`• *Advance Deposited:* ${curr}${summary.totalAdvanceIn.toFixed(2)}`);
     }
     if (summary.totalAdvanceUsed && summary.totalAdvanceUsed > 0) {
-      lines.push(`• *Advance Used:* ₹${summary.totalAdvanceUsed.toFixed(2)}`);
+      lines.push(`• *Advance Used:* ${curr}${summary.totalAdvanceUsed.toFixed(2)}`);
     }
     lines.push(`------------------------`);
     if (isDue) {
-      lines.push(`⚠️ *Net Balance Due:* *₹${summary.finalBalance.toFixed(2)}*`);
+      lines.push(`⚠️ *Net Balance Due:* *${curr}${summary.finalBalance.toFixed(2)}*`);
     } else if (isCredit) {
-      lines.push(`🎉 *Advance Credit Balance:* *₹${Math.abs(summary.finalBalance).toFixed(2)}* (Available for future bills)`);
+      lines.push(`🎉 *Advance Credit Balance:* *${curr}${Math.abs(summary.finalBalance).toFixed(2)}* (Available for future bills)`);
     } else {
-      lines.push(`✅ *Net Balance:* *₹0.00* (All Settled)`);
+      lines.push(`✅ *Net Balance:* *${curr}0.00* (All Settled)`);
     }
 
-    if (isDue && business?.upiId && settings?.includeUpiInWhatsApp !== false) {
-      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${summary.finalBalance.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Statement Pay - ${custName}`)}`;
+    const showUpi = settings?.enableUpi !== false && settings?.includeUpiInWhatsApp !== false && Boolean(business?.upiId);
+    if (isDue && showUpi && business?.upiId) {
+      const currCode = settings?.currencyCode || 'INR';
+      const upiLink = `upi://pay?pa=${encodeURIComponent(business.upiId)}&pn=${encodeURIComponent(shop)}&am=${summary.finalBalance.toFixed(2)}&cu=${currCode}&tn=${encodeURIComponent(`Statement Pay - ${custName}`)}`;
       lines.push(`\n💳 *Instant 1-Click UPI Payment:*`);
       lines.push(upiLink);
       lines.push(`_UPI ID: ${business.upiId}_`);
@@ -275,4 +295,5 @@ export class ReminderService {
     return lines.join('\n');
   }
 }
+
 

@@ -15,21 +15,30 @@ export const customerSchema = z.object({
 export const inventoryItemSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   name: z.string().min(1, 'Item name is required'),
+  unit_price: z.number().nonnegative().optional().default(0),
+  price: z.number().nonnegative().optional(),
+  category: z.string().optional().default(''),
+  sku: z.string().optional().default(''),
   color_single: z.number().nonnegative().optional().default(0),
   color_double: z.number().nonnegative().optional().default(0),
   bw_single: z.number().nonnegative().optional().default(0),
   bw_double: z.number().nonnegative().optional().default(0),
-  stock: z.number().int().nonnegative().optional().default(0),
-  low_stock_alert: z.number().int().nonnegative().optional().default(50)
+  stock: z.number().int().optional().default(0),
+  low_stock_alert: z.number().int().optional().default(0),
+  attributes: z.record(z.string(), z.any()).optional().default({}),
+  pricing_tiers: z.array(z.any()).optional().default([]),
 });
 
 export const billItemSchema = z.object({
   item_name: z.string().min(1, 'Item name is required'),
-  print_type: z.enum(['color', 'bw']).default('color'),
-  sides: z.enum(['single', 'double']).default('single'),
-  qty: z.number().int().positive('Quantity must be at least 1'),
+  item_type: z.string().optional().default('product'),
+  print_type: z.string().optional(),
+  sides: z.string().optional(),
+  pages: z.number().optional().default(1),
+  qty: z.number().positive('Quantity must be at least 1'),
   unit_price: z.number().nonnegative('Unit price cannot be negative'),
-  amount: z.number().nonnegative()
+  amount: z.number().nonnegative(),
+  attributes: z.record(z.string(), z.any()).optional()
 });
 
 export const billSchema = z.object({
@@ -61,14 +70,19 @@ export const billSchema = z.object({
 export const updateBillSchema = billSchema.partial();
 
 export const paymentSchema = z.object({
-  bill_id: z.string().min(1, 'Bill ID is required'),
-  customer_id: z.string().min(1, 'Customer ID is required'),
-  cash_amount: z.number().nonnegative().default(0),
-  upi_amount: z.number().nonnegative().default(0),
+  bill_id: z.string().optional().nullable(),
+  customer_id: z.string().optional().nullable(),
+  cash_amount: z.number().nonnegative().optional().default(0),
+  upi_amount: z.number().nonnegative().optional().default(0),
+  card_amount: z.number().nonnegative().optional().default(0),
+  bank_transfer_amount: z.number().nonnegative().optional().default(0),
+  cheque_amount: z.number().nonnegative().optional().default(0),
   total_paid: z.number().positive('Total paid must be greater than 0'),
+  payment_mode: z.string().optional().default('cash'),
   payment_type: z.enum(['full', 'partial']).default('partial'),
+  date: z.string().optional(),
   notes: z.string().optional().default('')
-});
+}).passthrough();
 
 export const groupSettlementSchema = z.object({
   group_bill_id: z.string().min(1, 'Group Bill ID is required'),

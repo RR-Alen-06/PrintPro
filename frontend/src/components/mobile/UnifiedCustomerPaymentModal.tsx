@@ -78,8 +78,11 @@ export default function UnifiedCustomerPaymentModal({
     }
   }, [defaultMode, targetBill, totalOutstanding, isOpen])
 
-  // Payment Channel: 'cash' | 'upi' | 'split' | 'advance'
-  const [payChannel, setPayChannel] = useState<'cash' | 'upi' | 'split' | 'advance'>('cash')
+  // Payment Channel: 'cash' | 'upi' | 'card' | 'bank' | 'split' | 'advance'
+  const [payChannel, setPayChannel] = useState<'cash' | 'upi' | 'card' | 'bank' | 'split' | 'advance'>('cash')
+
+  const currency = (settings?.currency || business?.currency || '₹') as string
+  const isUpiEnabled = settings?.enableUpi !== false && settings?.showUpiQrCode !== false && business?.enableUpi !== false
 
   // Form inputs
   const [cashAmount, setCashAmount] = useState('')
@@ -122,13 +125,23 @@ export default function UnifiedCustomerPaymentModal({
     return 0
   }, [payChannel, upiAmount, singleAmount])
 
+  const computedCard = useMemo(() => {
+    if (payChannel === 'card') return Number(singleAmount || 0)
+    return 0
+  }, [payChannel, singleAmount])
+
+  const computedBank = useMemo(() => {
+    if (payChannel === 'bank') return Number(singleAmount || 0)
+    return 0
+  }, [payChannel, singleAmount])
+
   const computedAdvanceUsed = useMemo(() => {
     if (mode === 'advance') return 0
     if (payChannel === 'advance') return Number(singleAmount || 0)
     return Number(advanceUsedAmount || 0)
   }, [mode, payChannel, singleAmount, advanceUsedAmount])
 
-  const totalInflow = computedCash + computedUpi
+  const totalInflow = computedCash + computedUpi + computedCard + computedBank
   const totalApplied = totalInflow + computedAdvanceUsed
 
   // Real-time breakdown calculations
@@ -181,6 +194,7 @@ export default function UnifiedCustomerPaymentModal({
       }
 
       setIsSubmitting(true)
+      const primaryMode = payChannel === 'bank' ? 'bank_transfer' : payChannel
       try {
         await addAdvancePayment({
           customerId: customer.id,
@@ -188,9 +202,9 @@ export default function UnifiedCustomerPaymentModal({
           amount: totalInflow,
           cashAmount: computedCash,
           upiAmount: computedUpi,
-          paymentMethod: payChannel === 'split' ? 'split' : (payChannel === 'upi' ? 'upi' : 'cash'),
+          paymentMethod: primaryMode,
           date: new Date().toISOString().slice(0, 10),
-          notes: notes || `Direct Customer Advance Deposit (Cash: ₹${computedCash}, UPI: ₹${computedUpi})`,
+          notes: notes || `Direct Customer Advance Deposit (${primaryMode.toUpperCase()} - ${currency}${totalInflow.toFixed(2)})`,
         })
 
         const newBal = Number((customerAdvance + totalInflow).toFixed(2))
@@ -209,7 +223,7 @@ export default function UnifiedCustomerPaymentModal({
         queryClient.invalidateQueries({ queryKey: ['payments'] })
         queryClient.invalidateQueries({ queryKey: ['advance_payments'] })
 
-        showToast(`Added ₹${totalInflow.toFixed(2)} to ${customer.name}'s advance wallet!`, 'success')
+        showToast(`Added ${currency}${totalInflow.toFixed(2)} to ${customer.name}'s advance wallet!`, 'success')
         if (onSuccess) onSuccess()
         onClose()
       } catch (err: any) {
@@ -283,6 +297,7 @@ export default function UnifiedCustomerPaymentModal({
         })
       }
 
+      const primaryMode = payChannel === 'bank' ? 'bank_transfer' : payChannel
       // 3. Record Payment transaction
       await createPayment({
         customer_id: customer.id,
@@ -290,11 +305,14 @@ export default function UnifiedCustomerPaymentModal({
         date: new Date().toISOString().slice(0, 10),
         cash_amount: computedCash,
         upi_amount: computedUpi,
+        card_amount: computedCard,
+        bank_transfer_amount: computedBank,
+        payment_mode: primaryMode,
         total_paid: totalApplied,
         payment_type: breakdown.remainingDues === 0 ? 'full' : 'partial',
         notes: notes || (targetBill
-          ? `Bill #${targetBill.billNumber || targetBill.invoiceNumber || targetBill.id} Payment (Cash: ₹${computedCash}, UPI: ₹${computedUpi}, Advance: ₹${computedAdvanceUsed})`
-          : `Customer Dues Settlement (Cash: ₹${computedCash}, UPI: ₹${computedUpi}, Advance: ₹${computedAdvanceUsed})`
+          ? `Bill #${targetBill.billNumber || targetBill.invoiceNumber || targetBill.id} Payment (${primaryMode.toUpperCase()} - ${currency}${totalApplied.toFixed(2)})`
+          : `Customer Dues Settlement (${primaryMode.toUpperCase()} - ${currency}${totalApplied.toFixed(2)})`
         ),
       })
 
@@ -304,7 +322,7 @@ export default function UnifiedCustomerPaymentModal({
       queryClient.invalidateQueries({ queryKey: ['payments'] })
       queryClient.invalidateQueries({ queryKey: ['advance_payments'] })
 
-      showToast(`Settled ₹${breakdown.clearedDues.toFixed(2)} successfully!${breakdown.surplus > 0 ? ` (₹${breakdown.surplus.toFixed(2)} deposited to Advance)` : ''}`, 'success')
+      showToast(`Settled ${currency}${breakdown.clearedDues.toFixed(2)} successfully!${breakdown.surplus > 0 ? ` (${currency}${breakdown.surplus.toFixed(2)} deposited to Advance)` : ''}`, 'success')
       if (onSuccess) onSuccess()
       onClose()
     } catch (err: any) {
@@ -395,27 +413,45 @@ export default function UnifiedCustomerPaymentModal({
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               {mode === 'settle' ? 'PAYMENT CHANNEL' : 'DEPOSIT METHOD'}
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: mode === 'settle' ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(65px, 1fr))', gap: '6px' }}>
               <button
                 type="button"
                 className={`mobile-btn ${payChannel === 'cash' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                style={{ minHeight: '38px', fontSize: '0.78rem', padding: '4px' }}
+                style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px' }}
                 onClick={() => setPayChannel('cash')}
               >
                 Cash
               </button>
+              {isUpiEnabled && (
+                <button
+                  type="button"
+                  className={`mobile-btn ${payChannel === 'upi' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                  style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px' }}
+                  onClick={() => setPayChannel('upi')}
+                >
+                  UPI
+                </button>
+              )}
               <button
                 type="button"
-                className={`mobile-btn ${payChannel === 'upi' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                style={{ minHeight: '38px', fontSize: '0.78rem', padding: '4px' }}
-                onClick={() => setPayChannel('upi')}
+                className={`mobile-btn ${payChannel === 'card' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px' }}
+                onClick={() => setPayChannel('card')}
               >
-                UPI
+                Card
+              </button>
+              <button
+                type="button"
+                className={`mobile-btn ${payChannel === 'bank' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
+                style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px' }}
+                onClick={() => setPayChannel('bank')}
+              >
+                Bank
               </button>
               <button
                 type="button"
                 className={`mobile-btn ${payChannel === 'split' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                style={{ minHeight: '38px', fontSize: '0.78rem', padding: '4px' }}
+                style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px' }}
                 onClick={() => setPayChannel('split')}
               >
                 Split
@@ -425,7 +461,7 @@ export default function UnifiedCustomerPaymentModal({
                   type="button"
                   disabled={customerAdvance <= 0}
                   className={`mobile-btn ${payChannel === 'advance' ? 'mobile-btn-primary' : 'mobile-btn-secondary'}`}
-                  style={{ minHeight: '38px', fontSize: '0.78rem', padding: '4px', opacity: customerAdvance <= 0 ? 0.4 : 1 }}
+                  style={{ minHeight: '36px', fontSize: '0.75rem', padding: '4px', opacity: customerAdvance <= 0 ? 0.4 : 1 }}
                   onClick={() => setPayChannel('advance')}
                 >
                   Advance

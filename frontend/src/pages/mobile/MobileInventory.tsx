@@ -9,7 +9,7 @@ import { Inbox, Plus, Pencil, Trash2, Search, Loader2, AlertCircle } from 'lucid
 import { SequenceService } from '../../services/sequenceService'
 import '../../styles/mobile.css'
 
-const InventoryRow = React.memo(({ item, index, onEdit, onDelete }: any) => {
+const InventoryRow = React.memo(({ item, index, currencySymbol = '₹', onEdit, onDelete }: any) => {
   const isProduct = item.type === 'product'
   const hasCleanCode = item.itemCode && typeof item.itemCode === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(item.itemCode);
   const hasCleanDbCode = item.item_code && typeof item.item_code === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(item.item_code);
@@ -60,16 +60,16 @@ const InventoryRow = React.memo(({ item, index, onEdit, onDelete }: any) => {
         <div style={{ background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Selling Price:</span>
           <strong className="currency-num" style={{ fontSize: '1rem', color: 'var(--success)' }}>
-            ₹{Number(item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || 0)).toFixed(2)}
+            {currencySymbol}{Number(item.unitPrice !== undefined ? item.unitPrice : (item.sellingPrice !== undefined ? item.sellingPrice : (item.selling_price || item.unit_price || 0))).toFixed(2)}
           </strong>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-input)', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>₹{Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)).toFixed(2)}</strong>
+            Color 1S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>{currencySymbol}{Number(item.colorSingle !== undefined ? item.colorSingle : (item.color_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: 'var(--accent-primary)' }}>{currencySymbol}{Number(item.colorDouble !== undefined ? item.colorDouble : (item.color_double || 0)).toFixed(2)}</strong>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>₹{Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)).toFixed(2)}</strong>
+            B/W 1S: <strong className="currency-num" style={{ color: '#ffffff' }}>{currencySymbol}{Number(item.bwSingle !== undefined ? item.bwSingle : (item.bw_single || 0)).toFixed(2)}</strong> | 2S: <strong className="currency-num" style={{ color: '#ffffff' }}>{currencySymbol}{Number(item.bwDouble !== undefined ? item.bwDouble : (item.bw_double || 0)).toFixed(2)}</strong>
           </div>
         </div>
       )}
@@ -81,6 +81,7 @@ InventoryRow.displayName = 'InventoryRow'
 
 export default function MobileInventory() {
   const { showToast, settings } = useAppContext()
+  const currencySymbol = settings?.currency || '₹'
 
   // TanStack Query & Mutations
   const { data: serverInventory = [], isLoading: isLoadingInventory, isError, error } = useInventory()
@@ -96,13 +97,24 @@ export default function MobileInventory() {
   }, [serverInventory, settings?.itmPrefix, settings?.seqPadding])
 
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterType, setFilterType] = useState('all') // 'all' | 'print' | 'product'
+  const [filterType, setFilterType] = useState('all') // 'all' | category name
   const [showAddModal, setShowAddModal] = useState(false)
-  const [editingItem, setEditingItem] = useState(null)
+  const [editingItem, setEditingItem] = useState<any>(null)
+
+  const availableCategories: string[] = useMemo(() => {
+    const fromSettings = settings?.customCategories || ['Standard Print', 'Document Services', 'Binding & Lamination', 'Merchandise', 'Design & Scanning']
+    return ['all', ...fromSettings]
+  }, [settings?.customCategories])
+
+  const availableUnits: string[] = useMemo(() => {
+    return settings?.customUnits || ['pages', 'pcs', 'copies', 'sets', 'sq ft', 'books', 'meters', 'hrs']
+  }, [settings?.customUnits])
 
   // Form State
   const [formName, setFormName] = useState('')
-  const [formType, setFormType] = useState('print') // 'print' | 'product'
+  const [formType, setFormType] = useState('product') // 'print' | 'product'
+  const [formCategory, setFormCategory] = useState('')
+  const [formUnit, setFormUnit] = useState('')
   const [sellingPrice, setSellingPrice] = useState('')
   const [colorSingle, setColorSingle] = useState('')
   const [colorDouble, setColorDouble] = useState('')
@@ -113,21 +125,25 @@ export default function MobileInventory() {
   const openAddModal = useCallback(() => {
     setEditingItem(null)
     setFormName('')
-    setFormType('print')
+    setFormType('product')
+    setFormCategory(availableCategories[1] || 'Standard Print')
+    setFormUnit(availableUnits[0] || 'pcs')
     setSellingPrice('')
-    setColorSingle('10')
-    setColorDouble('18')
-    setBwSingle('3')
-    setBwDouble('5')
+    setColorSingle('')
+    setColorDouble('')
+    setBwSingle('')
+    setBwDouble('')
     setHsnCode('')
     setShowAddModal(true)
-  }, [])
+  }, [availableCategories, availableUnits])
 
-  const openEditModal = useCallback((item) => {
+  const openEditModal = useCallback((item: any) => {
     setEditingItem(item)
     setFormName(item.name || '')
-    setFormType(item.type || 'print')
-    setSellingPrice(item.sellingPrice !== undefined ? String(item.sellingPrice) : (item.selling_price !== undefined ? String(item.selling_price) : ''))
+    setFormType(item.type || 'product')
+    setFormCategory(item.category || item.category_name || '')
+    setFormUnit(item.unit || item.measurement_unit || '')
+    setSellingPrice(item.unitPrice !== undefined ? String(item.unitPrice) : (item.sellingPrice !== undefined ? String(item.sellingPrice) : (item.selling_price !== undefined ? String(item.selling_price) : '')))
     setColorSingle(item.colorSingle !== undefined ? String(item.colorSingle) : (item.color_single !== undefined ? String(item.color_single) : ''))
     setColorDouble(item.colorDouble !== undefined ? String(item.colorDouble) : (item.color_double !== undefined ? String(item.color_double) : ''))
     setBwSingle(item.bwSingle !== undefined ? String(item.bwSingle) : (item.bw_single !== undefined ? String(item.bw_single) : ''))
@@ -139,11 +155,13 @@ export default function MobileInventory() {
   const filteredItems = useMemo(() => {
     return (Array.isArray(serverInventory) ? serverInventory : []).filter(item => {
       if (!item || item.deleted || item.deleted_at) return false
-      if (filterType === 'print' && (item.type || 'print') !== 'print') return false
-      if (filterType === 'product' && item.type !== 'product') return false
+      if (filterType !== 'all') {
+        const itemCat = item.category || (item.type === 'print' ? 'Standard Print' : 'Product')
+        if (itemCat !== filterType && item.type !== filterType) return false
+      }
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim()
-        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || item.hsn_code || '').toLowerCase().includes(q)
+        return (item.name || '').toLowerCase().includes(q) || (item.hsnCode || item.hsn_code || '').toLowerCase().includes(q) || (item.category || '').toLowerCase().includes(q)
       }
       return true
     }).sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { numeric: true }))
@@ -185,10 +203,14 @@ export default function MobileInventory() {
       item_code: generatedItemCode,
       itemCode: generatedItemCode,
       type: formType,
+      category: formCategory,
+      unit: formUnit,
       hsn_code: hsn,
       hsnCode: hsn || '',
       selling_price: sp,
       sellingPrice: sp,
+      unit_price: sp,
+      unitPrice: sp,
       color_single: cs,
       colorSingle: cs,
       color_double: cd,
@@ -212,7 +234,7 @@ export default function MobileInventory() {
       showToast(err.message || 'Failed to save catalog item', 'error')
     }
   }, [
-    formName, formType, sellingPrice, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
+    formName, formType, formCategory, formUnit, sellingPrice, hsnCode, colorSingle, colorDouble, bwSingle, bwDouble,
     editingItem, serverInventory, createItem, updateItem, showToast
   ])
 
@@ -248,27 +270,23 @@ export default function MobileInventory() {
 
       {/* Category Pills */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', overflowX: 'auto' }}>
-        {[
-          { id: 'all', label: 'All Catalog' },
-          { id: 'print', label: 'Print Papers' },
-          { id: 'product', label: 'Products & Services' },
-        ].map(t => (
+        {availableCategories.map(cat => (
           <button
-            key={t.id}
-            onClick={() => setFilterType(t.id)}
+            key={cat}
+            onClick={() => setFilterType(cat)}
             style={{
               padding: '6px 12px',
               borderRadius: 'var(--radius-full)',
               fontSize: '0.75rem',
               fontWeight: 700,
               whiteSpace: 'nowrap',
-              border: filterType === t.id ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
-              background: filterType === t.id ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-card)',
-              color: filterType === t.id ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              border: filterType === cat ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+              background: filterType === cat ? 'rgba(255, 47, 176, 0.15)' : 'var(--bg-card)',
+              color: filterType === cat ? 'var(--accent-primary)' : 'var(--text-secondary)',
               cursor: 'pointer'
             }}
           >
-            {t.label}
+            {cat === 'all' ? 'All Catalog' : cat}
           </button>
         ))}
       </div>
@@ -297,6 +315,7 @@ export default function MobileInventory() {
               key={item.id || index}
               item={item}
               index={index}
+              currencySymbol={currencySymbol}
               onEdit={openEditModal}
               onDelete={handleDelete}
             />
@@ -314,21 +333,49 @@ export default function MobileInventory() {
             </div>
           )}
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM TYPE</label>
-            <select
-              className="mobile-input"
-              value={formType}
-              onChange={(e) => setFormType(e.target.value)}
-            >
-              <option value="print">Print Paper Size</option>
-              <option value="product">Standard Product / Service</option>
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM TYPE</label>
+              <select
+                className="mobile-input"
+                value={formType}
+                onChange={(e) => setFormType(e.target.value)}
+              >
+                <option value="product">Standard Product / Service</option>
+                <option value="print">Print Specification</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>CATEGORY</label>
+              <select
+                className="mobile-input"
+                value={formCategory}
+                onChange={(e) => setFormCategory(e.target.value)}
+              >
+                {availableCategories.filter(c => c !== 'all').map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM NAME</label>
-            <input type="text" className="mobile-input" placeholder="e.g. A4 75GSM, Spiral Binding" value={formName} onChange={(e) => setFormName(e.target.value)} required />
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>ITEM NAME</label>
+              <input type="text" className="mobile-input" placeholder="e.g. Document Print, Spiral Binding" value={formName} onChange={(e) => setFormName(e.target.value)} required />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>UNIT</label>
+              <select
+                className="mobile-input"
+                value={formUnit}
+                onChange={(e) => setFormUnit(e.target.value)}
+              >
+                {availableUnits.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
@@ -338,7 +385,7 @@ export default function MobileInventory() {
 
           {formType === 'product' ? (
             <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>SELLING PRICE (₹)</label>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>SELLING PRICE ({currencySymbol})</label>
               <input
                 type="number"
                 step="0.01"
@@ -353,20 +400,20 @@ export default function MobileInventory() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR SINGLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={colorSingle} onChange={(e) => setColorSingle(e.target.value)} required />
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR SINGLE ({currencySymbol})</label>
+                <input type="number" step="0.01" className="mobile-input currency-num" value={colorSingle} onChange={(e) => setColorSingle(e.target.value)} required />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR DOUBLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={colorDouble} onChange={(e) => setColorDouble(e.target.value)} required />
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>COLOR DOUBLE ({currencySymbol})</label>
+                <input type="number" step="0.01" className="mobile-input currency-num" value={colorDouble} onChange={(e) => setColorDouble(e.target.value)} required />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W SINGLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={bwSingle} onChange={(e) => setBwSingle(e.target.value)} required />
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W SINGLE ({currencySymbol})</label>
+                <input type="number" step="0.01" className="mobile-input currency-num" value={bwSingle} onChange={(e) => setBwSingle(e.target.value)} required />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W DOUBLE (₹)</label>
-                <input type="number" step="0.1" className="mobile-input currency-num" value={bwDouble} onChange={(e) => setBwDouble(e.target.value)} required />
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>B/W DOUBLE ({currencySymbol})</label>
+                <input type="number" step="0.01" className="mobile-input currency-num" value={bwDouble} onChange={(e) => setBwDouble(e.target.value)} required />
               </div>
             </div>
           )}
