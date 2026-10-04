@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "node --watch server.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "audit-check": "npm audit --audit-level=high"
@@ -22,11 +22,18 @@
     "jwks-rsa": "^4.0.1",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.21.0",
+    "printpro-root": "file:..",
     "xss": "^1.0.15"
   },
   "devDependencies": {
     "eslint": "^10.5.0",
-    "eslint-plugin-security": "^4.0.1",
-    "nodemon": "^3.1.9"
+    "eslint-plugin-security": "^4.0.1"
+  },
+  "overrides": {
+    "qs": "^6.16.0",
+    "braces": "^3.0.3",
+    "brace-expansion": "^2.0.1",
+    "ip-address": "^10.7.3",
+    "body-parser": "^1.20.6"
   }
 }
