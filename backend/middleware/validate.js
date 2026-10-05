@@ -126,6 +126,91 @@ const validateBill = [
   handleValidationErrors,
 ];
 
+const validateBillUpdate = [
+  body('customer_id')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Customer ID cannot be empty'),
+  body('date')
+    .optional()
+    .isISO8601()
+    .withMessage('Bill date must be in YYYY-MM-DD format'),
+  body('due_date')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Due date must be in YYYY-MM-DD format'),
+  body('subtotal')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Subtotal must be a positive number'),
+  body('discount_type')
+    .optional()
+    .isIn(['percent', 'flat'])
+    .withMessage('Discount type must be "percent" or "flat"'),
+  body('discount_value')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Discount value must be a positive number'),
+  body('gst_percent')
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage('GST percent must be between 0 and 100'),
+  body('gst_amount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('GST amount must be a positive number'),
+  body('total')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Total must be a positive number'),
+  body('amount_paid')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Amount paid must be a positive number'),
+  body('balance')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Balance must be a positive number'),
+  body('status')
+    .optional()
+    .isIn(['unpaid', 'partial', 'paid'])
+    .withMessage('Invalid bill status value'),
+  body('notes')
+    .optional()
+    .trim(),
+  body('items')
+    .optional()
+    .isArray()
+    .withMessage('Items must be an array'),
+  body('items.*.name')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Item name cannot be empty'),
+  body('items.*.print_type')
+    .optional()
+    .isIn(['color', 'bw'])
+    .withMessage('Print type must be either "color" or "bw"'),
+  body('items.*.sides')
+    .optional()
+    .isIn(['single', 'double'])
+    .withMessage('Sides must be either "single" or "double"'),
+  body('items.*.qty')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Quantity must be an integer greater than 0'),
+  body('items.*.unit_price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Unit price must be a positive number'),
+  body('items.*.amount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Item total amount must be a positive number'),
+  handleValidationErrors,
+];
+
 const validatePayment = [
   body('bill_id')
     .trim()
@@ -137,18 +222,19 @@ const validatePayment = [
     .withMessage('Customer ID is required'),
   body('cash_amount')
     .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Cash amount must be a positive number'),
+    .isFloat()
+    .withMessage('Cash amount must be a number'),
   body('upi_amount')
     .optional()
-    .isFloat({ min: 0 })
-    .withMessage('UPI amount must be a positive number'),
+    .isFloat()
+    .withMessage('UPI amount must be a number'),
   body('total_paid')
-    .isFloat({ min: 0 })
-    .withMessage('Total paid must be a positive number'),
+    .isFloat()
+    .withMessage('Total paid must be a number'),
   body('payment_type')
-    .isIn(['full', 'partial'])
-    .withMessage('Payment type must be "full" or "partial"'),
+    .optional()
+    .isIn(['full', 'partial', 'refund'])
+    .withMessage('Payment type must be "full", "partial", or "refund"'),
   body('notes')
     .optional()
     .trim(),
@@ -220,6 +306,18 @@ const validatePurchase = [
   body('notes')
     .optional()
     .trim(),
+  body('vendor_name')
+    .optional()
+    .trim()
+    .isLength({ max: 100 }),
+  body('payment_method')
+    .optional()
+    .trim(),
+  body('upi_ref')
+    .optional()
+    .trim(),
+  body('session_id')
+    .optional(),
   handleValidationErrors,
 ];
 
@@ -258,6 +356,7 @@ const validateProfile = [
 module.exports = {
   validateCustomer,
   validateBill,
+  validateBillUpdate,
   validatePayment,
   validateInventoryItem,
   validatePurchase,

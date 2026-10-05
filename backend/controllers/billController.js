@@ -288,7 +288,8 @@ async function updateBill(req, res, next) {
     const { id } = req.params;
     const {
       customer_id, date, due_date, items,
-      discount_type, discount_value, gst_percent, notes
+      discount_type, discount_value, gst_percent, notes,
+      status: reqStatus, balance: reqBalance, amount_paid: reqAmountPaid, total: reqTotal, subtotal: reqSubtotal
     } = req.body;
 
     const [existing] = await conn.query('SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, req.user.id]);
@@ -305,10 +306,16 @@ async function updateBill(req, res, next) {
     const updatedDueDate = due_date !== undefined ? (due_date || null) : oldBill.due_date;
     const updatedNotes = notes !== undefined ? notes : oldBill.notes;
 
-    let subtotal = oldBill.subtotal;
+    let subtotal = reqSubtotal !== undefined ? parseFloat(reqSubtotal) : parseFloat(oldBill.subtotal);
     const discType = discount_type || oldBill.discount_type;
     const discVal = discount_value !== undefined ? parseFloat(discount_value) : parseFloat(oldBill.discount_value);
     const gstPct = gst_percent !== undefined ? parseFloat(gst_percent) : parseFloat(oldBill.gst_percent);
+    let amountPaid = reqAmountPaid !== undefined ? parseFloat(reqAmountPaid) : parseFloat(oldBill.amount_paid);
+
+    let total = reqTotal !== undefined ? parseFloat(reqTotal) : parseFloat(oldBill.total);
+    let balance = reqBalance !== undefined ? parseFloat(reqBalance) : parseFloat(oldBill.balance);
+    let status = reqStatus || oldBill.status;
+    let gstAmount = parseFloat(oldBill.gst_amount || 0);
 
     // If items are provided, recalculate
     if (items && items.length > 0) {
@@ -322,34 +329,45 @@ async function updateBill(req, res, next) {
         await conn.query(
           `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, id, item.item_name, item.print_type, item.sides, item.qty, item.unit_price, amount]
+          [req.user.id, id, item.name || item.item_name, item.print_type, item.sides, item.qty, item.unit_price, amount]
         );
       }
       subtotal = parseFloat(subtotal.toFixed(2));
+
+      // Recalculate totals
+      let discountAmount = 0;
+      if (discType === 'percent') {
+        discountAmount = parseFloat(((subtotal * discVal) / 100).toFixed(2));
+      } else {
+        discountAmount = discVal;
+      }
+
+      const afterDiscount = parseFloat((subtotal - discountAmount).toFixed(2));
+      gstAmount = parseFloat(((afterDiscount * gstPct) / 100).toFixed(2));
+      total = parseFloat((afterDiscount + gstAmount).toFixed(2));
+      balance = parseFloat((total - amountPaid).toFixed(2));
+
+      if (reqStatus) {
+        status = reqStatus;
+      } else if (balance <= 0) {
+        status = 'paid';
+      } else if (amountPaid > 0) {
+        status = 'partial';
+      } else {
+        status = 'unpaid';
+      }
+    } else if (!reqStatus && reqBalance !== undefined) {
+      // If balance changed without explicit status
+      if (balance <= 0) status = 'paid';
+      else if (amountPaid > 0) status = 'partial';
+      else status = 'unpaid';
     }
-
-    // Recalculate totals
-    let discountAmount = 0;
-    if (discType === 'percent') {
-      discountAmount = parseFloat(((subtotal * discVal) / 100).toFixed(2));
-    } else {
-      discountAmount = discVal;
-    }
-
-    const afterDiscount = parseFloat((subtotal - discountAmount).toFixed(2));
-    const gstAmount = parseFloat(((afterDiscount * gstPct) / 100).toFixed(2));
-    const total = parseFloat((afterDiscount + gstAmount).toFixed(2));
-    const balance = parseFloat((total - parseFloat(oldBill.amount_paid)).toFixed(2));
-
-    let status = 'unpaid';
-    if (balance <= 0) status = 'paid';
-    else if (parseFloat(oldBill.amount_paid) > 0) status = 'partial';
 
     await conn.query(
       `UPDATE bills SET customer_id = ?, date = ?, due_date = ?, subtotal = ?, discount_type = ?,
-       discount_value = ?, gst_percent = ?, gst_amount = ?, total = ?, balance = ?, status = ?, notes = ?
+       discount_value = ?, gst_percent = ?, gst_amount = ?, total = ?, amount_paid = ?, balance = ?, status = ?, notes = ?
        WHERE id = ? AND user_id = ?`,
-      [updatedCustomerId, updatedDate, updatedDueDate, subtotal, discType, discVal, gstPct, gstAmount, total, Math.max(0, balance), status, updatedNotes, id, req.user.id]
+      [updatedCustomerId, updatedDate, updatedDueDate, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, Math.max(0, balance), status, updatedNotes, id, req.user.id]
     );
 
     // Audit log

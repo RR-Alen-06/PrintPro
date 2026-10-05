@@ -115,11 +115,17 @@ async function createCustomer(req, res, next) {
 }
 
 // PUT /:id - Update customer
+const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'credit_limit'];
+
 async function updateCustomer(req, res, next) {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { name, phone, email, address, credit_limit } = req.body;
+
+    const invalidKeys = Object.keys(req.body).filter(k => !ALLOWED_CUSTOMER_COLUMNS.includes(k));
+    if (invalidKeys.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid column(s): ${invalidKeys.join(', ')}` });
+    }
 
     const [existing] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
@@ -129,11 +135,11 @@ async function updateCustomer(req, res, next) {
     const oldValue = existing[0];
 
     const updates = {};
-    if (name !== undefined) updates.name = name;
-    if (phone !== undefined) updates.phone = phone;
-    if (email !== undefined) updates.email = email;
-    if (address !== undefined) updates.address = address;
-    if (credit_limit !== undefined) updates.credit_limit = credit_limit;
+    for (const key of ALLOWED_CUSTOMER_COLUMNS) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'No fields to update' });

@@ -22,10 +22,15 @@ const region = 'ap-south-1';
 
 // Build the IPv4-compatible Supabase Connection Pooler URL (Transaction Mode - Port 6543)
 // Username format is: postgres.[project-ref]
-const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD || 'cek@123'; // fallback, user should set in env
-const encodedPassword = encodeURIComponent(dbPassword);
-const connectionString = process.env.DATABASE_URL || 
-  `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+let connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
+  if (!dbPassword) {
+    throw new Error('Database configuration error: Required environment variable "SUPABASE_DB_PASSWORD" or "DATABASE_URL" is missing.');
+  }
+  const encodedPassword = encodeURIComponent(dbPassword);
+  connectionString = `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+}
 
 logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
 
@@ -149,6 +154,15 @@ async function initializeDatabase() {
     // Quick probe query to confirm successful connection
     const client = await pgPool.connect();
     logger.info('Successfully connected to Supabase PostgreSQL database.');
+    
+    // Ensure Task 13 purchases columns exist
+    await client.query(`
+      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(100) DEFAULT '';
+      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'cash';
+      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS upi_ref VARCHAR(100) DEFAULT '';
+      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS session_id INT DEFAULT NULL;
+    `);
+    
     client.release();
   } catch (err) {
     logger.error(`Failed to connect to Supabase PostgreSQL database: ${err.message}`);

@@ -53,8 +53,33 @@ router.get('/', async (req, res, next) => {
       });
     });
 
-    res.json({ success: true, data: notifications });
-  } catch (err) { next(err); }
+// GET /api/notifications/overdue
+router.get('/overdue', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    const [overdueRows] = await pool.query(
+      `SELECT b.id, b.date, b.due_date, b.total, b.amount_paid, b.balance, b.status,
+              c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
+              EXTRACT(DAY FROM NOW() - b.due_date::timestamp) AS days_overdue
+       FROM bills b
+       LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
+       WHERE b.user_id = ? AND b.status != 'paid' AND b.due_date < CURRENT_DATE AND b.deleted_at IS NULL
+       ORDER BY b.due_date ASC`,
+      [req.user.id]
+    );
+
+    const formatted = overdueRows.map(row => ({
+      ...row,
+      days_overdue: Math.max(1, parseInt(row.days_overdue || 1, 10)),
+      balance: parseFloat(row.balance || 0),
+      total: parseFloat(row.total || 0),
+      amount_paid: parseFloat(row.amount_paid || 0),
+    }));
+
+    res.json({ success: true, data: formatted });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
