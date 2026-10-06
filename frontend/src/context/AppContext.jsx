@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
 import { getCustomers } from '../api/customers'
-import { getPayments } from '../api/payments'
+import { getPayments, getDeletedPayments } from '../api/payments'
 import { getItems } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
 import { getProfile } from '../api/profile'
@@ -916,6 +916,7 @@ export const AppProvider = ({ children }) => {
           billsRes,
           customersRes,
           paymentsRes,
+          deletedPaymentsRes,
           inventoryRes,
           purchasesRes,
           profileRes,
@@ -929,6 +930,7 @@ export const AppProvider = ({ children }) => {
           getBills().catch(() => ({ data: { data: [] } })),
           getCustomers().catch(() => ({ data: { data: [] } })),
           getPayments().catch(() => ({ data: { data: [] } })),
+          getDeletedPayments().catch(() => ({ data: { data: [] } })),
           getItems().catch(() => ({ data: { data: [] } })),
           getPurchases().catch(() => ({ data: { data: [] } })),
           getProfile().catch(() => ({ data: { data: {} } })),
@@ -943,6 +945,7 @@ export const AppProvider = ({ children }) => {
         const fetchedBills = billsRes.data?.data || []
         const fetchedCustomers = customersRes.data?.data || []
         const fetchedPayments = paymentsRes.data?.data || []
+        const fetchedDeletedPayments = deletedPaymentsRes.data?.data || []
         const fetchedInventory = inventoryRes.data?.data || []
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
@@ -998,6 +1001,20 @@ export const AppProvider = ({ children }) => {
           billId: p.bill_id,
           customerId: p.customer_id,
           date: p.date || new Date().toISOString(),
+          cashAmount: Number(p.cash_amount || 0),
+          upiAmount: Number(p.upi_amount || 0),
+          totalPaid: Number(p.total_paid || 0),
+          paymentType: p.payment_type || 'partial',
+          isRefund: !!p.is_refund,
+          notes: p.notes || ''
+        }))
+
+        const mappedDeletedPayments = fetchedDeletedPayments.map(p => ({
+          id: String(p.id),
+          billId: p.bill_id,
+          customerId: p.customer_id,
+          date: p.date || new Date().toISOString(),
+          deletedAt: p.deleted_at,
           cashAmount: Number(p.cash_amount || 0),
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
@@ -1112,6 +1129,7 @@ export const AppProvider = ({ children }) => {
             bills: mappedBills,
             customers: mappedCustomers,
             payments: mappedPayments,
+            deletedPayments: mappedDeletedPayments,
             inventory: mappedInventory,
             expenses: mappedExpenses,
             business: mappedBusiness,

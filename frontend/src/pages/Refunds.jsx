@@ -87,8 +87,8 @@ const Refunds = () => {
     const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cash_amount || 0)), 0)
     const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upi_amount || 0)), 0)
 
-    // Advance Returns (negative advance payments)
-    const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount || 0) < 0 || ap.isReturn || ap.type === 'refund')
+    // Advance Returns (negative advance payments or refund/return types)
+    const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount || 0) < 0 || ap.isReturn || ap.type === 'refund' || ap.type === 'return' || ap.type === 'refunded')
     const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
     const advReturnsCash = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.cashAmount || 0)), 0)
     const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.upiAmount || 0)), 0)

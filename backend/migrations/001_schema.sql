@@ -237,12 +237,6 @@ ALTER TYPE payment_type ADD VALUE IF NOT EXISTS 'refund';
 -- Customers: Add loyalty points tracking
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS loyalty_points INT DEFAULT 0;
 
--- Purchases: Add vendor, payment details, and cash session linkage
-ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(100) DEFAULT '';
-ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10) DEFAULT 'cash';
-ALTER TABLE purchases ADD COLUMN IF NOT EXISTS upi_ref VARCHAR(50) DEFAULT '';
-ALTER TABLE purchases ADD COLUMN IF NOT EXISTS session_id INT DEFAULT NULL;
-
 -- Payments: Add refund flag, soft-deletion timestamp, and cash session linkage
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_refund BOOLEAN DEFAULT false;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
@@ -251,6 +245,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS session_id INT DEFAULT NULL;
 -- ── 3. New Tables ─────────────────────────────────────────────────────────────
 
 -- 3.1 Loyalty Settings — Merchant-level tier config and redeem options
+-- Note: Uses composite PK (id, user_id) for RLS/orm consistency + UNIQUE(user_id) for 1:1 merchant singleton & UPSERT target
 CREATE TABLE IF NOT EXISTS loyalty_settings (
   id SERIAL,
   user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -302,9 +297,6 @@ CREATE TABLE IF NOT EXISTS promo_codes (
   PRIMARY KEY (id, user_id),
   CONSTRAINT unique_user_promo_code UNIQUE (user_id, code)
 );
-ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS min_bill_amount DECIMAL(10,2) DEFAULT 0.00;
-ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_discount DECIMAL(10,2) DEFAULT NULL;
-ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_uses_per_customer INT DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes (code);
 CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes (is_active);
 
@@ -326,7 +318,7 @@ CREATE INDEX IF NOT EXISTS idx_promo_uses_customer ON promo_uses (customer_id, u
 
 -- 3.5 Advance Payments — Advance deposits, returns, and applications
 CREATE TABLE IF NOT EXISTS advance_payments (
-  id SERIAL,
+  id VARCHAR(20) NOT NULL,
   user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
   customer_id VARCHAR(20) NOT NULL,
   date TIMESTAMPTZ DEFAULT NOW(),
@@ -344,7 +336,7 @@ CREATE INDEX IF NOT EXISTS idx_advance_date ON advance_payments (date);
 
 -- 3.6 Customer Groups — Group definitions with member IDs
 CREATE TABLE IF NOT EXISTS customer_groups (
-  id SERIAL,
+  id VARCHAR(20) NOT NULL,
   user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
   name VARCHAR(100) NOT NULL,
   description TEXT DEFAULT '',
@@ -359,7 +351,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_groups_name ON customer_groups (name);
 CREATE TABLE IF NOT EXISTS group_bills (
   id VARCHAR(20) NOT NULL,
   user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
-  group_id INT NOT NULL,
+  group_id VARCHAR(20) NOT NULL,
   title VARCHAR(150) DEFAULT '',
   date DATE NOT NULL DEFAULT CURRENT_DATE,
   total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
@@ -392,6 +384,9 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
 CREATE INDEX IF NOT EXISTS idx_cash_sessions_status ON cash_sessions (status);
 
 -- FK constraint on payments table linking to cash_sessions
+-- Note: Uses composite FK (session_id, user_id) referencing cash_sessions(id, user_id).
+-- session_id is nullable (DEFAULT NULL); unassociated or pre-session payments have session_id = NULL
+-- and are window-queried via `date >= opened_at` in cashSessions routes.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -426,6 +421,7 @@ CREATE INDEX IF NOT EXISTS idx_upi_tx_bill ON upi_transactions (bill_id, user_id
 CREATE INDEX IF NOT EXISTS idx_upi_tx_ref ON upi_transactions (upi_ref);
 
 -- 3.10 User Settings — Merchant settings persisted in cloud
+-- Note: Uses composite PK (id, user_id) for RLS consistency + UNIQUE(user_id) for 1:1 merchant singleton & UPSERT target
 CREATE TABLE IF NOT EXISTS user_settings (
   id SERIAL,
   user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,

@@ -154,15 +154,6 @@ async function initializeDatabase() {
     // Quick probe query to confirm successful connection
     const client = await pgPool.connect();
     logger.info('Successfully connected to Supabase PostgreSQL database.');
-    
-    // Ensure Task 13 purchases columns exist
-    await client.query(`
-      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(100) DEFAULT '';
-      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'cash';
-      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS upi_ref VARCHAR(100) DEFAULT '';
-      ALTER TABLE purchases ADD COLUMN IF NOT EXISTS session_id INT DEFAULT NULL;
-    `);
-    
     client.release();
   } catch (err) {
     logger.error(`Failed to connect to Supabase PostgreSQL database: ${err.message}`);

@@ -115,7 +115,7 @@ async function createCustomer(req, res, next) {
 }
 
 // PUT /:id - Update customer
-const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'credit_limit'];
+const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'type', 'credit_limit', 'credit_balance', 'loyalty_points'];
 
 async function updateCustomer(req, res, next) {
   try {

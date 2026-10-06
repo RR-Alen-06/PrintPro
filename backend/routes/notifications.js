@@ -19,7 +19,7 @@ router.get('/', async (req, res, next) => {
       `SELECT b.id, b.due_date, b.balance, c.name AS customer_name
        FROM bills b
        LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
-       WHERE b.user_id = ? AND b.status != 'paid' AND b.due_date < CURDATE() AND b.deleted_at IS NULL
+       WHERE b.user_id = ? AND b.status != 'paid' AND b.due_date < CURRENT_DATE AND b.deleted_at IS NULL
        ORDER BY b.due_date ASC LIMIT 20`,
       [req.user.id]
     );
@@ -52,6 +52,12 @@ router.get('/', async (req, res, next) => {
         date: new Date().toISOString().slice(0, 10),
       });
     });
+
+    res.json({ success: true, data: notifications });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/notifications/overdue
 router.get('/overdue', async (req, res, next) => {

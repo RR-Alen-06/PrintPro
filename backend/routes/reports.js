@@ -39,9 +39,9 @@ async function buildEodReportData(pool, userId, targetDate) {
     `SELECT b.*, c.name AS customer_name, c.phone AS customer_phone
      FROM bills b
      LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
-     WHERE b.user_id = ? AND (b.date = ? OR DATE(b.created_at) = ?) AND b.deleted_at IS NULL
-     ORDER BY b.created_at DESC`,
-    [userId, dateStr, dateStr]
+     WHERE b.user_id = ? AND b.date = ? AND b.deleted_at IS NULL
+     ORDER BY b.id DESC`,
+    [userId, dateStr]
   );
 
   // 3. Fetch payments for the target day
@@ -49,9 +49,9 @@ async function buildEodReportData(pool, userId, targetDate) {
     `SELECT p.*, c.name AS customer_name
      FROM payments p
      LEFT JOIN customers c ON p.customer_id = c.id AND p.user_id = c.user_id
-     WHERE p.user_id = ? AND (DATE(p.date) = ? OR DATE(p.created_at) = ?) AND p.deleted_at IS NULL
+     WHERE p.user_id = ? AND DATE(p.date) = ? AND p.deleted_at IS NULL
      ORDER BY p.date DESC`,
-    [userId, dateStr, dateStr]
+    [userId, dateStr]
   );
 
   // 4. Fetch daily purchases / expenses
@@ -76,10 +76,10 @@ async function buildEodReportData(pool, userId, targetDate) {
     `SELECT bi.item_name, SUM(bi.qty) AS total_qty, SUM(bi.amount) AS total_revenue
      FROM bill_items bi
      JOIN bills b ON bi.bill_id::text = b.id::text AND bi.user_id = b.user_id
-     WHERE b.user_id = ? AND (b.date = ? OR DATE(b.created_at) = ?) AND b.deleted_at IS NULL
+     WHERE b.user_id = ? AND b.date = ? AND b.deleted_at IS NULL
      GROUP BY bi.item_name
      ORDER BY total_qty DESC, total_revenue DESC LIMIT 1`,
-    [userId, dateStr, dateStr]
+    [userId, dateStr]
   );
   const topItem = topItemRows.length > 0 ? {
     name: topItemRows[0].item_name,
@@ -283,7 +283,7 @@ router.get('/yearly', async (req, res, next) => {
               SUM(total) AS total_billed,
               SUM(amount_paid) AS total_paid
        FROM bills WHERE user_id = ? AND EXTRACT(YEAR FROM date) = ? AND deleted_at IS NULL
-       GROUP BY month ORDER BY month ASC`,
+       GROUP BY TO_CHAR(date, 'YYYY-MM') ORDER BY TO_CHAR(date, 'YYYY-MM') ASC`,
       [req.user.id, year]
     );
 

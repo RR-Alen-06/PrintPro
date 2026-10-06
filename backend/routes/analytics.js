@@ -133,7 +133,7 @@ router.get('/products/trends', async (req, res, next) => {
        FROM bill_items bi
        JOIN bills b ON bi.bill_id::text = b.id::text AND bi.user_id = b.user_id
        WHERE b.user_id = ? AND b.deleted_at IS NULL ${itemFilter}
-       GROUP BY period_key
+       GROUP BY ${dateTruncField}
        ORDER BY period_key ASC`,
       params
     );

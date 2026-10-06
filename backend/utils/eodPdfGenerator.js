@@ -1,3 +1,4 @@
+/* eslint-disable security/detect-non-literal-fs-filename -- Path is strictly validated and sandboxed within BASE_UPLOAD_DIR */
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
@@ -14,8 +15,17 @@ const BASE_UPLOAD_DIR = path.resolve(__dirname, '../uploads');
 function generateEodPdf(reportData, outputPath) {
   return new Promise((resolve, reject) => {
     try {
-      const resolvedPath = path.resolve(outputPath);
+      const resolvedPath = path.resolve(BASE_UPLOAD_DIR, outputPath);
+      const relativeToBase = path.relative(BASE_UPLOAD_DIR, resolvedPath);
+      if (relativeToBase.startsWith('..') || path.isAbsolute(relativeToBase)) {
+        throw new Error('Invalid output path: must be within uploads directory');
+      }
+
       const targetDir = path.dirname(resolvedPath);
+      const relativeTargetDir = path.relative(BASE_UPLOAD_DIR, targetDir);
+      if (relativeTargetDir.startsWith('..') || path.isAbsolute(relativeTargetDir)) {
+        throw new Error('Invalid target directory: must be within uploads directory');
+      }
 
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });

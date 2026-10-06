@@ -23,10 +23,25 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Group name is required' });
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO customer_groups (user_id, name, description, member_ids)
-       VALUES (?, ?, ?, ?)`,
+    let groupId = req.body.id;
+    if (!groupId) {
+      const [maxRows] = await pool.query(
+        `SELECT id FROM customer_groups WHERE user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        [req.user.id]
+      );
+      let nextNum = 1;
+      if (maxRows.length > 0 && maxRows[0].id) {
+        const numPart = String(maxRows[0].id).replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      groupId = `GRP${String(nextNum).padStart(3, '0')}`;
+    }
+
+    await pool.query(
+      `INSERT INTO customer_groups (id, user_id, name, description, member_ids)
+       VALUES (?, ?, ?, ?, ?)`,
       [
+        groupId,
         req.user.id,
         name,
         description || '',
@@ -34,7 +49,7 @@ router.post('/', async (req, res, next) => {
       ]
     );
 
-    const [created] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
+    const [created] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [groupId, req.user.id]);
     res.status(201).json({ success: true, data: created[0] });
   } catch (err) {
     next(err);

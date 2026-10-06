@@ -42,10 +42,25 @@ router.post('/', async (req, res, next) => {
       balanceDelta = -numAmount;
     }
 
-    const [result] = await conn.query(
-      `INSERT INTO advance_payments (user_id, customer_id, amount, payment_mode, type, bill_id, notes, date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    let advanceId = req.body.id;
+    if (!advanceId) {
+      const [maxRows] = await conn.query(
+        `SELECT id FROM advance_payments WHERE user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        [req.user.id]
+      );
+      let nextNum = 1;
+      if (maxRows.length > 0 && maxRows[0].id) {
+        const numPart = String(maxRows[0].id).replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      advanceId = `ADV${String(nextNum).padStart(3, '0')}`;
+    }
+
+    await conn.query(
+      `INSERT INTO advance_payments (id, user_id, customer_id, amount, payment_mode, type, bill_id, notes, date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        advanceId,
         req.user.id,
         String(customer_id),
         numAmount,
@@ -68,7 +83,7 @@ router.post('/', async (req, res, next) => {
 
     await conn.commit();
 
-    const [created] = await pool.query('SELECT * FROM advance_payments WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
+    const [created] = await pool.query('SELECT * FROM advance_payments WHERE id = ? AND user_id = ?', [advanceId, req.user.id]);
     res.status(201).json({ success: true, data: created[0] });
   } catch (err) {
     await conn.rollback();

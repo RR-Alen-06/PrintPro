@@ -213,13 +213,11 @@ const validateBillUpdate = [
 
 const validatePayment = [
   body('bill_id')
-    .trim()
-    .notEmpty()
-    .withMessage('Bill ID is required'),
+    .optional({ checkFalsy: true })
+    .trim(),
   body('customer_id')
-    .trim()
-    .notEmpty()
-    .withMessage('Customer ID is required'),
+    .optional({ checkFalsy: true })
+    .trim(),
   body('cash_amount')
     .optional()
     .isFloat()
@@ -229,6 +227,7 @@ const validatePayment = [
     .isFloat()
     .withMessage('UPI amount must be a number'),
   body('total_paid')
+    .optional()
     .isFloat()
     .withMessage('Total paid must be a number'),
   body('payment_type')
@@ -238,6 +237,12 @@ const validatePayment = [
   body('notes')
     .optional()
     .trim(),
+  body().custom((value, { req }) => {
+    if (!req.body.bill_id && !req.body.customer_id) {
+      throw new Error('Either bill_id or customer_id is required');
+    }
+    return true;
+  }),
   handleValidationErrors,
 ];
 
