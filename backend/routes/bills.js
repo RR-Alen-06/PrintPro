@@ -25,11 +25,11 @@ router.get('/:id/payments', getPaymentsForBill);
 router.get('/:id', getBill);
 
 // POST /api/bills
-const { validateBill } = require('../middleware/validate');
+const { validateBill, validateBillUpdate } = require('../middleware/validate');
 router.post('/', validateBill, createBill);
 
 // PUT /api/bills/:id
-router.put('/:id', validateBill, updateBill);
+router.put('/:id', validateBillUpdate, updateBill);
 
 // DELETE /api/bills/:id (soft delete)
 router.delete('/:id', deleteBill);

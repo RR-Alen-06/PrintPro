@@ -1,16 +1,23 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
 import { getCustomers } from '../api/customers'
-import { getPayments } from '../api/payments'
+import { getPayments, getDeletedPayments } from '../api/payments'
 import { getItems } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
 import { getProfile } from '../api/profile'
+import { getLoyaltySettings } from '../api/loyalty'
+import { getSettings } from '../api/settings'
+import { getPromoCodes } from '../api/promoCodes'
+import { getAdvancePayments } from '../api/advancePayments'
+import { getCustomerGroups } from '../api/customerGroups'
+import { getGroupBills } from '../api/groupBills'
 
 const AppContext = createContext(null)
 
 const initialState = {
+  hydrated: false,
   business: {
     shopName: '',
     ownerName: '',
@@ -37,7 +44,6 @@ const initialState = {
       analytics: false,
       inventory: false,
       ledger: false,
-      recurringBills: false,
       receipt: true,
       search: true,
       dataManagement: false,
@@ -67,17 +73,12 @@ const initialState = {
     showGstBreakdown: true,
     showUpiQrCode: true,
   },
-  recurringBills: [],
   currentUser: null,
   customerGroups: [],
   groupBills: [],
   deletedPayments: [],
-  promoCodes: [
-    { code: 'STUDENT10', type: 'percent', value: 10, minAmount: 0 },
-    { code: 'BULK50', type: 'flat', value: 50, minAmount: 500 },
-    { code: 'WELCOME20', type: 'flat', value: 20, minAmount: 150 },
-  ],
-  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, REC: 0, NOTE: 0 },
+  promoCodes: [],
+  idCounters: { RC: 0, RND: 0, BILL: 0, PAY: 0, EXP: 0, ADV: 0, GRP: 0, ITEM: 0, NOTE: 0 },
 }
 
 const loadState = () => {
@@ -99,8 +100,8 @@ const loadState = () => {
       }
     }
 
-    // Merge with initialState so any newly added top-level keys are present
-    return { ...initialState, ...sanitized, settings: mergedSettings }
+    // Merge with initialState but keep hydrated: false so cloud load occurs
+    return { ...initialState, ...sanitized, settings: mergedSettings, hydrated: false }
   } catch (error) {
     return initialState
   }
@@ -109,28 +110,31 @@ const loadState = () => {
 const saveState = (state) => {
   try {
     const { currentUser, users, ...rest } = state
-    
-    // Safety check: Prevent hot-reloads, HMR errors, or loading glitches from overwriting populated local data with empty initial states
-    const stored = localStorage.getItem('printpro-state')
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      const isIncomingEmpty = (!rest.bills || rest.bills.length === 0) && (!rest.customers || rest.customers.length === 0)
-      const wasStoredPopulated = (parsed.bills && parsed.bills.length > 0) || (parsed.customers && parsed.customers.length > 0)
-      
-      if (isIncomingEmpty && wasStoredPopulated) {
-        console.warn('Prevented saving empty state over populated local state.')
-        return
-      }
-    }
-    
     localStorage.setItem('printpro-state', JSON.stringify(rest))
   } catch (error) {
-    console.error('Failed to save state', error)
+    console.error('Failed to save write-through cache to localStorage', error)
   }
 }
 
 const baseReducer = (state, action) => {
   switch (action.type) {
+    case 'HYDRATE_FROM_CLOUD':
+    case 'SYNC_CLOUD_DATA': {
+      const mergedSettings = {
+        ...state.settings,
+        ...(action.payload.settings || {}),
+        staffPermissions: {
+          ...state.settings.staffPermissions,
+          ...(action.payload.settings?.staffPermissions || {})
+        }
+      }
+      return {
+        ...state,
+        ...action.payload,
+        settings: mergedSettings,
+        hydrated: true,
+      }
+    }
     case 'ADD_BILL': {
       const { notification, ...billData } = action.payload
       const updatedBills = [billData, ...state.bills]
@@ -300,34 +304,6 @@ const baseReducer = (state, action) => {
         currentUser: action.payload,
       }
     }
-    case 'SYNC_CLOUD_DATA': {
-      const { bills, customers, payments, inventory, expenses, business } = action.payload
-      
-      const mergeById = (localArr, cloudArr) => {
-        if (!cloudArr || cloudArr.length === 0) return localArr || [];
-        const cloudMap = new Map(cloudArr.map(item => [item.id, item]));
-        const merged = [...cloudArr];
-        
-        if (localArr) {
-          localArr.forEach(item => {
-            if (!cloudMap.has(item.id)) {
-              merged.push(item);
-            }
-          });
-        }
-        return merged;
-      };
-
-      return {
-        ...state,
-        bills: mergeById(state.bills, bills),
-        customers: mergeById(state.customers, customers),
-        payments: mergeById(state.payments, payments),
-        inventory: mergeById(state.inventory, inventory),
-        expenses: mergeById(state.expenses, expenses),
-        business: business && Object.keys(business).length > 0 ? { ...state.business, ...business } : state.business,
-      }
-    }
     case 'ADD_ADVANCE_PAYMENT': {
       const adv = action.payload
       return {
@@ -352,6 +328,30 @@ const baseReducer = (state, action) => {
         customers: state.customers.map((c) => {
           if (c.id !== ret.customerId) return c
           const newBal = Math.max(0, Number(c.advanceBalance || c.creditBalance || 0) + Number(ret.amount)) // ret.amount is negative
+          return {
+            ...c,
+            advanceBalance: newBal,
+            creditBalance: newBal
+          }
+        }),
+      }
+    }
+    case 'DELETE_ADVANCE_PAYMENT': {
+      const advId = action.payload
+      const existing = state.advancePayments.find((a) => a.id === advId || a.id === String(advId))
+      if (!existing) return state
+      const recAmount = Number(existing.amount || 0)
+      const recType = existing.type || 'deposit'
+      let deltaToReverse = recAmount
+      if ((recType === 'refund' || recType === 'return' || recType === 'applied') && recAmount > 0) {
+        deltaToReverse = -recAmount
+      }
+      return {
+        ...state,
+        advancePayments: state.advancePayments.filter((a) => a.id !== advId && a.id !== String(advId)),
+        customers: state.customers.map((c) => {
+          if (c.id !== existing.customerId) return c
+          const newBal = Math.max(0, Number(c.advanceBalance || c.creditBalance || 0) - deltaToReverse)
           return {
             ...c,
             advanceBalance: newBal,
@@ -467,24 +467,6 @@ const baseReducer = (state, action) => {
       return {
         ...state,
         business: { ...state.business, ...action.payload },
-      }
-    }
-    case 'ADD_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: [...state.recurringBills, action.payload],
-      }
-    }
-    case 'UPDATE_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: state.recurringBills.map((bill) => (bill.id === action.payload.id ? { ...bill, ...action.payload.updates } : bill)),
-      }
-    }
-    case 'DELETE_RECURRING_BILL': {
-      return {
-        ...state,
-        recurringBills: state.recurringBills.filter((bill) => bill.id !== action.payload),
       }
     }
     case 'ADD_CUSTOMER_GROUP': {
@@ -711,22 +693,21 @@ const calcLoyaltyPoints = (total, tiers) => {
 
 export const AppProvider = ({ children }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState, loadState)
-
-  const dispatch = (action) => {
-    rawDispatch(action)
-    // Synchronously fire the background sync, logging success and displaying errors to the user
-    syncEntityToCloud(action.type, action.payload)
-      .then(() => {
-        console.log(`Sync confirmed: Database write succeeded for action ${action.type}`)
-      })
-      .catch((err) => {
-        console.error(`Sync error: Database write failed for action ${action.type}`, err)
-        showToast(`Failed to sync changes to cloud: ${err.message || 'Network error'}`, 'error')
-      })
-  }
-
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
+
+  // 1. Offline Action Queue (persisted separately in localStorage under 'printpro-offline-queue')
+  const [offlineQueue, setOfflineQueue] = useState(() => {
+    try {
+      const stored = localStorage.getItem('printpro-offline-queue')
+      return stored ? JSON.parse(stored) : []
+    } catch (err) {
+      return []
+    }
+  })
+
+  const isProcessingQueueRef = useRef(false)
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type })
@@ -743,20 +724,140 @@ export const AppProvider = ({ children }) => {
     setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
   }
 
+  // 2. Sequential offline queue processor (processes on reconnect: dequeues, fires API, removes on success, stops on failure)
+  const processOfflineQueue = useCallback(async () => {
+    if (isProcessingQueueRef.current || (typeof navigator !== 'undefined' && !navigator.onLine)) return
+
+    let queue = []
+    try {
+      const stored = localStorage.getItem('printpro-offline-queue')
+      queue = stored ? JSON.parse(stored) : []
+    } catch (err) {
+      return
+    }
+
+    if (!queue || queue.length === 0) return
+
+    isProcessingQueueRef.current = true
+    console.log(`Processing ${queue.length} offline action(s)...`)
+
+    const currentQueue = [...queue]
+    let successCount = 0
+
+    while (currentQueue.length > 0) {
+      const item = currentQueue[0]
+      try {
+        await syncEntityToCloud(item.actionType, item.payload)
+        currentQueue.shift()
+        successCount++
+        setOfflineQueue([...currentQueue])
+        try {
+          localStorage.setItem('printpro-offline-queue', JSON.stringify(currentQueue))
+        } catch (e) {}
+      } catch (err) {
+        console.warn(`Offline queue sync stopped at action ${item.actionType}:`, err)
+        break // Preserves strict FIFO order on network/server error
+      }
+    }
+
+    isProcessingQueueRef.current = false
+    if (successCount > 0) {
+      showToast(`Synced ${successCount} queued change${successCount > 1 ? 's' : ''} to cloud`, 'success')
+    }
+  }, [])
+
+  // 3. Dispatch wrapper: 0ms UI lag optimistic updates with cloud write and fallback offline queue
+  const dispatch = (action) => {
+    // Optimistic local state update (0ms UI lag)
+    rawDispatch(action)
+
+    // Actions that do not correspond to cloud entity writes
+    const localOnlyActions = [
+      'SET_CURRENT_USER',
+      'HYDRATE_FROM_CLOUD',
+      'SYNC_CLOUD_DATA',
+      'INCREMENT_COUNTER',
+      'MARK_NOTIFICATION_READ',
+      'MARK_ALL_NOTIFICATIONS_READ',
+      'DELETE_NOTIFICATION',
+      'CLEAR_ALL_NOTIFICATIONS'
+    ]
+    if (localOnlyActions.includes(action.type)) {
+      return
+    }
+
+    // If offline, push to queue immediately
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const queueItem = {
+        actionType: action.type,
+        payload: action.payload,
+        timestamp: Date.now()
+      }
+      setOfflineQueue(prev => {
+        const next = [...prev, queueItem]
+        try {
+          localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
+        } catch (e) {}
+        return next
+      })
+      return
+    }
+
+    // Online: attempt cloud write. If failed or network dropped, queue for offline retry
+    syncEntityToCloud(action.type, action.payload)
+      .then(() => {
+        console.log(`Sync confirmed: Cloud write succeeded for ${action.type}`)
+      })
+      .catch((err) => {
+        console.warn(`Cloud write failed for ${action.type}, queuing for retry:`, err)
+        const queueItem = {
+          actionType: action.type,
+          payload: action.payload,
+          timestamp: Date.now()
+        }
+        setOfflineQueue(prev => {
+          const next = [...prev, queueItem]
+          try {
+            localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
+          } catch (e) {}
+          return next
+        })
+      })
+  }
+
   useEffect(() => {
     saveState(state)
   }, [state])
+
+  // Network listener & auto-sync trigger on reconnect
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      processOfflineQueue()
+    }
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    if (navigator.onLine && offlineQueue.length > 0) {
+      processOfflineQueue()
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [processOfflineQueue])
+
 
   // Sync Supabase Authentication State & Log Session Info
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        console.log('=== AUTHENTICATION DIAGNOSTICS ===')
-        console.log('User ID:', session.user.id)
-        console.log('Email:', session.user.email)
-        console.log('Session Token Present:', !!session.access_token)
-        console.log('Role:', 'owner')
-        console.log('==================================')
+        console.log('Auth state changed')
         
         dispatch({
           type: 'SET_CURRENT_USER',
@@ -770,17 +871,15 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
-        console.log('=== AUTHENTICATION DIAGNOSTICS: NO ACTIVE SESSION ===')
+        console.log('Auth state changed')
         dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        dispatch({ type: 'HYDRATE_FROM_CLOUD', payload: {} });
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        console.log('=== AUTHENTICATION CHANGE DETECTED ===')
-        console.log('User ID:', session.user.id)
-        console.log('Email:', session.user.email)
-        console.log('======================================')
+        console.log('Auth state changed')
         
         dispatch({
           type: 'SET_CURRENT_USER',
@@ -794,7 +893,9 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
+        console.log('Auth state changed')
         dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        dispatch({ type: 'HYDRATE_FROM_CLOUD', payload: {} });
       }
     });
 
@@ -808,24 +909,52 @@ export const AppProvider = ({ children }) => {
     let intervalId = null
     let realtimeChannel = null
 
-    const syncFromCloud = async () => {
+    const hydrateFromCloud = async () => {
       if (!state.currentUser) return
       try {
-        const [billsRes, customersRes, paymentsRes, inventoryRes, purchasesRes, profileRes] = await Promise.all([
-          getBills(),
-          getCustomers(),
-          getPayments(),
-          getItems(),
-          getPurchases(),
-          getProfile()
+        const [
+          billsRes,
+          customersRes,
+          paymentsRes,
+          deletedPaymentsRes,
+          inventoryRes,
+          purchasesRes,
+          profileRes,
+          loyaltyRes,
+          settingsRes,
+          promosRes,
+          advancesRes,
+          groupsRes,
+          groupBillsRes
+        ] = await Promise.all([
+          getBills().catch(() => ({ data: { data: [] } })),
+          getCustomers().catch(() => ({ data: { data: [] } })),
+          getPayments().catch(() => ({ data: { data: [] } })),
+          getDeletedPayments().catch(() => ({ data: { data: [] } })),
+          getItems().catch(() => ({ data: { data: [] } })),
+          getPurchases().catch(() => ({ data: { data: [] } })),
+          getProfile().catch(() => ({ data: { data: {} } })),
+          getLoyaltySettings().catch(() => ({ data: { data: {} } })),
+          getSettings().catch(() => ({ data: { data: {} } })),
+          getPromoCodes().catch(() => ({ data: { data: [] } })),
+          getAdvancePayments().catch(() => ({ data: { data: [] } })),
+          getCustomerGroups().catch(() => ({ data: { data: [] } })),
+          getGroupBills().catch(() => ({ data: { data: [] } }))
         ])
 
         const fetchedBills = billsRes.data?.data || []
         const fetchedCustomers = customersRes.data?.data || []
         const fetchedPayments = paymentsRes.data?.data || []
+        const fetchedDeletedPayments = deletedPaymentsRes.data?.data || []
         const fetchedInventory = inventoryRes.data?.data || []
         const fetchedPurchases = purchasesRes.data?.data || []
         const fetchedProfile = profileRes.data?.data || {}
+        const fetchedLoyalty = loyaltyRes.data?.data || {}
+        const fetchedSettings = settingsRes.data?.data?.settings || (typeof settingsRes.data?.data === 'object' && !Array.isArray(settingsRes.data?.data) ? settingsRes.data.data : {})
+        const fetchedPromos = promosRes.data?.data || []
+        const fetchedAdvances = advancesRes.data?.data || []
+        const fetchedGroups = groupsRes.data?.data || []
+        const fetchedGroupBills = groupBillsRes.data?.data || []
 
         const mappedCustomers = fetchedCustomers.map(c => ({
           id: c.id,
@@ -876,6 +1005,21 @@ export const AppProvider = ({ children }) => {
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
           paymentType: p.payment_type || 'partial',
+          isRefund: !!p.is_refund,
+          notes: p.notes || ''
+        }))
+
+        const mappedDeletedPayments = fetchedDeletedPayments.map(p => ({
+          id: String(p.id),
+          billId: p.bill_id,
+          customerId: p.customer_id,
+          date: p.date || new Date().toISOString(),
+          deletedAt: p.deleted_at,
+          cashAmount: Number(p.cash_amount || 0),
+          upiAmount: Number(p.upi_amount || 0),
+          totalPaid: Number(p.total_paid || 0),
+          paymentType: p.payment_type || 'partial',
+          isRefund: !!p.is_refund,
           notes: p.notes || ''
         }))
 
@@ -893,11 +1037,17 @@ export const AppProvider = ({ children }) => {
         const mappedExpenses = fetchedPurchases.map(exp => ({
           id: String(exp.id),
           date: exp.date ? new Date(exp.date).toISOString().slice(0, 10) : '',
+          description: exp.item_name || '',
           itemName: exp.item_name || '',
           category: exp.category || 'General',
+          vendorName: exp.vendor_name || '',
+          paymentMethod: exp.payment_method || 'cash',
+          upiRef: exp.upi_ref || '',
           qty: Number(exp.qty || 0),
           unitCost: Number(exp.unit_cost || 0),
           amount: Number(exp.total || 0),
+          cashAmount: exp.payment_method === 'upi' ? 0 : Number(exp.total || 0),
+          upiAmount: exp.payment_method === 'upi' ? Number(exp.total || 0) : 0,
           notes: exp.notes || ''
         }))
 
@@ -910,36 +1060,110 @@ export const AppProvider = ({ children }) => {
           upiId: fetchedProfile.upi_id || ''
         }
 
+        const mergedSettings = {
+          ...initialState.settings,
+          ...fetchedSettings,
+          loyaltyEnabled: fetchedLoyalty.is_enabled !== undefined ? fetchedLoyalty.is_enabled : (fetchedSettings.loyaltyEnabled ?? initialState.settings.loyaltyEnabled),
+          loyaltyEarningRate: fetchedLoyalty.points_per_rupee !== undefined ? Number(fetchedLoyalty.points_per_rupee) : (fetchedSettings.loyaltyEarningRate ?? initialState.settings.loyaltyEarningRate),
+          loyaltyRedeemRatioPoints: fetchedLoyalty.min_points_redeem !== undefined ? Number(fetchedLoyalty.min_points_redeem) : (fetchedSettings.loyaltyRedeemRatioPoints ?? initialState.settings.loyaltyRedeemRatioPoints),
+          loyaltyRedeemRatioRupees: fetchedLoyalty.rupee_per_point !== undefined ? Number(fetchedLoyalty.rupee_per_point) : (fetchedSettings.loyaltyRedeemRatioRupees ?? initialState.settings.loyaltyRedeemRatioRupees),
+          loyaltyRedeemOptions: Array.isArray(fetchedLoyalty.redeem_options) ? fetchedLoyalty.redeem_options : (fetchedSettings.loyaltyRedeemOptions || initialState.settings.loyaltyRedeemOptions),
+          loyaltyTiers: Array.isArray(fetchedLoyalty.tier_config) ? fetchedLoyalty.tier_config : (fetchedSettings.loyaltyTiers || initialState.settings.loyaltyTiers),
+          staffPermissions: {
+            ...initialState.settings.staffPermissions,
+            ...(fetchedSettings.staffPermissions || {})
+          }
+        }
+
+        const mappedPromos = fetchedPromos.map(p => ({
+          id: p.id,
+          code: p.code,
+          type: p.discount_type || 'flat',
+          value: Number(p.discount_value || 0),
+          minAmount: Number(p.min_bill_amount || 0),
+          maxDiscount: p.max_discount !== null && p.max_discount !== undefined ? Number(p.max_discount) : null,
+          usageLimit: p.usage_limit !== null && p.usage_limit !== undefined ? Number(p.usage_limit) : null,
+          maxUsesPerCustomer: p.max_uses_per_customer !== null && p.max_uses_per_customer !== undefined ? Number(p.max_uses_per_customer) : 1,
+          timesUsed: Number(p.used_count || 0),
+          startDate: p.valid_from ? (typeof p.valid_from === 'string' ? p.valid_from.slice(0, 10) : new Date(p.valid_from).toISOString().slice(0, 10)) : null,
+          endDate: p.valid_until ? (typeof p.valid_until === 'string' ? p.valid_until.slice(0, 10) : new Date(p.valid_until).toISOString().slice(0, 10)) : null,
+          validFrom: p.valid_from,
+          validUntil: p.valid_until,
+          enabled: p.is_active !== false,
+          isActive: p.is_active !== false
+        }))
+
+        const mappedAdvances = fetchedAdvances.map(a => ({
+          id: String(a.id),
+          customerId: a.customer_id,
+          amount: Number(a.amount || 0),
+          paymentMode: a.payment_mode || 'cash',
+          type: a.type || 'deposit',
+          billId: a.bill_id,
+          notes: a.notes || '',
+          date: a.date || a.created_at || new Date().toISOString()
+        }))
+
+        const mappedGroups = fetchedGroups.map(g => ({
+          id: String(g.id),
+          name: g.name || '',
+          description: g.description || '',
+          memberIds: Array.isArray(g.member_ids) ? g.member_ids : (typeof g.member_ids === 'string' ? JSON.parse(g.member_ids || '[]') : [])
+        }))
+
+        const mappedGroupBills = fetchedGroupBills.map(gb => ({
+          id: String(gb.id),
+          groupId: gb.group_id,
+          title: gb.title || '',
+          date: gb.date ? new Date(gb.date).toISOString().slice(0, 10) : '',
+          totalAmount: Number(gb.total_amount || 0),
+          amountPaid: Number(gb.amount_paid || 0),
+          status: gb.status || 'unpaid',
+          memberShares: Array.isArray(gb.member_shares) ? gb.member_shares : (typeof gb.member_shares === 'string' ? JSON.parse(gb.member_shares || '[]') : []),
+          notes: gb.notes || ''
+        }))
+
         rawDispatch({
-          type: 'SYNC_CLOUD_DATA',
+          type: 'HYDRATE_FROM_CLOUD',
           payload: {
             bills: mappedBills,
             customers: mappedCustomers,
             payments: mappedPayments,
+            deletedPayments: mappedDeletedPayments,
             inventory: mappedInventory,
             expenses: mappedExpenses,
-            business: mappedBusiness
+            business: mappedBusiness,
+            settings: mergedSettings,
+            promoCodes: mappedPromos,
+            advancePayments: mappedAdvances,
+            customerGroups: mappedGroups,
+            groupBills: mappedGroupBills
           }
         })
       } catch (error) {
-        console.error('Failed to sync state from cloud:', error)
+        console.error('Failed to sync/hydrate state from cloud:', error)
+        // Ensure UI unblocks on network error
+        rawDispatch({
+          type: 'HYDRATE_FROM_CLOUD',
+          payload: {}
+        })
       }
     }
 
     if (state.currentUser) {
       // 1. Fetch immediately on login/auth change
-      syncFromCloud()
+      hydrateFromCloud()
 
       // 2. Setup periodic sync polling (every 10 seconds)
-      intervalId = setInterval(syncFromCloud, 10000)
+      intervalId = setInterval(hydrateFromCloud, 10000)
 
       // 3. Setup window focus/visibility sync triggers
       const handleSyncTrigger = () => {
         if (document.visibilityState === 'visible') {
-          syncFromCloud()
+          hydrateFromCloud()
         }
       }
-      window.addEventListener('focus', syncFromCloud)
+      window.addEventListener('focus', hydrateFromCloud)
       window.addEventListener('visibilitychange', handleSyncTrigger)
 
       // 4. Enable Realtime Postgres Subscription for change events
@@ -948,19 +1172,17 @@ export const AppProvider = ({ children }) => {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public' },
-          (payload) => {
-            console.log('Real-time database sync triggered: change detected on', payload.table)
-            syncFromCloud()
+          () => {
+            console.log('Real-time database sync triggered: change detected')
+            hydrateFromCloud()
           }
         )
-        .subscribe((status) => {
-          console.log(`Supabase Realtime channel status: ${status}`)
-        })
+        .subscribe()
 
       return () => {
         if (intervalId) clearInterval(intervalId)
         if (realtimeChannel) supabase.removeChannel(realtimeChannel)
-        window.removeEventListener('focus', syncFromCloud)
+        window.removeEventListener('focus', hydrateFromCloud)
         window.removeEventListener('visibilitychange', handleSyncTrigger)
       }
     }
@@ -2140,6 +2362,7 @@ export const AppProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       ...state,
+      isOnline,
       toast,
       dialog,
       showToast,
@@ -2172,13 +2395,6 @@ export const AppProvider = ({ children }) => {
       clearAllNotifications: () => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS' }),
       updateSettings: (updates) => dispatch({ type: 'UPDATE_SETTINGS', payload: updates }),
       updateBusiness: (updates) => dispatch({ type: 'UPDATE_BUSINESS', payload: updates }),
-      addRecurringBill: (bill) => {
-        const recId = generateSeqId(state, 'REC')
-        dispatch({ type: 'INCREMENT_COUNTER', payload: 'REC' })
-        dispatch({ type: 'ADD_RECURRING_BILL', payload: { ...bill, id: recId } })
-      },
-      updateRecurringBill: (id, updates) => dispatch({ type: 'UPDATE_RECURRING_BILL', payload: { id, updates } }),
-      deleteRecurringBill: (id) => dispatch({ type: 'DELETE_RECURRING_BILL', payload: id }),
       logout,
       addCustomerGroup: (group) => {
         const grpId2 = generateSeqId(state, 'GRP')
@@ -2192,8 +2408,13 @@ export const AppProvider = ({ children }) => {
       recordSplitGroupPayment,
       updateGroupBill: (id, updates) => dispatch({ type: 'UPDATE_GROUP_BILL', payload: { id, updates } }),
       setPromoCodes: (promoCodes) => dispatch({ type: 'SET_PROMO_CODES', payload: promoCodes }),
+      deleteAdvancePayment: (id) => dispatch({ type: 'DELETE_ADVANCE_PAYMENT', payload: id }),
+      payGroupMember: (payload) => dispatch({ type: 'PAY_GROUP_MEMBER', payload }),
+      offlineQueue,
+      pendingSyncCount: offlineQueue.length,
+      processOfflineQueue,
     }),
-    [state, toast, dialog]
+    [state, isOnline, toast, dialog, offlineQueue, processOfflineQueue]
   )
 
   return (

@@ -11,3 +11,8 @@ export const getReceivables = () => api.get('/reports/receivables')
 export const getTopCustomers = (period) => api.get('/reports/top-customers', { params: { period } })
 
 export const getBestItems = (period) => api.get('/reports/best-items', { params: { period } })
+
+export const getEodReport = (date) => api.get('/reports/eod', { params: { date } })
+
+export const exportEodReportPdf = (date) => api.post('/reports/eod/pdf', { date })
+

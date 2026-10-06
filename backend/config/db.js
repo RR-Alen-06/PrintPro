@@ -22,10 +22,15 @@ const region = 'ap-south-1';
 
 // Build the IPv4-compatible Supabase Connection Pooler URL (Transaction Mode - Port 6543)
 // Username format is: postgres.[project-ref]
-const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD || 'cek@123'; // fallback, user should set in env
-const encodedPassword = encodeURIComponent(dbPassword);
-const connectionString = process.env.DATABASE_URL || 
-  `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+let connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
+  if (!dbPassword) {
+    throw new Error('Database configuration error: Required environment variable "SUPABASE_DB_PASSWORD" or "DATABASE_URL" is missing.');
+  }
+  const encodedPassword = encodeURIComponent(dbPassword);
+  connectionString = `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+}
 
 logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
 

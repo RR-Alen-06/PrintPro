@@ -7,23 +7,33 @@ const os        = require('os');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { initializeDatabase } = require('./config/db');
+const { initializeDatabase, getPool } = require('./config/db');
 const logger        = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler  = require('./middleware/errorHandler');
 const sanitize      = require('./middleware/sanitize');
 
 // ── Route imports ────────────────────────────────────────────────────────────
-const customerRoutes     = require('./routes/customers');
-const billRoutes         = require('./routes/bills');
-const paymentRoutes      = require('./routes/payments');
-const inventoryRoutes    = require('./routes/inventory');
-const purchaseRoutes     = require('./routes/purchases');
-const reportRoutes       = require('./routes/reports');
-const profileRoutes      = require('./routes/profile');
-const notificationRoutes = require('./routes/notifications');
-const auditRoutes        = require('./routes/audit');
-const shareRoutes        = require('./routes/share');
+const customerRoutes      = require('./routes/customers');
+const billRoutes          = require('./routes/bills');
+const paymentRoutes       = require('./routes/payments');
+const inventoryRoutes     = require('./routes/inventory');
+const purchaseRoutes      = require('./routes/purchases');
+const reportRoutes        = require('./routes/reports');
+const profileRoutes       = require('./routes/profile');
+const notificationRoutes  = require('./routes/notifications');
+const auditRoutes         = require('./routes/audit');
+const shareRoutes         = require('./routes/share');
+const loyaltyRoutes       = require('./routes/loyalty');
+const settingsRoutes      = require('./routes/settings');
+const promoRoutes         = require('./routes/promoCodes');
+const advanceRoutes       = require('./routes/advancePayments');
+const customerGroupRoutes = require('./routes/customerGroups');
+const groupBillRoutes     = require('./routes/groupBills');
+const { router: cashSessionRoutes } = require('./routes/cashSessions');
+const { router: upiTransactionRoutes } = require('./routes/upiTransactions');
+const analyticsRoutes     = require('./routes/analytics');
+const ledgerRoutes        = require('./routes/ledger');
 
 // ── App setup ────────────────────────────────────────────────────────────────
 const app  = express();
@@ -35,17 +45,19 @@ app.set('trust proxy', 1); // so req.ip works behind reverse proxies
 // ── Global middleware ────────────────────────────────────────────────────────
 app.use(helmet());
 
-// Configure CORS with allowed local development origins and configured CORS_ORIGIN
+// Configure CORS with explicit allowed development origins and configured environment origins
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
-  process.env.CORS_ORIGIN
+  'http://localhost:5173',
+  process.env.CORS_ORIGIN,
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('http://localhost:')) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -72,7 +84,7 @@ app.use(sanitize);
 // Apply rate limiting to all API requests
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -123,16 +135,26 @@ app.get('/api/health', async (req, res) => {
 const auth = require('./middleware/auth');
 app.use('/api', auth);
 
-app.use('/api/customers',     customerRoutes);
-app.use('/api/bills',         billRoutes);
-app.use('/api/payments',      paymentRoutes);
-app.use('/api/inventory',     inventoryRoutes);
-app.use('/api/purchases',     purchaseRoutes);
-app.use('/api/reports',       reportRoutes);
-app.use('/api/profile',       profileRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/audit',         auditRoutes);
-app.use('/api/share',         shareRoutes);
+app.use('/api/customers',        customerRoutes);
+app.use('/api/bills',            billRoutes);
+app.use('/api/payments',         paymentRoutes);
+app.use('/api/inventory',        inventoryRoutes);
+app.use('/api/purchases',        purchaseRoutes);
+app.use('/api/reports',          reportRoutes);
+app.use('/api/profile',          profileRoutes);
+app.use('/api/notifications',    notificationRoutes);
+app.use('/api/audit',            auditRoutes);
+app.use('/api/share',            shareRoutes);
+app.use('/api/loyalty',          loyaltyRoutes);
+app.use('/api/settings',         settingsRoutes);
+app.use('/api/promo-codes',      promoRoutes);
+app.use('/api/advance-payments', advanceRoutes);
+app.use('/api/customer-groups',  customerGroupRoutes);
+app.use('/api/group-bills',      groupBillRoutes);
+app.use('/api/cash-sessions',    cashSessionRoutes);
+app.use('/api/upi-transactions', upiTransactionRoutes);
+app.use('/api/analytics',        analyticsRoutes);
+app.use('/api/ledger',           ledgerRoutes);
 
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {
