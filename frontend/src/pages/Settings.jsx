@@ -32,18 +32,36 @@ const Settings = () => {
     loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== false,
     loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? 150,
     loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? 5,
-    loyaltyTiers: settings.loyaltyTiers?.length
+    loyaltyTiers: Array.isArray(settings.loyaltyTiers)
       ? settings.loyaltyTiers.map(t => ({ ...t }))
-      : [{ from: 1, to: 40, points: 1 }, { from: 41, to: 100, points: 2 }],
-    loyaltyRedeemOptions: settings.loyaltyRedeemOptions?.length
+      : [],
+    loyaltyRedeemOptions: Array.isArray(settings.loyaltyRedeemOptions)
       ? settings.loyaltyRedeemOptions.map(o => ({ ...o }))
-      : [
-          { points: 100, rupees: 2.5 },
-          { points: 120, rupees: 3 },
-          { points: 150, rupees: 5 },
-        ],
+      : [],
   })
   const [loyaltySaved, setLoyaltySaved] = useState(false)
+
+  useEffect(() => {
+    setLoyalty({
+      loyaltyEnabled: settings.loyaltyEnabled !== false,
+      loyaltyRedeemEnabled: settings.loyaltyRedeemEnabled !== false,
+      loyaltyRedeemRatioPoints: settings.loyaltyRedeemRatioPoints ?? 150,
+      loyaltyRedeemRatioRupees: settings.loyaltyRedeemRatioRupees ?? 5,
+      loyaltyTiers: Array.isArray(settings.loyaltyTiers)
+        ? settings.loyaltyTiers.map(t => ({ ...t }))
+        : [],
+      loyaltyRedeemOptions: Array.isArray(settings.loyaltyRedeemOptions)
+        ? settings.loyaltyRedeemOptions.map(o => ({ ...o }))
+        : [],
+    })
+  }, [
+    settings.loyaltyEnabled,
+    settings.loyaltyRedeemEnabled,
+    settings.loyaltyRedeemRatioPoints,
+    settings.loyaltyRedeemRatioRupees,
+    settings.loyaltyTiers,
+    settings.loyaltyRedeemOptions
+  ])
 
   // Promo / Coupon Codes local state
   const [newPromo, setNewPromo] = useState({
@@ -666,46 +684,52 @@ const Settings = () => {
                     <span>Points Earned</span>
                     <span></span>
                   </div>
-                  {loyalty.loyaltyTiers.map((tier, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 36px', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        className="form-input"
-                        type="number" min="0" step="1"
-                        value={tier.from}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], from: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <input
-                        className="form-input"
-                        type="number" min="0" step="1"
-                        value={tier.to}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], to: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <input
-                        className="form-input"
-                        type="number" min="1" step="1"
-                        value={tier.points}
-                        onChange={(e) => setLoyalty(prev => {
-                          const tiers = [...prev.loyaltyTiers]
-                          tiers[i] = { ...tiers[i], points: e.target.value }
-                          return { ...prev, loyaltyTiers: tiers }
-                        })}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLoyalty(prev => ({ ...prev, loyaltyTiers: prev.loyaltyTiers.filter((_, j) => j !== i) }))}
-                        style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
-                        title="Remove tier"
-                      >×</button>
-                    </div>
-                  ))}
+                  {loyalty.loyaltyTiers.length === 0 ? (
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '4px 0 8px 0', fontStyle: 'italic' }}>
+                      No points earning tiers configured. Click "+ Add Tier" to define custom spending ranges.
+                    </p>
+                  ) : (
+                    loyalty.loyaltyTiers.map((tier, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 36px', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          className="form-input"
+                          type="number" min="0" step="1"
+                          value={tier.from}
+                          onChange={(e) => setLoyalty(prev => {
+                            const tiers = [...prev.loyaltyTiers]
+                            tiers[i] = { ...tiers[i], from: e.target.value }
+                            return { ...prev, loyaltyTiers: tiers }
+                          })}
+                        />
+                        <input
+                          className="form-input"
+                          type="number" min="0" step="1"
+                          value={tier.to}
+                          onChange={(e) => setLoyalty(prev => {
+                            const tiers = [...prev.loyaltyTiers]
+                            tiers[i] = { ...tiers[i], to: e.target.value }
+                            return { ...prev, loyaltyTiers: tiers }
+                          })}
+                        />
+                        <input
+                          className="form-input"
+                          type="number" min="1" step="1"
+                          value={tier.points}
+                          onChange={(e) => setLoyalty(prev => {
+                            const tiers = [...prev.loyaltyTiers]
+                            tiers[i] = { ...tiers[i], points: e.target.value }
+                            return { ...prev, loyaltyTiers: tiers }
+                          })}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setLoyalty(prev => ({ ...prev, loyaltyTiers: prev.loyaltyTiers.filter((_, j) => j !== i) }))}
+                          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
+                          title="Remove tier"
+                        >×</button>
+                      </div>
+                    ))
+                  )}
                   <button
                     type="button"
                     onClick={() => setLoyalty(prev => ({
@@ -734,50 +758,56 @@ const Settings = () => {
                 <div className="form-group">
                   <label className="form-label" style={{ display: 'block', marginBottom: '8px' }}>Redemption Points Ratio Options</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {loyalty.loyaltyRedeemOptions.map((opt, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          className="form-input"
-                          type="number"
-                          min="1"
-                          placeholder="Points"
-                          value={opt.points}
-                          onChange={(e) => setLoyalty(prev => {
-                            const options = [...prev.loyaltyRedeemOptions]
-                            options[i] = { ...options[i], points: e.target.value }
-                            return { ...prev, loyaltyRedeemOptions: options }
-                          })}
-                          required
-                          style={{ flex: 1 }}
-                        />
-                        <span>Points =</span>
-                        <input
-                          className="form-input"
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          placeholder="Discount (₹)"
-                          value={opt.rupees}
-                          onChange={(e) => setLoyalty(prev => {
-                            const options = [...prev.loyaltyRedeemOptions]
-                            options[i] = { ...options[i], rupees: e.target.value }
-                            return { ...prev, loyaltyRedeemOptions: options }
-                          })}
-                          required
-                          style={{ flex: 1 }}
-                        />
-                        <span>Rs.</span>
-                        <button
-                          type="button"
-                          onClick={() => setLoyalty(prev => ({
-                            ...prev,
-                            loyaltyRedeemOptions: prev.loyaltyRedeemOptions.filter((_, j) => j !== i)
-                          }))}
-                          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
-                          title="Remove option"
-                        >×</button>
-                      </div>
-                    ))}
+                    {loyalty.loyaltyRedeemOptions.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '4px 0 8px 0', fontStyle: 'italic' }}>
+                        No redemption options configured. Click "+ Add Option" to define custom points redemption rates.
+                      </p>
+                    ) : (
+                      loyalty.loyaltyRedeemOptions.map((opt, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min="1"
+                            placeholder="Points"
+                            value={opt.points}
+                            onChange={(e) => setLoyalty(prev => {
+                              const options = [...prev.loyaltyRedeemOptions]
+                              options[i] = { ...options[i], points: e.target.value }
+                              return { ...prev, loyaltyRedeemOptions: options }
+                            })}
+                            required
+                            style={{ flex: 1 }}
+                          />
+                          <span>Points =</span>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            placeholder="Discount (₹)"
+                            value={opt.rupees}
+                            onChange={(e) => setLoyalty(prev => {
+                              const options = [...prev.loyaltyRedeemOptions]
+                              options[i] = { ...options[i], rupees: e.target.value }
+                              return { ...prev, loyaltyRedeemOptions: options }
+                            })}
+                            required
+                            style={{ flex: 1 }}
+                          />
+                          <span>Rs.</span>
+                          <button
+                            type="button"
+                            onClick={() => setLoyalty(prev => ({
+                              ...prev,
+                              loyaltyRedeemOptions: prev.loyaltyRedeemOptions.filter((_, j) => j !== i)
+                            }))}
+                            style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', height: '36px', width: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}
+                            title="Remove option"
+                          >×</button>
+                        </div>
+                      ))
+                    )}
                     <button
                       type="button"
                       onClick={() => setLoyalty(prev => ({
