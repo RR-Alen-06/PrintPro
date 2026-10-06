@@ -55,16 +55,9 @@ const initialState = {
     loyaltyEarningRate: 30,
     loyaltyRedeemRatioPoints: 150,
     loyaltyRedeemRatioRupees: 5,
-    loyaltyRedeemOptions: [
-      { points: 100, rupees: 2.5 },
-      { points: 120, rupees: 3 },
-      { points: 150, rupees: 5 },
-    ],
+    loyaltyRedeemOptions: [],
     // Tiered loyalty earning rules: [{from, to, points}] - sorted ascending by 'from'
-    loyaltyTiers: [
-      { from: 1, to: 40, points: 1 },
-      { from: 41, to: 100, points: 2 },
-    ],
+    loyaltyTiers: [],
     // Invoice Customizer & Branding Settings
     primaryColor: '#0f172a',
     logoUrl: '',

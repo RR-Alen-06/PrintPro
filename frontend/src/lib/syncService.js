@@ -10,6 +10,7 @@ import { createGroupBill, updateGroupBill, deleteGroupBill, payGroupMember } fro
 import { updateSettings } from '../api/settings';
 import { updateLoyaltySettings, createLoyaltyEvent, adjustCustomerLoyalty, deleteLoyaltyEvent, earnLoyaltyPoints, redeemLoyaltyPoints } from '../api/loyalty';
 import { createPromoCode, updatePromoCode, deletePromoCode } from '../api/promoCodes';
+import { openCashSession, closeCashSession } from '../api/cashSessions';
 
 /**
  * Pushes locally created/updated entities to the cloud backend.
@@ -387,6 +388,21 @@ export const syncEntityToCloud = async (action, payload) => {
             }).catch(() => {});
           }
         }
+      }
+      break;
+
+    case 'OPEN_CASH_SESSION':
+      return await openCashSession({
+        opening_cash: payload.opening_cash || payload.opening_float || 0,
+        notes: payload.notes || ''
+      });
+
+    case 'CLOSE_CASH_SESSION':
+      if (payload.id && !String(payload.id).startsWith('local-')) {
+        return await closeCashSession(payload.id, {
+          closing_cash: payload.closing_cash || payload.physical_count || 0,
+          notes: payload.notes || ''
+        });
       }
       break;
 
