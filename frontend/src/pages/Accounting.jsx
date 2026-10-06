@@ -11,7 +11,11 @@ const Accounting = () => {
   const [expForm, setExpForm] = useState({
     date: today,
     description: '',
+    category: 'General',
+    vendorName: '',
     amount: '',
+    paymentMethod: 'cash',
+    upiRef: '',
     cashAmount: '',
     upiAmount: '',
   })
@@ -176,25 +180,37 @@ const Accounting = () => {
   const handleAddExpense = (e) => {
     e.preventDefault()
     const amount = Number(expForm.amount)
-    const cash = Number(expForm.cashAmount || 0)
-    const upi = Number(expForm.upiAmount || 0)
 
     if (!expForm.description.trim()) { setExpError('Description is required.'); return }
     if (!amount || amount <= 0) { setExpError('Enter a valid amount.'); return }
-    if (Math.abs(cash + upi - amount) > 0.01) {
-      setExpError(`Cash (₹${cash}) + UPI (₹${upi}) = ₹${(cash + upi).toFixed(2)} must equal Total ₹${amount.toFixed(2)}.`)
-      return
-    }
+
+    const paymentMethod = expForm.paymentMethod || 'cash'
+    const cash = paymentMethod === 'cash' ? amount : 0
+    const upi = paymentMethod === 'upi' ? amount : 0
 
     addExpense({
       date: expForm.date || today,
       description: expForm.description.trim(),
+      category: expForm.category || 'General',
+      vendorName: expForm.vendorName?.trim() || '',
+      paymentMethod,
+      upiRef: expForm.upiRef?.trim() || '',
       amount,
       cashAmount: cash,
       upiAmount: upi,
     })
 
-    setExpForm({ date: today, description: '', amount: '', cashAmount: '', upiAmount: '' })
+    setExpForm({
+      date: today,
+      description: '',
+      category: 'General',
+      vendorName: '',
+      amount: '',
+      paymentMethod: 'cash',
+      upiRef: '',
+      cashAmount: '',
+      upiAmount: '',
+    })
     setExpSuccess(true)
     setTimeout(() => setExpSuccess(false), 3000)
   }
@@ -391,59 +407,100 @@ const Accounting = () => {
               <input className="form-input" type="date" value={expForm.date} onChange={(e) => handleExpenseChange('date', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Description</label>
+              <label className="form-label">Description / Item Name *</label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="e.g. Paper purchase, ink refill…"
+                placeholder="e.g. A4 Paper Rim, Black Toner cartridge…"
                 value={expForm.description}
                 onChange={(e) => handleExpenseChange('description', e.target.value)}
+                required
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Total Amount (₹)</label>
+              <label className="form-label">Category</label>
+              <select
+                className="form-select"
+                value={expForm.category}
+                onChange={(e) => handleExpenseChange('category', e.target.value)}
+              >
+                <option value="General">General</option>
+                <option value="Paper & Printing">Paper & Printing</option>
+                <option value="Ink & Toner">Ink & Toner</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Utilities">Utilities</option>
+                <option value="Rent">Rent</option>
+                <option value="Supplies">Supplies</option>
+                <option value="Salaries">Salaries</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Vendor / Supplier Name</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. Ravi Paper Mart, Canon Supplies…"
+                value={expForm.vendorName}
+                onChange={(e) => handleExpenseChange('vendorName', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Total Amount (₹) *</label>
               <input
                 className="form-input"
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 placeholder="0.00"
                 value={expForm.amount}
                 onChange={(e) => handleExpenseChange('amount', e.target.value)}
+                required
               />
             </div>
-            <div className="form-group" style={{ display: 'flex', gap: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <label className="form-label">Cash Paid (₹)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={expForm.cashAmount}
-                  onChange={(e) => handleExpenseChange('cashAmount', e.target.value)}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label className="form-label">UPI Paid (₹)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={expForm.upiAmount}
-                  onChange={(e) => handleExpenseChange('upiAmount', e.target.value)}
-                />
+            <div className="form-group">
+              <label className="form-label">Payment Method</label>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="cash"
+                    checked={expForm.paymentMethod === 'cash'}
+                    onChange={() => handleExpenseChange('paymentMethod', 'cash')}
+                  />
+                  <span>Cash</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="upi"
+                    checked={expForm.paymentMethod === 'upi'}
+                    onChange={() => handleExpenseChange('paymentMethod', 'upi')}
+                  />
+                  <span>UPI / Online</span>
+                </label>
               </div>
             </div>
+            {expForm.paymentMethod === 'upi' && (
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">UPI Reference / UTR Number</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. 123456789012 (UPI transaction reference)"
+                  value={expForm.upiRef}
+                  onChange={(e) => handleExpenseChange('upiRef', e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           {expError && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
+              padding: '10px 14px', marginBottom: '12px', marginTop: '12px',
               background: 'var(--error-bg)', border: '1px solid rgba(239,68,68,0.3)',
               borderRadius: 'var(--radius-md)', color: 'var(--error)', fontSize: '0.875rem'
             }}>
@@ -454,7 +511,7 @@ const Accounting = () => {
           {expSuccess && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', marginBottom: '12px',
+              padding: '10px 14px', marginBottom: '12px', marginTop: '12px',
               background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
               borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
             }}>
@@ -462,12 +519,11 @@ const Accounting = () => {
             </div>
           )}
 
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-            Cash + UPI must equal total amount.
-          </p>
-          <button type="submit" className="btn btn-primary">
-            <Plus size={16} /> Save Expense
-          </button>
+          <div style={{ marginTop: '16px' }}>
+            <button type="submit" className="btn btn-primary">
+              <Plus size={16} /> Save Expense
+            </button>
+          </div>
         </form>
       </div>
 
@@ -488,9 +544,10 @@ const Accounting = () => {
                   <th>Date</th>
                   <th>ID</th>
                   <th>Description</th>
+                  <th>Category</th>
+                  <th>Vendor</th>
+                  <th>Payment</th>
                   <th>Total (₹)</th>
-                  <th>Cash (₹)</th>
-                  <th>UPI (₹)</th>
                   <th></th>
                 </tr>
               </thead>
@@ -499,16 +556,26 @@ const Accounting = () => {
                   <tr key={exp.id}>
                     <td>{exp.date}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{exp.id}</td>
-                    <td>{exp.description}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount).toFixed(2)}</td>
-                    <td>₹{Number(exp.cashAmount || 0).toFixed(2)}</td>
-                    <td>₹{Number(exp.upiAmount || 0).toFixed(2)}</td>
+                    <td>{exp.description || exp.itemName}</td>
+                    <td>
+                      <span className="badge badge-info" style={{ fontSize: '0.72rem' }}>
+                        {exp.category || 'General'}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 500 }}>{exp.vendorName || exp.vendor_name || '—'}</td>
+                    <td>
+                      <span className={`badge badge-${(exp.paymentMethod || exp.payment_method) === 'upi' ? 'upi' : 'cash'}`} style={{ fontSize: '0.72rem' }}>
+                        {(exp.paymentMethod || exp.payment_method || 'cash').toUpperCase()}
+                        {(exp.upiRef || exp.upi_ref) ? ` (${exp.upiRef || exp.upi_ref})` : ''}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount || exp.total || 0).toFixed(2)}</td>
                     <td>
                       <button
                         className="btn btn-ghost btn-sm"
                         style={{ color: 'var(--error)' }}
                         onClick={() => {
-                          if (window.confirm(`Delete expense "${exp.description}"?`)) deleteExpense(exp.id)
+                          if (window.confirm(`Delete expense "${exp.description || exp.itemName}"?`)) deleteExpense(exp.id)
                         }}
                       >
                         <Trash2 size={14} />

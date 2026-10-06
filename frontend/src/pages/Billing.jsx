@@ -6,6 +6,7 @@ import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckC
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
+import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
 
 
 const makeInitialRow = (inventory) => ({
@@ -306,85 +307,58 @@ const Billing = () => {
     })
   }
 
-  // ── Promo Code Handling ───────────────────────────────────────────────────
-  const handleApplyPromo = () => {
+  // ── Promo Code Handling (Server-Authoritative) ───────────────────────────
+  const [isValidatingPromo, setIsValidatingPromo] = useState(false)
+
+  const handleApplyPromo = async () => {
     setPromoError('')
     const code = promoCodeInput.trim().toUpperCase()
     if (!code) return
 
-    const promo = promoCodes?.find(p => p.code === code)
-    if (!promo) {
-      setPromoError('Invalid promo code')
-      return
-    }
-    if (promo.enabled === false) {
-      setPromoError('This coupon code is currently disabled.')
-      return
-    }
+    const currentId = customerType === 'regular' ? customerId : randomCustomerId
 
-    // Check if this customer has already used this promo code
-    const currentEmail = customerEmail ? customerEmail.trim().toLowerCase() : (customers.find(c => c.id === customerId)?.email || '').trim().toLowerCase()
-    const currentPhone = customerPhone ? customerPhone.replace(/[^0-9]/g, '') : (customers.find(c => c.id === customerId)?.phone || '').replace(/[^0-9]/g, '')
-    const currentId = customerId
-
-    const hasRedeemed = bills.some(b => {
-      if (b.deleted) return false
-      if (b.promoCode !== code) return false
-
-      // Check if customer ID matches
-      if (b.customerId === currentId) return true
-
-      // Find customer details for that bill
-      const billCust = customers.find(c => c.id === b.customerId)
-      if (!billCust) return false
-
-      // Check Email
-      if (currentEmail && billCust.email && currentEmail === billCust.email.trim().toLowerCase()) {
-        return true
-      }
-
-      // Check Phone/Loyalty
-      if (currentPhone && billCust.phone && currentPhone === billCust.phone.replace(/[^0-9]/g, '')) {
-        return true
-      }
-
-      return false
-    })
-
-    if (hasRedeemed) {
-      setPromoError('This promo code has already been used by this customer and cannot be applied again.')
-      // Record attempt in audit logs
-      recordAuditLog({
-        action: 'PROMO_BLOCK',
-        promoCode: code,
-        customerId: currentId || 'GUEST',
-        customerName: customerName || (customers.find(c => c.id === currentId)?.name || 'Guest'),
-        customerEmail: currentEmail,
-        customerPhone: currentPhone,
-        details: `Attempted duplicate redemption of ${code}`
+    try {
+      setIsValidatingPromo(true)
+      const res = await validatePromoCode({
+        code,
+        customer_id: currentId || null,
+        bill_amount: subtotal,
       })
-      return
-    }
 
-    // Date validity check
-    const billDate = date || new Date().toISOString().slice(0, 10)
-    if (promo.startDate && billDate < promo.startDate) {
-      setPromoError(`This coupon is only valid from ${promo.startDate}.`)
-      return
+      if (res.data?.success && res.data?.valid) {
+        const promoData = res.data.data
+        setAppliedPromo({
+          id: promoData.promo_id,
+          code: promoData.code,
+          type: promoData.discount_type,
+          value: promoData.discount_value,
+          discountAmount: promoData.discount_amount,
+          remainingUses: promoData.remaining_uses,
+          minAmount: promoData.min_bill_amount,
+          maxDiscount: promoData.max_discount,
+        })
+        setDiscountType(promoData.discount_type)
+        setDiscountValue(promoData.discount_value)
+        setPromoCodeInput('')
+        setPromoError('')
+        if (showToast) showToast(`Promo code "${promoData.code}" applied!`, 'success')
+      } else {
+        setPromoError(res.data?.error || 'Invalid promo code')
+      }
+    } catch (err) {
+      const errMsg = err.response?.data?.error || 'Failed to validate promo code.'
+      setPromoError(errMsg)
+      if (recordAuditLog) {
+        recordAuditLog({
+          action: 'PROMO_VALIDATION_FAILED',
+          promoCode: code,
+          customerId: currentId || 'GUEST',
+          details: errMsg,
+        })
+      }
+    } finally {
+      setIsValidatingPromo(false)
     }
-    if (promo.endDate && billDate > promo.endDate) {
-      setPromoError(`This coupon expired on ${promo.endDate}.`)
-      return
-    }
-
-    if (subtotal < promo.minAmount) {
-      setPromoError(`Minimum bill amount for this code is ₹${promo.minAmount}`)
-      return
-    }
-    setAppliedPromo(promo)
-    setDiscountType(promo.type)
-    setDiscountValue(promo.value)
-    setPromoCodeInput('')
   }
 
 
@@ -1033,6 +1007,17 @@ const Billing = () => {
 
     const newBillId = addBill(billPayload)
     setLastBillId(newBillId)
+
+    if (appliedPromo) {
+      trackPromoUse({
+        promo_code_id: appliedPromo.id,
+        code: appliedPromo.code,
+        bill_id: newBillId,
+        customer_id: customerIdToUse || null,
+        discount_applied: appliedPromo.discountAmount || discountAmount,
+      }).catch((err) => console.error('Failed to track promo use in cloud:', err))
+    }
+
     resetForm()
   }
 
@@ -1059,6 +1044,9 @@ const Billing = () => {
     setLoyaltyPointsRedeemedInput('')
     setShouldRedeemPoints(false)
     setChangeHandling('advance')
+    setAppliedPromo(null)
+    setPromoCodeInput('')
+    setPromoError('')
   }
 
   const handleRoundingChoice = (roundedTotal) => {
@@ -1079,6 +1067,15 @@ const Billing = () => {
     } else {
       const newBillId = addBill(finalPayload)
       setLastBillId(newBillId)
+      if (appliedPromo) {
+        trackPromoUse({
+          promo_code_id: appliedPromo.id,
+          code: appliedPromo.code,
+          bill_id: newBillId,
+          customer_id: finalPayload.customerId || null,
+          discount_applied: appliedPromo.discountAmount || finalPayload.discountAmount || 0,
+        }).catch((err) => console.error('Failed to track promo use in cloud:', err))
+      }
       resetForm()
     }
   }
@@ -1770,17 +1767,37 @@ const Billing = () => {
                   type="text"
                   placeholder="Enter Code (e.g. STUDENT10)"
                   value={promoCodeInput}
-                  onChange={(e) => setPromoCodeInput(e.target.value)}
+                  onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleApplyPromo()
+                    }
+                  }}
+                  disabled={isValidatingPromo}
+                  style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
                 />
-                <button type="button" className="btn btn-secondary" onClick={handleApplyPromo}>Apply</button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleApplyPromo}
+                  disabled={isValidatingPromo || !promoCodeInput.trim()}
+                >
+                  {isValidatingPromo ? 'Checking...' : 'Apply'}
+                </button>
+              </div>
               {promoError && <p style={{ color: 'var(--error)', fontSize: '0.8rem', margin: '4px 0 0 0' }}>{promoError}</p>}
               {appliedPromo && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', color: 'var(--success)', fontSize: '0.8rem', fontWeight: 600 }}>
-                  <Tag size={12} /> Applied: {appliedPromo.code} ({appliedPromo.type === 'percent' ? `${appliedPromo.value}% off` : `₹${appliedPromo.value} off`})
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', color: 'var(--success)', fontSize: '0.8rem', fontWeight: 600, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(16,185,129,0.12)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(16,185,129,0.25)' }}>
+                    <Tag size={12} /> Applied: {appliedPromo.code} ({appliedPromo.type === 'percent' ? `${appliedPromo.value}% off` : `₹${appliedPromo.value} off`})
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Remaining uses: {appliedPromo.remainingUses !== null && appliedPromo.remainingUses !== undefined ? appliedPromo.remainingUses : 'Unlimited'}
+                  </span>
                   <button type="button" className="btn btn-link btn-sm" style={{ color: 'var(--error)', padding: 0 }} onClick={() => { setAppliedPromo(null); setDiscountValue(0); }}>Remove</button>
                 </div>
               )}
-            </div>
             </div>
 
             {settings.loyaltyEnabled !== false && settings.loyaltyRedeemEnabled !== false && selectedCustomer && (

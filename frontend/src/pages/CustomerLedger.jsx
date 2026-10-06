@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight } from 'lucide-react'
+import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, FileText, ExternalLink, Loader2 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 import { uploadPDFReceipt } from '../api/share'
+import { exportCustomerLedgerPdf } from '../api/ledger'
 import EmptyState from '../components/common/EmptyState'
 import { LedgerService } from '../utils/financialServices'
 
-const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly']
+const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom']
 
 const getLedgerPeriodRange = (period) => {
   const now = new Date()
@@ -50,6 +51,10 @@ const CustomerLedger = () => {
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
   const [ledgerPeriod, setLedgerPeriod] = useState('all')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [lastExportedPdf, setLastExportedPdf] = useState(null)
   
   const [payCash, setPayCash] = useState(0)
   const [payUpi, setPayUpi] = useState(0)
@@ -99,11 +104,20 @@ const CustomerLedger = () => {
       bills,
       payments,
       advancePayments,
-      period: ledgerPeriod,
+      period: ledgerPeriod === 'custom' ? 'all' : ledgerPeriod,
       settings
     })
-    return res.entries
-  }, [bills, payments, advancePayments, selectedCustomerId, ledgerPeriod, settings])
+    let entries = res.entries || []
+    if (ledgerPeriod === 'custom') {
+      if (customStartDate) {
+        entries = entries.filter(e => new Date(e.date) >= new Date(customStartDate))
+      }
+      if (customEndDate) {
+        entries = entries.filter(e => new Date(e.date) <= new Date(new Date(customEndDate).setHours(23, 59, 59, 999)))
+      }
+    }
+    return entries
+  }, [bills, payments, advancePayments, selectedCustomerId, ledgerPeriod, customStartDate, customEndDate, settings])
 
   const handleApplyPayment = () => {
     const cash = Number(payCash || 0)
@@ -317,50 +331,94 @@ const CustomerLedger = () => {
     return doc
   }
 
-  // PDF download
-  const downloadPDF = () => {
-    const doc = generateLedgerPDFDoc()
-    if (doc && selectedCustomer) {
-      doc.save(`${selectedCustomer.name}-ledger-${new Date().toISOString().slice(0, 10)}.pdf`)
+  // Determine date parameters based on selected period or custom inputs
+  const getSelectedDateParams = () => {
+    if (ledgerPeriod === 'custom') {
+      return {
+        startDate: customStartDate || undefined,
+        endDate: customEndDate || undefined,
+      }
+    }
+    const range = getLedgerPeriodRange(ledgerPeriod)
+    if (range) {
+      return {
+        startDate: range.start.toISOString().slice(0, 10),
+        endDate: range.end.toISOString().slice(0, 10),
+      }
+    }
+    return {}
+  }
+
+  // Server-side PDF export (Bank statement style)
+  const handleExportStatement = async () => {
+    if (!selectedCustomer) return
+    setExportingPdf(true)
+    showToast('Generating server-side statement PDF...', 'info')
+    try {
+      const dateParams = getSelectedDateParams()
+      const res = await exportCustomerLedgerPdf(selectedCustomer.id, dateParams)
+      if (res.success && (res.fullUrl || res.pdfUrl)) {
+        const hostedUrl = res.fullUrl || (window.location.origin + res.pdfUrl)
+        setLastExportedPdf({
+          url: hostedUrl,
+          relativeUrl: res.pdfUrl,
+          fileName: res.fileName || 'ledger_statement.pdf',
+          generatedAt: new Date().toLocaleTimeString(),
+        })
+        showToast('Statement PDF generated successfully!', 'success')
+        window.open(hostedUrl, '_blank')
+      } else {
+        showToast('Failed to generate statement PDF', 'error')
+      }
+    } catch (err) {
+      console.error('Failed to export ledger PDF:', err)
+      showToast('Error generating statement PDF: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setExportingPdf(false)
     }
   }
 
+  // Share Statement via WhatsApp with hosted server PDF link
   const shareStatementWhatsApp = async () => {
     if (!selectedCustomer) return
     const phone = selectedCustomer.phone || ''
     const dateStr = new Date().toLocaleDateString()
 
-    showToast('Generating and uploading ledger PDF statement...', 'info')
-    let pdfUrl = ''
+    setExportingPdf(true)
+    showToast('Generating shareable PDF link for WhatsApp...', 'info')
+    let pdfUrl = lastExportedPdf?.url || ''
     try {
-      const doc = generateLedgerPDFDoc()
-      if (doc) {
-        const pdfBlob = doc.output('blob')
-        // Clean customer name for filename
-        const cleanName = selectedCustomer.name.replace(/[^a-zA-Z0-9_-]/g, '')
-        const uploadResult = await uploadPDFReceipt(pdfBlob, `ledger-${cleanName}`)
-        if (uploadResult && uploadResult.fileUrl) {
-          pdfUrl = uploadResult.fileUrl
-          showToast('Ledger statement PDF ready to share!', 'success')
+      if (!pdfUrl) {
+        const dateParams = getSelectedDateParams()
+        const res = await exportCustomerLedgerPdf(selectedCustomer.id, dateParams)
+        if (res.success && (res.fullUrl || res.pdfUrl)) {
+          pdfUrl = res.fullUrl || (window.location.origin + res.pdfUrl)
+          setLastExportedPdf({
+            url: pdfUrl,
+            relativeUrl: res.pdfUrl,
+            fileName: res.fileName || 'ledger_statement.pdf',
+            generatedAt: new Date().toLocaleTimeString(),
+          })
         }
       }
     } catch (err) {
-      console.error('Failed to upload ledger PDF for WhatsApp share:', err)
-      showToast('Sharing statement details without PDF link due to upload issue.', 'warning')
+      console.error('Failed to export PDF for WhatsApp share:', err)
+      showToast('Sharing text statement without hosted PDF link.', 'warning')
+    } finally {
+      setExportingPdf(false)
     }
     
-    const pdfUrlLine = pdfUrl ? `*Download Ledger PDF:* ${pdfUrl}%0A` : ''
+    const pdfUrlLine = pdfUrl ? `*Download Statement PDF:* ${pdfUrl}%0A` : ''
 
-    const text = `*Ledger Statement for ${selectedCustomer.name} (${selectedCustomer.id})*%0A` +
+    const text = `*Customer Account Statement - ${selectedCustomer.name} (${selectedCustomer.id})*%0A` +
       `*Generated on:* ${dateStr}%0A` +
       `------------------------%0A` +
-      `*Total Billed (Debits):* ₹${totalDebits.toFixed(2)}%0A` +
-      `*Total Paid (Credits):* ₹${totalCredits.toFixed(2)}%0A` +
-      `*Final Balance:* *₹${finalBalance.toFixed(2)}*%0A` +
-      `*Advance Deposited:* ₹${totalAdvanceIn.toFixed(2)}%0A` +
-      `*Advance Returned:* ₹${totalAdvanceReturned.toFixed(2)}%0A` +
-      `*Advance Used:* ₹${totalAdvanceUsed.toFixed(2)}%0A` +
-      `*Outstanding Balance:* *₹${outstanding.toFixed(2)}*%0A` +
+      `*Total Debits (Invoices):* ₹${totalDebits.toFixed(2)}%0A` +
+      `*Total Credits (Payments/Deposits):* ₹${totalCredits.toFixed(2)}%0A` +
+      `*Closing Balance:* *₹${finalBalance.toFixed(2)}*%0A` +
+      (periodAdvanceReturned > 0 ? `*Advance Returned:* ₹${periodAdvanceReturned.toFixed(2)}%0A` : '') +
+      `*Current Advance Credit:* ₹${Number(selectedCustomer.advanceBalance || 0).toFixed(2)}%0A` +
+      `*Outstanding Bills:* *₹${outstanding.toFixed(2)}*%0A` +
       `------------------------%0A` +
       pdfUrlLine +
       `Thank you! - ${business?.shopName || 'PrintPro'}`
@@ -502,20 +560,88 @@ const CustomerLedger = () => {
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-              <button className="btn btn-secondary" onClick={downloadStatement} style={{ flex: 1 }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleExportStatement}
+                disabled={exportingPdf}
+                style={{ flex: 1.2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                Export Statement
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={downloadStatement}
+                style={{ flex: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
                 <Download size={16} /> CSV
               </button>
-              <button className="btn btn-primary" onClick={downloadPDF} style={{ flex: 1 }}>
-                <Download size={16} /> PDF
-              </button>
             </div>
+
             <button
               className="btn btn-secondary"
               onClick={shareStatementWhatsApp}
+              disabled={exportingPdf}
               style={{ width: '100%', marginTop: '8px', color: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               <Share2 size={16} /> Share via WhatsApp
             </button>
+
+            {lastExportedPdf && (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px',
+                background: 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.8rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Link2 size={13} /> Shareable PDF Link
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{lastExportedPdf.generatedAt}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={lastExportedPdf.url}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      fontFamily: 'monospace',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    title="Copy Link"
+                    onClick={() => {
+                      navigator.clipboard.writeText(lastExportedPdf.url);
+                      showToast('Shareable link copied to clipboard!', 'success');
+                    }}
+                    style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Copy size={13} /> Copy
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    title="Open PDF in new tab"
+                    onClick={() => window.open(lastExportedPdf.url, '_blank')}
+                    style={{ padding: '6px 8px' }}
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Record Payment Form */}
@@ -665,8 +791,8 @@ const CustomerLedger = () => {
               <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700 }}>Transaction History ({ledgerEntries.length})</h2>
             </div>
             {/* Period selector */}
-            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-              {['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'].map((p) => (
+            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', alignItems: 'center' }}>
+              {LEDGER_PERIODS.map((p) => (
                 <button
                   key={p} type="button"
                   onClick={() => setLedgerPeriod(p)}
@@ -679,6 +805,27 @@ const CustomerLedger = () => {
                 >{p.charAt(0).toUpperCase() + p.slice(1)}</button>
               ))}
             </div>
+
+            {ledgerPeriod === 'custom' && (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', marginTop: '4px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>From:</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>To:</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '10px', fontSize: '0.78rem' }}>
               {[['Invoice', 'var(--error)'], ['Payment', 'var(--success)'], ['Advance', 'var(--info)'], ['Opening', 'var(--text-secondary)']].map(([label, color]) => (
                 <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }}>

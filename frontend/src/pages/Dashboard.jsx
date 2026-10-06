@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle } from 'lucide-react'
+import { TrendingUp, CreditCard, Clock, AlertTriangle, ChevronRight, Wallet, CheckCircle, XCircle, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 import { DashboardService } from '../utils/financialServices'
+import EodModal from '../components/dashboard/EodModal'
 
 const Dashboard = () => {
   const { bills, customers, advancePayments, payments, expenses } = useAppContext()
   const navigate = useNavigate()
   const today = new Date()
+
+  const [showEodModal, setShowEodModal] = useState(false)
 
   // Default to current financial year based on current date
   const [selectedFY, setSelectedFY] = useState(
@@ -134,10 +137,22 @@ const Dashboard = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Dashboard</h1>
-        <p>Overview of billing activity, pending dues, and customer status.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1>Dashboard</h1>
+          <p>Overview of billing activity, pending dues, and customer status.</p>
+        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={() => setShowEodModal(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontWeight: 600 }}
+        >
+          <FileText size={16} color="var(--accent)" />
+          EOD Report
+        </button>
       </div>
+
+      <EodModal isOpen={showEodModal} onClose={() => setShowEodModal(false)} />
 
       {/* Financial Health Section */}
       <div style={{ marginBottom: '24px' }}>

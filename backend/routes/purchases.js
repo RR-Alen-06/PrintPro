@@ -48,10 +48,19 @@ const { validatePurchase } = require('../middleware/validate');
 router.post('/', validatePurchase, async (req, res, next) => {
   try {
     const pool = getPool();
-    const { date, item_name, category, qty, unit_cost, notes } = req.body;
+    const { date, item_name, category, qty, unit_cost, notes, vendor_name = '', payment_method = 'cash', upi_ref = '', session_id } = req.body;
 
     if (!date || !item_name || !category) {
       return res.status(400).json({ success: false, error: 'date, item_name, and category are required' });
+    }
+
+    let activeSessionId = session_id || null;
+    if (!activeSessionId) {
+      const [sessRows] = await pool.query(
+        `SELECT id FROM cash_sessions WHERE user_id = ? AND status = 'open' ORDER BY opened_at DESC LIMIT 1`,
+        [req.user.id]
+      );
+      if (sessRows.length > 0) activeSessionId = sessRows[0].id;
     }
 
     const qtyNum = parseInt(qty, 10) || 0;
@@ -59,8 +68,8 @@ router.post('/', validatePurchase, async (req, res, next) => {
     const total = parseFloat((qtyNum * cost).toFixed(2));
 
     const [result] = await pool.query(
-      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '']
+      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes, vendor_name, payment_method, upi_ref, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '', vendor_name || '', payment_method || 'cash', upi_ref || '', activeSessionId]
     );
 
     const [newRow] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
@@ -76,14 +85,17 @@ router.put('/:id', async (req, res, next) => {
     const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
-    const { date, item_name, category, qty, unit_cost, notes } = req.body;
+    const { date, item_name, category, qty, unit_cost, notes, vendor_name, payment_method, upi_ref } = req.body;
     const updates = {};
-    if (date !== undefined)      updates.date = date;
-    if (item_name !== undefined) updates.item_name = item_name;
-    if (category !== undefined)  updates.category = category;
-    if (qty !== undefined)       updates.qty = parseInt(qty, 10);
-    if (unit_cost !== undefined) updates.unit_cost = parseFloat(unit_cost);
-    if (notes !== undefined)     updates.notes = notes;
+    if (date !== undefined)           updates.date = date;
+    if (item_name !== undefined)      updates.item_name = item_name;
+    if (category !== undefined)       updates.category = category;
+    if (qty !== undefined)            updates.qty = parseInt(qty, 10);
+    if (unit_cost !== undefined)      updates.unit_cost = parseFloat(unit_cost);
+    if (notes !== undefined)          updates.notes = notes;
+    if (vendor_name !== undefined)    updates.vendor_name = vendor_name;
+    if (payment_method !== undefined) updates.payment_method = payment_method;
+    if (upi_ref !== undefined)        updates.upi_ref = upi_ref;
 
     if (updates.qty !== undefined || updates.unit_cost !== undefined) {
       const q = updates.qty !== undefined ? updates.qty : existing[0].qty;

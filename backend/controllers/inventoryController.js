@@ -41,11 +41,17 @@ async function addItem(req, res, next) {
 }
 
 // PUT /:id - Update item
+const ALLOWED_INVENTORY_COLUMNS = ['name', 'color_single', 'color_double', 'bw_single', 'bw_double', 'stock', 'low_stock_alert'];
+
 async function updateItem(req, res, next) {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert } = req.body;
+
+    const invalidKeys = Object.keys(req.body).filter(k => !ALLOWED_INVENTORY_COLUMNS.includes(k));
+    if (invalidKeys.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid column(s): ${invalidKeys.join(', ')}` });
+    }
 
     const [existing] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
@@ -54,13 +60,11 @@ async function updateItem(req, res, next) {
 
     const oldItem = existing[0];
     const updates = {};
-    if (name !== undefined) updates.name = name;
-    if (color_single !== undefined) updates.color_single = color_single;
-    if (color_double !== undefined) updates.color_double = color_double;
-    if (bw_single !== undefined) updates.bw_single = bw_single;
-    if (bw_double !== undefined) updates.bw_double = bw_double;
-    if (stock !== undefined) updates.stock = stock;
-    if (low_stock_alert !== undefined) updates.low_stock_alert = low_stock_alert;
+    for (const key of ALLOWED_INVENTORY_COLUMNS) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'No fields to update' });

@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript]  # JS covers JSX and Node.js
+        language: ['javascript-typescript']
 
     steps:
       - name: Checkout repository

@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
-import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag } from 'lucide-react'
+import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, Gift, Award, History, Plus, Minus } from 'lucide-react'
+import { getCustomerLoyalty, adjustCustomerLoyalty, deleteLoyaltyEvent } from '../api/loyalty'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -16,7 +17,7 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, customers, bills, payments, advancePayments, addCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm } = useAppContext()
+  const { business, customers, bills, payments, advancePayments, addCustomer, updateCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
   const navigate = useNavigate()
 
   const copyUpiLink = (link) => {
@@ -48,6 +49,89 @@ const Customers = () => {
   const [qrGenerated, setQrGenerated] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const [expandedBillId, setExpandedBillId] = useState(null)
+
+  // Loyalty History and Adjustment Modals State
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState(null)
+  const [loyaltyEvents, setLoyaltyEvents] = useState([])
+  const [loyaltyBalance, setLoyaltyBalance] = useState(0)
+  const [loadingLoyalty, setLoadingLoyalty] = useState(false)
+
+  const [adjustModalCustomer, setAdjustModalCustomer] = useState(null)
+  const [adjustPoints, setAdjustPoints] = useState('')
+  const [adjustOperation, setAdjustOperation] = useState('add')
+  const [adjustNotes, setAdjustNotes] = useState('')
+  const [adjusting, setAdjusting] = useState(false)
+
+  const openLoyaltyHistory = async (customer) => {
+    setLoyaltyCustomer(customer)
+    setLoadingLoyalty(true)
+    try {
+      const res = await getCustomerLoyalty(customer.id)
+      setLoyaltyEvents(res.data?.data?.events || [])
+      setLoyaltyBalance(res.data?.data?.balance ?? (customer.loyaltyPoints || 0))
+    } catch (err) {
+      console.error('Failed to load customer loyalty:', err)
+      setLoyaltyEvents([])
+      setLoyaltyBalance(customer.loyaltyPoints || 0)
+    } finally {
+      setLoadingLoyalty(false)
+    }
+  }
+
+  const handleDeleteLoyaltyEvent = async (eventId) => {
+    try {
+      const res = await deleteLoyaltyEvent(eventId)
+      const newBal = res.data?.data?.new_balance ?? 0
+      setLoyaltyEvents(prev => prev.filter(e => String(e.id) !== String(eventId)))
+      setLoyaltyBalance(newBal)
+      if (loyaltyCustomer) {
+        updateCustomer(loyaltyCustomer.id, { loyaltyPoints: newBal })
+      }
+      showToast?.('Loyalty event deleted and balance recalculated', 'success')
+    } catch (err) {
+      console.error('Failed to delete loyalty event:', err)
+      showAlert('Failed to delete loyalty event', 'error')
+    }
+  }
+
+  const handleOpenAdjustModal = (customer) => {
+    setAdjustModalCustomer(customer)
+    setAdjustPoints('')
+    setAdjustOperation('add')
+    setAdjustNotes('')
+  }
+
+  const handleSavePointsAdjustment = async (e) => {
+    e.preventDefault()
+    const pts = parseInt(adjustPoints, 10)
+    if (isNaN(pts) || pts <= 0) {
+      showAlert('Please enter a valid positive number of points', 'error')
+      return
+    }
+
+    setAdjusting(true)
+    try {
+      const res = await adjustCustomerLoyalty(adjustModalCustomer.id, {
+        points: pts,
+        operation: adjustOperation,
+        notes: adjustNotes || 'Manual points adjustment by owner'
+      })
+      const newBal = res.data?.data?.balance ?? 0
+      updateCustomer(adjustModalCustomer.id, { loyaltyPoints: newBal })
+      if (loyaltyCustomer && loyaltyCustomer.id === adjustModalCustomer.id) {
+        setLoyaltyBalance(newBal)
+        const event = res.data?.data?.event
+        if (event) setLoyaltyEvents(prev => [event, ...prev])
+      }
+      showToast?.(`Successfully ${adjustOperation === 'add' ? 'added' : 'deducted'} ${pts} points`, 'success')
+      setAdjustModalCustomer(null)
+    } catch (err) {
+      console.error('Failed to adjust points:', err)
+      showAlert('Failed to adjust customer points', 'error')
+    } finally {
+      setAdjusting(false)
+    }
+  }
 
   // Payment form state
   const [payCash, setPayCash] = useState(0)
@@ -490,7 +574,23 @@ const Customers = () => {
                     {selectedCustomer.email && ` · ${selectedCustomer.email}`}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); openLoyaltyHistory(selectedCustomer) }}
+                    title="View loyalty point history"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <History size={13} color="#a855f7" /> Loyalty
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); handleOpenAdjustModal(selectedCustomer) }}
+                    title="Manually adjust loyalty points"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Gift size={13} color="#c084fc" /> Adjust Points
+                  </button>
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={(e) => { e.stopPropagation(); openEditModal(selectedCustomer) }}
@@ -530,6 +630,22 @@ const Customers = () => {
                     </span>
                   </div>
                 )}
+                <div 
+                  onClick={() => openLoyaltyHistory(selectedCustomer)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    padding: '8px 16px', borderRadius: 'var(--radius-md)',
+                    background: 'rgba(168, 85, 247, 0.1)', border: '1px solid rgba(168, 85, 247, 0.3)',
+                    cursor: 'pointer',
+                  }}
+                  title="Click to view full loyalty event history"
+                >
+                  <Gift size={14} style={{ color: '#a855f7' }} />
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Loyalty Points</span>
+                  <span style={{ fontWeight: 700, fontSize: '1.1rem', color: '#c084fc' }}>
+                    {selectedCustomer.loyaltyPoints || 0} pts
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1269,8 +1385,269 @@ const Customers = () => {
           </div>
         </div>
       )}
+
+      {/* Loyalty Event History Modal */}
+      {loyaltyCustomer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setLoyaltyCustomer(null)}
+        >
+          <div
+            style={{
+              backgroundColor: '#18181b',
+              border: '1px solid rgba(168, 85, 247, 0.25)',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '620px',
+              maxHeight: '85vh',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(168, 85, 247, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}>
+                  <Award size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Loyalty Points History</h3>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {loyaltyCustomer.name} (<span style={{ fontFamily: 'monospace' }}>{loyaltyCustomer.id}</span>)
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setLoyaltyCustomer(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Current Balance Banner */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: 'rgba(168, 85, 247, 0.08)', borderRadius: '8px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+              <div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Audited Balance</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#c084fc' }}>{loyaltyBalance} Points</div>
+              </div>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
+                onClick={() => handleOpenAdjustModal(loyaltyCustomer)}
+              >
+                <Gift size={14} color="#c084fc" />
+                <span>Adjust Points</span>
+              </button>
+            </div>
+
+            {/* History Table */}
+            <div style={{ overflowY: 'auto', flex: 1, maxHeight: '350px', border: '1px solid var(--border)', borderRadius: '8px' }}>
+              {loadingLoyalty ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                  Loading loyalty events…
+                </div>
+              ) : loyaltyEvents.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                  No loyalty points events recorded yet for this customer.
+                </div>
+              ) : (
+                <table className="table" style={{ margin: 0, fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th>Points</th>
+                      <th>Notes</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyEvents.map((ev) => {
+                      const isPositive = Number(ev.points) > 0
+                      return (
+                        <tr key={ev.id}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{new Date(ev.created_at || ev.date).toLocaleDateString()}</td>
+                          <td>
+                            <span
+                              className={`badge ${
+                                ev.event_type === 'earn'
+                                  ? 'badge-success'
+                                  : ev.event_type === 'redeem'
+                                  ? 'badge-warning'
+                                  : 'badge-info'
+                              }`}
+                              style={{ fontSize: '0.7rem', textTransform: 'capitalize' }}
+                            >
+                              {ev.event_type ? ev.event_type.replace('_', ' ') : 'Event'}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 700, color: isPositive ? '#10b981' : '#ef4444' }}>
+                            {isPositive ? `+${ev.points}` : ev.points}
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{ev.notes || '—'}</td>
+                          <td>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ color: 'var(--error)', padding: '2px 6px' }}
+                              onClick={() => {
+                                showConfirm(
+                                  'Delete Loyalty Event',
+                                  'Are you sure you want to delete this event? The customer balance will be recalculated automatically.',
+                                  () => handleDeleteLoyaltyEvent(ev.id)
+                                )
+                              }}
+                              title="Delete event and recalculate balance"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => setLoyaltyCustomer(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Points Modal */}
+      {adjustModalCustomer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 100000,
+          }}
+          onClick={() => setAdjustModalCustomer(null)}
+        >
+          <div
+            style={{
+              backgroundColor: '#18181b',
+              border: '1px solid rgba(168, 85, 247, 0.3)',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '420px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Adjust Loyalty Points</h3>
+              <button
+                onClick={() => setAdjustModalCustomer(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePointsAdjustment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Customer: <strong>{adjustModalCustomer.name}</strong> ({adjustModalCustomer.id})
+                </span>
+              </div>
+
+              {/* Add vs Deduct Toggle */}
+              <div>
+                <label className="form-label" style={{ marginBottom: '6px', display: 'block' }}>Adjustment Type</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className={`btn ${adjustOperation === 'add' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={() => setAdjustOperation('add')}
+                  >
+                    <Plus size={14} /> Add Points (+)
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${adjustOperation === 'deduct' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', backgroundColor: adjustOperation === 'deduct' ? '#ef4444' : undefined }}
+                    onClick={() => setAdjustOperation('deduct')}
+                  >
+                    <Minus size={14} /> Deduct Points (-)
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Points Amount</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="form-input"
+                  placeholder="e.g. 50"
+                  value={adjustPoints}
+                  onChange={(e) => setAdjustPoints(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Reason / Notes</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Goodwill bonus, correction, reward"
+                  value={adjustNotes}
+                  onChange={(e) => setAdjustNotes(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setAdjustModalCustomer(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={adjusting}>
+                  {adjusting ? 'Saving…' : 'Save Adjustment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export default Customers
+

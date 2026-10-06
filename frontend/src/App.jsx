@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAppContext } from './context/AppContext'
 import Sidebar from './components/layout/Sidebar'
 import Header from './components/layout/Header'
+import FullPageSkeleton from './components/common/FullPageSkeleton'
+import OfflineBanner from './components/common/OfflineBanner'
 import Dashboard from './pages/Dashboard'
 import Billing from './pages/Billing'
 import Customers from './pages/Customers'
@@ -16,16 +18,17 @@ import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
 import CustomerLedger from './pages/CustomerLedger'
-import RecurringBills from './pages/RecurringBills'
 import Analytics from './pages/Analytics'
 import AdvancePayments from './pages/AdvancePayments'
 import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
+import CashRegister from './pages/CashRegister'
+import UpiReconciliation from './pages/UpiReconciliation'
 
 function App() {
-  const { currentUser } = useAppContext()
+  const { currentUser, hydrated, isOnline } = useAppContext()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
@@ -54,8 +57,14 @@ function App() {
     return <AuthCallback />
   }
 
+  // Show full-page skeleton while hydrating initial cloud state
+  if (currentUser && hydrated === false) {
+    return <FullPageSkeleton />
+  }
+
   return (
     <div className="app-layout">
+      {!isOnline && <OfflineBanner />}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-wrapper">
         <Header onMenuClick={() => setSidebarOpen(true)} />
@@ -77,8 +86,9 @@ function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
             <Route path="/customer-bills" element={<CustomerBills />} />
-            <Route path="/recurring-bills" element={<RecurringBills />} />
             <Route path="/advance-payments" element={<AdvancePayments />} />
+            <Route path="/cash-register" element={<CashRegister />} />
+            <Route path="/upi-reconciliation" element={<UpiReconciliation />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/group-billing" element={<GroupBilling />} />
             <Route path="/refunds" element={<Refunds />} />

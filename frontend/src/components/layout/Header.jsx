@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
-import { Search, Bell, PlusSquare, LogOut, User, Menu } from 'lucide-react'
+import { Search, Bell, PlusSquare, LogOut, User, Menu, CloudOff } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useNavigate } from 'react-router-dom'
 
 const Header = ({ onMenuClick }) => {
-  const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } = useAppContext()
+  const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, offlineQueue = [] } = useAppContext()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -30,6 +30,30 @@ const Header = ({ onMenuClick }) => {
         <div className="header-title">PrintPro Business Manager</div>
       </div>
       <div className="header-right">
+        {offlineQueue.length > 0 && (
+          <div
+            className="offline-sync-badge"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '16px',
+              backgroundColor: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid rgba(245, 158, 11, 0.4)',
+              color: '#f59e0b',
+              fontSize: '12px',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              userSelect: 'none',
+              cursor: 'default',
+            }}
+            title="Changes queued locally. They will sync automatically when online."
+          >
+            <CloudOff size={14} />
+            <span>{offlineQueue.length} {offlineQueue.length === 1 ? 'change' : 'changes'} pending sync</span>
+          </div>
+        )}
         <form className="header-search" onSubmit={handleSearch} style={{ display: 'flex', alignItems: 'center' }}>
           <Search size={16} style={{ flexShrink: 0 }} />
           <input

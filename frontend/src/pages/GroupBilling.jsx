@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { validatePromoCode } from '../api/promoCodes'
 
 const makeItemRow = (inventory) => ({
   id: `row-${Date.now()}-${Math.random()}`,
@@ -369,36 +370,36 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
                 type="button"
                 className="btn btn-secondary"
                 style={{ fontSize: '12px', padding: '4px 12px' }}
-                onClick={() => {
+                onClick={async () => {
                   const code = (member.promoCodeInput || '').trim().toUpperCase()
                   if (!code) return
-                  const promo = promoCodes?.find(p => p.code === code)
-                  if (!promo) {
-                    onChange(member.id, { promoError: 'Invalid promo code' })
-                    return
-                  }
-                  if (promo.enabled === false) {
-                    onChange(member.id, { promoError: 'This coupon is disabled.' })
-                    return
-                  }
-
-                  // Date validity check
-                  const billDate = date || new Date().toISOString().slice(0, 10)
-                  if (promo.startDate && billDate < promo.startDate) {
-                    onChange(member.id, { promoError: `Valid from ${promo.startDate}` })
-                    return
-                  }
-                  if (promo.endDate && billDate > promo.endDate) {
-                    onChange(member.id, { promoError: `Expired on ${promo.endDate}` })
-                    return
-                  }
-
                   const mSubtotal = memberTotals[idx]?.subtotal || 0
-                  if (mSubtotal < promo.minAmount) {
-                    onChange(member.id, { promoError: `Min amount ₹${promo.minAmount}` })
-                    return
+                  try {
+                    const res = await validatePromoCode({
+                      code,
+                      customer_id: member.customerId || null,
+                      bill_amount: mSubtotal,
+                    })
+                    if (res.data?.success && res.data?.valid) {
+                      const promoData = res.data.data
+                      onChange(member.id, {
+                        appliedPromo: {
+                          id: promoData.promo_id,
+                          code: promoData.code,
+                          type: promoData.discount_type,
+                          value: promoData.discount_value,
+                          discountAmount: promoData.discount_amount,
+                          remainingUses: promoData.remaining_uses,
+                        },
+                        promoError: '',
+                        promoCodeInput: ''
+                      })
+                    } else {
+                      onChange(member.id, { promoError: res.data?.error || 'Invalid promo code' })
+                    }
+                  } catch (err) {
+                    onChange(member.id, { promoError: err.response?.data?.error || 'Invalid or expired promo code' })
                   }
-                  onChange(member.id, { appliedPromo: promo, promoError: '', promoCodeInput: '' })
                 }}
               >
                 Apply
@@ -1385,35 +1386,35 @@ const GroupBilling = () => {
                                 type="button"
                                 className="btn btn-secondary"
                                 style={{ fontSize: '11px', padding: '2px 8px' }}
-                                onClick={() => {
+                                onClick={async () => {
                                   const code = (m.promoCodeInput || '').trim().toUpperCase()
                                   if (!code) return
-                                  const promo = promoCodes?.find(p => p.code === code)
-                                  if (!promo) {
-                                    updateSplitMember(m.id, { promoError: 'Invalid promo code' })
-                                    return
+                                  try {
+                                    const res = await validatePromoCode({
+                                      code,
+                                      customer_id: m.customerId || null,
+                                      bill_amount: splitAmount,
+                                    })
+                                    if (res.data?.success && res.data?.valid) {
+                                      const promoData = res.data.data
+                                      updateSplitMember(m.id, {
+                                        appliedPromo: {
+                                          id: promoData.promo_id,
+                                          code: promoData.code,
+                                          type: promoData.discount_type,
+                                          value: promoData.discount_value,
+                                          discountAmount: promoData.discount_amount,
+                                          remainingUses: promoData.remaining_uses,
+                                        },
+                                        promoError: '',
+                                        promoCodeInput: ''
+                                      })
+                                    } else {
+                                      updateSplitMember(m.id, { promoError: res.data?.error || 'Invalid promo code' })
+                                    }
+                                  } catch (err) {
+                                    updateSplitMember(m.id, { promoError: err.response?.data?.error || 'Invalid or expired promo code' })
                                   }
-                                  if (promo.enabled === false) {
-                                    updateSplitMember(m.id, { promoError: 'This coupon is disabled.' })
-                                    return
-                                  }
-
-                                  // Date validity check
-                                  const billDate = date || new Date().toISOString().slice(0, 10)
-                                  if (promo.startDate && billDate < promo.startDate) {
-                                    updateSplitMember(m.id, { promoError: `Valid from ${promo.startDate}` })
-                                    return
-                                  }
-                                  if (promo.endDate && billDate > promo.endDate) {
-                                    updateSplitMember(m.id, { promoError: `Expired on ${promo.endDate}` })
-                                    return
-                                  }
-
-                                  if (splitAmount < promo.minAmount) {
-                                    updateSplitMember(m.id, { promoError: `Min amount ₹${promo.minAmount}` })
-                                    return
-                                  }
-                                  updateSplitMember(m.id, { appliedPromo: promo, promoError: '', promoCodeInput: '' })
                                 }}
                               >
                                 Apply
