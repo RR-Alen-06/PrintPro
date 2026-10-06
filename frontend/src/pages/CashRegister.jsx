@@ -29,10 +29,24 @@ import {
 } from '../api/cashSessions'
 
 const CashRegister = () => {
-  const { business, showAlert, showToast, showConfirm } = useAppContext()
+  const { business, showAlert, showToast, showConfirm, payments, purchases, dispatch } = useAppContext()
 
-  const [sessions, setSessions] = useState([])
-  const [activeSession, setActiveSession] = useState(null)
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const cached = localStorage.getItem('printpro-cash-sessions')
+      return cached ? JSON.parse(cached) : []
+    } catch {
+      return []
+    }
+  })
+  const [activeSession, setActiveSession] = useState(() => {
+    try {
+      const cached = localStorage.getItem('printpro-active-cash-session')
+      return cached ? JSON.parse(cached) : null
+    } catch {
+      return null
+    }
+  })
   const [loading, setLoading] = useState(true)
 
   // Modals
@@ -77,15 +91,65 @@ const CashRegister = () => {
   const loadSessions = async () => {
     try {
       setLoading(true)
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cachedSessions = JSON.parse(localStorage.getItem('printpro-cash-sessions') || '[]')
+        const cachedActive = JSON.parse(localStorage.getItem('printpro-active-cash-session') || 'null')
+        setSessions(cachedSessions)
+        if (cachedActive) {
+          const openedAt = new Date(cachedActive.opened_at || Date.now()).getTime()
+          const sessionPayments = (payments || []).filter(p => {
+            const pTime = new Date(p.date || p.createdAt || 0).getTime()
+            return p.sessionId === cachedActive.id || (!p.sessionId && pTime >= openedAt)
+          })
+          const sessionPurchases = (purchases || []).filter(pur => {
+            const purTime = new Date(pur.date || pur.createdAt || 0).getTime()
+            return pur.sessionId === cachedActive.id || (!pur.sessionId && purTime >= openedAt)
+          })
+          const cashIn = sessionPayments.reduce((sum, p) => (!p.isRefund && p.paymentType !== 'refund' ? sum + Number(p.cashAmount || (p.paymentType === 'cash' ? p.totalPaid || p.amount : 0) || 0) : sum), 0)
+          const cashRefunds = sessionPayments.reduce((sum, p) => (p.isRefund || p.paymentType === 'refund' ? sum + Math.abs(Number(p.cashAmount || p.totalPaid || p.amount || 0)) : sum), 0)
+          const upiIn = sessionPayments.reduce((sum, p) => (!p.isRefund && p.paymentType !== 'refund' ? sum + Number(p.upiAmount || (p.paymentType === 'upi' ? p.totalPaid || p.amount : 0) || 0) : sum), 0)
+          const cashExpenses = sessionPurchases.reduce((sum, pur) => (pur.paymentMethod === 'cash' ? sum + Number(pur.total || 0) : sum), 0)
+          const openingCash = parseFloat(cachedActive.opening_cash) || 0
+          const currentExpected = parseFloat((openingCash + cashIn - cashRefunds - cashExpenses).toFixed(2))
+
+          setActiveSession({
+            ...cachedActive,
+            cash_in: cashIn,
+            cash_refunds: cashRefunds,
+            upi_in: upiIn,
+            cash_expenses: cashExpenses,
+            current_expected_cash: currentExpected
+          })
+        } else {
+          setActiveSession(null)
+        }
+        return
+      }
+
       const [allRes, activeRes] = await Promise.all([
         getCashSessions(),
         getActiveSession()
       ])
-      setSessions(allRes.data.data || [])
-      setActiveSession(activeRes.data.data || null)
+      const fetchedSessions = allRes.data.data || []
+      const fetchedActive = activeRes.data.data || null
+      setSessions(fetchedSessions)
+      setActiveSession(fetchedActive)
+      try {
+        localStorage.setItem('printpro-cash-sessions', JSON.stringify(fetchedSessions))
+        localStorage.setItem('printpro-active-cash-session', JSON.stringify(fetchedActive))
+      } catch (e) {
+        console.warn('Failed to cache cash sessions', e)
+      }
     } catch (err) {
-      console.error('Failed to load cash sessions:', err)
-      if (showAlert) showAlert('Failed to load cash sessions from server.', 'error')
+      console.warn('Failed to load cash sessions from server, using local cache:', err)
+      try {
+        const cachedSessions = JSON.parse(localStorage.getItem('printpro-cash-sessions') || '[]')
+        const cachedActive = JSON.parse(localStorage.getItem('printpro-active-cash-session') || 'null')
+        setSessions(cachedSessions)
+        setActiveSession(cachedActive)
+      } catch (e) {
+        if (showAlert) showAlert('Failed to load cash sessions from server.', 'error')
+      }
     } finally {
       setLoading(false)
     }
@@ -105,6 +169,35 @@ const CashRegister = () => {
 
     try {
       setSubmitting(true)
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const localSession = {
+          id: `local-${Date.now()}`,
+          user_id: business?.id,
+          opened_at: new Date().toISOString(),
+          opening_cash: floatNum,
+          status: 'open',
+          notes: openNotes,
+          cash_in: 0,
+          cash_refunds: 0,
+          upi_in: 0,
+          cash_expenses: 0,
+          current_expected_cash: floatNum
+        }
+        setActiveSession(localSession)
+        setSessions(prev => [localSession, ...prev])
+        try {
+          localStorage.setItem('printpro-active-cash-session', JSON.stringify(localSession))
+          localStorage.setItem('printpro-cash-sessions', JSON.stringify([localSession, ...sessions]))
+        } catch (e) {}
+        if (dispatch) {
+          dispatch({ type: 'OPEN_CASH_SESSION', payload: { opening_cash: floatNum, notes: openNotes } })
+        }
+        if (showToast) showToast('Cash Register opened (Offline Mode)', 'info')
+        setShowOpenModal(false)
+        setOpenNotes('')
+        return
+      }
+
       const res = await openCashSession({
         opening_cash: floatNum,
         notes: openNotes
@@ -153,6 +246,33 @@ const CashRegister = () => {
     const doClose = async () => {
       try {
         setSubmitting(true)
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          const closedSession = {
+            ...activeSession,
+            status: 'closed',
+            closed_at: new Date().toISOString(),
+            closing_cash: physicalCount,
+            expected_cash: expected,
+            discrepancy: variance,
+            notes: closingNotes || activeSession.notes
+          }
+          setActiveSession(null)
+          setSessions(prev => prev.map(s => s.id === activeSession.id ? closedSession : s))
+          try {
+            localStorage.removeItem('printpro-active-cash-session')
+            localStorage.setItem('printpro-cash-sessions', JSON.stringify(sessions.map(s => s.id === activeSession.id ? closedSession : s)))
+          } catch (e) {}
+          if (dispatch) {
+            dispatch({
+              type: 'CLOSE_CASH_SESSION',
+              payload: { id: activeSession.id, closing_cash: physicalCount, notes: closingNotes }
+            })
+          }
+          if (showToast) showToast('Cash Register closed (Offline Mode)', 'info')
+          setShowCloseModal(false)
+          return
+        }
+
         const res = await closeCashSession(activeSession.id, {
           closing_cash: physicalCount,
           notes: closingNotes
@@ -160,7 +280,6 @@ const CashRegister = () => {
         if (showToast) showToast('Cash Register closed successfully!', 'success')
         setShowCloseModal(false)
         await loadSessions()
-        // Automatically open Z-report for the closed session
         handleViewReport(activeSession.id)
       } catch (err) {
         console.error('Error closing register session:', err)
