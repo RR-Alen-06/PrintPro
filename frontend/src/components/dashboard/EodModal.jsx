@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Download, FileText, TrendingUp, CreditCard, ShoppingCart, UserCheck, AlertCircle, Loader2, ExternalLink, Copy } from 'lucide-react';
+import { X, Calendar, Download, FileText, Loader2, ExternalLink, Copy } from 'lucide-react';
 import { getEodReport, exportEodReportPdf } from '../../api/reports';
 import { useAppContext } from '../../context/AppContext';
 

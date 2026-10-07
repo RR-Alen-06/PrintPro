@@ -39,7 +39,7 @@ const auth = async (req, res, next) => {
     // Attach user information to request context
     req.user = user;
     next();
-  } catch (err) {
+  } catch (_err) {
     return res.status(401).json({
       success: false,
       error: 'Authentication failed: Internal verification error'

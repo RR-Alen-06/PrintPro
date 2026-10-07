@@ -23,7 +23,7 @@ const makeInitialRow = (inventory) => ({
 })
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, promoCodes, addBill, addCustomer, deleteBill, recordPayment, updateBill, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, addBill, addCustomer, deleteBill, recordPayment, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
 
   const [customerType, setCustomerType] = useState('regular')
@@ -235,27 +235,48 @@ const Billing = () => {
   // ── Quick Presets & Templates (derived from inventory) ──────────────────────
   const PRESETS = useMemo(() => {
     const getPrice = (item, printType, sides) => {
+      if (item.item_type === 'service' || item.item_type === 'product' || item.item_type === 'stationery') {
+        return Number(item.unit_price || 0)
+      }
       if (printType === 'color' && sides === 'single') return item.colorSingle || 0
       if (printType === 'color' && sides === 'double') return item.colorDouble || 0
       if (printType === 'bw' && sides === 'single') return item.bwSingle || 0
       if (printType === 'bw' && sides === 'double') return item.bwDouble || 0
-      return 0
+      return Number(item.unit_price || 0)
     }
     const presets = []
     inventory.forEach((item) => {
-      ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
-        const price = getPrice(item, printType, sides)
+      const type = item.item_type || 'paper'
+      if (type === 'service' || type === 'product' || type === 'stationery') {
+        const price = Number(item.unit_price || 0)
         if (price > 0) {
           presets.push({
-            name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
-            label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
+            name: item.name,
+            label: `${item.name} (₹${price.toFixed(2)}${item.unit ? ` / ${item.unit}` : ''})`,
             itemId: item.id,
-            printType,
-            sides,
+            itemType: type,
+            unitPrice: price,
+            printType: 'na',
+            sides: 'na',
             isCustom: false,
           })
         }
-      })
+      } else {
+        ;[['bw', 'single'], ['bw', 'double'], ['color', 'single'], ['color', 'double']].forEach(([printType, sides]) => {
+          const price = getPrice(item, printType, sides)
+          if (price > 0) {
+            presets.push({
+              name: `${item.name} ${printType.toUpperCase()} ${sides === 'single' ? 'S' : 'D'}`,
+              label: `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides.charAt(0).toUpperCase() + sides.slice(1)}`,
+              itemId: item.id,
+              itemType: 'paper',
+              printType,
+              sides,
+              isCustom: false,
+            })
+          }
+        })
+      }
     })
     return presets
   }, [inventory])
@@ -498,14 +519,14 @@ const Billing = () => {
             </div>
           \` : ''}
 
-          \${bill.balance > 0 && qrCodeUrl ? \`
+          ${bill.balance > 0 && qrCodeUrl ? `
             <div class="qr-container">
               <p style="margin: 0 0 5px 0; font-size: 10px;">Scan QR to Pay Balance</p>
-              <img class="qr-code" src="\${qrCodeUrl}" alt="UPI QR" />
+              <img class="qr-code" src="${qrCodeUrl}" alt="UPI QR" />
             </div>
-          \` : ''}
+          ` : ''}
           <div class="divider"></div>
-          \${settings.footerNotes ? \`<p class="custom-note" style="text-align: center; margin-bottom: 8px;">\${settings.footerNotes}</p>\` : ''}
+          ${settings.footerNotes ? `<p class="custom-note" style="text-align: center; margin-bottom: 8px;">${settings.footerNotes}</p>` : ''}
           <div class="footer">
             <p style="font-weight: bold;">Thank You for visiting!</p>
             <p style="margin-top: 5px; font-size: 9px;">Powered by PrintPro</p>
@@ -526,23 +547,14 @@ const Billing = () => {
   const getItemBasePrice = (itemId, printType, sides) => {
     const item = inventory.find((e) => e.id === itemId)
     if (!item) return 0
+    if (item.item_type === 'service' || item.item_type === 'product' || item.item_type === 'stationery') {
+      return Number(item.unit_price || 0)
+    }
     if (printType === 'color' && sides === 'single') return item.colorSingle
     if (printType === 'color' && sides === 'double') return item.colorDouble
     if (printType === 'bw' && sides === 'single') return item.bwSingle
     if (printType === 'bw' && sides === 'double') return item.bwDouble
-    return 0
-  }
-
-  // ── Duplicate-combo detection (Bug 6b) ────────────────────────────────────
-  const findDuplicateRow = (rows, itemId, printType, sides, excludeRowId = null) => {
-    return rows.find(
-      (r) =>
-        r.id !== excludeRowId &&
-        !r.isCustom &&
-        r.itemId === itemId &&
-        r.printType === printType &&
-        r.sides === sides
-    )
+    return Number(item.unit_price || 0)
   }
 
   // ── Row update helpers ─────────────────────────────────────────────────────
@@ -553,17 +565,6 @@ const Billing = () => {
         const unitPrice = changes.unitPrice !== undefined ? Number(changes.unitPrice) : row.unitPrice
         const qty = changes.qty !== undefined ? Number(changes.qty) : row.qty
         return { ...row, ...changes, unitPrice, qty, amount: unitPrice * qty }
-      })
-    )
-  }
-
-  const updateRowItem = (rowId, updates) => {
-    setItemRows((current) =>
-      current.map((row) => {
-        if (row.id !== rowId) return row
-        const unitPrice = updates.unitPrice ?? row.unitPrice
-        const qty = updates.qty ?? row.qty
-        return { ...row, ...updates, unitPrice, qty, amount: unitPrice * qty }
       })
     )
   }
@@ -740,7 +741,6 @@ const Billing = () => {
 
   const total = Math.max(subtotal + totalGst - discountAmount - loyaltyDiscount, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
-  const customerCredit = Number(selectedCustomer?.creditBalance || 0)
   const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
   const appliedAdvance = Math.min(Number(advanceUsed || 0), customerAdvance, total)
   const excessPaid = Math.max(amountPaid - Math.max(total - appliedAdvance, 0), 0)
@@ -1654,46 +1654,62 @@ const Billing = () => {
                         </select>
                       )}
                     </td>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.printType}
-                        onChange={(e) => {
-                          const printType = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { printType })
-                          } else {
-                            handleComboChange(row.id, {
-                              printType,
-                              unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="color">Color</option>
-                        <option value="bw">B/W</option>
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.sides}
-                        onChange={(e) => {
-                          const sides = e.target.value
-                          if (row.isCustom) {
-                            updateRow(row.id, { sides })
-                          } else {
-                            handleComboChange(row.id, {
-                              sides,
-                              unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
-                            })
-                          }
-                        }}
-                      >
-                        <option value="single">Single</option>
-                        <option value="double">Double</option>
-                      </select>
-                    </td>
+                    {(() => {
+                      const matchedItem = inventory.find(i => i.id === row.itemId)
+                      const isNonPaper = matchedItem && (matchedItem.item_type === 'service' || matchedItem.item_type === 'product' || matchedItem.item_type === 'stationery')
+                      return (
+                        <>
+                          <td>
+                            {isNonPaper ? (
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>—</span>
+                            ) : (
+                              <select
+                                className="form-select"
+                                value={row.printType}
+                                onChange={(e) => {
+                                  const printType = e.target.value
+                                  if (row.isCustom) {
+                                    updateRow(row.id, { printType })
+                                  } else {
+                                    handleComboChange(row.id, {
+                                      printType,
+                                      unitPrice: getItemBasePrice(row.itemId, printType, row.sides),
+                                    })
+                                  }
+                                }}
+                              >
+                                <option value="color">Color</option>
+                                <option value="bw">B/W</option>
+                              </select>
+                            )}
+                          </td>
+                          <td>
+                            {isNonPaper ? (
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>—</span>
+                            ) : (
+                              <select
+                                className="form-select"
+                                value={row.sides}
+                                onChange={(e) => {
+                                  const sides = e.target.value
+                                  if (row.isCustom) {
+                                    updateRow(row.id, { sides })
+                                  } else {
+                                    handleComboChange(row.id, {
+                                      sides,
+                                      unitPrice: getItemBasePrice(row.itemId, row.printType, sides),
+                                    })
+                                  }
+                                }}
+                              >
+                                <option value="single">Single</option>
+                                <option value="double">Double</option>
+                              </select>
+                            )}
+                          </td>
+                        </>
+                      )
+                    })()}
                     <td>
                       <input
                         className="form-input"
@@ -1902,12 +1918,49 @@ const Billing = () => {
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Cash Amount</label>
-              <input className="form-input" type="number" min="0" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Cash Amount (₹)</label>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
+                    onClick={() => {
+                      setCashAmount(total.toFixed(2))
+                      setUpiAmount('')
+                    }}
+                  >
+                    Exact
+                  </button>
+                  {[50, 100, 500, 2000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
+                      onClick={() => {
+                        const current = Number(cashAmount || 0)
+                        setCashAmount((current + amt).toFixed(2))
+                      }}
+                    >
+                      +{amt}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '2px 6px', fontSize: '0.72rem', color: 'var(--error)' }}
+                    onClick={() => setCashAmount('')}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <input className="form-input font-mono" type="number" min="0" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} placeholder="0.00" />
             </div>
             <div className="form-group">
-              <label className="form-label">UPI Amount</label>
-              <input className="form-input" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} />
+              <label className="form-label">UPI Amount (₹)</label>
+              <input className="form-input font-mono" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} placeholder="0.00" />
             </div>
             {(() => {
               const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
@@ -2469,6 +2522,7 @@ const Billing = () => {
                     </div>
                   </div>
                   {(() => {
+                    const excess = Math.max((Number(followUpCash || 0) + Number(followUpUpi || 0)) - liveBill.balance, 0);
                     return excess > 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{
@@ -2728,7 +2782,7 @@ const Billing = () => {
                             type="button"
                             className="btn btn-ghost"
                             disabled={!customerUpiId || !refundQrGenerated}
-                            onClick={() => copyUpiLink(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}
+                            onClick={() => copyUpiLink(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(customerName || selectedCustomer?.name || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}
                             style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                           >
                             <Copy size={14} /> Copy Link
@@ -2739,7 +2793,7 @@ const Billing = () => {
                             {refundQrGenerated && (
                               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', marginTop: '10px' }}>
                                 <img
-                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(editingBill?.customerName || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}`}
+                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${customerUpiId}&pn=${encodeURIComponent(customerName || selectedCustomer?.name || 'Customer')}&am=${refundInfo.directRefund.toFixed(2)}&cu=INR&tn=Refund`)}`}
                                   alt="Refund QR Code"
                                   style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
                                   width={100} height={100}

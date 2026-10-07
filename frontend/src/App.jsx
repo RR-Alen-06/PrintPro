@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAppContext } from './context/AppContext'
 import Sidebar from './components/layout/Sidebar'
 import Header from './components/layout/Header'
+import MobileNavDock from './components/layout/MobileNavDock'
 import FullPageSkeleton from './components/common/FullPageSkeleton'
 import OfflineBanner from './components/common/OfflineBanner'
 import Dashboard from './pages/Dashboard'
@@ -66,6 +67,7 @@ function App() {
     <div className="app-layout">
       {!isOnline && <OfflineBanner />}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <MobileNavDock />
       <div className="main-wrapper">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="main-content">

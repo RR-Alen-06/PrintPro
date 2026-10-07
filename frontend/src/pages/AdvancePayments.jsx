@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
-import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Smartphone, Copy, Link2 } from 'lucide-react'
+import { Plus, Search, X, CheckCircle, AlertCircle, Wallet, UserPlus, Copy, Link2 } from 'lucide-react'
 
 const AdvancePayments = () => {
   const { business, customers, advancePayments, addAdvancePayment, returnAdvancePayment, addCustomer } = useAppContext()
@@ -477,7 +477,7 @@ const AdvancePayments = () => {
                 <tbody>
                   {filteredHistory.map((ap) => (
                     <tr key={ap.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{ap.id}</td>
+                      <td className="font-mono text-muted" style={{ fontSize: '0.78rem' }}>{ap.id}</td>
                       <td>
                         {ap.isReturn
                           ? <span className="badge badge-error" style={{ fontSize: '0.68rem', padding: '2px 7px' }}>Return</span>
@@ -488,14 +488,14 @@ const AdvancePayments = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{ap.customerName || ap.customerId}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ap.customerId}</div>
+                        <div className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ap.customerId}</div>
                       </td>
                       <td>{ap.date}</td>
-                      <td style={{ fontWeight: 700, color: ap.amount < 0 ? 'var(--error)' : 'var(--success)' }}>
+                      <td className="font-mono tabular-nums" style={{ fontWeight: 700, color: ap.amount < 0 ? 'var(--error)' : 'var(--success)' }}>
                         {ap.amount < 0 ? `-₹${Math.abs(ap.amount).toFixed(2)}` : `₹${Number(ap.amount).toFixed(2)}`}
                       </td>
-                      <td>{ap.amount < 0 ? `-₹${Math.abs(ap.cashAmount || 0).toFixed(2)}` : `₹${Number(ap.cashAmount || 0).toFixed(2)}`}</td>
-                      <td>{ap.amount < 0 ? `-₹${Math.abs(ap.upiAmount || 0).toFixed(2)}` : `₹${Number(ap.upiAmount || 0).toFixed(2)}`}</td>
+                      <td className="font-mono tabular-nums">{ap.amount < 0 ? `-₹${Math.abs(ap.cashAmount || 0).toFixed(2)}` : `₹${Number(ap.cashAmount || 0).toFixed(2)}`}</td>
+                      <td className="font-mono tabular-nums">{ap.amount < 0 ? `-₹${Math.abs(ap.upiAmount || 0).toFixed(2)}` : `₹${Number(ap.upiAmount || 0).toFixed(2)}`}</td>
                       <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ap.notes || '—'}
                       </td>

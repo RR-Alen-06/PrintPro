@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, ShieldCheck, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy } from 'lucide-react'
+import { useTheme } from '../context/ThemeContext'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor } from 'lucide-react'
 import { updateLoyaltySettings } from '../api/loyalty'
 import { createPromoCode, updatePromoCode, deletePromoCode, bulkGeneratePromoCodes } from '../api/promoCodes'
 
 const Settings = () => {
   const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, showAlert } = useAppContext()
+  const { theme, setTheme } = useTheme()
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -415,8 +417,6 @@ const Settings = () => {
     setBranding(prev => ({ ...prev, logoUrl: '' }))
   }
 
-  const [clearConfirm, setClearConfirm] = useState(false)
-
   const handleBizSave = (e) => {
     e.preventDefault()
     updateBusiness(biz)
@@ -747,7 +747,7 @@ const Settings = () => {
                   >+ Add Tier</button>
                   {loyalty.loyaltyTiers.length > 0 && (
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 12px', marginTop: '4px' }}>
-                      Preview: {loyalty.loyaltyTiers.map((t, i) => `₹${t.from}–₹${t.to} = ${t.points} pt${Number(t.points) !== 1 ? 's' : ''}`).join(' · ')}
+                      Preview: {loyalty.loyaltyTiers.map((t) => `₹${t.from}–₹${t.to} = ${t.points} pt${Number(t.points) !== 1 ? 's' : ''}`).join(' · ')}
                     </div>
                   )}
                 </div>
@@ -1763,11 +1763,84 @@ const Settings = () => {
         </div>
 
         <div style={{ display: 'grid', gap: '16px' }}>
-          <div style={{ padding: '14px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Theme</div>
-            <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-              PrintPro uses a fixed premium dark theme optimized for long work sessions.
+          <div style={{ padding: '16px 20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>Appearance & Theme</div>
+            <p className="text-muted" style={{ fontSize: '0.84rem', margin: '0 0 16px' }}>
+              Choose your preferred interface theme. PrintPro defaults to a clean white canvas with Google Stitch styling, with an optional dark mode.
             </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: theme === 'light' ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: theme === 'light' ? 'var(--accent-surface)' : 'var(--bg-card)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: '8px' }}>
+                  <Sun size={20} style={{ color: theme === 'light' ? 'var(--accent)' : 'var(--text-muted)' }} />
+                  {theme === 'light' && <Check size={16} style={{ color: 'var(--accent)' }} />}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: theme === 'light' ? 'var(--accent)' : 'var(--text-primary)' }}>Light Mode</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>White canvas default</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTheme('dark')}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: theme === 'dark' ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: theme === 'dark' ? 'var(--accent-surface)' : 'var(--bg-card)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: '8px' }}>
+                  <Moon size={20} style={{ color: theme === 'dark' ? 'var(--accent)' : 'var(--text-muted)' }} />
+                  {theme === 'dark' && <Check size={16} style={{ color: 'var(--accent)' }} />}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: theme === 'dark' ? 'var(--accent)' : 'var(--text-primary)' }}>Dark Mode</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>Material Charcoal</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTheme('system')}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: theme === 'system' ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: theme === 'system' ? 'var(--accent-surface)' : 'var(--bg-card)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: '8px' }}>
+                  <Monitor size={20} style={{ color: theme === 'system' ? 'var(--accent)' : 'var(--text-muted)' }} />
+                  {theme === 'system' && <Check size={16} style={{ color: 'var(--accent)' }} />}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: theme === 'system' ? 'var(--accent)' : 'var(--text-primary)' }}>System Sync</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>Match OS theme</div>
+              </button>
+            </div>
           </div>
 
           <div style={{ padding: '14px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>

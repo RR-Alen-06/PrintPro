@@ -3,6 +3,21 @@ import { useAppContext } from '../context/AppContext'
 import { jsPDF } from 'jspdf'
 import { Calendar, Download, Share2, Copy, Check, MessageSquare, Mail } from 'lucide-react'
 
+const MONTHS = [
+  { value: '01', label: 'January' },
+  { value: '02', label: 'February' },
+  { value: '03', label: 'March' },
+  { value: '04', label: 'April' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'June' },
+  { value: '07', label: 'July' },
+  { value: '08', label: 'August' },
+  { value: '09', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' },
+]
+
 const PeriodReport = () => {
   const { bills, payments, expenses, advancePayments, business } = useAppContext()
 
@@ -23,21 +38,6 @@ const PeriodReport = () => {
     return list
   }, [])
 
-  const months = [
-    { value: '01', label: 'January' },
-    { value: '02', label: 'February' },
-    { value: '03', label: 'March' },
-    { value: '04', label: 'April' },
-    { value: '05', label: 'May' },
-    { value: '06', label: 'June' },
-    { value: '07', label: 'July' },
-    { value: '08', label: 'August' },
-    { value: '09', label: 'September' },
-    { value: '10', label: 'October' },
-    { value: '11', label: 'November' },
-    { value: '12', label: 'December' },
-  ]
-
   const periodKey = useMemo(() => {
     return reportType === 'monthly' 
       ? `${selectedYear}-${selectedMonth}` 
@@ -46,7 +46,7 @@ const PeriodReport = () => {
 
   const periodLabel = useMemo(() => {
     if (reportType === 'monthly') {
-      const mLabel = months.find(m => m.value === selectedMonth)?.label || ''
+      const mLabel = MONTHS.find(m => m.value === selectedMonth)?.label || ''
       return `${mLabel} ${selectedYear}`
     }
     return `Year ${selectedYear}`
@@ -335,7 +335,7 @@ Generated on: ${new Date().toLocaleDateString()}`
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Select Month</label>
             <select className="form-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-              {months.map(m => (
+              {MONTHS.map(m => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>

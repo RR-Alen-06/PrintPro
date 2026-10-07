@@ -9,7 +9,7 @@ export const importFromJSON = (file) => {
       try {
         const data = JSON.parse(e.target.result)
         resolve(data)
-      } catch (error) {
+      } catch {
         reject(new Error('Invalid JSON file'))
       }
     }
@@ -35,7 +35,7 @@ export const importFromCSV = (file) => {
           return obj
         })
         resolve(data)
-      } catch (error) {
+      } catch {
         reject(new Error('Failed to parse CSV file'))
       }
     }

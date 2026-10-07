@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { jsPDF } from 'jspdf'
-import { Printer, Download, X, Search as SearchIcon, FileText, Share2, MessageCircle } from 'lucide-react'
+import { Printer, Download, X, Search as SearchIcon, Share2, MessageCircle } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
@@ -41,7 +41,9 @@ const Receipt = () => {
     if (navigator.share) {
       try {
         await navigator.share({ title: `Receipt ${selectedBill.id}`, text })
-      } catch (_) {/* user cancelled */}
+      } catch {
+        /* user cancelled */
+      }
     } else {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(text).then(() => showToast('Receipt text copied to clipboard!', 'success'))

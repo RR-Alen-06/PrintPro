@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { ClipboardList, Trash2, Pencil, X, Plus, Tag, CheckCircle, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
+import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 
 const CustomerBills = () => {

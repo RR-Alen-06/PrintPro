@@ -93,7 +93,6 @@ export const FinancialCalculationService = {
 
     const calculatedSubtotal = finalItems.reduce((s, item) => s + item.subtotal, 0);
     const calculatedItemDiscount = finalItems.reduce((s, item) => s + item.discountAmount, 0);
-    const netAfterItemDiscount = calculatedSubtotal - calculatedItemDiscount;
     const finalTotalDiscount = calculatedItemDiscount + invoiceDiscount;
 
     let computedGstAmount = finalItems.reduce((s, item) => s + item.lineGst, 0);
@@ -205,7 +204,7 @@ export const AccountingService = {
  * Rebuilds chronological and mathematically correct customer ledgers.
  */
 export const LedgerService = {
-  calculateLedger: ({ customerId, bills = [], payments = [], advancePayments = [], period = 'all', settings = {} }) => {
+  calculateLedger: ({ customerId, bills = [], payments = [], advancePayments = [], _period = 'all', _settings = {} }) => {
     const entries = [];
     const selectedBills = bills.filter(b => b.customerId === customerId && !b.deleted);
     const selectedPayments = payments.filter(p => p.customerId === customerId && !p.notes?.includes('advance deposit'));
@@ -349,7 +348,7 @@ export const ReportService = {
  * Computes centralized widgets for the main dashboard view.
  */
 export const DashboardService = {
-  getSummaryWidgets: ({ bills = [], payments = [], expenses = [], customers = [], inventory = [] }) => {
+  getSummaryWidgets: ({ bills = [], payments = [], _expenses = [], customers = [], _inventory = [] }) => {
     const activeBills = bills.filter(b => !b.deleted && !b.isGroupParent);
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
     const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
@@ -372,7 +371,7 @@ export const DashboardService = {
  * Generates structured analytics charts and summaries.
  */
 export const AnalyticsService = {
-  getChartSummaries: ({ bills = [], payments = [], expenses = [] }) => {
+  getChartSummaries: ({ bills = [], _payments = [], _expenses = [] }) => {
     // Generate simple dynamic chart trends
     const dailyMap = {};
     bills.filter(b => !b.deleted && !b.isGroupParent).forEach(b => {

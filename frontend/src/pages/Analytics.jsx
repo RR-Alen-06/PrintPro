@@ -1,22 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   TrendingUp,
   Package,
   Users,
-  Calendar,
   Layers,
-  DollarSign,
   Banknote,
   Smartphone,
   Tag,
-  ShieldAlert,
   ArrowUpDown,
   ChevronRight,
-  Sparkles,
   BarChart3,
-  X,
-  Clock,
-  Printer
+  X
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import {
@@ -31,6 +25,7 @@ import {
 
 const PERIODS = [
   { id: 'daily', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
   { id: 'weekly', label: 'This Week' },
   { id: 'monthly', label: 'This Month' },
   { id: 'quarterly', label: 'This Quarter' },
@@ -45,6 +40,12 @@ const getPeriodRange = (period) => {
   if (period === 'daily') {
     const dStr = today.toISOString().slice(0, 10)
     return { startDate: dStr, endDate: dStr }
+  }
+  if (period === 'yesterday') {
+    const yest = new Date(today)
+    yest.setDate(today.getDate() - 1)
+    const yStr = yest.toISOString().slice(0, 10)
+    return { startDate: yStr, endDate: yStr }
   }
   if (period === 'weekly') {
     const day = today.getDay()
@@ -74,7 +75,7 @@ const getPeriodRange = (period) => {
 }
 
 const Analytics = () => {
-  const { business, showAlert } = useAppContext()
+  const { showAlert } = useAppContext()
 
   const [activeTab, setActiveTab] = useState('products') // 'products' | 'expenses' | 'financials' | 'promos'
   const [period, setPeriod] = useState('monthly')
@@ -111,7 +112,7 @@ const Analytics = () => {
   }, [period, customStartDate, customEndDate])
 
   // Fetch all analytics from server
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true)
       const params = {}
@@ -141,11 +142,11 @@ const Analytics = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [dateParams, period, showAlert])
 
   useEffect(() => {
     fetchAnalytics()
-  }, [dateParams])
+  }, [fetchAnalytics])
 
   // Handle drilldown on product click
   const handleSelectProduct = async (prod) => {
@@ -255,11 +256,11 @@ const Analytics = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         <div className="card" style={{ padding: '16px' }}>
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px' }}>Total Revenue</div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#f8fafc' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text-primary)' }}>
             ₹{(summaryData?.total_revenue || 0).toFixed(2)}
           </div>
           <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-            {summaryData?.bill_count || 0} invoices generated
+            <span className="font-mono">{summaryData?.bill_count || 0}</span> invoices generated
           </div>
         </div>
 
@@ -267,7 +268,7 @@ const Analytics = () => {
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Banknote size={14} /> Cash Collected
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#10b981' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#10b981' }}>
             ₹{(summaryData?.cash_revenue || 0).toFixed(2)}
           </div>
         </div>
@@ -276,7 +277,7 @@ const Analytics = () => {
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Smartphone size={14} /> UPI Collected
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#3b82f6' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#3b82f6' }}>
             ₹{(summaryData?.upi_revenue || 0).toFixed(2)}
           </div>
         </div>
@@ -285,7 +286,7 @@ const Analytics = () => {
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', color: '#f43f5e' }}>
             Expenses & Refunds
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#f43f5e' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#f43f5e' }}>
             ₹{((summaryData?.total_expenses || 0) + (summaryData?.total_refunds || 0)).toFixed(2)}
           </div>
         </div>
@@ -294,41 +295,41 @@ const Analytics = () => {
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', color: 'var(--accent)' }}>
             Net Profit (Margin)
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--accent)' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--accent)' }}>
             ₹{(summaryData?.net_profit || 0).toFixed(2)}
           </div>
         </div>
       </div>
 
       {/* Main Tabs Navigation */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '20px', flexWrap: 'wrap', paddingBottom: '8px' }}>
         <button
-          className={`btn ${activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderRadius: '8px 8px 0 0', borderBottom: 'none' }}
+          className={`btn btn-sm ${activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ borderRadius: '20px' }}
           onClick={() => setActiveTab('products')}
         >
-          <Package size={16} /> Products & Services ({productsData.length})
+          <Package size={15} /> Products & Services ({productsData.length})
         </button>
         <button
-          className={`btn ${activeTab === 'expenses' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderRadius: '8px 8px 0 0', borderBottom: 'none' }}
+          className={`btn btn-sm ${activeTab === 'expenses' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ borderRadius: '20px' }}
           onClick={() => setActiveTab('expenses')}
         >
-          <Layers size={16} /> Expenses by Vendor & Category
+          <Layers size={15} /> Expenses by Vendor & Category
         </button>
         <button
-          className={`btn ${activeTab === 'financials' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderRadius: '8px 8px 0 0', borderBottom: 'none' }}
+          className={`btn btn-sm ${activeTab === 'financials' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ borderRadius: '20px' }}
           onClick={() => setActiveTab('financials')}
         >
-          <BarChart3 size={16} /> Financial Trends
+          <BarChart3 size={15} /> Financial Trends
         </button>
         <button
-          className={`btn ${activeTab === 'promos' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderRadius: '8px 8px 0 0', borderBottom: 'none' }}
+          className={`btn btn-sm ${activeTab === 'promos' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ borderRadius: '20px' }}
           onClick={() => setActiveTab('promos')}
         >
-          <Tag size={16} /> Promo Codes ({promoUsageData.length})
+          <Tag size={15} /> Promo Codes ({promoUsageData.length})
         </button>
       </div>
 
@@ -542,7 +543,7 @@ const Analytics = () => {
                           <td style={{ textAlign: 'right', fontWeight: 600 }}>
                             {p.total_qty.toLocaleString()}
                           </td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#f8fafc' }}>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                             ₹{p.total_revenue.toFixed(2)}
                           </td>
                           <td>
