@@ -304,14 +304,14 @@ router.get('/promo-usage', async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     let dateFilter = '';
-    const params = [req.user.id];
+    const dateParams = [];
     if (startDate) {
       dateFilter += ' AND pu.used_at >= ?';
-      params.push(startDate);
+      dateParams.push(startDate);
     }
     if (endDate) {
       dateFilter += ' AND pu.used_at <= ?';
-      params.push(endDate + ' 23:59:59');
+      dateParams.push(endDate + ' 23:59:59');
     }
 
     const [rows] = await pool.query(
@@ -325,12 +325,12 @@ router.get('/promo-usage', async (req, res, next) => {
          COALESCE(SUM(pu.discount_applied), 0) AS total_discount_given,
          COALESCE(SUM(b.total), 0) AS total_sales_generated
        FROM promo_codes pc
-       LEFT JOIN promo_uses pu ON pc.id = pu.promo_code_id AND pc.user_id = pu.user_id ${dateFilter}
+       LEFT JOIN promo_uses pu ON pc.id::text = pu.promo_code_id::text AND pc.user_id = pu.user_id ${dateFilter}
        LEFT JOIN bills b ON pu.bill_id::text = b.id::text AND pu.user_id = b.user_id AND b.deleted_at IS NULL
        WHERE pc.user_id = ?
        GROUP BY pc.id, pc.code, pc.discount_type, pc.discount_value, pc.is_active
        ORDER BY times_used DESC, total_sales_generated DESC`,
-      [...params]
+      [...dateParams, req.user.id]
     );
 
     res.json({
@@ -359,20 +359,20 @@ router.get('/expenses/vendors', async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     let dateFilter = '';
-    const params = [req.user.id];
+    const dateParams = [];
     if (startDate) {
       dateFilter += ' AND date >= ?';
-      params.push(startDate);
+      dateParams.push(startDate);
     }
     if (endDate) {
       dateFilter += ' AND date <= ?';
-      params.push(endDate);
+      dateParams.push(endDate);
     }
 
     // Total expense for percentage calculation
     const [totalRes] = await pool.query(
       `SELECT COALESCE(SUM(total), 0) AS grand_total FROM purchases WHERE user_id = ? ${dateFilter}`,
-      params
+      [req.user.id, ...dateParams]
     );
     const grandTotal = parseFloat(totalRes[0]?.grand_total || 0);
 
@@ -388,7 +388,7 @@ router.get('/expenses/vendors', async (req, res, next) => {
        WHERE user_id = ? ${dateFilter}
        GROUP BY vendor_name
        ORDER BY total_spent DESC`,
-      params
+      [req.user.id, ...dateParams]
     );
 
     const vendors = rows.map(r => {
@@ -426,25 +426,25 @@ router.get('/expenses/categories', async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     let dateFilter = '';
-    const params = [req.user.id];
+    const dateParams = [];
     if (startDate) {
       dateFilter += ' AND date >= ?';
-      params.push(startDate);
+      dateParams.push(startDate);
     }
     if (endDate) {
       dateFilter += ' AND date <= ?';
-      params.push(endDate);
+      dateParams.push(endDate);
     }
 
     const [totalRes] = await pool.query(
       `SELECT COALESCE(SUM(total), 0) AS grand_total FROM purchases WHERE user_id = ? ${dateFilter}`,
-      params
+      [req.user.id, ...dateParams]
     );
     const grandTotal = parseFloat(totalRes[0]?.grand_total || 0);
 
     const [rows] = await pool.query(
       `SELECT
-         category,
+         COALESCE(NULLIF(TRIM(category), ''), 'General') AS category,
          COUNT(*) AS purchase_count,
          COALESCE(SUM(total), 0) AS total_spent,
          COALESCE(SUM(qty), 0) AS total_qty
@@ -452,7 +452,7 @@ router.get('/expenses/categories', async (req, res, next) => {
        WHERE user_id = ? ${dateFilter}
        GROUP BY category
        ORDER BY total_spent DESC`,
-      params
+      [req.user.id, ...dateParams]
     );
 
     const categories = rows.map(r => {

@@ -15,22 +15,22 @@ async function listItems(req, res, next) {
 async function addItem(req, res, next) {
   try {
     const pool = getPool();
-    const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert } = req.body;
+    const { name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type = 'paper', unit_price = 0, unit = 'pcs' } = req.body;
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'Item name is required' });
     }
 
     const [result] = await pool.query(
-      `INSERT INTO inventory_items (user_id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, name, color_single || 0, color_double || 0, bw_single || 0, bw_double || 0, stock || 0, low_stock_alert || 50]
+      `INSERT INTO inventory_items (user_id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, name, color_single || 0, color_double || 0, bw_single || 0, bw_double || 0, stock || 0, low_stock_alert || 50, item_type, unit_price || 0, unit]
     );
 
     // Audit log
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, 'CREATE', 'inventory', String(result.insertId), JSON.stringify({ name, stock })]
+      [req.user.id, 'CREATE', 'inventory', String(result.insertId), JSON.stringify({ name, stock, item_type })]
     );
 
     const [newItem] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
@@ -41,7 +41,7 @@ async function addItem(req, res, next) {
 }
 
 // PUT /:id - Update item
-const ALLOWED_INVENTORY_COLUMNS = ['name', 'color_single', 'color_double', 'bw_single', 'bw_double', 'stock', 'low_stock_alert'];
+const ALLOWED_INVENTORY_COLUMNS = ['name', 'color_single', 'color_double', 'bw_single', 'bw_double', 'stock', 'low_stock_alert', 'item_type', 'unit_price', 'unit'];
 
 async function updateItem(req, res, next) {
   try {

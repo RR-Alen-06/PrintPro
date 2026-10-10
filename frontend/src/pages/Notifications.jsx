@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { Bell, AlertTriangle, MessageCircle, Send, CheckCircle, Clock, ShieldAlert, Phone, Copy } from 'lucide-react'
+import { MessageCircle, CheckCircle, ShieldAlert, Phone } from 'lucide-react'
 import { getOverdueNotifications } from '../api/notifications'
 
 const NotificationsPage = () => {
@@ -111,7 +111,7 @@ const NotificationsPage = () => {
               <ShieldAlert size={20} /> Overdue Bills & Due Date Reminders ({overdueBills.length})
             </h2>
             <p className="text-muted" style={{ margin: '4px 0 0 0', fontSize: '0.85rem' }}>
-              Total Overdue Outstanding: <strong style={{ color: '#ef4444' }}>₹{totalOverdueAmount.toFixed(2)}</strong>
+              Total Overdue Outstanding: <strong className="font-mono tabular-nums" style={{ color: '#ef4444' }}>₹{totalOverdueAmount.toFixed(2)}</strong>
             </p>
           </div>
 
@@ -160,11 +160,11 @@ const NotificationsPage = () => {
               <tbody>
                 {overdueBills.map((bill) => (
                   <tr key={bill.id}>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{bill.id}</td>
-                    <td>{bill.customer_name || 'Walk-in'}</td>
+                    <td className="font-mono text-muted" style={{ fontWeight: 600 }}>{bill.id}</td>
+                    <td style={{ fontWeight: 600 }}>{bill.customer_name || 'Walk-in'}</td>
                     <td>
                       {bill.customer_phone ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span className="font-mono" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <Phone size={12} className="text-muted" /> {bill.customer_phone}
                         </span>
                       ) : (
@@ -177,7 +177,7 @@ const NotificationsPage = () => {
                         {bill.days_overdue} days
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
+                    <td className="font-mono tabular-nums" style={{ textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
                       ₹{Number(bill.balance || 0).toFixed(2)}
                     </td>
                     <td style={{ textAlign: 'center' }}>

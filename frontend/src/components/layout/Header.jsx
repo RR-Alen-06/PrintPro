@@ -1,16 +1,41 @@
-import React, { useState } from 'react'
-import { Search, Bell, PlusSquare, LogOut, User, Menu, CloudOff } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2 } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
+import { useTheme } from '../../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 
 const Header = ({ onMenuClick }) => {
-  const { currentUser, logout, notifications = [], markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, offlineQueue = [] } = useAppContext()
+  const {
+    currentUser,
+    logout,
+    notifications = [],
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    clearAllNotifications,
+    offlineQueue = []
+  } = useAppContext()
+  
+  const { resolvedTheme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef(null)
 
   const unreadNotifications = notifications.filter(n => !n.read)
+
+  // Keyboard shortcut Ctrl+K / Cmd+K to focus search
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -25,45 +50,65 @@ const Header = ({ onMenuClick }) => {
     <header className="header">
       <div className="header-left">
         <button className="header-menu-btn" type="button" aria-label="Toggle menu" onClick={onMenuClick}>
-          <Menu size={18} />
+          <Menu size={20} />
         </button>
-        <div className="header-title">PrintPro Business Manager</div>
+        <div className="header-title">
+          PrintPro <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '6px' }}>POS</span>
+        </div>
       </div>
+
       <div className="header-right">
+        {/* Pending Offline Sync Badge */}
         {offlineQueue.length > 0 && (
           <div
             className="offline-sync-badge"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              borderRadius: '16px',
-              backgroundColor: 'rgba(245, 158, 11, 0.15)',
-              border: '1px solid rgba(245, 158, 11, 0.4)',
-              color: '#f59e0b',
-              fontSize: '12px',
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              userSelect: 'none',
-              cursor: 'default',
-            }}
             title="Changes queued locally. They will sync automatically when online."
           >
             <CloudOff size={14} />
-            <span>{offlineQueue.length} {offlineQueue.length === 1 ? 'change' : 'changes'} pending sync</span>
+            <span>{offlineQueue.length} {offlineQueue.length === 1 ? 'change' : 'changes'} pending</span>
           </div>
         )}
-        <form className="header-search" onSubmit={handleSearch} style={{ display: 'flex', alignItems: 'center' }}>
-          <Search size={16} style={{ flexShrink: 0 }} />
+
+        {/* Google Stitch Search Bar */}
+        <form className="header-search" onSubmit={handleSearch}>
+          <Search />
           <input
+            ref={searchInputRef}
             type="search"
-            placeholder="Search bills, customers, inventory…"
+            placeholder="Search bills, customers, items..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ background: 'none', border: 'none', outline: 'none', flex: 1, color: 'inherit', fontSize: '0.875rem' }}
           />
+          <span className="header-search-shortcut" title="Press ⌘K or Ctrl+K to search">⌘K</span>
         </form>
+
+        {/* Quick New Bill Button */}
+        <button
+          className="btn btn-tonal btn-sm"
+          type="button"
+          onClick={() => navigate('/billing')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}
+        >
+          <Plus size={15} />
+          <span>New Bill</span>
+        </button>
+
+        {/* Theme Toggle Button (Light/Dark) */}
+        <button
+          className="header-icon-btn"
+          type="button"
+          aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
+          title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
+          onClick={toggleTheme}
+        >
+          {resolvedTheme === 'dark' ? (
+            <Sun size={18} style={{ color: '#fbbf24' }} />
+          ) : (
+            <Moon size={18} style={{ color: 'var(--accent)' }} />
+          )}
+        </button>
+
+        {/* Notifications Popover */}
         <div style={{ position: 'relative' }}>
           <button
             className="header-icon-btn"
@@ -74,134 +119,134 @@ const Header = ({ onMenuClick }) => {
               setShowUserMenu(false)
             }}
           >
-            <Bell />
-            {unreadNotifications.length > 0 && <span className="notification-badge-count">{unreadNotifications.length}</span>}
+            <Bell size={18} />
+            {unreadNotifications.length > 0 && (
+              <span className="notification-badge-count">
+                {unreadNotifications.length > 99 ? '99+' : unreadNotifications.length}
+              </span>
+            )}
           </button>
+
           {showNotifications && (
             <div
+              className="stitch-popover"
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                right: 0,
-                backgroundColor: '#15152a',
-                border: '1px solid var(--border-accent)',
-                borderRadius: 'var(--radius-xl)',
-                width: '340px',
+                width: '360px',
                 maxWidth: 'calc(100vw - 32px)',
-                zIndex: 1000,
-                boxShadow: '0 0 20px rgba(99, 102, 241, 0.15), 0 8px 32px rgba(0,0,0,0.6)',
                 display: 'flex',
                 flexDirection: 'column',
-                overflow: 'hidden',
               }}
             >
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0e0e1c' }}>
-                <span style={{ fontWeight: 'bold', fontSize: '15px' }}>Notifications</span>
+              <div
+                style={{
+                  padding: '14px 18px',
+                  borderBottom: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'var(--bg-elevated)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Notifications</span>
+                  {unreadNotifications.length > 0 && (
+                    <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>
+                      {unreadNotifications.length} new
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {unreadNotifications.length > 0 && (
                     <button
                       onClick={() => markAllNotificationsRead()}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--accent)' }}
                     >
                       Mark all read
                     </button>
                   )}
-                  {unreadNotifications.length > 0 && notifications.length > 0 && (
-                    <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>•</span>
-                  )}
                   {notifications.length > 0 && (
                     <button
                       onClick={() => clearAllNotifications()}
-                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--error)' }}
+                      title="Clear all notifications"
                     >
-                      Clear all
+                      Clear
                     </button>
                   )}
                 </div>
               </div>
-              <div style={{ maxHeight: '300px', overflowY: 'auto', padding: '8px 0' }}>
+
+              <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 0' }}>
                 {notifications.length === 0 ? (
-                  <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                    No notifications yet.
+                  <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    No notifications right now.
                   </div>
                 ) : (
                   notifications.map((note) => (
                     <div
                       key={note.id}
                       style={{
-                        padding: '14px 20px',
+                        padding: '12px 16px',
                         borderBottom: '1px solid var(--border)',
-                        backgroundColor: note.read ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
+                        backgroundColor: note.read ? 'transparent' : 'var(--accent-light)',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: '6px',
+                        gap: '4px',
+                        transition: 'background-color 0.15s ease',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                        <span style={{ fontWeight: note.read ? 500 : 600, fontSize: '13px', color: note.read ? 'var(--text-secondary)' : 'var(--text-primary)', wordBreak: 'break-word', paddingRight: '12px' }}>
+                        <span
+                          style={{
+                            fontWeight: note.read ? 600 : 700,
+                            fontSize: '0.86rem',
+                            color: 'var(--text-primary)',
+                            wordBreak: 'break-word',
+                          }}
+                        >
                           {note.title}
                         </span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
                           {!note.read && (
                             <button
                               onClick={() => markNotificationRead(note.id)}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: 'var(--accent)',
-                                fontSize: '10px',
-                                cursor: 'pointer',
-                                padding: '2px 6px',
-                                borderRadius: '2px',
-                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                              }}
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: '2px 6px', fontSize: '0.7rem', color: 'var(--accent)' }}
                             >
-                              Mark read
+                              <Check size={12} />
                             </button>
                           )}
                           <button
                             onClick={() => deleteNotification(note.id)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#ef4444',
-                              fontSize: '10px',
-                              cursor: 'pointer',
-                              padding: '2px 4px',
-                              borderRadius: '2px',
-                            }}
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '2px 6px', fontSize: '0.7rem', color: 'var(--text-muted)' }}
                             title="Dismiss"
                           >
-                            ✕
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </div>
-                      <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4', wordBreak: 'break-word' }}>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                         {note.message}
                       </p>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.8 }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                         {note.date}
                       </span>
                     </div>
                   ))
                 )}
               </div>
-              <div style={{ borderTop: '1px solid var(--border)', textAlign: 'center', background: '#0e0e1c' }}>
+
+              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)', padding: '6px' }}>
                 <button
                   onClick={() => {
                     navigate('/notifications')
                     setShowNotifications(false)
                   }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-primary)',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: '100%', justifyContent: 'center', fontWeight: 600 }}
                 >
                   View All Notifications
                 </button>
@@ -209,78 +254,103 @@ const Header = ({ onMenuClick }) => {
             </div>
           )}
         </div>
+
+        {/* User Account Chip */}
         <div style={{ position: 'relative' }}>
           <button
-            className="header-icon-btn"
+            className="header-user-chip"
             type="button"
-            aria-label="User menu"
+            aria-label="User account"
             onClick={() => {
               setShowUserMenu(!showUserMenu)
               setShowNotifications(false)
             }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
           >
-            {currentUser?.avatarUrl ? (
-              <img
-                src={currentUser.avatarUrl}
-                alt="User avatar"
-                style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover' }}
-              />
-            ) : (
-              <User size={18} />
-            )}
-            <span style={{ fontSize: '12px', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.username}</span>
+            <div className="header-user-avatar">
+              {currentUser?.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.username || 'User'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <User size={15} />
+              )}
+            </div>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentUser?.username || 'Owner'}
+            </span>
           </button>
+
           {showUserMenu && (
             <div
+              className="stitch-popover"
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                right: 0,
-                backgroundColor: '#15152a',
-                border: '1px solid var(--border-accent)',
-                borderRadius: 'var(--radius-xl)',
-                minWidth: '220px',
-                zIndex: 1000,
-                boxShadow: '0 0 20px rgba(99, 102, 241, 0.15), 0 8px 32px rgba(0,0,0,0.6)',
-                overflow: 'hidden',
+                minWidth: '230px',
               }}
             >
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px', background: '#0e0e1c' }}>
-                {currentUser?.avatarUrl && (
-                  <img
-                    src={currentUser.avatarUrl}
-                    alt="User avatar"
-                    style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
-                  />
-                )}
-                <div>
-                  <div style={{ fontSize: '12px', opacity: 0.7 }}>Logged in as</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '14px', wordBreak: 'break-all' }}>{currentUser?.username}</div>
-                  <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '2px' }}>Role: {currentUser?.role}</div>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  logout()
-                  setShowUserMenu(false)
-                }}
+              <div
                 style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  textAlign: 'left',
-                  background: 'none',
-                  border: 'none',
-                  color: '#ef4444',
-                  cursor: 'pointer',
+                  padding: '14px 18px',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--bg-elevated)',
                   display: 'flex',
-                  gap: '8px',
                   alignItems: 'center',
-                  fontSize: '14px',
+                  gap: '12px',
                 }}
               >
-                <LogOut size={16} /> Logout
-              </button>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    background: 'var(--accent-surface)',
+                    color: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {currentUser?.avatarUrl ? (
+                    <img src={currentUser.avatarUrl} alt="User avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <User size={18} />
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {currentUser?.username}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {currentUser?.role === 'owner' || !currentUser?.role ? 'Administrator' : currentUser.role}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: '6px' }}>
+                <button
+                  onClick={() => {
+                    navigate('/settings')
+                    setShowUserMenu(false)
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 12px' }}
+                >
+                  Account Settings
+                </button>
+                <button
+                  onClick={() => {
+                    logout()
+                    setShowUserMenu(false)
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 12px', color: 'var(--error)' }}
+                >
+                  <LogOut size={15} /> Logout
+                </button>
+              </div>
             </div>
           )}
         </div>

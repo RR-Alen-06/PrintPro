@@ -9,9 +9,9 @@ import EodModal from '../components/dashboard/EodModal'
 const Dashboard = () => {
   const { bills, customers, advancePayments, payments, expenses } = useAppContext()
   const navigate = useNavigate()
-  const today = new Date()
 
   const [showEodModal, setShowEodModal] = useState(false)
+  const [periodFilter, setPeriodFilter] = useState('all') // 'all', 'today', 'yesterday', 'week', 'month', 'quarter'
 
   // Default to current financial year based on current date
   const [selectedFY, setSelectedFY] = useState(
@@ -20,56 +20,76 @@ const Dashboard = () => {
       : String(new Date().getFullYear() - 1)
   )
 
-  const fyStats = useMemo(() => {
-    const fyYear = parseInt(selectedFY, 10)
-    const startDate = new Date(fyYear, 3, 1, 0, 0, 0, 0) // April 1st
-    const endDate = new Date(fyYear + 1, 2, 31, 23, 59, 59, 999) // March 31st
-
-    const isDateInFY = (dateStr) => {
-      if (!dateStr) return false
-      const d = new Date(dateStr)
-      return d >= startDate && d <= endDate
+  // Filter bills, payments, expenses according to active period filter
+  const filteredData = useMemo(() => {
+    if (periodFilter === 'all') {
+      return {
+        bills: (bills || []).filter(b => !b.deleted && !b.isGroupParent),
+        payments: payments || [],
+        expenses: expenses || [],
+        advancePayments: advancePayments || [],
+      }
     }
 
-    // 1. Realized Revenue: sum of active bills' amountPaid in this FY
-    const fyBills = (bills || []).filter(b => !b.deleted && isDateInFY(b.date) && !b.isGroupParent)
-    const revenue = fyBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0)
+    const now = new Date()
+    const getStartOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
+    const getEndOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
 
-    // 2. Refunds: sum of payments in this FY where totalPaid < 0 or isRefund is true
-    const fyRefundPayments = (payments || []).filter(p => (p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0) && isDateInFY(p.date))
-    const refunds = fyRefundPayments.reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+    let start = new Date(0)
+    let end = new Date()
 
-    // 3. Cash Inflow: payments + advance deposits in this FY
-    const fyPayments = (payments || []).filter(p => !p.notes?.includes('from advance deposit') && isDateInFY(p.date))
-    const pInflow = fyPayments.reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const fyAdvances = (advancePayments || []).filter(ap => isDateInFY(ap.date))
-    const advInflow = fyAdvances.reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
-    const cashInflow = pInflow + advInflow
+    if (periodFilter === 'today') {
+      start = getStartOfDay(now)
+      end = getEndOfDay(now)
+    } else if (periodFilter === 'yesterday') {
+      const y = new Date(now)
+      y.setDate(y.getDate() - 1)
+      start = getStartOfDay(y)
+      end = getEndOfDay(y)
+    } else if (periodFilter === 'week') {
+      const w = new Date(now)
+      w.setDate(w.getDate() - 7)
+      start = getStartOfDay(w)
+      end = getEndOfDay(now)
+    } else if (periodFilter === 'month') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
+      end = getEndOfDay(now)
+    } else if (periodFilter === 'quarter') {
+      const currentMonth = now.getMonth()
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3
+      start = new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0)
+      end = getEndOfDay(now)
+    }
 
-    // 4. Expenses: sum of expenses in this FY
-    const fyExpenses = (expenses || []).filter(e => isDateInFY(e.date))
-    const fyExpTotal = fyExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
-
-    const netCashFlow = cashInflow - fyExpTotal
+    const inRange = (dStr) => {
+      if (!dStr) return false
+      const d = new Date(dStr)
+      return d >= start && d <= end
+    }
 
     return {
-      revenue,
-      refunds,
-      cashInflow,
-      expenses: fyExpTotal,
-      netCashFlow
+      bills: (bills || []).filter(b => !b.deleted && !b.isGroupParent && inRange(b.date)),
+      payments: (payments || []).filter(p => inRange(p.date)),
+      expenses: (expenses || []).filter(e => inRange(e.date)),
+      advancePayments: (advancePayments || []).filter(ap => inRange(ap.date)),
     }
-  }, [bills, payments, advancePayments, expenses, selectedFY])
+  }, [bills, payments, expenses, advancePayments, periodFilter])
 
-  const activeBills = useMemo(() => bills.filter((b) => !b.deleted && !b.isGroupParent), [bills])
+  const activeBills = filteredData.bills
   const paidBills = useMemo(() => activeBills.filter((b) => b.status === 'paid'), [activeBills])
   const partialBills = useMemo(() => activeBills.filter((b) => b.status === 'partial'), [activeBills])
   const unpaidBills = useMemo(() => activeBills.filter((b) => b.status === 'unpaid'), [activeBills])
 
   // Centralized calculations using DashboardService
   const dashboardStats = useMemo(() => {
-    return DashboardService.getSummaryWidgets({ bills, payments, expenses, customers, inventory: [] })
-  }, [bills, payments, expenses, customers])
+    return DashboardService.getSummaryWidgets({
+      bills: filteredData.bills,
+      payments: filteredData.payments,
+      expenses: filteredData.expenses,
+      customers,
+      inventory: []
+    })
+  }, [filteredData, customers])
 
   const netRevenue = dashboardStats.netRevenue
   const pendingAmount = dashboardStats.pendingAmount
@@ -77,34 +97,77 @@ const Dashboard = () => {
   const totalCustomerAdvance = dashboardStats.totalCustomerAdvance
 
   const refundPayments = useMemo(() => {
-    return (payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
-  }, [payments])
+    return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
+  }, [filteredData.payments])
 
   const totalCashInflow = useMemo(() => {
-    const pInflow = (payments || [])
+    const pInflow = (filteredData.payments || [])
       .filter((p) => !p.notes?.includes('from advance deposit'))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    const advInflow = (advancePayments || [])
+    const advInflow = (filteredData.advancePayments || [])
       .filter(ap => !ap.isRefundCredit)
       .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     return pInflow + advInflow
-  }, [payments, advancePayments])
+  }, [filteredData])
 
   const totalExpenses = useMemo(() => {
-    return (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
-  }, [expenses])
+    return (filteredData.expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  }, [filteredData.expenses])
 
   const netCashFlow = useMemo(() => {
     return totalCashInflow - totalExpenses
   }, [totalCashInflow, totalExpenses])
 
-  const overdueBills = useMemo(
-    () => activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < today),
-    [activeBills]
-  )
+  const overdueBills = useMemo(() => {
+    const now = new Date()
+    return activeBills.filter((b) => b.balance > 0 && b.dueDate && new Date(b.dueDate) < now)
+  }, [activeBills])
+
+  // Financial Year stats computation
+  const fyStats = useMemo(() => {
+    const startYear = parseInt(selectedFY, 10) || new Date().getFullYear()
+    const fyStart = new Date(startYear, 3, 1, 0, 0, 0, 0)
+    const fyEnd = new Date(startYear + 1, 2, 31, 23, 59, 59, 999)
+
+    const inFY = (dStr) => {
+      if (!dStr) return false
+      const d = new Date(dStr)
+      return d >= fyStart && d <= fyEnd
+    }
+
+    const fyBills = (bills || []).filter(b => !b.deleted && !b.isGroupParent && inFY(b.date))
+    const fyPayments = (payments || []).filter(p => inFY(p.date))
+    const fyExpenses = (expenses || []).filter(e => inFY(e.date))
+    const fyAdvances = (advancePayments || []).filter(ap => inFY(ap.date))
+
+    const revenue = fyBills.reduce((sum, b) => sum + Number(b.paid || 0), 0)
+    const refunds = fyPayments
+      .filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
+      .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
+
+    const pInflow = fyPayments
+      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const advInflow = fyAdvances
+      .filter((ap) => !ap.isRefundCredit)
+      .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+    const cashInflowVal = pInflow + advInflow
+
+    const totalExp = fyExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
+    const netCashFlowVal = cashInflowVal - totalExp
+
+    return {
+      revenue,
+      refunds,
+      cashInflow: cashInflowVal,
+      expenses: totalExp,
+      netCashFlow: netCashFlowVal,
+    }
+  }, [bills, payments, expenses, advancePayments, selectedFY])
 
   // Pending dues per customer — sorted by balance desc
   const pendingDues = useMemo(() => {
+    const now = new Date()
     const map = {}
     activeBills
       .filter((b) => b.balance > 0)
@@ -125,7 +188,7 @@ const Dashboard = () => {
         entry.billCount += 1
         if (b.date < entry.oldestDate) entry.oldestDate = b.date
         if (b.date > entry.newestDate) entry.newestDate = b.date
-        if (b.dueDate && new Date(b.dueDate) < today) entry.hasOverdue = true
+        if (b.dueDate && new Date(b.dueDate) < now) entry.hasOverdue = true
       })
     return Object.values(map).sort((a, b) => b.totalDue - a.totalDue).slice(0, 8)
   }, [activeBills])
@@ -154,11 +217,43 @@ const Dashboard = () => {
 
       <EodModal isOpen={showEodModal} onClose={() => setShowEodModal(false)} />
 
+      {/* Google Stitch Period Filter Chips */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '20px' }}>
+        {[
+          { id: 'all', label: 'All Time' },
+          { id: 'today', label: 'Today' },
+          { id: 'yesterday', label: 'Yesterday' },
+          { id: 'week', label: 'This Week' },
+          { id: 'month', label: 'This Month' },
+          { id: 'quarter', label: 'This Quarter' },
+        ].map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setPeriodFilter(p.id)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-full)',
+              border: periodFilter === p.id ? '1px solid var(--accent)' : '1px solid var(--border)',
+              background: periodFilter === p.id ? 'var(--accent-surface)' : 'var(--bg-card)',
+              color: periodFilter === p.id ? 'var(--accent)' : 'var(--text-secondary)',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       {/* Financial Health Section */}
       <div style={{ marginBottom: '24px' }}>
         <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           <span style={{ width: '4px', height: '14px', background: 'var(--gradient-accent)', borderRadius: '2px', display: 'inline-block' }} />
-          Financial Performance
+          Financial Performance ({periodFilter === 'all' ? 'All Time' : periodFilter})
         </h3>
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '20px' }}>
           <div className="stat-card">

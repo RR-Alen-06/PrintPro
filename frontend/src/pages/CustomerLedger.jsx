@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, ChevronDown, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, FileText, ExternalLink, Loader2 } from 'lucide-react'
+import { Download, Wallet, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, FileText, ExternalLink, Loader2 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
-import { jsPDF } from 'jspdf'
-import { uploadPDFReceipt } from '../api/share'
 import { exportCustomerLedgerPdf } from '../api/ledger'
 import EmptyState from '../components/common/EmptyState'
 import { LedgerService } from '../utils/financialServices'
@@ -147,7 +145,6 @@ const CustomerLedger = () => {
   const totalRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
   const totalPaid = totalGrossPaid - totalRefunded // net paid after refunds
   const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => (a.amount > 0 || !a.isReturn) && !a.isRefundCredit).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
-  const totalAdvanceReturned = useMemo(() => customerAdvances.filter(a => a.amount < 0 || a.isReturn).reduce((s, a) => s + Math.abs(Number(a.amount || 0)), 0), [customerAdvances])
   const totalAdvanceUsed = customerBills.reduce((s, b) => s + Number(b.advanceUsed || 0), 0)
   const totalDiscount = customerBills.reduce((s, b) => s + Number(b.discountValue || 0), 0)
   const totalGstBilled = customerBills.reduce((s, b) => s + Number(b.gstAmount || 0), 0)
@@ -208,128 +205,7 @@ const CustomerLedger = () => {
     URL.revokeObjectURL(link.href)
   }
 
-  // PDF document generator
-  const generateLedgerPDFDoc = () => {
-    if (!selectedCustomer) return null
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const W = doc.internal.pageSize.getWidth()
-    const H = doc.internal.pageSize.getHeight()
-    const MARGIN = 12
-    const FOOTER_H = 12
-    const MAX_Y = H - MARGIN - FOOTER_H
-    let y = 16
-    let page = 1
 
-    const addFooter = (p) => {
-      doc.setFontSize(8)
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(150)
-      doc.text(`Page ${p}`, W / 2, H - 6, { align: 'center' })
-      doc.setTextColor(0)
-    }
-
-    const checkPage = (need = 7) => {
-      if (y + need > MAX_Y) {
-        addFooter(page)
-        doc.addPage()
-        page++
-        y = 16
-      }
-    }
-
-    // Header
-    doc.setFontSize(16)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Customer Ledger Statement', W / 2, y, { align: 'center' })
-    y += 7
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Customer: ${selectedCustomer.name} (${selectedCustomer.id})`, MARGIN, y)
-    doc.text(`Generated: ${new Date().toLocaleString()}`, W - MARGIN, y, { align: 'right' })
-    y += 5
-    doc.setLineWidth(0.4)
-    doc.line(MARGIN, y, W - MARGIN, y)
-    y += 6
-
-    // Summary row
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'bold')
-    const sumItems = [
-      ['Total Debits', `Rs.${totalDebits.toFixed(2)}`],
-      ['Total Credits', `Rs.${totalCredits.toFixed(2)}`],
-      ['Adv Returned', `Rs.${periodAdvanceReturned.toFixed(2)}`],
-      ['Final Balance', `Rs.${finalBalance.toFixed(2)}`],
-    ]
-    const colW = (W - MARGIN * 2) / sumItems.length
-    sumItems.forEach(([label, val], i) => {
-      const x = MARGIN + i * colW
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(120)
-      doc.text(label, x, y)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(0)
-      doc.text(val, x, y + 5)
-    })
-    y += 12
-    doc.line(MARGIN, y, W - MARGIN, y)
-    y += 6
-
-    // Table header
-    const cols = { date: MARGIN, type: MARGIN + 22, desc: MARGIN + 40, debit: MARGIN + 115, credit: MARGIN + 140, bal: MARGIN + 165 }
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(100)
-    doc.text('Date', cols.date, y)
-    doc.text('Type', cols.type, y)
-    doc.text('Description', cols.desc, y)
-    doc.text('Debit', cols.debit, y)
-    doc.text('Credit', cols.credit, y)
-    doc.text('Balance', cols.bal, y)
-    doc.setTextColor(0)
-    y += 2
-    doc.line(MARGIN, y, W - MARGIN, y)
-    y += 5
-
-    // Rows
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    ledgerEntries.forEach((entry) => {
-      checkPage(7)
-      const typeLabel = entry.type === 'bill' ? 'Invoice' : entry.type === 'advance' ? 'Advance' : entry.type === 'advance_return' ? 'Adv Return' : entry.type === 'refund' ? 'Refund' : 'Payment'
-      const debitStr = entry.debit > 0 ? `Rs.${entry.debit.toFixed(2)}` : '-'
-      const creditStr = entry.credit > 0 ? `Rs.${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `Rs.${entry.advanceIn.toFixed(2)}` : entry.advanceReturn > 0 ? `-Rs.${entry.advanceReturn.toFixed(2)}` : '-'
-      const balStr = entry.balance < 0 ? `-Rs.${Math.abs(entry.balance).toFixed(2)}` : `Rs.${entry.balance.toFixed(2)}`
-      doc.text(new Date(entry.date).toLocaleDateString(), cols.date, y)
-      doc.text(typeLabel, cols.type, y)
-      
-      let entryDesc = entry.description
-      if (settings.loyaltyEnabled !== false) {
-        if (entry.loyaltyPointsEarned > 0) {
-          entryDesc += ` (+${entry.loyaltyPointsEarned} pts)`
-        }
-        if (entry.loyaltyPointsRedeemed > 0) {
-          entryDesc += ` (-${entry.loyaltyPointsRedeemed} pts)`
-        }
-      }
-      const shortDesc = entryDesc.length > 30 ? entryDesc.slice(0, 28) + '…' : entryDesc
-      doc.text(shortDesc, cols.desc, y)
-      doc.setTextColor(entry.debit > 0 ? 239 : 0, entry.debit > 0 ? 68 : 0, entry.debit > 0 ? 68 : 0)
-      doc.text(debitStr, cols.debit, y)
-      doc.setTextColor((entry.credit > 0 || entry.advanceIn > 0) ? 16 : entry.advanceReturn > 0 ? 245 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 185 : entry.advanceReturn > 0 ? 158 : 0, (entry.credit > 0 || entry.advanceIn > 0) ? 129 : entry.advanceReturn > 0 ? 11 : 0)
-      doc.text(creditStr, cols.credit, y)
-      if (entry.balance >= 0) {
-        doc.setTextColor(16, 185, 129)
-      } else {
-        doc.setTextColor(239, 68, 68)
-      }
-      doc.text(balStr, cols.bal, y)
-      doc.setTextColor(0)
-      y += 6
-    })
-
-    addFooter(page)
-    return doc
-  }
 
   // Determine date parameters based on selected period or custom inputs
   const getSelectedDateParams = () => {
@@ -554,7 +430,7 @@ const CustomerLedger = () => {
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{label}</span>
-                  <strong style={{ color }}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</strong>
+                  <strong className="font-mono" style={{ color }}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</strong>
                 </div>
               ))}
             </div>
