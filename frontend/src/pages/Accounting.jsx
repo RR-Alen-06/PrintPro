@@ -233,7 +233,7 @@ const Accounting = () => {
             <div className="stat-card-icon success"><DollarSign /></div>
             <div>
               <div className="stat-card-label">Net Revenue</div>
-              <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.realizedRevenue.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--success)' }}>₹{stats.realizedRevenue.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Total collected (after refunds).</div>
@@ -244,7 +244,7 @@ const Accounting = () => {
             <div className="stat-card-icon error" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}><DollarSign /></div>
             <div>
               <div className="stat-card-label">Refund Outflows</div>
-              <div className="stat-card-value" style={{ color: 'var(--warning)' }}>₹{stats.totalRefundOutflow.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--warning)' }}>₹{stats.totalRefundOutflow.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Already deducted from Net Revenue.</div>
@@ -255,7 +255,7 @@ const Accounting = () => {
             <div className="stat-card-icon success" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}><DollarSign /></div>
             <div>
               <div className="stat-card-label">Total Advance Balance</div>
-              <div className="stat-card-value" style={{ color: 'var(--info)' }}>₹{stats.totalCustomerAdvance.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--info)' }}>₹{stats.totalCustomerAdvance.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Current customer credits.</div>
@@ -266,7 +266,7 @@ const Accounting = () => {
             <div className="stat-card-icon success" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}><TrendingUp /></div>
             <div>
               <div className="stat-card-label">Total Cash Inflow</div>
-              <div className="stat-card-value" style={{ color: 'var(--success)' }}>₹{stats.totalCashInflow.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--success)' }}>₹{stats.totalCashInflow.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Net cash received (refund credits excluded).</div>
@@ -277,7 +277,7 @@ const Accounting = () => {
             <div className="stat-card-icon error"><TrendingDown /></div>
             <div>
               <div className="stat-card-label">Total Expenses</div>
-              <div className="stat-card-value" style={{ color: 'var(--error)' }}>₹{stats.totalExpenses.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--error)' }}>₹{stats.totalExpenses.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Total amount spent on expenses.</div>
@@ -288,7 +288,7 @@ const Accounting = () => {
             <div className={`stat-card-icon ${stats.netProfit >= 0 ? 'success' : 'error'}`}><TrendingUp /></div>
             <div>
               <div className="stat-card-label">Net Profit</div>
-              <div className="stat-card-value" style={{ color: stats.netProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: stats.netProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>
                 ₹{stats.netProfit.toFixed(2)}
               </div>
             </div>
@@ -301,7 +301,7 @@ const Accounting = () => {
             <div className={`stat-card-icon ${stats.netCashFlow >= 0 ? 'success' : 'error'}`}><TrendingUp /></div>
             <div>
               <div className="stat-card-label">Net Cash Flow</div>
-              <div className="stat-card-value" style={{ color: stats.netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: stats.netCashFlow >= 0 ? 'var(--success)' : 'var(--error)' }}>
                 ₹{stats.netCashFlow.toFixed(2)}
               </div>
             </div>
@@ -314,7 +314,7 @@ const Accounting = () => {
             <div className="stat-card-icon warning"><AlertCircle /></div>
             <div>
               <div className="stat-card-label">Pending Receivables</div>
-              <div className="stat-card-value" style={{ color: 'var(--warning)' }}>₹{stats.pendingReceivables.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--warning)' }}>₹{stats.pendingReceivables.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Outstanding from open bills.</div>
@@ -330,19 +330,19 @@ const Accounting = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--success-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Collected</span>
-                <span style={{ fontWeight: 700, color: 'var(--success)' }}>₹{stats.cashCollected.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--success)' }}>₹{stats.cashCollected.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--info-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Collected</span>
-                <span style={{ fontWeight: 700, color: 'var(--info)' }}>₹{stats.upiCollected.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--info)' }}>₹{stats.upiCollected.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Refunded Out</span>
-                <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.cashRefunded.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.cashRefunded.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Refunded Out</span>
-                <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiRefunded.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiRefunded.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -351,11 +351,11 @@ const Accounting = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Banknote size={16} /> Cash Spent</span>
-                <span style={{ fontWeight: 700, color: 'var(--error)' }}>₹{stats.cashSpent.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--error)' }}>₹{stats.cashSpent.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.2)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> UPI Spent</span>
-                <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiSpent.toFixed(2)}</span>
+                <span className="font-mono tabular-nums" style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{stats.upiSpent.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -368,28 +368,28 @@ const Accounting = () => {
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '16px', border: 'none', padding: 0 }}>
           <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Bill Refunds</h4>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>
+            <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>
             <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              <span>Cash: ₹{refundStats.billRefundsCash.toFixed(2)}</span>
-              <span>UPI: ₹{refundStats.billRefundsUpi.toFixed(2)}</span>
+              <span className="font-mono">Cash: ₹{refundStats.billRefundsCash.toFixed(2)}</span>
+              <span className="font-mono">UPI: ₹{refundStats.billRefundsUpi.toFixed(2)}</span>
             </div>
           </div>
           
           <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Payment Deletions</h4>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</div>
+            <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</div>
             <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              <span>Cash: ₹{refundStats.delPaymentsCash.toFixed(2)}</span>
-              <span>UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)}</span>
+              <span className="font-mono">Cash: ₹{refundStats.delPaymentsCash.toFixed(2)}</span>
+              <span className="font-mono">UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)}</span>
             </div>
           </div>
 
           <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Advance Returns</h4>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</div>
+            <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</div>
             <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              <span>Cash: ₹{refundStats.advReturnsCash.toFixed(2)}</span>
-              <span>UPI: ₹{refundStats.advReturnsUpi.toFixed(2)}</span>
+              <span className="font-mono">Cash: ₹{refundStats.advReturnsCash.toFixed(2)}</span>
+              <span className="font-mono">UPI: ₹{refundStats.advReturnsUpi.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -555,7 +555,7 @@ const Accounting = () => {
                 {sortedExpenses.map((exp) => (
                   <tr key={exp.id}>
                     <td>{exp.date}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{exp.id}</td>
+                    <td className="font-mono text-muted" style={{ fontSize: '0.78rem' }}>{exp.id}</td>
                     <td>{exp.description || exp.itemName}</td>
                     <td>
                       <span className="badge badge-info" style={{ fontSize: '0.72rem' }}>
@@ -569,7 +569,7 @@ const Accounting = () => {
                         {(exp.upiRef || exp.upi_ref) ? ` (${exp.upiRef || exp.upi_ref})` : ''}
                       </span>
                     </td>
-                    <td style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount || exp.total || 0).toFixed(2)}</td>
+                    <td className="font-mono tabular-nums" style={{ fontWeight: 600, color: 'var(--error)' }}>₹{Number(exp.amount || exp.total || 0).toFixed(2)}</td>
                     <td>
                       <button
                         className="btn btn-ghost btn-sm"
@@ -617,16 +617,16 @@ const Accounting = () => {
                 {refundLogs.map((log) => (
                   <tr key={log.id}>
                     <td>{new Date(log.date).toLocaleDateString()}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{log.id}</td>
+                    <td className="font-mono text-muted" style={{ fontSize: '0.78rem' }}>{log.id}</td>
                     <td>
                       <span className={`badge badge-${log.type === 'Bill Refund' ? 'partial' : log.type === 'Payment Deletion' ? 'unpaid' : 'info'}`} style={{ fontSize: '0.7rem' }}>
                         {log.type}
                       </span>
                     </td>
                     <td>{log.description}</td>
-                    <td>₹{log.cash.toFixed(2)}</td>
-                    <td>₹{log.upi.toFixed(2)}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums">₹{log.cash.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums">₹{log.upi.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums" style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{log.notes}</td>
                   </tr>
                 ))}

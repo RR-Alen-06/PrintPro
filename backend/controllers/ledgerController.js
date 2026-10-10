@@ -1,5 +1,4 @@
 const path = require('path');
-const fs = require('fs');
 const { getPool } = require('../config/db');
 const { generateLedgerPdf } = require('../utils/ledgerPdfGenerator');
 const logger = require('../utils/logger');
@@ -38,7 +37,7 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
       userSettings = typeof settingsRows[0].settings === 'string'
         ? JSON.parse(settingsRows[0].settings)
         : settingsRows[0].settings;
-    } catch (e) {
+    } catch (_e) {
       userSettings = {};
     }
   }
@@ -92,8 +91,10 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
     [actualCustomerId, userId]
   );
 
+
+
   // Promo Uses
-  let promoUses = [];
+  let promoUses;
   try {
     const [puRows] = await pool.query(
       `SELECT pu.id, pu.promo_code_id, pu.bill_id, pu.discount_applied, pu.created_at, pc.code AS promo_code
@@ -104,7 +105,7 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
       [actualCustomerId, userId]
     );
     promoUses = puRows;
-  } catch (e) {
+  } catch (_e) {
     promoUses = [];
   }
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, Percent, ArrowLeftRight } from 'lucide-react'
+import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
 
@@ -32,11 +32,14 @@ const makeCustomRow = () => ({
 const getItemBasePrice = (inventory, itemId, printType, sides) => {
   const item = inventory.find((e) => e.id === itemId)
   if (!item) return 0
+  if (item.item_type === 'service' || item.item_type === 'product' || item.item_type === 'stationery') {
+    return Number(item.unit_price || 0)
+  }
   if (printType === 'color' && sides === 'single') return item.colorSingle
   if (printType === 'color' && sides === 'double') return item.colorDouble
   if (printType === 'bw' && sides === 'single') return item.bwSingle
   if (printType === 'bw' && sides === 'double') return item.bwDouble
-  return 0
+  return Number(item.unit_price || 0)
 }
 
 // ── QuickAddPanel: inventory-based job template quick-add buttons ──────────────
@@ -79,8 +82,30 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.08)' }}>
       <span style={{ fontSize: '11px', color: '#71717a', alignSelf: 'center', marginRight: '4px', fontWeight: 600 }}>Quick Add:</span>
-      {inventory.flatMap((item) =>
-        [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
+      {inventory.flatMap((item) => {
+        const type = item.item_type || 'paper'
+        if (type === 'service' || type === 'product' || type === 'stationery') {
+          const price = Number(item.unit_price || 0)
+          if (!price) return []
+          const label = `${item.name}${item.unit ? ` (${item.unit})` : ''}`
+          const existing = rows?.find((r) => !r.isCustom && r.itemId === item.id)
+          return [(
+            <button
+              key={`${item.id}-service`}
+              type="button"
+              onClick={() => handleQuickAdd(item.id, item.name, 'na', 'na', price)}
+              style={{
+                fontSize: '11px', padding: '4px 10px', borderRadius: '16px', whiteSpace: 'nowrap', cursor: 'pointer',
+                border: existing ? '1px solid #f59e0b' : '1px solid rgba(245,158,11,0.3)',
+                background: existing ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.06)',
+                color: existing ? '#f59e0b' : '#a1a1aa',
+              }}
+            >
+              {label}{existing ? ` ×${existing.qty}` : ''}
+            </button>
+          )]
+        }
+        return [['color', 'single'], ['color', 'double'], ['bw', 'single'], ['bw', 'double']].map(([printType, sides]) => {
           const price = getItemBasePrice(inventory, item.id, printType, sides)
           if (!price) return null
           const label = `${item.name} ${printType === 'bw' ? 'B&W' : 'Color'} ${sides === 'single' ? 'Single' : 'Double'}`
@@ -103,7 +128,7 @@ const QuickAddPanel = ({ inventory, rows, setRows }) => {
             </button>
           )
         }).filter(Boolean)
-      )}
+      })}
     </div>
   )
 }
@@ -246,7 +271,7 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 }
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
-const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, promoCodes, date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
+const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, _promoCodes, _date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
   const customer = customers.find((c) => c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
@@ -494,7 +519,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
 
 // ── Main GroupBilling Component ───────────────────────────────────────────────
 const GroupBilling = () => {
-  const { customers, inventory, bills, addGroupBill, showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
+  const { customers, inventory, addGroupBill, showAlert, showToast, settings, promoCodes, addCustomer } = useAppContext()
 
   // ── Inline Add Customer modal state ─────────────────────────────────────────
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
@@ -1091,7 +1116,7 @@ const GroupBilling = () => {
                   <tbody>
                     {members.map((m, i) => {
                       const cust = activeCustomers.find((c) => c.id === m.customerId)
-                      const { subtotal, gstAmount, discountAmount, loyaltyDiscount, total } = memberTotals[i]
+                      const { gstAmount, discountAmount, loyaltyDiscount, total } = memberTotals[i]
                       const adv = Number(cust?.advanceBalance || 0)
                       const advUsed = m.useAdvance ? Math.min(adv, total) : 0
                       const remaining = Math.max(total - advUsed, 0)
@@ -1264,7 +1289,6 @@ const GroupBilling = () => {
               const { total: memberTotal } = splitMemberTotals[i]
               const adv = Number(cust?.advanceBalance || 0)
               const advUsed = m.useAdvance ? Math.min(adv, memberTotal) : 0
-              const remaining = Math.max(memberTotal - advUsed, 0)
               const status = advUsed >= memberTotal ? 'paid' : advUsed > 0 ? 'partial' : 'unpaid'
 
               return (

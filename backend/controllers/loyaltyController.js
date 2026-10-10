@@ -1,5 +1,4 @@
 const { getPool } = require('../config/db');
-const logger = require('../utils/logger');
 
 // Helper to recalculate customer loyalty points from loyalty_events and update customers table
 async function recalculateCustomerPoints(connOrPool, customerId, userId) {

@@ -1,6 +1,6 @@
 import { createBill, updateBill, deleteBill, restoreBill } from '../api/bills';
 import { createCustomer, updateCustomer, deleteCustomer } from '../api/customers';
-import { createItem, updateItem } from '../api/inventory';
+import { createItem, updateItem, deleteItem } from '../api/inventory';
 import { createPayment, createRefund, deletePayment } from '../api/payments';
 import { createPurchase, deletePurchase } from '../api/purchases';
 import { updateProfile } from '../api/profile';
@@ -8,8 +8,8 @@ import { createAdvancePayment, updateAdvancePayment, deleteAdvancePayment } from
 import { createCustomerGroup, updateCustomerGroup, deleteCustomerGroup } from '../api/customerGroups';
 import { createGroupBill, updateGroupBill, deleteGroupBill, payGroupMember } from '../api/groupBills';
 import { updateSettings } from '../api/settings';
-import { updateLoyaltySettings, createLoyaltyEvent, adjustCustomerLoyalty, deleteLoyaltyEvent, earnLoyaltyPoints, redeemLoyaltyPoints } from '../api/loyalty';
-import { createPromoCode, updatePromoCode, deletePromoCode } from '../api/promoCodes';
+import { updateLoyaltySettings, adjustCustomerLoyalty, deleteLoyaltyEvent, earnLoyaltyPoints, redeemLoyaltyPoints } from '../api/loyalty';
+import { createPromoCode, updatePromoCode } from '../api/promoCodes';
 import { openCashSession, closeCashSession } from '../api/cashSessions';
 
 /**
@@ -68,6 +68,9 @@ export const syncEntityToCloud = async (action, payload) => {
     case 'ADD_INVENTORY_ITEM':
       return await createItem({
         name: payload.name,
+        item_type: payload.item_type || payload.itemType || 'paper',
+        unit_price: payload.unit_price !== undefined ? payload.unit_price : (payload.unitPrice || 0),
+        unit: payload.unit || 'pcs',
         color_single: payload.colorSingle || 0,
         color_double: payload.colorDouble || 0,
         bw_single: payload.bwSingle || 0,
@@ -80,6 +83,9 @@ export const syncEntityToCloud = async (action, payload) => {
       if (payload.id) {
         return await updateItem(payload.id, {
           name: payload.updates?.name || payload.name,
+          item_type: payload.updates?.item_type || payload.updates?.itemType || payload.item_type,
+          unit_price: payload.updates?.unit_price !== undefined ? payload.updates.unit_price : (payload.updates?.unitPrice !== undefined ? payload.updates.unitPrice : payload.unit_price),
+          unit: payload.updates?.unit !== undefined ? payload.updates.unit : payload.unit,
           color_single: payload.updates?.colorSingle,
           color_double: payload.updates?.colorDouble,
           bw_single: payload.updates?.bwSingle,
@@ -89,6 +95,9 @@ export const syncEntityToCloud = async (action, payload) => {
         });
       }
       break;
+
+    case 'DELETE_INVENTORY_ITEM':
+      return await deleteItem(payload.id || payload);
 
     case 'ADD_BILL':
       if (payload.customerId && !payload.isGroupParent) {

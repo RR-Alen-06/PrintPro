@@ -1,43 +1,28 @@
+const js = require('@eslint/js');
 const security = require('eslint-plugin-security');
+const globals = require('globals');
 
 module.exports = [
   {
-    ignores: ["node_modules/**", "dist/**"]
+    ignores: ["node_modules/**", "dist/**", "uploads/**", "coverage/**"]
   },
+  js.configs.recommended,
+  security.configs.recommended,
   {
     files: ["**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "commonjs",
       globals: {
-        process: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        require: "readonly",
-        module: "readonly",
-        exports: "readonly",
-        console: "readonly",
-        setInterval: "readonly",
-        clearInterval: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        Buffer: "readonly",
-        Date: "readonly",
-        Math: "readonly",
-        Error: "readonly",
-        parseInt: "readonly",
-        parseFloat: "readonly",
-        JSON: "readonly"
+        ...globals.node,
+        ...globals.es2021
       }
     },
-    plugins: {
-      security: security
-    },
     rules: {
-      ...security.configs.recommended.rules,
       "security/detect-object-injection": "off",
-      "no-unused-vars": "off",
-      "no-console": "off"
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
+      "no-console": "off",
+      "no-undef": "error"
     }
   }
 ];

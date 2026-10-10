@@ -44,7 +44,7 @@ class PgConnectionWrapper {
     this.client = client;
   }
 
-  translateQuery(sql, values = []) {
+  translateQuery(sql) {
     let pgSql = sql;
     let paramIndex = 1;
 
@@ -111,7 +111,7 @@ class PgPoolWrapper {
     this.connectionLimit = 10;
   }
 
-  translateQuery(sql, values = []) {
+  translateQuery(sql) {
     let pgSql = sql;
     let paramIndex = 1;
     pgSql = pgSql.replace(/\?/g, () => `$${paramIndex++}`);

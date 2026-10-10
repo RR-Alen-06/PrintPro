@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { AlertCircle, Banknote, Smartphone, RefreshCw, Trash2, User, Share2, Printer, Copy, Check, Calendar, ArrowUpRight } from 'lucide-react'
+import { AlertCircle, Banknote, Smartphone, RefreshCw, User, Share2, Copy, Check, Calendar } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 import { getDeletedPayments, getRefundPayments } from '../api/payments'
 
@@ -12,7 +12,7 @@ const Refunds = () => {
   const [isLoading, setIsLoading] = useState(true)
 
   // Filters
-  const [period, setPeriod] = useState('all') // 'all' | 'daily' | 'weekly' | 'monthly' | 'custom'
+  const [period, setPeriod] = useState('all') // 'all' | 'daily' | 'yesterday' | 'weekly' | 'monthly' | 'custom'
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -24,7 +24,7 @@ const Refunds = () => {
   const [copied, setCopied] = useState(false)
 
   // Fetch API data for deleted payments and refunds
-  const fetchRefundData = async () => {
+  const fetchRefundData = useCallback(async () => {
     setIsLoading(true)
     try {
       let params = {}
@@ -33,6 +33,12 @@ const Refunds = () => {
       if (period === 'daily') {
         params.startDate = today
         params.endDate = today
+      } else if (period === 'yesterday') {
+        const d = new Date()
+        d.setDate(d.getDate() - 1)
+        const yStr = d.toISOString().slice(0, 10)
+        params.startDate = yStr
+        params.endDate = yStr
       } else if (period === 'weekly') {
         const d = new Date()
         d.setDate(d.getDate() - 7)
@@ -61,17 +67,17 @@ const Refunds = () => {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [period, startDate, endDate, showToast])
 
   useEffect(() => {
     fetchRefundData()
-  }, [period, startDate, endDate])
+  }, [fetchRefundData])
 
   // Helper to resolve customer name
-  const getCustomerName = (cId) => {
+  const getCustomerName = useCallback((cId) => {
     const c = (customers || []).find((cust) => cust.id === cId)
     return c ? c.name : 'Unknown Customer'
-  }
+  }, [customers])
 
   // 1. Calculate Refund Stats
   const refundStats = useMemo(() => {
@@ -179,7 +185,7 @@ const Refunds = () => {
 
     // Sort by date descending
     return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [refundStats, customers])
+  }, [refundStats, getCustomerName])
 
   // Filter and search refund logs
   const filteredLogs = useMemo(() => {
@@ -232,19 +238,26 @@ const Refunds = () => {
       </div>
 
       {/* Period Filter Bar */}
-      <div className="card" style={{ marginBottom: '20px', padding: '12px 18px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+      <div className="card" style={{ marginBottom: '20px', padding: '12px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <Calendar size={16} color="var(--accent)" />
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Period Filter:</span>
-            {['all', 'daily', 'weekly', 'monthly', 'custom'].map((p) => (
+            {[
+              { id: 'all', label: 'All Time' },
+              { id: 'daily', label: 'Today' },
+              { id: 'yesterday', label: 'Yesterday' },
+              { id: 'weekly', label: 'This Week' },
+              { id: 'monthly', label: 'This Month' },
+              { id: 'custom', label: 'Custom' }
+            ].map((p) => (
               <button
-                key={p}
-                className={`btn ${period === p ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '4px 12px', fontSize: '0.8rem', textTransform: 'capitalize' }}
-                onClick={() => setPeriod(p)}
+                key={p.id}
+                className={`btn btn-sm ${period === p.id ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '4px 12px', fontSize: '0.8rem', borderRadius: '20px' }}
+                onClick={() => setPeriod(p.id)}
               >
-                {p === 'all' ? 'All Time' : p === 'daily' ? 'Today' : p === 'weekly' ? 'This Week' : p === 'monthly' ? 'This Month' : 'Custom'}
+                {p.label}
               </button>
             ))}
           </div>
@@ -278,7 +291,7 @@ const Refunds = () => {
             <div className="stat-card-icon error" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}><RefreshCw /></div>
             <div>
               <div className="stat-card-label">Total Outflows</div>
-              <div className="stat-card-value" style={{ color: 'var(--error)' }}>₹{refundStats.grandTotal.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--error)' }}>₹{refundStats.grandTotal.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Combined reversals & refunds</div>
@@ -289,7 +302,7 @@ const Refunds = () => {
             <div className="stat-card-icon success" style={{ background: 'rgba(16,185,129,0.08)', color: '#10b981' }}><Banknote /></div>
             <div>
               <div className="stat-card-label">Cash Refunds</div>
-              <div className="stat-card-value" style={{ color: '#10b981' }}>₹{refundStats.grandCash.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: '#10b981' }}>₹{refundStats.grandCash.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Total cash refunded out</div>
@@ -300,7 +313,7 @@ const Refunds = () => {
             <div className="stat-card-icon info" style={{ background: 'rgba(59,130,246,0.08)', color: '#3b82f6' }}><Smartphone /></div>
             <div>
               <div className="stat-card-label">UPI Refunds</div>
-              <div className="stat-card-value" style={{ color: '#3b82f6' }}>₹{refundStats.grandUpi.toFixed(2)}</div>
+              <div className="stat-card-value font-mono tabular-nums" style={{ color: '#3b82f6' }}>₹{refundStats.grandUpi.toFixed(2)}</div>
             </div>
           </div>
           <div className="stat-card-sub">Total UPI refunded out</div>
@@ -311,28 +324,28 @@ const Refunds = () => {
       <div className="grid-3" style={{ gap: '20px', marginBottom: '24px' }}>
         <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
           <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Bill Edit Refunds</h4>
-          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--warning)' }}>₹{refundStats.billRefundsTotal.toFixed(2)}</div>
           <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Cash: ₹{refundStats.billRefundsCash.toFixed(2)}</span>
-            <span>UPI: ₹{refundStats.billRefundsUpi.toFixed(2)}</span>
+            <span className="font-mono">Cash: ₹{refundStats.billRefundsCash.toFixed(2)}</span>
+            <span className="font-mono">UPI: ₹{refundStats.billRefundsUpi.toFixed(2)}</span>
           </div>
         </div>
 
         <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
           <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Payment Deletions</h4>
-          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</div>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--error)' }}>₹{refundStats.delPaymentsTotal.toFixed(2)}</div>
           <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Cash: ₹{refundStats.delPaymentsCash.toFixed(2)}</span>
-            <span>UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)}</span>
+            <span className="font-mono">Cash: ₹{refundStats.delPaymentsCash.toFixed(2)}</span>
+            <span className="font-mono">UPI: ₹{refundStats.delPaymentsUpi.toFixed(2)}</span>
           </div>
         </div>
 
         <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
           <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Advance Returns</h4>
-          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</div>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--info)' }}>₹{refundStats.advReturnsTotal.toFixed(2)}</div>
           <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Cash: ₹{refundStats.advReturnsCash.toFixed(2)}</span>
-            <span>UPI: ₹{refundStats.advReturnsUpi.toFixed(2)}</span>
+            <span className="font-mono">Cash: ₹{refundStats.advReturnsCash.toFixed(2)}</span>
+            <span className="font-mono">UPI: ₹{refundStats.advReturnsUpi.toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -403,7 +416,7 @@ const Refunds = () => {
                 {filteredLogs.map((log) => (
                   <tr key={`${log.type}-${log.id}`}>
                     <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.date).toLocaleDateString()}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{log.id}</td>
+                    <td className="font-mono text-muted" style={{ fontSize: '0.78rem' }}>{log.id}</td>
                     <td>
                       <span className={`badge badge-${log.type === 'Bill Refund' ? 'partial' : log.type === 'Payment Deletion' ? 'unpaid' : 'info'}`} style={{ fontSize: '0.7rem' }}>
                         {log.type}
@@ -414,7 +427,7 @@ const Refunds = () => {
                         <User size={13} className="text-muted" />
                         <div>
                           <span style={{ fontWeight: 500 }}>{log.customerName}</span>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.customerId}</div>
+                          <div className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{log.customerId}</div>
                         </div>
                       </div>
                     </td>
@@ -422,12 +435,12 @@ const Refunds = () => {
                       <div>{log.description}</div>
                       {log.notes && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{log.notes}</div>}
                     </td>
-                    <td>₹{log.cash.toFixed(2)}</td>
-                    <td>₹{log.upi.toFixed(2)}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums">₹{log.cash.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums">₹{log.upi.toFixed(2)}</td>
+                    <td className="font-mono tabular-nums" style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
                     <td>
                       <button
-                        className="btn btn-secondary"
+                        className="btn btn-secondary btn-sm"
                         style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                         onClick={() => setSelectedReceipt(log)}
                         title="View & Share Refund Receipt"
@@ -453,7 +466,7 @@ const Refunds = () => {
             left: 0,
             width: '100%',
             height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
             backdropFilter: 'blur(4px)',
             display: 'flex',
             justifyContent: 'center',
@@ -464,13 +477,13 @@ const Refunds = () => {
         >
           <div
             style={{
-              backgroundColor: '#18181b',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              borderRadius: '12px',
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '16px',
               padding: '24px',
               width: '90%',
               maxWidth: '440px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
               display: 'flex',
               flexDirection: 'column',
               gap: '16px',
@@ -491,31 +504,30 @@ const Refunds = () => {
 
             <div
               style={{
-                backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                backgroundColor: 'var(--bg-elevated)',
                 border: '1px dashed var(--border)',
                 borderRadius: '8px',
                 padding: '16px',
                 fontSize: '0.85rem',
                 lineHeight: 1.6,
-                fontFamily: 'monospace',
-                color: '#e4e4e7',
+                color: 'var(--text-primary)',
               }}
             >
-              <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '1rem', marginBottom: '8px', color: '#ffffff' }}>
+              <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '1rem', marginBottom: '8px', color: 'var(--text-primary)' }}>
                 {business?.shopName || 'PrintPro'}
               </div>
-              <div style={{ borderBottom: '1px dashed rgba(255,255,255,0.2)', marginBottom: '8px', paddingBottom: '4px' }}>
+              <div style={{ borderBottom: '1px dashed var(--border)', marginBottom: '8px', paddingBottom: '4px' }}>
                 <div><strong>Type:</strong> {selectedReceipt.type}</div>
-                <div><strong>Refund ID:</strong> #{selectedReceipt.id}</div>
+                <div className="font-mono"><strong>Refund ID:</strong> #{selectedReceipt.id}</div>
                 <div><strong>Date:</strong> {new Date(selectedReceipt.date).toLocaleString()}</div>
                 <div><strong>Customer:</strong> {selectedReceipt.customerName} ({selectedReceipt.customerId})</div>
                 <div><strong>Reference:</strong> {selectedReceipt.description}</div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 700, color: '#f59e0b', margin: '8px 0' }}>
                 <span>Amount Refunded:</span>
-                <span>₹{selectedReceipt.total.toFixed(2)}</span>
+                <span className="font-mono tabular-nums">₹{selectedReceipt.total.toFixed(2)}</span>
               </div>
-              <div style={{ fontSize: '0.78rem', color: '#a1a1aa' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 <div>Mode: {selectedReceipt.method.toUpperCase()} (Cash: ₹{selectedReceipt.cash.toFixed(2)}, UPI: ₹{selectedReceipt.upi.toFixed(2)})</div>
                 {selectedReceipt.notes && <div>Notes: {selectedReceipt.notes}</div>}
               </div>
@@ -534,7 +546,7 @@ const Refunds = () => {
               <button
                 className="btn btn-primary"
                 onClick={() => handleShareWhatsApp(selectedReceipt)}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', backgroundColor: '#25D366' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', backgroundColor: '#25D366', borderColor: '#25D366' }}
               >
                 <Share2 size={14} />
                 <span>WhatsApp</span>

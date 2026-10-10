@@ -1,23 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   QrCode,
   CheckCircle2,
   Clock,
   AlertCircle,
   Search,
-  Filter,
-  Calendar,
   Printer,
   X,
   Edit2,
   Check,
-  RefreshCw,
   FileText,
-  DollarSign,
-  TrendingUp,
-  AlertTriangle,
-  Plus,
-  ArrowUpDown
+  Plus
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import {
@@ -40,8 +33,6 @@ const UpiReconciliation = () => {
   const [statusFilter, setStatusFilter] = useState('all') // 'all', 'pending', 'confirmed', 'failed'
   const [searchQuery, setSearchQuery] = useState('')
   const [datePreset, setDatePreset] = useState('all') // 'today', 'yesterday', 'this_month', 'all'
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
 
   // Selection for bulk actions
   const [selectedIds, setSelectedIds] = useState([])
@@ -69,7 +60,7 @@ const UpiReconciliation = () => {
   const [savingManual, setSavingManual] = useState(false)
 
   // Fetch transactions and summary
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const params = {}
@@ -88,9 +79,6 @@ const UpiReconciliation = () => {
         const d = new Date()
         params.startDate = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
         params.endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
-      } else if (startDate || endDate) {
-        if (startDate) params.startDate = startDate
-        if (endDate) params.endDate = endDate
       }
 
       const [txRes, sumRes] = await Promise.all([
@@ -107,11 +95,11 @@ const UpiReconciliation = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [statusFilter, searchQuery, datePreset, showAlert])
 
   useEffect(() => {
     fetchData()
-  }, [statusFilter, datePreset, startDate, endDate])
+  }, [fetchData])
 
   const handleSearchSubmit = (e) => {
     e.preventDefault()
@@ -270,11 +258,11 @@ const UpiReconciliation = () => {
         {/* Total UPI Volume */}
         <div className="card" style={{ padding: '18px' }}>
           <div className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '6px' }}>Total UPI Received</div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>
             ₹{(summary?.total_volume || 0).toFixed(2)}
           </div>
           <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: '4px' }}>
-            {summary?.total_count || 0} transactions
+            <span className="font-mono">{summary?.total_count || 0}</span> transactions
           </div>
         </div>
 
@@ -283,11 +271,11 @@ const UpiReconciliation = () => {
           <div className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '6px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <CheckCircle2 size={14} /> Confirmed / Settled
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
             ₹{(summary?.confirmed_volume || 0).toFixed(2)}
           </div>
           <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: '4px' }}>
-            {summary?.confirmed_count || 0} verified
+            <span className="font-mono">{summary?.confirmed_count || 0}</span> verified
           </div>
         </div>
 
@@ -296,11 +284,11 @@ const UpiReconciliation = () => {
           <div className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '6px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Clock size={14} /> Pending Reconciliation
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f59e0b' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f59e0b' }}>
             ₹{(summary?.pending_volume || 0).toFixed(2)}
           </div>
           <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: '4px' }}>
-            {summary?.pending_count || 0} awaiting UTR / match
+            <span className="font-mono">{summary?.pending_count || 0}</span> awaiting UTR / match
           </div>
         </div>
 
@@ -309,11 +297,11 @@ const UpiReconciliation = () => {
           <div className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '6px', color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <AlertCircle size={14} /> Failed / Unmatched
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f43f5e' }}>
+          <div className="font-mono tabular-nums" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f43f5e' }}>
             ₹{(summary?.failed_volume || 0).toFixed(2)}
           </div>
           <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: '4px' }}>
-            {summary?.failed_count || 0} failed
+            <span className="font-mono">{summary?.failed_count || 0}</span> failed
           </div>
         </div>
       </div>
@@ -443,7 +431,6 @@ const UpiReconciliation = () => {
                   const isEditingThisUtr = editingUtrId === tx.id
                   const isConfirmed = tx.status === 'confirmed'
                   const isPending = tx.status === 'pending'
-                  const isFailed = tx.status === 'failed'
 
                   return (
                     <tr key={tx.id} style={{ background: selectedIds.includes(tx.id) ? 'rgba(99, 102, 241, 0.05)' : 'transparent' }}>
@@ -464,7 +451,7 @@ const UpiReconciliation = () => {
                       </td>
                       <td>
                         {tx.bill_id ? (
-                          <span style={{ fontWeight: 600, color: 'var(--accent)' }}>
+                          <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent)' }}>
                             {tx.bill_id}
                           </span>
                         ) : (
@@ -474,10 +461,10 @@ const UpiReconciliation = () => {
                       <td>
                         <div>{tx.customer_name || 'Walk-in Customer'}</div>
                         {tx.customer_phone && (
-                          <div className="text-muted" style={{ fontSize: '0.75rem' }}>{tx.customer_phone}</div>
+                          <div className="font-mono text-muted" style={{ fontSize: '0.75rem' }}>{tx.customer_phone}</div>
                         )}
                       </td>
-                      <td style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                      <td className="font-mono tabular-nums" style={{ fontWeight: 700, fontSize: '0.95rem' }}>
                         ₹{(parseFloat(tx.amount) || 0).toFixed(2)}
                       </td>
                       <td>
@@ -485,7 +472,7 @@ const UpiReconciliation = () => {
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control font-mono"
                               style={{ padding: '2px 6px', fontSize: '0.8rem', width: '150px' }}
                               value={editingUtrValue}
                               onChange={(e) => setEditingUtrValue(e.target.value)}
@@ -510,7 +497,7 @@ const UpiReconciliation = () => {
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {tx.upi_ref ? (
-                              <code style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.82rem' }}>
+                              <code className="font-mono" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.82rem' }}>
                                 {tx.upi_ref}
                               </code>
                             ) : (

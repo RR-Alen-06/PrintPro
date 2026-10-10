@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Check, Download, Share2, Printer, PlusCircle, ArrowRight, Wallet, AlertTriangle, Sparkles } from 'lucide-react'
+import { Check, Download, Share2, Printer, PlusCircle, ArrowRight, Wallet, AlertTriangle } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
 /**
@@ -12,7 +12,7 @@ import { useAppContext } from '../../context/AppContext'
  * @param {function} props.onCreateNew - Callback to clear success screen and create new bill
  */
 export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCreateNew }) => {
-  const { recordSpecificBillPayment, business, settings } = useAppContext()
+  const { recordSpecificBillPayment } = useAppContext()
   
   // Local state initialized with the bill prop
   const [localBill, setLocalBill] = useState(bill)
@@ -76,7 +76,7 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
           upi: Number(((prev.paymentMethod?.upi || 0) + upi).toFixed(2)),
         }
       }))
-    } catch (err) {
+    } catch {
       setPayError('Failed to record payment.')
     }
   }

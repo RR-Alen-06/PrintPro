@@ -81,7 +81,7 @@ const loadState = () => {
     const parsed = JSON.parse(stored)
     
     // Force users and currentUser to be initialized correctly
-    const { currentUser, users, ...sanitized } = parsed;
+    const { currentUser: _c, users: _u, ...sanitized } = parsed;
 
     // Deep merge settings
     const mergedSettings = {
@@ -95,14 +95,14 @@ const loadState = () => {
 
     // Merge with initialState but keep hydrated: false so cloud load occurs
     return { ...initialState, ...sanitized, settings: mergedSettings, hydrated: false }
-  } catch (error) {
+  } catch {
     return initialState
   }
 }
 
 const saveState = (state) => {
   try {
-    const { currentUser, users, ...rest } = state
+    const { currentUser: _c, users: _u, ...rest } = state
     localStorage.setItem('printpro-state', JSON.stringify(rest))
   } catch (error) {
     console.error('Failed to save write-through cache to localStorage', error)
@@ -426,6 +426,12 @@ const baseReducer = (state, action) => {
         inventory: state.inventory.map((item) => (item.id === action.payload.id ? { ...item, ...action.payload.updates } : item)),
       }
     }
+    case 'DELETE_INVENTORY_ITEM': {
+      return {
+        ...state,
+        inventory: state.inventory.filter((item) => item.id !== action.payload),
+      }
+    }
     case 'MARK_NOTIFICATION_READ': {
       return {
         ...state,
@@ -695,7 +701,7 @@ export const AppProvider = ({ children }) => {
     try {
       const stored = localStorage.getItem('printpro-offline-queue')
       return stored ? JSON.parse(stored) : []
-    } catch (err) {
+    } catch {
       return []
     }
   })
@@ -725,7 +731,7 @@ export const AppProvider = ({ children }) => {
     try {
       const stored = localStorage.getItem('printpro-offline-queue')
       queue = stored ? JSON.parse(stored) : []
-    } catch (err) {
+    } catch {
       return
     }
 
@@ -746,7 +752,9 @@ export const AppProvider = ({ children }) => {
         setOfflineQueue([...currentQueue])
         try {
           localStorage.setItem('printpro-offline-queue', JSON.stringify(currentQueue))
-        } catch (e) {}
+        } catch {
+          // ignore storage quota errors
+        }
       } catch (err) {
         console.warn(`Offline queue sync stopped at action ${item.actionType}:`, err)
         break // Preserves strict FIFO order on network/server error
@@ -790,7 +798,9 @@ export const AppProvider = ({ children }) => {
         const next = [...prev, queueItem]
         try {
           localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
-        } catch (e) {}
+        } catch {
+          // ignore storage quota errors
+        }
         return next
       })
       return
@@ -812,7 +822,9 @@ export const AppProvider = ({ children }) => {
           const next = [...prev, queueItem]
           try {
             localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
-          } catch (e) {}
+          } catch {
+            // ignore storage quota errors
+          }
           return next
         })
       })
@@ -843,7 +855,7 @@ export const AppProvider = ({ children }) => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [processOfflineQueue])
+  }, [processOfflineQueue, offlineQueue.length])
 
 
   // Sync Supabase Authentication State & Log Session Info
@@ -1016,9 +1028,12 @@ export const AppProvider = ({ children }) => {
           notes: p.notes || ''
         }))
 
-        const mappedInventory = fetchedInventory.map(i => ({
+        const mappedInventory = (fetchedInventory || []).map(i => ({
           id: i.id,
           name: i.name,
+          item_type: i.item_type || 'paper',
+          unit_price: Number(i.unit_price || 0),
+          unit: i.unit || 'pcs',
           colorSingle: Number(i.color_single || 0),
           colorDouble: Number(i.color_double || 0),
           bwSingle: Number(i.bw_single || 0),
@@ -1217,8 +1232,6 @@ export const AppProvider = ({ children }) => {
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     let remainingAdvance = totalAmount
-    let remainingCash = cashAmount
-    let remainingUpi = upiAmount
 
     for (const bill of unpaidBills) {
       if (remainingAdvance <= 0) break
@@ -1280,10 +1293,6 @@ export const AppProvider = ({ children }) => {
         type: 'USE_ADVANCE',
         payload: { customerId: data.customerId, amount: applyAmt }
       })
-
-      remainingAdvance -= applyAmt
-      remainingCash -= applyCash
-      remainingUpi -= applyUpi
     }
 
     return id
@@ -1325,14 +1334,8 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: 'INCREMENT_COUNTER', payload: counterKey })
     const customer = getCustomerById(billData.customerId)
     const customerName = customer?.name || billData.customerName || 'Guest'
-    const currentCredit = Number(customer?.creditBalance || 0)
     const currentAdvance = Number(customer?.advanceBalance || 0)
     const total = Number(billData.total)
-    const cashAmount = Number(billData.cashAmount || 0)
-    const upiAmount = Number(billData.upiAmount || 0)
-    const paidNow = cashAmount + upiAmount
-    const advanceUsed = Math.min(Number(billData.advanceUsed || 0), currentAdvance, total)
-    const creditUsed = Math.min(currentCredit, Math.max(total - advanceUsed, 0))
 
     // Earned loyalty points calculation (tiered system)
     const pointsEnabled = state.settings?.loyaltyEnabled !== false
@@ -1367,6 +1370,9 @@ export const AppProvider = ({ children }) => {
     }
 
     const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
+
+    const cashAmount = Number(billData.cashAmount ?? billData.paymentMethod?.cash ?? 0)
+    const upiAmount = Number(billData.upiAmount ?? billData.paymentMethod?.upi ?? 0)
 
     let R_advance = Math.min(Number(billData.advanceUsed || 0), currentAdvance)
     let R_credit = 0
@@ -1568,14 +1574,12 @@ export const AppProvider = ({ children }) => {
   }
 
   const recordPayment = (paymentData) => {
-    const customer = state.customers.find((c) => c.id === paymentData.customerId)
     const unpaidBills = state.bills
       .filter((b) => b.customerId === paymentData.customerId && !b.deleted && b.status !== 'paid')
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     let R_cash = Number(paymentData.cashAmount || 0)
     let R_upi = Number(paymentData.upiAmount || 0)
-    const totalPaid = R_cash + R_upi
 
     const paymentRecords = []
     const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } }))
@@ -1943,9 +1947,11 @@ export const AppProvider = ({ children }) => {
   const addInventoryItem = (itemData) => {
     const itemId = generateSeqId(state, 'ITEM')
     dispatch({ type: 'INCREMENT_COUNTER', payload: 'ITEM' })
-    // Strip stock field — inventory is pricing-only
-    const { stock, low_stock_alert, ...pricingData } = itemData
-    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...pricingData } })
+    dispatch({ type: 'ADD_INVENTORY_ITEM', payload: { id: itemId, ...itemData } })
+  }
+
+  const deleteInventoryItem = (id) => {
+    dispatch({ type: 'DELETE_INVENTORY_ITEM', payload: id })
   }
 
   const addExpense = (expenseData) => {
@@ -1995,19 +2001,15 @@ export const AppProvider = ({ children }) => {
     const customer = state.customers.find(c => c.id === oldBill.customerId)
 
     // Revert old bill effects
-    let currentCredit = Number(customer?.creditBalance || 0)
     let currentAdvance = Number(customer?.advanceBalance || 0)
 
     let oldAdvanceUsed = Number(oldBill.advanceUsed || 0)
-    let oldCreditUsed = Number(oldBill.creditUsed || 0)
     const oldPayments = state.payments.filter(p => p.billId === billId)
     const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
     const oldPaidDirect = oldPaidCash + oldPaidUpi
 
     if (customer) {
-      const oldExcess = oldPayments.reduce((s, p) => s + Number(p.excessCredit || 0), 0)
-      currentCredit = Math.max(0, currentCredit + oldCreditUsed - oldExcess)
       currentAdvance = currentAdvance + oldAdvanceUsed
     }
 
@@ -2380,6 +2382,7 @@ export const AppProvider = ({ children }) => {
       deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
       restoreCustomer: (id) => dispatch({ type: 'RESTORE_CUSTOMER', payload: id }),
       updateInventoryItem: (id, updates) => dispatch({ type: 'UPDATE_INVENTORY_ITEM', payload: { id, updates } }),
+      deleteInventoryItem,
       deleteBill: (id) => dispatch({ type: 'DELETE_BILL', payload: id }),
       restoreBill: (id) => dispatch({ type: 'RESTORE_BILL', payload: id }),
       markNotificationRead: (id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: id }),
@@ -2407,6 +2410,7 @@ export const AppProvider = ({ children }) => {
       pendingSyncCount: offlineQueue.length,
       processOfflineQueue,
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, isOnline, toast, dialog, offlineQueue, processOfflineQueue]
   )
 

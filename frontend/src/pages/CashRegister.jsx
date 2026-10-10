@@ -1,23 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Wallet,
   PlayCircle,
   StopCircle,
   FileText,
-  AlertTriangle,
   CheckCircle2,
   TrendingUp,
   TrendingDown,
   Printer,
   X,
-  Plus,
-  Minus,
-  DollarSign,
-  ArrowRight,
-  Clock,
-  Calendar,
-  Layers,
-  Coins
+  Clock
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import {
@@ -88,7 +80,7 @@ const CashRegister = () => {
     return manualCount === '' ? 0 : Number(manualCount)
   }, [useDenomMode, denomTotal, manualCount])
 
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       setLoading(true)
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -127,18 +119,18 @@ const CashRegister = () => {
       }
 
       const [allRes, activeRes] = await Promise.all([
-        getCashSessions(),
-        getActiveSession()
+        getCashSessions().catch(() => ({ data: { data: [] } })),
+        getActiveSession().catch(() => ({ data: { data: null } }))
       ])
-      const fetchedSessions = allRes.data.data || []
-      const fetchedActive = activeRes.data.data || null
+      const fetchedSessions = allRes.data?.data || []
+      const fetchedActive = activeRes.data?.data || null
       setSessions(fetchedSessions)
       setActiveSession(fetchedActive)
       try {
         localStorage.setItem('printpro-cash-sessions', JSON.stringify(fetchedSessions))
         localStorage.setItem('printpro-active-cash-session', JSON.stringify(fetchedActive))
-      } catch (e) {
-        console.warn('Failed to cache cash sessions', e)
+      } catch (_e) {
+        console.warn('Failed to cache cash sessions', _e)
       }
     } catch (err) {
       console.warn('Failed to load cash sessions from server, using local cache:', err)
@@ -147,17 +139,17 @@ const CashRegister = () => {
         const cachedActive = JSON.parse(localStorage.getItem('printpro-active-cash-session') || 'null')
         setSessions(cachedSessions)
         setActiveSession(cachedActive)
-      } catch (e) {
+      } catch {
         if (showAlert) showAlert('Failed to load cash sessions from server.', 'error')
       }
     } finally {
       setLoading(false)
     }
-  }
+  }, [payments, purchases, showAlert])
 
   useEffect(() => {
     loadSessions()
-  }, [])
+  }, [loadSessions])
 
   const handleOpenSession = async (e) => {
     e.preventDefault()
@@ -188,7 +180,9 @@ const CashRegister = () => {
         try {
           localStorage.setItem('printpro-active-cash-session', JSON.stringify(localSession))
           localStorage.setItem('printpro-cash-sessions', JSON.stringify([localSession, ...sessions]))
-        } catch (e) {}
+        } catch {
+          // ignore storage error
+        }
         if (dispatch) {
           dispatch({ type: 'OPEN_CASH_SESSION', payload: { opening_cash: floatNum, notes: openNotes } })
         }
@@ -198,7 +192,7 @@ const CashRegister = () => {
         return
       }
 
-      const res = await openCashSession({
+      await openCashSession({
         opening_cash: floatNum,
         notes: openNotes
       })
@@ -261,7 +255,9 @@ const CashRegister = () => {
           try {
             localStorage.removeItem('printpro-active-cash-session')
             localStorage.setItem('printpro-cash-sessions', JSON.stringify(sessions.map(s => s.id === activeSession.id ? closedSession : s)))
-          } catch (e) {}
+          } catch {
+            // ignore storage error
+          }
           if (dispatch) {
             dispatch({
               type: 'CLOSE_CASH_SESSION',
@@ -273,7 +269,7 @@ const CashRegister = () => {
           return
         }
 
-        const res = await closeCashSession(activeSession.id, {
+        await closeCashSession(activeSession.id, {
           closing_cash: physicalCount,
           notes: closingNotes
         })
@@ -361,29 +357,29 @@ const CashRegister = () => {
           className="card active-session-card"
           style={{
             marginBottom: '28px',
-            border: '1px solid rgba(16, 185, 129, 0.4)',
-            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(20, 20, 28, 0.95) 100%)',
+            border: '1px solid rgba(22, 163, 74, 0.4)',
+            background: 'var(--bg-card)',
             position: 'relative',
             overflow: 'hidden'
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  background: 'rgba(16, 185, 129, 0.2)',
-                  color: '#10b981',
+                  background: 'var(--success-bg)',
+                  color: 'var(--success-text)',
                   padding: '4px 12px',
-                  borderRadius: '20px',
+                  borderRadius: 'var(--radius-full)',
                   fontSize: '0.82rem',
-                  fontWeight: 600,
-                  border: '1px solid rgba(16, 185, 129, 0.3)'
+                  fontWeight: 700,
+                  border: '1px solid rgba(22, 163, 74, 0.3)'
                 }}
               >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block', animation: 'pulse 2s infinite' }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success)', display: 'inline-block', animation: 'pulse 2s infinite' }} />
                 REGISTER ACTIVE — SESSION #{activeSession.id}
               </span>
               <span className="text-muted" style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -401,37 +397,37 @@ const CashRegister = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             {/* Opening Float */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
               <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px' }}>Opening Float</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f8fafc' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                 ₹{(parseFloat(activeSession.opening_cash) || 0).toFixed(2)}
               </div>
             </div>
 
             {/* Cash In (Sales) */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981' }}>
+            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--success-text)' }}>
                 <TrendingUp size={14} /> Cash Sales (In)
               </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#10b981' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }}>
                 +₹{(parseFloat(activeSession.cash_in) || 0).toFixed(2)}
               </div>
             </div>
 
             {/* Cash Out (Refunds + Expenses) */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: '#f43f5e' }}>
+            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--error-text)' }}>
                 <TrendingDown size={14} /> Cash Out (Expenses/Refunds)
               </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f43f5e' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--error)' }}>
                 -₹{((parseFloat(activeSession.cash_refunds) || 0) + (parseFloat(activeSession.cash_expenses) || 0)).toFixed(2)}
               </div>
             </div>
 
             {/* Current Expected Drawer */}
-            <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-              <div style={{ fontSize: '0.8rem', marginBottom: '4px', color: '#818cf8', fontWeight: 600 }}>Expected Drawer Cash</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#a5b4fc' }}>
+            <div style={{ background: 'var(--accent-surface)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-accent)' }}>
+              <div style={{ fontSize: '0.8rem', marginBottom: '4px', color: 'var(--accent)', fontWeight: 700 }}>Expected Drawer Cash</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent)' }}>
                 ₹{(parseFloat(activeSession.current_expected_cash) || 0).toFixed(2)}
               </div>
             </div>
@@ -670,24 +666,26 @@ const CashRegister = () => {
                 </div>
 
                 {useDenomMode ? (
-                  <div style={{ background: 'rgba(0, 0, 0, 0.2)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '10px' }}>
+                  <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: '10px', marginBottom: '12px' }}>
                       {[500, 200, 100, 50, 20, 10, 5, 2, 1].map((val) => (
-                        <div key={val} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ width: '40px', fontSize: '0.8rem', color: '#94a3b8' }}>₹{val}:</span>
+                        <div key={val} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>₹{val}</span>
                           <input
                             type="number"
                             min="0"
-                            className="form-control"
-                            style={{ padding: '4px 6px', fontSize: '0.85rem' }}
+                            className="form-input font-mono"
+                            style={{ padding: '6px 8px', fontSize: '0.85rem' }}
                             value={denominations[val] || ''}
                             onChange={(e) => setDenominations({ ...denominations, [val]: parseInt(e.target.value, 10) || 0 })}
+                            placeholder="0"
                           />
                         </div>
                       ))}
                     </div>
-                    <div style={{ textAlign: 'right', fontWeight: 700, fontSize: '0.9rem' }}>
-                      Denomination Total: ₹{denomTotal.toFixed(2)}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Calculated Total:</span>
+                      <strong className="font-mono" style={{ fontSize: '1.1rem', color: 'var(--accent)' }}>₹{denomTotal.toFixed(2)}</strong>
                     </div>
                   </div>
                 ) : (
@@ -696,7 +694,7 @@ const CashRegister = () => {
                       type="number"
                       step="0.01"
                       min="0"
-                      className="form-control"
+                      className="form-input font-mono"
                       value={manualCount}
                       onChange={(e) => setManualCount(e.target.value)}
                       placeholder="0.00"
@@ -717,19 +715,19 @@ const CashRegister = () => {
                     <div
                       style={{
                         padding: '12px 16px',
-                        borderRadius: '8px',
+                        borderRadius: 'var(--radius-md)',
                         marginBottom: '16px',
-                        background: isMatch ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)',
-                        border: `1px solid ${isMatch ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)'}`,
+                        background: isMatch ? 'var(--success-bg)' : 'var(--error-bg)',
+                        border: `1px solid ${isMatch ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center'
                       }}
                     >
-                      <span style={{ fontWeight: 600, color: isMatch ? '#10b981' : '#f43f5e' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.85rem', color: isMatch ? 'var(--success-text)' : 'var(--error-text)' }}>
                         {isMatch ? '✓ Drawer Reconciled (No Variance)' : diff > 0 ? '⚠️ Drawer Overage (Excess Cash)' : '⚠️ Drawer Shortage (Missing Cash)'}
                       </span>
-                      <span style={{ fontSize: '1.1rem', fontWeight: 800, color: isMatch ? '#10b981' : '#f43f5e' }}>
+                      <span className="font-mono" style={{ fontSize: '1.1rem', fontWeight: 800, color: isMatch ? 'var(--success)' : 'var(--error)' }}>
                         {diff >= 0 ? `+₹${diff.toFixed(2)}` : `-₹${Math.abs(diff).toFixed(2)}`}
                       </span>
                     </div>

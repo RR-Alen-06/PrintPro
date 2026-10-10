@@ -17,7 +17,7 @@ const EMPTY_FORM = {
 }
 
 const Customers = () => {
-  const { business, customers, bills, payments, advancePayments, addCustomer, updateCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
+  const { business, customers, bills, addCustomer, updateCustomer, recordPayment, recordSpecificBillPayment, recordSplitGroupPayment, deleteCustomer, restoreCustomer, updateCustomerFull, applyPostDiscount, showAlert, showConfirm, showToast } = useAppContext()
   const navigate = useNavigate()
 
   const copyUpiLink = (link) => {

@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
-const logger = require('../utils/logger');
 
 // Helper to auto-create a UPI transaction row when a payment has upi_amount > 0
 async function createUpiTransaction(connOrPool, { userId, paymentId, billId, customerId, amount, upiRef, upiId, date, status = 'pending', metadata = {} }) {

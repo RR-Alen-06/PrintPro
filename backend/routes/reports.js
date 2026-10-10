@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
-const fs = require('fs');
 const { getPool } = require('../config/db');
 const { generateEodPdf } = require('../utils/eodPdfGenerator');
 const logger = require('../utils/logger');
@@ -23,7 +22,7 @@ async function buildEodReportData(pool, userId, targetDate) {
       userSettings = typeof settingsRows[0].settings === 'string'
         ? JSON.parse(settingsRows[0].settings)
         : settingsRows[0].settings;
-    } catch (e) { userSettings = {}; }
+    } catch (_e) { userSettings = {}; }
   }
 
   const business = {

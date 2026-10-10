@@ -77,20 +77,20 @@ const Search = () => {
       </div>
 
       {/* Search Type Tabs */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '16px' }}>
+      <div className="card" style={{ marginBottom: '24px', padding: '14px 18px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {['bills', 'customers', 'inventory'].map((type) => (
             <button
               key={type}
-              className={`btn btn-ghost`}
+              className={`btn btn-sm ${searchType === type ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => {
                 setSearchType(type)
                 clearFilters()
               }}
               style={{
-                borderBottom: searchType === type ? '2px solid #3b82f6' : 'none',
-                paddingBottom: '8px',
+                borderRadius: '20px',
                 textTransform: 'capitalize',
+                padding: '6px 16px',
               }}
             >
               {type}
@@ -348,10 +348,10 @@ const Search = () => {
                       <tr key={item.id}>
                         {searchType === 'bills' && (
                           <>
-                            <td>{item.id}</td>
-                            <td>{item.customerName}</td>
+                            <td className="font-mono text-muted">{item.id}</td>
+                            <td style={{ fontWeight: 600 }}>{item.customerName || 'Walk-in Customer'}</td>
                             <td>{item.date}</td>
-                            <td>₹{item.total.toFixed(2)}</td>
+                            <td className="font-mono tabular-nums" style={{ fontWeight: 700 }}>₹{Number(item.total || 0).toFixed(2)}</td>
                             <td>
                               <span className={`badge badge-${item.status}`}>{item.status}</span>
                             </td>
@@ -359,18 +359,18 @@ const Search = () => {
                         )}
                         {searchType === 'customers' && (
                           <>
-                            <td>{item.id}</td>
-                            <td>{item.name}</td>
-                            <td>{item.type}</td>
-                            <td>{item.phone}</td>
-                            <td>₹{item.creditBalance.toFixed(2)}</td>
+                            <td className="font-mono text-muted">{item.id}</td>
+                            <td style={{ fontWeight: 600 }}>{item.name}</td>
+                            <td><span className={`badge ${item.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{item.type}</span></td>
+                            <td className="font-mono">{item.phone || '—'}</td>
+                            <td className="font-mono tabular-nums">₹{Number(item.creditBalance || 0).toFixed(2)}</td>
                           </>
                         )}
                         {searchType === 'inventory' && (
                           <>
-                            <td>{item.name}</td>
-                            <td>₹{item.colorSingle.toFixed(2)}</td>
-                            <td>₹{item.bwSingle.toFixed(2)}</td>
+                            <td style={{ fontWeight: 600 }}>{item.name}</td>
+                            <td className="font-mono tabular-nums">₹{Number(item.colorSingle || 0).toFixed(2)}</td>
+                            <td className="font-mono tabular-nums">₹{Number(item.bwSingle || 0).toFixed(2)}</td>
                           </>
                         )}
                       </tr>
