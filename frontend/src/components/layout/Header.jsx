@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2 } from 'lucide-react'
+import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 
-const Header = ({ onMenuClick }) => {
+const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
   const {
     currentUser,
     logout,
@@ -50,10 +50,21 @@ const Header = ({ onMenuClick }) => {
     <header className="header">
       <div className="header-left">
         <button className="header-menu-btn" type="button" aria-label="Toggle menu" onClick={onMenuClick}>
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
+        {onToggleCollapse && (
+          <button
+            className="header-icon-btn d-none-mobile"
+            type="button"
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={onToggleCollapse}
+          >
+            {isCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        )}
         <div className="header-title">
-          PrintPro <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '6px' }}>POS</span>
+          PrintPro <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '4px' }}>POS</span>
         </div>
       </div>
 

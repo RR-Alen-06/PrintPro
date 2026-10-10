@@ -32,6 +32,17 @@ function App() {
   const { currentUser, hydrated, isOnline } = useAppContext()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => {
+    return localStorage.getItem('printpro-sidebar-collapsed') === 'true'
+  })
+
+  const toggleSidebarCollapse = React.useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem('printpro-sidebar-collapsed', String(next))
+      return next
+    })
+  }, [])
 
   React.useEffect(() => {
     const handleWheel = (e) => {
@@ -64,12 +75,21 @@ function App() {
   }
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       {!isOnline && <OfflineBanner />}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+      />
       <MobileNavDock />
       <div className="main-wrapper">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
+        <Header
+          onMenuClick={() => setSidebarOpen(true)}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapse}
+        />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
