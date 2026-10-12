@@ -75,7 +75,7 @@ const getPeriodRange = (period) => {
 }
 
 const Analytics = () => {
-  const { showAlert } = useAppContext()
+  const { bills, payments, expenses } = useAppContext()
 
   const [activeTab, setActiveTab] = useState('products') // 'products' | 'expenses' | 'financials' | 'promos'
   const [period, setPeriod] = useState('monthly')
@@ -120,29 +120,55 @@ const Analytics = () => {
       if (dateParams.endDate) params.endDate = dateParams.endDate
 
       const [sumRes, prodRes, promoRes, trendRes, vendorRes, catRes] = await Promise.all([
-        getAnalyticsSummary(params),
-        getProductAnalytics(params),
-        getPromoUsageAnalytics(params),
-        getProductTrends({ ...params, period: period === 'daily' ? 'daily' : 'monthly' }),
+        getAnalyticsSummary(params).catch(() => ({ data: { data: null } })),
+        getProductAnalytics(params).catch(() => ({ data: { data: null } })),
+        getPromoUsageAnalytics(params).catch(() => ({ data: { data: [] } })),
+        getProductTrends({ ...params, period: period === 'daily' ? 'daily' : 'monthly' }).catch(() => ({ data: { data: [] } })),
         getExpensesByVendor(params).catch(() => ({ data: { data: { vendors: [], grand_total_expenses: 0 } } })),
         getExpensesByCategory(params).catch(() => ({ data: { data: { categories: [], grand_total_expenses: 0 } } }))
       ])
 
-      setSummaryData(sumRes.data.data || null)
-      setProductsData(prodRes.data.data?.products || [])
-      setGrandTotalRev(prodRes.data.data?.grand_total_revenue || 0)
+      // Fallback: If server summary is null, compute client-side metrics from local state
+      let summary = sumRes.data.data
+      let products = prodRes.data.data?.products || []
+      let grandRevenue = prodRes.data.data?.grand_total_revenue || 0
+
+      if (!summary && bills && bills.length > 0) {
+        const nonDeletedBills = bills.filter(b => !b.deleted)
+        const totalRev = nonDeletedBills.reduce((s, b) => s + (Number(b.total) || 0), 0)
+        const totalPaid = nonDeletedBills.reduce((s, b) => s + (Number(b.amountPaid) || 0), 0)
+        const totalDue = nonDeletedBills.reduce((s, b) => s + (Number(b.balanceDue) || 0), 0)
+        const uniqueCusts = new Set(nonDeletedBills.map(b => b.customerId || b.customerName).filter(Boolean)).size
+
+        summary = {
+          total_revenue: totalRev,
+          total_collected: totalPaid,
+          total_due: totalDue,
+          cash_revenue: payments.reduce((s, p) => s + (Number(p.cashAmount) || 0), 0),
+          upi_revenue: payments.reduce((s, p) => s + (Number(p.upiAmount) || 0), 0),
+          total_refunds: 0,
+          total_expenses: expenses.reduce((s, e) => s + (Number(e.amount || e.total) || 0), 0),
+          net_profit: totalRev - expenses.reduce((s, e) => s + (Number(e.amount || e.total) || 0), 0),
+          bill_count: nonDeletedBills.length,
+          unique_customers: uniqueCusts,
+          average_bill_value: nonDeletedBills.length > 0 ? totalRev / nonDeletedBills.length : 0
+        }
+      }
+
+      setSummaryData(summary)
+      setProductsData(products)
+      setGrandTotalRev(grandRevenue)
       setPromoUsageData(promoRes.data.data || [])
       setRevenueTrends(trendRes.data.data || [])
       setVendorsData(vendorRes.data.data?.vendors || [])
       setCategoriesData(catRes.data.data?.categories || [])
       setGrandTotalExpenses(vendorRes.data.data?.grand_total_expenses || 0)
     } catch (err) {
-      console.error('Failed to load server analytics:', err)
-      if (showAlert) showAlert('Failed to fetch analytics from server.', 'error')
+      console.warn('Analytics loading fallback engaged:', err)
     } finally {
       setLoading(false)
     }
-  }, [dateParams, period, showAlert])
+  }, [dateParams, period, bills, payments, expenses])
 
   useEffect(() => {
     fetchAnalytics()
