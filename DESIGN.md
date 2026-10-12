@@ -105,3 +105,18 @@ This document defines the **Hybrid Stitch Fusion** design system rules, design t
 
 * Managed via `ThemeContext.jsx` with persistent storage under `localStorage.getItem('printpro-theme')`.
 * Reactive `data-theme="light" | "dark"` attribute on `document.documentElement`.
+
+---
+
+## 6. Unified Strict Single-Layout Compact Specification
+
+Designed for optimal data density on PC terminals and thumb ergonomic efficiency on mobile counters simultaneously:
+
+* **Desktop Rail**: Slim collapsible icon rail (`--sidebar-collapsed-width: 68px`) with persistent toggle (`⌘K`/header icon), tooltips on hover, and smooth expansion to 250px.
+* **Header Density**: Slim 52px top app bar with keyboard search pill, quick POS trigger, and reactive theme toggle.
+* **Micro-Sizing Tokens**:
+  * Inputs & Buttons: `--input-height-compact: 32px`, `--btn-height-compact: 32px`.
+  * Table rows: 8px vertical padding, 12px horizontal padding with `JetBrains Mono` tabular lining for monetary and SKU columns.
+  * KPI Stat Cards: 12px 14px compact cards with 1.35rem typography.
+* **Mobile Tactile Dock**: Translucent floating dock (`backdrop-filter: blur(20px)`) suspended 18px above the screen bottom with raised Quick-Sale trigger button.
+
