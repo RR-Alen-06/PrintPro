@@ -100,7 +100,7 @@ const Auth = () => {
             <Printer size={28} />
           </div>
           <h1 style={styles.logoText}>PrintPro</h1>
-          <span style={styles.stitchPill}>Google Stitch Secure Gateway</span>
+          <span style={styles.stitchPill}>Merchant Cloud Portal</span>
         </div>
 
         <h2 style={styles.cardTitle}>Sign in to your store</h2>
