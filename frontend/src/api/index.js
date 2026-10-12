@@ -31,8 +31,16 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const message = error.response?.data?.error || error.message || 'Something went wrong'
-    console.error('API Error:', message)
+    const status = error.response?.status
+    const errorData = error.response?.data
+    const message = errorData?.error || errorData?.message || error.message || 'Something went wrong'
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method?.toUpperCase(),
+      status,
+      message,
+      data: errorData
+    })
     return Promise.reject(error)
   }
 )
