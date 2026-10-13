@@ -3,7 +3,9 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_UPLOAD_DIR = path.resolve(__dirname, '../uploads');
+const { UPLOAD_ROOT, ensureUploadSubdir } = require('../config/uploadConfig');
+
+const BASE_UPLOAD_DIR = path.resolve(UPLOAD_ROOT);
 
 /**
  * Generates a bank-statement-style Customer Ledger PDF using PDFKit.
@@ -27,9 +29,7 @@ function generateLedgerPdf(statement, outputPath) {
         throw new Error('Invalid target directory: must be within uploads directory');
       }
 
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
+      ensureUploadSubdir('ledger');
 
       const doc = new PDFDocument({
         size: 'A4',

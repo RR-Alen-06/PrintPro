@@ -1,19 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Ensure directory exists
-const uploadDir = path.join(__dirname, '..', 'uploads', 'receipts');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const { ensureUploadSubdir } = require('../config/uploadConfig');
 
-// Multer configuration
+// Multer configuration with lazy directory verification
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    try {
+      const dir = ensureUploadSubdir('receipts');
+      cb(null, dir);
+    } catch (err) {
+      cb(err);
+    }
   },
   filename: (req, file, cb) => {
     const billId = req.body.billId || 'receipt';
