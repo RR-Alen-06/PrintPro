@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { createFullBackup, exportBillsToCSV, exportCustomersToCSV, exportInventoryToCSV, exportPaymentsToCSV, exportExpensesToCSV } from '../utils/dataExport'
 import { importFromJSON, importCustomersFromCSV, importInventoryFromCSV, importFromCSV, validateBackupFile, restoreFromBackup } from '../utils/dataImport'
+import { getDisplayBillId, getDisplayCustomerId, getDisplayPaymentId, getDisplayExpenseId } from '../utils/idFormatter'
 
 const DataManagement = () => {
   const { business, customers, inventory, bills, payments, expenses, settings, addCustomer, addInventoryItem } = useAppContext()
@@ -615,7 +616,7 @@ const DataManagement = () => {
                   <tr key={idx}>
                     {selectedReport === 'bills' && (
                       <>
-                        <td className="font-mono text-muted">{row.id}</td>
+                        <td className="font-mono text-muted">{getDisplayBillId(row)}</td>
                         <td>{row.customerName}</td>
                         <td>{row.date}</td>
                         <td className="font-mono tabular-nums" style={{ textAlign: 'right' }}>{Number(row.subtotal).toFixed(2)}</td>
@@ -628,7 +629,7 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'customers' && (
                       <>
-                        <td className="font-mono text-muted">{row.id}</td>
+                        <td className="font-mono text-muted">{getDisplayCustomerId(row)}</td>
                         <td><span className={`badge ${row.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{row.type.toUpperCase()}</span></td>
                         <td>{row.name}</td>
                         <td className="font-mono">{row.phone || '—'}</td>
@@ -639,9 +640,9 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'payments' && (
                       <>
-                        <td className="font-mono text-muted">{row.id}</td>
-                        <td className="font-mono">{row.billId}</td>
-                        <td className="font-mono">{row.customerId}</td>
+                        <td className="font-mono text-muted">{getDisplayPaymentId(row)}</td>
+                        <td className="font-mono">{getDisplayBillId(row.billId)}</td>
+                        <td className="font-mono">{getDisplayCustomerId(row.customerId)}</td>
                         <td>{row.date ? row.date.slice(0, 10) : ''}</td>
                         <td className="font-mono tabular-nums" style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>
                         <td className="font-mono tabular-nums" style={{ textAlign: 'right' }}>{Number(row.upiAmount || 0).toFixed(2)}</td>
@@ -651,7 +652,7 @@ const DataManagement = () => {
                     )}
                     {selectedReport === 'expenses' && (
                       <>
-                        <td className="font-mono text-muted">{row.id}</td>
+                        <td className="font-mono text-muted">{getDisplayExpenseId(row)}</td>
                         <td>{row.date}</td>
                         <td>{row.description}</td>
                         <td className="font-mono tabular-nums" style={{ textAlign: 'right' }}>{Number(row.cashAmount || 0).toFixed(2)}</td>

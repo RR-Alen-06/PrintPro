@@ -2,6 +2,7 @@ import React from 'react'
 import { useAppContext } from '../context/AppContext'
 import { RotateCcw, Trash2 } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
+import { getDisplayBillId } from '../utils/idFormatter'
 
 const DeletedBills = () => {
   const { bills, restoreBill } = useAppContext()
@@ -37,7 +38,7 @@ const DeletedBills = () => {
               <tbody>
                 {deletedBills.map((bill) => (
                   <tr key={bill.id}>
-                    <td className="font-mono text-muted">{bill.id}</td>
+                    <td className="font-mono text-muted">{getDisplayBillId(bill)}</td>
                     <td style={{ fontWeight: 600 }}>{bill.customerName || 'Walk-in Customer'}</td>
                     <td>{bill.date}</td>
                     <td className="font-mono tabular-nums" style={{ textAlign: 'right', fontWeight: 700 }}>

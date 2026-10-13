@@ -332,7 +332,17 @@ const validateProfile = [
     .trim()
     .isLength({ max: 100 })
     .withMessage('Shop name must be under 100 characters'),
+  body('shopName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Shop name must be under 100 characters'),
   body('owner_name')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Owner name must be under 100 characters'),
+  body('ownerName')
     .optional()
     .trim()
     .isLength({ max: 100 })
@@ -340,8 +350,8 @@ const validateProfile = [
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
-    .isLength({ max: 15 })
-    .withMessage('Phone must be under 15 characters'),
+    .isLength({ max: 25 })
+    .withMessage('Phone must be under 25 characters'),
   body('address')
     .optional()
     .trim(),
@@ -351,6 +361,11 @@ const validateProfile = [
     .isLength({ max: 20 })
     .withMessage('GSTIN must be under 20 characters'),
   body('upi_id')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('UPI ID must be under 100 characters'),
+  body('upiId')
     .optional({ checkFalsy: true })
     .trim()
     .isLength({ max: 100 })

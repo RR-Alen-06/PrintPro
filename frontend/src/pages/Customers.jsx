@@ -4,6 +4,7 @@ import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
 import { Users, UserPlus, Search, X, CheckCircle, AlertCircle, ChevronDown, ChevronRight, Trash2, RotateCcw, Pencil, Wallet, Link2, Copy, ClipboardList, Tag, Gift, Award, History, Plus, Minus } from 'lucide-react'
 import { getCustomerLoyalty, adjustCustomerLoyalty, deleteLoyaltyEvent } from '../api/loyalty'
+import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 
 const EMPTY_FORM = {
   type: 'regular',
@@ -222,7 +223,7 @@ const Customers = () => {
         cashAmount: cash,
         upiAmount: upi,
         groupBillId: bill.groupBillId,
-        notes: `Group payment from customer page for bill ${bill.id}`,
+        notes: `Group payment from customer page for bill ${getDisplayBillId(bill)}`,
       })
     } else {
       recordSpecificBillPayment({
@@ -230,7 +231,7 @@ const Customers = () => {
         customerId: bill.customerId,
         cashAmount: cash,
         upiAmount: upi,
-        notes: `Selective payment for bill ${bill.id}`,
+        notes: `Selective payment for bill ${getDisplayBillId(bill)}`,
       })
     }
     setTargetBillPayId(null)
@@ -490,7 +491,7 @@ const Customers = () => {
                             </span>
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                            {customer.id}
+                            {getDisplayCustomerId(customer)}
                           </div>
                           {customer.phone && (
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -569,7 +570,7 @@ const Customers = () => {
                     </span>
                   </div>
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    ID: <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
+                    ID: <strong style={{ fontFamily: 'monospace' }}>{getDisplayCustomerId(selectedCustomer)}</strong>
                     {selectedCustomer.phone && ` · ${selectedCustomer.phone}`}
                     {selectedCustomer.email && ` · ${selectedCustomer.email}`}
                   </div>
@@ -686,7 +687,7 @@ const Customers = () => {
                                 {expandedBillId === bill.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                               </button>
                             </td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{bill.id}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{getDisplayBillId(bill)}</td>
                             <td>{bill.date}</td>
                             <td>₹{bill.total.toFixed(2)}</td>
                             <td>₹{bill.amountPaid.toFixed(2)}</td>
@@ -803,7 +804,7 @@ const Customers = () => {
                               <td colSpan={8} style={{ padding: '0 16px 12px', background: 'rgba(16,185,129,0.05)' }}>
                                 <div style={{ padding: '12px', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px', marginTop: '4px' }}>
                                   <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Wallet size={13} /> Pay This Bill Only — {bill.id}
+                                    <Wallet size={13} /> Pay This Bill Only — {getDisplayBillId(bill)}
                                     <span style={{ color: '#71717a', fontWeight: 400 }}>(Balance: ₹{Number(bill.balance).toFixed(2)})</span>
                                   </div>
                                   {(() => {
@@ -895,7 +896,7 @@ const Customers = () => {
                                         type="button"
                                         className="btn btn-ghost btn-sm"
                                         disabled={!Number(targetUpi || 0) || !business?.upiId}
-                                        onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${bill.id}`))}
+                                        onClick={() => copyUpiLink(getUpiLink(Number(targetUpi || 0), `Payment for Bill ${getDisplayBillId(bill)}`))}
                                         style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                                       >
                                         <Copy size={14} /> Copy Link
@@ -906,7 +907,7 @@ const Customers = () => {
                                         {targetBillQrGenerated && targetBillUpiCheckoutAmount > 0 && (
                                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: 'fit-content' }}>
                                             <img
-                                              src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${bill.id}`))}`}
+                                              src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getUpiLink(targetBillUpiCheckoutAmount, `Payment for Bill ${getDisplayBillId(bill)}`))}`}
                                               alt="UPI QR Code"
                                               style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
                                               width={110} height={110}
@@ -920,7 +921,7 @@ const Customers = () => {
                                     )}
                                   </div>
                                   <div style={{ fontSize: '11px', color: '#71717a', marginTop: '8px' }}>
-                                    ⚠ This payment applies only to {bill.id}, no FIFO reordering.
+                                    ⚠ This payment applies only to {getDisplayBillId(bill)}, no FIFO reordering.
                                   </div>
                                 </div>
                               </td>
@@ -941,7 +942,7 @@ const Customers = () => {
                 .map((b) => ({
                   code: b.promoCode,
                   usedOn: b.date,
-                  invoice: b.id,
+                  invoice: getDisplayBillId(b),
                   discount: b.promoDiscount || b.discountAmount || 0,
                   status: 'Redeemed',
                 }))

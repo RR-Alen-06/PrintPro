@@ -1,3 +1,5 @@
+import { getDisplayBillId, getDisplayCustomerId, getDisplayAdvanceId } from './idFormatter';
+
 /**
  * ── FinancialCalculationService ──────────────────────────────────────────────
  * High-precision, mathematically correct calculations for totals, taxes, and discounts.
@@ -216,12 +218,11 @@ export const LedgerService = {
       const bal = Number(bill.balance || 0);
       const statusText = bill.settledByGroupPayment ? 'Settled By Group Payment' : bill.status.toUpperCase();
       const breakdown = `₹${bill.total.toFixed(2)}${advUsed > 0 ? `; ₹${advUsed.toFixed(2)} advance used` : ''}${bal > 0 ? `, ₹${bal.toFixed(2)} pending` : ''}`;
-
       entries.push({
         type: 'bill',
         date: bill.date,
         id: bill.id,
-        description: `Invoice #${bill.id}`,
+        description: `Invoice #${getDisplayBillId(bill)}`,
         subtext: `${bill.items ? `${bill.items.length} item(s) · ` : ''}${statusText} (${breakdown})`,
         debit: bill.total,
         credit: 0,
@@ -234,7 +235,7 @@ export const LedgerService = {
           date: bill.date,
           id: `SETTLE-${bill.id}`,
           description: `Settled By Group Payment (${bill.groupBillId})`,
-          subtext: `Paid on behalf by Customer ID ${bill.groupPayerId}`,
+          subtext: `Paid on behalf by Customer ${getDisplayCustomerId(bill.groupPayerId)}`,
           debit: 0,
           credit: bill.total,
           balance: 0
@@ -284,7 +285,7 @@ export const LedgerService = {
         date: adv.date,
         id: adv.id,
         description: isReturn ? `Advance Return` : `Advance Deposit`,
-        subtext: `Ref: ${adv.id}${adv.notes ? ` · ${adv.notes}` : ''}`,
+        subtext: `Ref: ${getDisplayAdvanceId(adv)}${adv.notes ? ` · ${adv.notes}` : ''}`,
         debit: isReturn ? Math.abs(amt) : 0,
         credit: isReturn ? 0 : amt,
         balance: 0
