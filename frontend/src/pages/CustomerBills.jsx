@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
+import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 
 const CustomerBills = () => {
   const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm, settings } = useAppContext()
@@ -461,12 +462,12 @@ const CustomerBills = () => {
           >
             <optgroup label="Regular Customers">
               {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>
               ))}
             </optgroup>
             <optgroup label="Walk-in Customers">
               {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>
               ))}
             </optgroup>
           </select>
@@ -522,7 +523,7 @@ const CustomerBills = () => {
                 <tbody>
                   {customerBills.map((bill) => (
                     <tr key={bill.id}>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{bill.id}</td>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{getDisplayBillId(bill)}</td>
                       <td>{bill.date}</td>
                       <td style={{ textAlign: 'right' }}>{Number(bill.total || 0).toFixed(2)}</td>
                       <td style={{ textAlign: 'right' }}>{Number(bill.amountPaid || 0).toFixed(2)}</td>
@@ -561,7 +562,7 @@ const CustomerBills = () => {
                               style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
                               onClick={() => {
                                 setUpiModalAmount(bill.balance)
-                                setUpiModalNotes(`Bill #${bill.id} payment`)
+                                setUpiModalNotes(`Bill #${getDisplayBillId(bill)} payment`)
                                 setShowUpiModal(true)
                               }}
                             >
@@ -575,7 +576,7 @@ const CustomerBills = () => {
                             onClick={() => {
                               showConfirm(
                                 'Delete Bill',
-                                `Are you sure you want to delete bill ${bill.id}? This will restore customer credits.`,
+                                `Are you sure you want to delete bill ${getDisplayBillId(bill)}? This will restore customer credits.`,
                                 () => deleteBill(bill.id)
                               )
                             }}
@@ -599,7 +600,7 @@ const CustomerBills = () => {
           <div className="modal modal-lg" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '850px' }}>
             <div className="modal-header">
               <div>
-                <h3>Edit Bill - {editingBill.id}</h3>
+                <h3>Edit Bill - {getDisplayBillId(editingBill)}</h3>
                 <p className="text-muted">Modify print items, quantities, pricing, and discount details.</p>
               </div>
               <button className="modal-close btn-icon" onClick={closeEditModal} type="button">

@@ -1,3 +1,5 @@
+import { getDisplayBillId } from './idFormatter'
+
 /**
  * Formats a bill/invoice as a clean, modern, and professional WhatsApp receipt.
  * Suitable for retail/POS businesses with vertical alignment, clear hierarchy, and spare emojis.
@@ -35,7 +37,7 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
   const header = `🧾 *${(business?.shopName || 'PRINTPRO').toUpperCase()} RECEIPT*`
   
   // Metadata Section
-  const invoiceLine = `📄 *Invoice:* ${bill.id}`
+  const invoiceLine = `📄 *Invoice:* ${getDisplayBillId(bill)}`
   const dateLine = `📅 *Date:* ${bill.date}`
   const customerLine = `👤 *Customer:* ${bill.customerName || 'Guest'}`
   const statusLine = `💳 *Payment Status:* ${statusIcon} ${statusLabel}`
