@@ -208,12 +208,12 @@ export const syncEntityToCloud = async (action, payload) => {
 
     case 'UPDATE_BUSINESS':
       return await updateProfile({
-        shop_name: payload.shopName,
-        owner_name: payload.ownerName,
+        shop_name: payload.shopName ?? payload.shop_name,
+        owner_name: payload.ownerName ?? payload.owner_name,
         phone: payload.phone,
         address: payload.address,
         gstin: payload.gstin,
-        upi_id: payload.upiId,
+        upi_id: payload.upiId ?? payload.upi_id,
       });
 
     case 'ADD_ADVANCE_PAYMENT':

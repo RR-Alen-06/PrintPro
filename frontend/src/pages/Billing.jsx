@@ -5,6 +5,7 @@ import { useAppContext } from '../context/AppContext'
 import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
+import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
 import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
 
@@ -220,7 +221,7 @@ const Billing = () => {
       customerId: liveBill.customerId,
       cashAmount: cash,
       upiAmount: upi,
-      notes: `Follow-up payment for ${liveBill.id}`,
+      notes: `Follow-up payment for ${getDisplayBillId(liveBill)}`,
       returnChangeUpi: followUpReturnChange ? Math.max(0, (cash + upi) - liveBill.balance) : 0
     })
 
@@ -424,7 +425,7 @@ const Billing = () => {
     popup.document.write(`
       <html>
         <head>
-          <title>POS Receipt #${bill.id}</title>
+          <title>POS Receipt #${getDisplayBillId(bill)}</title>
           <style>
             @media print {
               body { margin: 0; padding: 10px; }
@@ -467,7 +468,7 @@ const Billing = () => {
           </div>
           <div class="divider"></div>
           <table class="details-table">
-            <tr><td>Bill ID:</td><td class="right">\${bill.id}</td></tr>
+            <tr><td>Bill ID:</td><td class="right">${getDisplayBillId(bill)}</td></tr>
             <tr><td>Date:</td><td class="right">\${bill.date}</td></tr>
             <tr><td>Customer:</td><td class="right">\${bill.customerName}</td></tr>
             <tr><td>Status:</td><td class="right" style="text-transform: uppercase;">\${bill.status}</td></tr>
@@ -1228,7 +1229,7 @@ const Billing = () => {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(50, 50, 50)
-    text(`Bill ID: ${bill.id}`, MARGIN, y)
+    text(`Bill ID: ${getDisplayBillId(bill)}`, MARGIN, y)
     text(`Date: ${bill.date}`, W - MARGIN, y, { align: 'right' })
     y += 5
     text(`Customer: ${bill.customerName}`, MARGIN, y)
@@ -1484,7 +1485,7 @@ const Billing = () => {
                   <option value="">-- Select regular customer --</option>
                   {activeRegular.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.id})
+                      {c.name} ({getDisplayCustomerId(c)})
                     </option>
                   ))}
                 </select>
@@ -1512,7 +1513,7 @@ const Billing = () => {
                     <option value="">-- Select walk-in customer --</option>
                     {activeRandom.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} ({c.id})
+                        {c.name} ({getDisplayCustomerId(c)})
                       </option>
                     ))}
                   </select>
@@ -2203,7 +2204,7 @@ const Billing = () => {
               {bills.filter((b) => !b.deleted).map((bill) => (
                 <tr key={bill.id}>
                   <td>
-                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>{bill.id}</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>{getDisplayBillId(bill)}</div>
                     <span className={`badge ${bill.customerType === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.6rem', marginTop: '2px' }}>
                       {bill.customerType === 'regular' ? 'Regular' : 'Walk-in'}
                     </span>
@@ -2252,7 +2253,7 @@ const Billing = () => {
                       type="button"
                       className="btn btn-sm btn-danger"
                       onClick={() => {
-                        if (window.confirm(`Delete bill ${bill.id}? It will be moved to Deleted Bills.`)) {
+                        if (window.confirm(`Delete bill ${getDisplayBillId(bill)}? It will be moved to Deleted Bills.`)) {
                           deleteBill(bill.id)
                         }
                       }}
@@ -2274,7 +2275,7 @@ const Billing = () => {
             <div className="modal-header">
               <div>
                 <h3>Bill Details</h3>
-                <p className="text-muted">{liveBill.id} — {liveBill.customerName}</p>
+                <p className="text-muted">{getDisplayBillId(liveBill)} — {liveBill.customerName}</p>
               </div>
               <button className="modal-close btn-icon" type="button" onClick={closeBillModal}>
                 <X size={20} />

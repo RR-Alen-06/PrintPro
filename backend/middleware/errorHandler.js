@@ -14,6 +14,15 @@ function errorHandler(err, req, res, _next) {
     status:  err.statusCode || 500,
   };
 
+  // ── CORS error ────────────────────────────────────────────────────────────
+  if (err.message === 'Not allowed by CORS') {
+    logger.warn(`CORS rejected: ${req.headers.origin || 'unknown origin'} for ${req.method} ${req.originalUrl}`);
+    return res.status(403).json({
+      success: false,
+      error: 'Not allowed by CORS',
+    });
+  }
+
   if (err.statusCode && err.statusCode < 500) {
     // 4xx — client error, warn level
     logger.warn(`Client error: ${err.message}`, meta);

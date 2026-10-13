@@ -1,3 +1,5 @@
+import { getDisplayBillId, getDisplayCustomerId, getDisplayPaymentId, getDisplayExpenseId } from './idFormatter'
+
 /**
  * Data Export utilities for backup and reporting
  */
@@ -55,8 +57,8 @@ const convertToCSV = (data) => {
 
 export const exportBillsToCSV = (bills, filename = 'bills-export.csv') => {
   const flatBills = bills.map((bill) => ({
-    'Bill ID': bill.id,
-    'Customer ID': bill.customerId || '',
+    'Bill ID': getDisplayBillId(bill),
+    'Customer ID': getDisplayCustomerId(bill.customerId || ''),
     'Customer Name': bill.customerName || '',
     'Customer Type': bill.customerType || '',
     'Date': bill.date,
@@ -78,7 +80,7 @@ export const exportBillsToCSV = (bills, filename = 'bills-export.csv') => {
 
 export const exportCustomersToCSV = (customers, filename = 'customers-export.csv') => {
   const flatCustomers = customers.map((customer) => ({
-    'Customer ID': customer.id,
+    'Customer ID': getDisplayCustomerId(customer),
     'Type': customer.type,
     'Name': customer.name,
     'Phone': customer.phone,
@@ -104,9 +106,9 @@ export const exportInventoryToCSV = (inventory, filename = 'inventory-export.csv
 
 export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') => {
   const flatPayments = payments.map((payment) => ({
-    'Payment ID': payment.id,
-    'Bill ID': payment.billId,
-    'Customer ID': payment.customerId,
+    'Payment ID': getDisplayPaymentId(payment),
+    'Bill ID': getDisplayBillId(payment.billId),
+    'Customer ID': getDisplayCustomerId(payment.customerId),
     'Date': payment.date ? payment.date.slice(0, 10) : '',
     'Cash': payment.cashAmount,
     'UPI': payment.upiAmount,
@@ -119,7 +121,7 @@ export const exportPaymentsToCSV = (payments, filename = 'payments-export.csv') 
 
 export const exportExpensesToCSV = (expenses, filename = 'expenses-export.csv') => {
   const flat = expenses.map((e) => ({
-    'Expense ID': e.id,
+    'Expense ID': getDisplayExpenseId(e),
     'Date': e.date,
     'Description': e.description,
     'Total Amount (₹)': Number(e.amount).toFixed(2),
