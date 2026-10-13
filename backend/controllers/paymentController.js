@@ -409,7 +409,7 @@ async function listDeletedPayments(req, res, next) {
       `SELECT p.*, c.name AS customer_name, b.total AS bill_total
        FROM payments p
        LEFT JOIN customers c ON p.customer_id = c.id AND p.user_id = c.user_id
-       LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
        WHERE p.user_id = ? AND p.deleted_at IS NOT NULL
        ORDER BY p.deleted_at DESC`,
       [req.user.id]
@@ -429,7 +429,7 @@ async function listRefundPayments(req, res, next) {
       SELECT p.*, c.name AS customer_name, b.total AS bill_total
       FROM payments p
       LEFT JOIN customers c ON p.customer_id = c.id AND p.user_id = c.user_id
-      LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+      LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
       WHERE p.user_id = ? AND (p.is_refund = true OR p.payment_type = 'refund' OR p.total_paid < 0) AND p.deleted_at IS NULL
     `;
     const params = [req.user.id];
@@ -466,7 +466,7 @@ async function getPaymentsByCustomer(req, res, next) {
     const [payments] = await pool.query(
       `SELECT p.*, b.total AS bill_total, b.status AS bill_status
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
        WHERE p.customer_id = ? AND p.user_id = ? AND p.deleted_at IS NULL
        ORDER BY p.date DESC`,
       [customerId, req.user.id]
