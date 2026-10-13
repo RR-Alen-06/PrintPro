@@ -238,7 +238,7 @@ async function getCustomerPayments(req, res, next) {
     const [payments] = await pool.query(
       `SELECT p.*, b.total AS bill_total
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id = b.id AND p.user_id = b.user_id
+       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
        WHERE p.customer_id = ? AND p.user_id = ?
        ORDER BY p.date DESC`,
       [id, req.user.id]
