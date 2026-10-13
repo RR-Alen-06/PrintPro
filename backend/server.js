@@ -96,6 +96,8 @@ app.use('/api/', limiter);
 app.use(requestLogger);
 
 // ── Static uploads ───────────────────────────────────────────────────────────
+const { UPLOAD_ROOT } = require('./config/uploadConfig');
+app.use('/uploads', express.static(UPLOAD_ROOT));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ── Health check (public) ────────────────────────────────────────────────────

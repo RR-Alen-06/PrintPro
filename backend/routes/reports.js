@@ -148,7 +148,8 @@ router.post('/eod/pdf', async (req, res, next) => {
     const cleanDate = date.replace(/[^0-9-]/g, '_');
     const timestamp = Date.now();
     const fileName = `eod_${cleanDate}_${timestamp}.pdf`;
-    const uploadDir = path.join(__dirname, '../uploads/reports');
+    const { ensureUploadSubdir } = require('../config/uploadConfig');
+    const uploadDir = ensureUploadSubdir('reports');
     const filePath = path.join(uploadDir, fileName);
 
     await generateEodPdf(reportData, filePath);

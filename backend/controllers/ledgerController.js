@@ -371,7 +371,8 @@ async function generateCustomerLedgerPdf(req, res, next) {
       .replace(/[^a-zA-Z0-9_-]/g, '_');
     const timestamp = Date.now();
     const fileName = `ledger_${cleanCustomerId}_${timestamp}.pdf`;
-    const uploadDir = path.join(__dirname, '../uploads/ledger');
+    const { ensureUploadSubdir } = require('../config/uploadConfig');
+    const uploadDir = ensureUploadSubdir('ledger');
     const filePath = path.join(uploadDir, fileName);
 
     await generateLedgerPdf(statement, filePath);
