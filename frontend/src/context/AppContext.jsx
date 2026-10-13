@@ -860,10 +860,21 @@ export const AppProvider = ({ children }) => {
 
   // Sync Supabase Authentication State & Log Session Info
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let lastHandledUserId = undefined
+    let lastHandledToken = undefined
+
+    const handleSession = (session) => {
+      const newUserId = session?.user?.id || null
+      const newToken = session?.access_token || null
+
+      if (newUserId === lastHandledUserId && newToken === lastHandledToken) {
+        return // Ignore redundant auth events to avoid infinite re-render / polling loops
+      }
+      lastHandledUserId = newUserId
+      lastHandledToken = newToken
+
       if (session) {
-        console.log('Auth state changed')
-        
+        console.log('Auth state changed:', session.user.email)
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -876,32 +887,18 @@ export const AppProvider = ({ children }) => {
           }
         });
       } else {
-        console.log('Auth state changed')
+        console.log('Auth state changed: signed out')
         dispatch({ type: 'SET_CURRENT_USER', payload: null });
         dispatch({ type: 'HYDRATE_FROM_CLOUD', payload: {} });
       }
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSession(session)
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        console.log('Auth state changed')
-        
-        dispatch({
-          type: 'SET_CURRENT_USER',
-          payload: {
-            id: session.user.id,
-            username: session.user.email ? session.user.email.split('@')[0] : (session.user.user_metadata?.name || 'user'),
-            email: session.user.email || '',
-            role: 'owner',
-            token: session.access_token,
-            avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
-          }
-        });
-      } else {
-        console.log('Auth state changed')
-        dispatch({ type: 'SET_CURRENT_USER', payload: null });
-        dispatch({ type: 'HYDRATE_FROM_CLOUD', payload: {} });
-      }
+      handleSession(session)
     });
 
     return () => {
