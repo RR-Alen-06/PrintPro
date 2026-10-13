@@ -1,3 +1,5 @@
+import { getDisplayBillId, getDisplayCustomerId } from './idFormatter'
+
 /**
  * Advanced search and filtering utilities
  */
@@ -10,13 +12,18 @@ export const searchBills = (bills, query, filters = {}) => {
   // Text search
   if (query) {
     const lowerQuery = query.toLowerCase()
-    results = results.filter(
-      (bill) =>
+    results = results.filter((bill) => {
+      const displayId = getDisplayBillId(bill).toLowerCase()
+      const billNumber = (bill.bill_number || bill.billNumber || '').toLowerCase()
+      return (
         bill.id.toLowerCase().includes(lowerQuery) ||
-        bill.customerName.toLowerCase().includes(lowerQuery) ||
-        bill.customerId.toLowerCase().includes(lowerQuery) ||
+        displayId.includes(lowerQuery) ||
+        billNumber.includes(lowerQuery) ||
+        (bill.customerName && bill.customerName.toLowerCase().includes(lowerQuery)) ||
+        (bill.customerId && bill.customerId.toLowerCase().includes(lowerQuery)) ||
         (bill.notes && bill.notes.toLowerCase().includes(lowerQuery))
-    )
+      )
+    })
   }
 
   // Filters
@@ -59,13 +66,18 @@ export const searchCustomers = (customers, query, filters = {}) => {
   // Text search
   if (query) {
     const lowerQuery = query.toLowerCase()
-    results = results.filter(
-      (customer) =>
+    results = results.filter((customer) => {
+      const displayId = getDisplayCustomerId(customer).toLowerCase()
+      const customerCode = (customer.customer_code || customer.customerCode || '').toLowerCase()
+      return (
         customer.id.toLowerCase().includes(lowerQuery) ||
+        displayId.includes(lowerQuery) ||
+        customerCode.includes(lowerQuery) ||
         customer.name.toLowerCase().includes(lowerQuery) ||
-        customer.phone.includes(query) ||
-        customer.email.toLowerCase().includes(lowerQuery)
-    )
+        (customer.phone && customer.phone.includes(query)) ||
+        (customer.email && customer.email.toLowerCase().includes(lowerQuery))
+      )
+    })
   }
 
   // Filters

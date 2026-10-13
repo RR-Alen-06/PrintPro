@@ -4,6 +4,7 @@ import { useAppContext } from '../context/AppContext'
 import { exportCustomerLedgerPdf } from '../api/ledger'
 import EmptyState from '../components/common/EmptyState'
 import { LedgerService } from '../utils/financialServices'
+import { getDisplayCustomerId, getDisplayPaymentId } from '../utils/idFormatter'
 
 const LEDGER_PERIODS = ['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom']
 
@@ -286,7 +287,7 @@ const CustomerLedger = () => {
     
     const pdfUrlLine = pdfUrl ? `*Download Statement PDF:* ${pdfUrl}%0A` : ''
 
-    const text = `*Customer Account Statement - ${selectedCustomer.name} (${selectedCustomer.id})*%0A` +
+    const text = `*Customer Account Statement - ${selectedCustomer.name} (${getDisplayCustomerId(selectedCustomer)})*%0A` +
       `*Generated on:* ${dateStr}%0A` +
       `------------------------%0A` +
       `*Total Debits (Invoices):* ₹${totalDebits.toFixed(2)}%0A` +
@@ -347,12 +348,12 @@ const CustomerLedger = () => {
             >
               <optgroup label="Regular Customers">
                 {activeCustomers.filter((c) => c.type === 'regular').map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                  <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>
                 ))}
               </optgroup>
               <optgroup label="Walk-in Customers">
                 {activeCustomers.filter((c) => c.type === 'random').map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                  <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>
                 ))}
               </optgroup>
             </select>
@@ -362,7 +363,7 @@ const CustomerLedger = () => {
                 <div style={{ display: 'grid', gap: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span className="text-muted">ID</span>
-                    <strong style={{ fontFamily: 'monospace' }}>{selectedCustomer.id}</strong>
+                    <strong style={{ fontFamily: 'monospace' }}>{getDisplayCustomerId(selectedCustomer)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span className="text-muted">Type</span>
@@ -856,7 +857,7 @@ const CustomerLedger = () => {
                       <span style={{ color: '#71717a' }}>Actual Payer:</span> <strong style={{ color: isPayer ? '#10b981' : '#fff' }}>{payerName} {isPayer ? '(You)' : ''}</strong>
                     </div>
                     <div>
-                      <span style={{ color: '#71717a' }}>Payment Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{settle.id}</strong>
+                      <span style={{ color: '#71717a' }}>Payment Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{getDisplayPaymentId(settle)}</strong>
                     </div>
                     <div>
                       <span style={{ color: '#71717a' }}>Status:</span> <strong style={{ color: '#10b981' }}>Completed</strong>

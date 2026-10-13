@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { Search as SearchIcon, X, ArrowUpDown } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { searchBills, searchCustomers, searchInventory, sortResults } from '../utils/search'
+import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 import { useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/common/EmptyState'
 
@@ -348,7 +349,7 @@ const Search = () => {
                       <tr key={item.id}>
                         {searchType === 'bills' && (
                           <>
-                            <td className="font-mono text-muted">{item.id}</td>
+                            <td className="font-mono text-muted">{getDisplayBillId(item)}</td>
                             <td style={{ fontWeight: 600 }}>{item.customerName || 'Walk-in Customer'}</td>
                             <td>{item.date}</td>
                             <td className="font-mono tabular-nums" style={{ fontWeight: 700 }}>₹{Number(item.total || 0).toFixed(2)}</td>
@@ -359,7 +360,7 @@ const Search = () => {
                         )}
                         {searchType === 'customers' && (
                           <>
-                            <td className="font-mono text-muted">{item.id}</td>
+                            <td className="font-mono text-muted">{getDisplayCustomerId(item)}</td>
                             <td style={{ fontWeight: 600 }}>{item.name}</td>
                             <td><span className={`badge ${item.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>{item.type}</span></td>
                             <td className="font-mono">{item.phone || '—'}</td>
