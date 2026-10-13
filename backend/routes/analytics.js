@@ -480,4 +480,221 @@ router.get('/expenses/categories', async (req, res, next) => {
   }
 });
 
+// ── 8. GET /api/analytics/tax-gst ───────────────────────────────────────────
+// Tax & GST breakdown: taxable amount, total tax, CGST/SGST split, rate-wise summary
+router.get('/tax-gst', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    const { startDate, endDate } = req.query;
+    const { clause: dateFilter, params: dateParams } = buildDateClause(startDate, endDate, 'b.date');
+
+    const [overallRes] = await pool.query(
+      `SELECT
+         COALESCE(SUM(b.subtotal), 0) AS total_subtotal,
+         COALESCE(SUM(b.gst_amount), 0) AS total_gst,
+         COALESCE(SUM(b.total), 0) AS grand_total,
+         COUNT(b.id) AS bill_count,
+         COUNT(CASE WHEN COALESCE(b.gst_amount, 0) > 0 THEN 1 END) AS taxable_bill_count
+       FROM bills b
+       WHERE b.user_id = ? AND b.deleted_at IS NULL ${dateFilter}`,
+      [req.user.id, ...dateParams]
+    );
+
+    const [rateBreakdown] = await pool.query(
+      `SELECT
+         COALESCE(b.gst_percent, 0) AS gst_rate,
+         COUNT(b.id) AS bill_count,
+         COALESCE(SUM(b.subtotal), 0) AS taxable_amount,
+         COALESCE(SUM(b.gst_amount), 0) AS gst_collected,
+         COALESCE(SUM(b.total), 0) AS total_amount
+       FROM bills b
+       WHERE b.user_id = ? AND b.deleted_at IS NULL ${dateFilter}
+       GROUP BY b.gst_percent
+       ORDER BY gst_rate ASC`,
+      [req.user.id, ...dateParams]
+    );
+
+    const totalSubtotal = parseFloat(overallRes[0]?.total_subtotal || 0);
+    const totalGst = parseFloat(overallRes[0]?.total_gst || 0);
+    const grandTotal = parseFloat(overallRes[0]?.grand_total || 0);
+    const cgst = parseFloat((totalGst / 2).toFixed(2));
+    const sgst = parseFloat((totalGst / 2).toFixed(2));
+
+    res.json({
+      success: true,
+      data: {
+        total_subtotal: totalSubtotal,
+        total_gst: totalGst,
+        cgst: cgst,
+        sgst: sgst,
+        grand_total: grandTotal,
+        bill_count: parseInt(overallRes[0]?.bill_count || 0, 10),
+        taxable_bill_count: parseInt(overallRes[0]?.taxable_bill_count || 0, 10),
+        rates: rateBreakdown.map(r => ({
+          rate: parseFloat(r.gst_rate) || 0,
+          bill_count: parseInt(r.bill_count, 10) || 0,
+          taxable_amount: parseFloat(r.taxable_amount) || 0,
+          gst_collected: parseFloat(r.gst_collected) || 0,
+          total_amount: parseFloat(r.total_amount) || 0
+        }))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── 9. GET /api/analytics/customer-insights ──────────────────────────────────
+// Customer Lifetime Value (LTV), visit frequency, churn risk (> 60 days inactivity)
+router.get('/customer-insights', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    const { startDate, endDate } = req.query;
+    const { clause: dateFilter, params: dateParams } = buildDateClause(startDate, endDate, 'b.date');
+
+    // Aggregate metrics per customer
+    const [customersRes] = await pool.query(
+      `SELECT
+         c.id AS customer_id,
+         c.name AS customer_name,
+         c.phone AS customer_phone,
+         c.credit_balance,
+         COUNT(b.id) AS total_bills,
+         COALESCE(SUM(b.total), 0) AS ltv,
+         COALESCE(SUM(b.amount_paid), 0) AS total_paid,
+         COALESCE(SUM(b.balance), 0) AS current_due,
+         MAX(b.date) AS last_purchase_date,
+         MIN(b.date) AS first_purchase_date
+       FROM customers c
+       JOIN bills b ON (b.customer_id::text = c.id::text OR b.customer_id::text = c.customer_code) AND b.user_id = c.user_id
+       WHERE c.user_id = ? AND b.deleted_at IS NULL ${dateFilter}
+       GROUP BY c.id, c.name, c.phone, c.credit_balance
+       ORDER BY ltv DESC`,
+      [req.user.id, ...dateParams]
+    );
+
+    const now = new Date();
+    const activeThresholdDays = 60;
+
+    let activeCount = 0;
+    let atRiskCount = 0;
+    let totalLtv = 0;
+
+    const formattedCustomers = customersRes.map(cust => {
+      const ltvVal = parseFloat(cust.ltv) || 0;
+      totalLtv += ltvVal;
+      const lastDate = cust.last_purchase_date ? new Date(cust.last_purchase_date) : null;
+      const daysSince = lastDate ? Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)) : 999;
+      const isAtRisk = daysSince > activeThresholdDays;
+
+      if (isAtRisk) {
+        atRiskCount++;
+      } else {
+        activeCount++;
+      }
+
+      const totalBills = parseInt(cust.total_bills, 10) || 0;
+      const avgBasket = totalBills > 0 ? parseFloat((ltvVal / totalBills).toFixed(2)) : 0;
+
+      return {
+        customer_id: cust.customer_id,
+        customer_name: cust.customer_name || 'Walk-in',
+        customer_phone: cust.customer_phone || '',
+        credit_balance: parseFloat(cust.credit_balance) || 0,
+        total_bills: totalBills,
+        ltv: ltvVal,
+        total_paid: parseFloat(cust.total_paid) || 0,
+        current_due: parseFloat(cust.current_due) || 0,
+        average_basket: avgBasket,
+        last_purchase_date: cust.last_purchase_date,
+        days_since_last_purchase: daysSince,
+        status: isAtRisk ? 'at-risk' : 'active'
+      };
+    });
+
+    const totalCount = formattedCustomers.length;
+    const avgLtv = totalCount > 0 ? parseFloat((totalLtv / totalCount).toFixed(2)) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          total_customers_analyzed: totalCount,
+          active_customers: activeCount,
+          at_risk_customers: atRiskCount,
+          average_customer_ltv: avgLtv,
+          total_ltv: parseFloat(totalLtv.toFixed(2))
+        },
+        customers: formattedCustomers.slice(0, 50)
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── 10. GET /api/analytics/payment-breakdown ─────────────────────────────────
+// Payment distribution: Cash vs UPI, settlement stats, refund deductions
+router.get('/payment-breakdown', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    const { startDate, endDate } = req.query;
+
+    let payFilter = ' WHERE user_id = ? AND deleted_at IS NULL';
+    const payParams = [req.user.id];
+    if (startDate) {
+      payFilter += ' AND date >= ?';
+      payParams.push(startDate);
+    }
+    if (endDate) {
+      payFilter += ' AND date <= ?';
+      payParams.push(endDate + ' 23:59:59');
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN is_refund = false THEN cash_amount ELSE 0 END), 0) AS total_cash,
+         COALESCE(SUM(CASE WHEN is_refund = false THEN upi_amount ELSE 0 END), 0) AS total_upi,
+         COALESCE(SUM(CASE WHEN is_refund = true THEN ABS(total_paid) ELSE 0 END), 0) AS total_refunds,
+         COUNT(CASE WHEN is_refund = false AND cash_amount > 0 THEN 1 END) AS cash_tx_count,
+         COUNT(CASE WHEN is_refund = false AND upi_amount > 0 THEN 1 END) AS upi_tx_count,
+         COUNT(CASE WHEN is_refund = true THEN 1 END) AS refund_tx_count,
+         COUNT(id) AS total_payments_count
+       FROM payments
+       ${payFilter}`,
+      payParams
+    );
+
+    const r = rows[0] || {};
+    const cash = parseFloat(r.total_cash) || 0;
+    const upi = parseFloat(r.total_upi) || 0;
+    const refunds = parseFloat(r.total_refunds) || 0;
+    const totalCollected = parseFloat((cash + upi).toFixed(2));
+    const netCollected = parseFloat((totalCollected - refunds).toFixed(2));
+
+    const cashPct = totalCollected > 0 ? parseFloat(((cash / totalCollected) * 100).toFixed(1)) : 0;
+    const upiPct = totalCollected > 0 ? parseFloat(((upi / totalCollected) * 100).toFixed(1)) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        total_collected: totalCollected,
+        net_collected: netCollected,
+        cash_collected: cash,
+        upi_collected: upi,
+        total_refunds: refunds,
+        cash_percentage: cashPct,
+        upi_percentage: upiPct,
+        cash_tx_count: parseInt(r.cash_tx_count, 10) || 0,
+        upi_tx_count: parseInt(r.upi_tx_count, 10) || 0,
+        refund_tx_count: parseInt(r.refund_tx_count, 10) || 0,
+        total_transactions: parseInt(r.total_payments_count, 10) || 0
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
+
