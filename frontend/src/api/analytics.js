@@ -7,4 +7,7 @@ export const getAnalyticsSummary = (params = {}) => api.get('/analytics/summary'
 export const getPromoUsageAnalytics = (params = {}) => api.get('/analytics/promo-usage', { params })
 export const getExpensesByVendor = (params = {}) => api.get('/analytics/expenses/vendors', { params })
 export const getExpensesByCategory = (params = {}) => api.get('/analytics/expenses/categories', { params })
+export const getTaxGstAnalytics = (params = {}) => api.get('/analytics/tax-gst', { params })
+export const getCustomerInsights = (params = {}) => api.get('/analytics/customer-insights', { params })
+export const getPaymentBreakdown = (params = {}) => api.get('/analytics/payment-breakdown', { params })
 
