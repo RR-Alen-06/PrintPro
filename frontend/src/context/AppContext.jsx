@@ -1549,13 +1549,14 @@ export const AppProvider = ({ children }) => {
       bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
     }
 
-    // Excess to credit balance
+    // Excess to credit balance or change returned
     const overpaid = R_cash + R_upi
+    const creditToAdvance = (billData.excessToAdvance === true || billData.changeHandling === 'advance') && overpaid > 0
+
     if (updatedCustomer) {
-      const finalBal = Math.max(
-        (currentAdvance - (Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance)),
-        0
-      )
+      const advanceDeducted = Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance
+      const unusedAdvance = Math.max(currentAdvance - advanceDeducted, 0)
+      const finalBal = unusedAdvance + (creditToAdvance ? overpaid : 0)
       updatedCustomer.advanceBalance = finalBal
       updatedCustomer.creditBalance = finalBal
       if (pointsEnabled) {
@@ -1563,25 +1564,48 @@ export const AppProvider = ({ children }) => {
       }
     }
 
-    if (overpaid > 0 && paymentRecords.length > 0) {
-      const lastRec = paymentRecords[paymentRecords.length - 1]
-      lastRec.excessCredit = overpaid
-      lastRec.cashAmount += R_cash
-      lastRec.upiAmount += R_upi
-    } else if (overpaid > 0) {
-      const _payIdxExcess = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-      paymentRecords.push({
-        id: `PAY${String(_payIdxExcess).padStart(4, '0')}`,
-        billId: billId,
-        customerId: billData.customerId,
-        date: new Date().toISOString(),
-        cashAmount: R_cash,
-        upiAmount: R_upi,
-        totalPaid: 0,
-        paymentType: 'full',
-        excessCredit: overpaid,
-        notes: 'Excess payment added to advance credit',
+    if (creditToAdvance && updatedCustomer) {
+      const advCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(advCount).padStart(4, '0')}`
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId: billData.customerId,
+          customerName: customerName,
+          amount: overpaid,
+          date: new Date().toISOString(),
+          paymentMethod: R_upi > 0 ? (R_cash > 0 ? 'split' : 'upi') : 'cash',
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          notes: `Excess payment from Bill ${billId} credited to advance balance`,
+          createdAt: new Date().toISOString(),
+        }
       })
+    }
+
+    if (creditToAdvance) {
+      if (paymentRecords.length > 0) {
+        const lastRec = paymentRecords[paymentRecords.length - 1]
+        lastRec.excessCredit = overpaid
+        lastRec.cashAmount += R_cash
+        lastRec.upiAmount += R_upi
+      } else {
+        const _payIdxExcess = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
+        paymentRecords.push({
+          id: `PAY${String(_payIdxExcess).padStart(4, '0')}`,
+          billId: billId,
+          customerId: billData.customerId,
+          date: new Date().toISOString(),
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          totalPaid: 0,
+          paymentType: 'full',
+          excessCredit: overpaid,
+          notes: 'Excess payment added to advance credit',
+        })
+      }
     }
 
     // Dispatch bills updates

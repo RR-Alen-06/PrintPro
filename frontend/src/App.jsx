@@ -20,7 +20,7 @@ import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
 import CustomerLedger from './pages/CustomerLedger'
 import Analytics from './pages/Analytics'
-import AdvancePayments from './pages/AdvancePayments'
+import PaymentReceived from './pages/PaymentReceived'
 import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
 import GroupBilling from './pages/GroupBilling'
@@ -83,7 +83,7 @@ function App() {
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebarCollapse}
       />
-      <MobileNavDock />
+      <MobileNavDock onOpenMenu={() => setSidebarOpen(true)} />
       <div className="main-wrapper">
         <Header
           onMenuClick={() => setSidebarOpen(true)}
@@ -95,6 +95,7 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/billing" element={<Billing />} />
+            <Route path="/payments" element={<PaymentReceived />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/accounting" element={<Accounting />} />
             <Route path="/inventory" element={<Inventory />} />
@@ -108,7 +109,7 @@ function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/customer-ledger" element={<CustomerLedger />} />
             <Route path="/customer-bills" element={<CustomerBills />} />
-            <Route path="/advance-payments" element={<AdvancePayments />} />
+            <Route path="/advance-payments" element={<Navigate to="/payments" replace />} />
             <Route path="/cash-register" element={<CashRegister />} />
             <Route path="/upi-reconciliation" element={<UpiReconciliation />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
