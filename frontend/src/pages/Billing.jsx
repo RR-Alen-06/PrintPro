@@ -11,18 +11,23 @@ import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
 import GroupBilling from './GroupBilling'
 
 
-const makeInitialRow = (inventory) => ({
-  id: `row-${Date.now()}`,
-  itemId: inventory[0]?.id || '',
-  itemName: inventory[0]?.name || 'A4 Paper',
-  isCustom: false,
-  printType: 'color',
-  sides: 'single',
-  qty: 1,
-  unitPrice: inventory[0]?.colorSingle ?? 10.0,
-  amount: inventory[0]?.colorSingle ?? 10.0,
-  gstRate: 0,
-})
+const makeInitialRow = (inventory = []) => {
+  const hasInv = inventory && inventory.length > 0
+  const first = hasInv ? inventory[0] : null
+  return {
+    id: `row-${Date.now()}`,
+    itemId: first?.id || '',
+    itemName: first?.name || '',
+    isCustom: !hasInv,
+    printType: 'color',
+    sides: 'single',
+    qty: 1,
+    unitPrice: first?.colorSingle ?? 0,
+    amount: first?.colorSingle ?? 0,
+    gstRate: 0,
+  }
+}
+
 
 const Billing = () => {
   const { business, customers, settings, inventory, bills, payments, addBill, addCustomer, deleteBill, recordPayment, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
@@ -401,7 +406,11 @@ const Billing = () => {
       }
 
       // Replace first empty/default row if untouched
-      if (current.length === 1 && current[0].itemName === 'A4 Paper' && Number(current[0].qty) === 1 && Number(current[0].amount) === 10.0 && !current[0].isCustom && current[0].itemId === inventory[0]?.id) {
+      if (
+        current.length === 1 &&
+        ((current[0].itemName === 'A4 Paper' && Number(current[0].qty) === 1 && Number(current[0].amount) === 10.0) ||
+         (!current[0].itemName && Number(current[0].amount) === 0))
+      ) {
         return [newRow]
       }
 
@@ -709,10 +718,11 @@ const Billing = () => {
 
   const addRow = () => {
     setDuplicateWarning('')
-    let defaultItemId = inventory[0]?.id || ''
+    const hasInv = inventory && inventory.length > 0
+    let defaultItemId = hasInv ? (inventory[0]?.id || '') : ''
     let defaultPrintType = 'color'
     let defaultSides = 'single'
-    let defaultItemName = inventory[0]?.name || 'Custom Item'
+    let defaultItemName = hasInv ? (inventory[0]?.name || '') : ''
 
     // Find a combination of (item, printType, sides) that is NOT already in itemRows
     let foundUnused = false
@@ -723,25 +733,27 @@ const Billing = () => {
       { printType: 'bw', sides: 'double' }
     ]
 
-    for (const item of inventory) {
-      for (const combo of combos) {
-        const exists = itemRows.some(
-          (r) => !r.isCustom && r.itemId === item.id && r.printType === combo.printType && r.sides === combo.sides
-        )
-        if (!exists) {
-          defaultItemId = item.id
-          defaultPrintType = combo.printType
-          defaultSides = combo.sides
-          defaultItemName = item.name
-          foundUnused = true
-          break
+    if (hasInv) {
+      for (const item of inventory) {
+        for (const combo of combos) {
+          const exists = itemRows.some(
+            (r) => !r.isCustom && r.itemId === item.id && r.printType === combo.printType && r.sides === combo.sides
+          )
+          if (!exists) {
+            defaultItemId = item.id
+            defaultPrintType = combo.printType
+            defaultSides = combo.sides
+            defaultItemName = item.name
+            foundUnused = true
+            break
+          }
         }
+        if (foundUnused) break
       }
-      if (foundUnused) break
     }
 
     // If all possible combos exist, fallback to the first combo and increment its qty
-    if (!foundUnused) {
+    if (hasInv && !foundUnused) {
       const dupRow = itemRows.find(
         (r) => !r.isCustom && r.itemId === defaultItemId && r.printType === defaultPrintType && r.sides === defaultSides
       )
@@ -759,14 +771,14 @@ const Billing = () => {
       }
     }
 
-    const unitPrice = getItemBasePrice(defaultItemId, defaultPrintType, defaultSides)
+    const unitPrice = hasInv ? getItemBasePrice(defaultItemId, defaultPrintType, defaultSides) : 0
     setItemRows((current) => [
       ...current,
       {
         id: `row-${Date.now()}-${Math.random()}`,
         itemId: defaultItemId,
         itemName: defaultItemName,
-        isCustom: false,
+        isCustom: !hasInv,
         printType: defaultPrintType,
         sides: defaultSides,
         qty: 1,

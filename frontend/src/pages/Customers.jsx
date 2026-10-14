@@ -401,23 +401,24 @@ const Customers = () => {
   }
 
   const addEditRow = () => {
-    const firstInv = inventory[0]
+    const firstInv = inventory && inventory.length > 0 ? inventory[0] : null
     setEditItemRows(curr => [
       ...curr,
       {
         id: `row-${Date.now()}-${Math.random()}`,
         itemId: firstInv?.id || '',
-        itemName: firstInv?.name || 'Custom Item',
+        itemName: firstInv?.name || '',
         isCustom: !firstInv,
         printType: 'color',
         sides: 'single',
         qty: 1,
-        unitPrice: firstInv?.colorSingle || 10,
-        amount: firstInv?.colorSingle || 10,
+        unitPrice: firstInv ? (firstInv.colorSingle ?? 0) : 0,
+        amount: firstInv ? (firstInv.colorSingle ?? 0) : 0,
         gstRate: 0
       }
     ])
   }
+
 
   const removeEditRow = (rowId) => {
     setEditItemRows(curr => curr.filter(r => r.id !== rowId))
