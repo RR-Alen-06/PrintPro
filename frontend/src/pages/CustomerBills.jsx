@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
-import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Smartphone, Copy, Link2 } from 'lucide-react'
+import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Copy, Link2, Wallet } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 
 const CustomerBills = () => {
+  const navigate = useNavigate()
   const { business, customers, bills, inventory, payments, editBill, deleteBill, showAlert, showConfirm, settings } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
@@ -44,12 +46,8 @@ const CustomerBills = () => {
   const [customerUpiId, setCustomerUpiId] = useState('')
   
   const [duplicateWarning, setDuplicateWarning] = useState('')
-
-  const [showUpiModal, setShowUpiModal] = useState(false)
-  const [upiModalAmount, setUpiModalAmount] = useState(0)
-  const [upiModalNotes, setUpiModalNotes] = useState('')
-  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
   const [refundQrGenerated, setRefundQrGenerated] = useState(false)
+  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
 
   const copyUpiLink = (link) => {
     if (!link) return
@@ -490,6 +488,14 @@ const CustomerBills = () => {
                   </span>
                 </div>
               </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                onClick={() => navigate(`/payments?customerId=${selectedCustomer.id}`)}
+              >
+                <Wallet size={14} /> Open Payment Received
+              </button>
             </div>
           )}
         </div>
@@ -555,18 +561,15 @@ const CustomerBills = () => {
                               <RefreshCw size={13} /> Refund
                             </button>
                           )}
-                          {Number(bill.balance || 0) > 0 && business?.upiId && (
+                          {Number(bill.balance || 0) > 0 && (
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
                               style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
-                              onClick={() => {
-                                setUpiModalAmount(bill.balance)
-                                setUpiModalNotes(`Bill #${getDisplayBillId(bill)} payment`)
-                                setShowUpiModal(true)
-                              }}
+                              onClick={() => navigate(`/payments?customerId=${bill.customerId}&billId=${bill.id}`)}
+                              title="Settle bill in Payment Received Hub"
                             >
-                              <Smartphone size={13} style={{ color: 'var(--accent)' }} /> Pay QR
+                              <Wallet size={13} style={{ color: 'var(--accent)' }} /> Settle Bill
                             </button>
                           )}
                           <button
@@ -1119,58 +1122,6 @@ const CustomerBills = () => {
                   Confirm Refund & Save
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── UPI Pay QR Modal ─────────────────────────────────────────── */}
-      {showUpiModal && upiModalAmount > 0 && (
-        <div className="modal-overlay" onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '360px', padding: '24px' }}>
-            <div className="modal-header">
-              <h3 style={{ margin: 0 }}>UPI Checkout</h3>
-              <button className="modal-close btn-icon" type="button" onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 0 0' }}>
-              <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setUpiCheckoutAmount(upiModalAmount)} style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  <Link2 size={14} /> Generate QR
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={!business?.upiId}
-                  onClick={() => copyUpiLink(getUpiLink(upiModalAmount, upiModalNotes))}
-                  style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                >
-                  <Copy size={14} /> Copy Link
-                </button>
-              </div>
-              {business?.upiId ? (
-                <>
-                  <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>UPI ID: {business.upiId} · Amount: ₹{upiModalAmount.toFixed(2)}</p>
-                  {upiCheckoutAmount > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                      <div style={{ padding: '8px', background: '#fff', borderRadius: '8px', border: '2px solid var(--accent)' }}>
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, upiModalNotes))}`}
-                          alt="UPI QR Code"
-                          width={150} height={150}
-                        />
-                      </div>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan with any UPI app to pay ₹{upiCheckoutAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="text-muted" style={{ margin: 0, fontSize: '0.8rem' }}>Set your UPI ID in Settings to enable QR codes.</p>
-              )}
-              <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '12px' }} onClick={() => { setShowUpiModal(false); setUpiModalAmount(0); setUpiCheckoutAmount(0) }}>
-                Close
-              </button>
             </div>
           </div>
         </div>
