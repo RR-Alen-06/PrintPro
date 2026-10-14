@@ -405,3 +405,40 @@ export async function migrateLegacyLocalStorage(userId) {
     console.warn('[IndexedDB] Legacy migration check non-fatal error:', err);
   }
 }
+
+/**
+ * Completely delete the IndexedDB database for a specific user.
+ * Invoked during "Clear All Data" factory resets.
+ * @param {string} userId
+ */
+export async function wipeUserDatabase(userId) {
+  if (!userId || typeof window === 'undefined' || !window.indexedDB) return;
+
+  const dbName = `printpro_db_${userId}`;
+  if (dbCache.has(dbName)) {
+    try {
+      const db = dbCache.get(dbName);
+      db.close();
+    } catch {
+      // ignore
+    }
+    dbCache.delete(dbName);
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = window.indexedDB.deleteDatabase(dbName);
+    req.onsuccess = () => {
+      console.log(`[IndexedDB] Successfully wiped ${dbName}`);
+      resolve();
+    };
+    req.onerror = () => {
+      console.warn(`[IndexedDB] Error deleting ${dbName}:`, req.error);
+      reject(req.error);
+    };
+    req.onblocked = () => {
+      console.warn(`[IndexedDB] deleteDatabase ${dbName} blocked, proceeding`);
+      resolve();
+    };
+  });
+}
+

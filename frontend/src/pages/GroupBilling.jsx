@@ -3,18 +3,23 @@ import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
 
-const makeItemRow = (inventory) => ({
-  id: `row-${Date.now()}-${Math.random()}`,
-  itemId: inventory[0]?.id || '',
-  itemName: inventory[0]?.name || 'Custom Item',
-  isCustom: false,
-  printType: 'color',
-  sides: 'single',
-  qty: 1,
-  unitPrice: inventory[0]?.colorSingle ?? 10,
-  amount: inventory[0]?.colorSingle ?? 10,
-  gstRate: 0,
-})
+const makeItemRow = (inventory = []) => {
+  const hasInv = inventory && inventory.length > 0
+  const first = hasInv ? inventory[0] : null
+  return {
+    id: `row-${Date.now()}-${Math.random()}`,
+    itemId: first?.id || '',
+    itemName: first?.name || '',
+    isCustom: !hasInv,
+    printType: 'color',
+    sides: 'single',
+    qty: 1,
+    unitPrice: first?.colorSingle ?? 0,
+    amount: first?.colorSingle ?? 0,
+    gstRate: 0,
+  }
+}
+
 
 const makeCustomRow = () => ({
   id: `row-${Date.now()}-${Math.random()}`,

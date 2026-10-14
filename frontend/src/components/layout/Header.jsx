@@ -2,7 +2,28 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, PanelLeftClose, PanelLeft, RefreshCw, AlertTriangle, X } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useTheme } from '../../context/ThemeContext'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+
+const getPageTitle = (pathname, search) => {
+  if (pathname === '/dashboard') return 'Dashboard'
+  if (pathname === '/billing') {
+    const params = new URLSearchParams(search)
+    return params.get('mode') === 'group' ? 'Group / Split POS' : 'Billing / POS'
+  }
+  if (pathname === '/payments') return 'Payment Received Hub'
+  if (pathname.startsWith('/customers')) return 'Customer 360 Workspace'
+  if (pathname === '/cash-register') return 'Daily Register & Settlement'
+  if (pathname === '/accounting') return 'Accounting Book'
+  if (pathname === '/inventory') return 'Inventory Items'
+  if (pathname === '/analytics') return 'Analytics & Trends'
+  if (pathname === '/notifications') return 'Notifications'
+  if (pathname === '/deleted-bills') return 'Deleted Bills Audit'
+  if (pathname === '/settings') return 'Settings'
+  if (pathname === '/data-management') return 'Data Management'
+  if (pathname === '/search') return 'Global Search'
+  if (pathname === '/receipt') return 'Receipt Preview'
+  return 'Dashboard'
+}
 
 const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
   const {
@@ -22,6 +43,9 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
   
   const { resolvedTheme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const location = useLocation()
+  const pageTitle = getPageTitle(location.pathname, location.search)
+
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showDlqModal, setShowDlqModal] = useState(false)
@@ -68,8 +92,8 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
             {isCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
           </button>
         )}
-        <div className="header-title">
-          PrintPro <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '4px' }}>POS</span>
+        <div className="header-title" style={{ fontWeight: 600, fontSize: '0.98rem', color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+          {pageTitle}
         </div>
       </div>
 
