@@ -1,17 +1,28 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useAppContext } from '../context/AppContext'
+import EmptyState from '../components/common/EmptyState'
 import {
   Wallet,
   PlayCircle,
   StopCircle,
-  FileText,
   CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
   TrendingUp,
   TrendingDown,
   Printer,
   X,
-  Clock
+  Clock,
+  QrCode,
+  Search,
+  Plus,
+  Minus,
+  Receipt,
+  Edit2,
+  Check,
+  RefreshCw
 } from 'lucide-react'
-import { useAppContext } from '../context/AppContext'
 import {
   getCashSessions,
   getActiveSession,
@@ -19,42 +30,42 @@ import {
   closeCashSession,
   getSessionReport
 } from '../api/cashSessions'
+import {
+  getUpiTransactions,
+  getUpiSummary,
+  updateUpiTransaction,
+  bulkConfirmUpi
+} from '../api/upiTransactions'
+import { createPurchase } from '../api/purchases'
+
+const DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1]
 
 const CashRegister = () => {
-  const { business, showAlert, showToast, showConfirm, payments, purchases, dispatch } = useAppContext()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { business, showAlert, showToast } = useAppContext()
 
-  const [sessions, setSessions] = useState(() => {
-    try {
-      const cached = localStorage.getItem('printpro-cash-sessions')
-      return cached ? JSON.parse(cached) : []
-    } catch {
-      return []
-    }
+  // ── Tab Navigation (cash, upi, reports) ──
+  const urlTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => {
+    return ['cash', 'upi', 'reports'].includes(urlTab) ? urlTab : 'cash'
   })
-  const [activeSession, setActiveSession] = useState(() => {
-    try {
-      const cached = localStorage.getItem('printpro-active-cash-session')
-      return cached ? JSON.parse(cached) : null
-    } catch {
-      return null
+
+  useEffect(() => {
+    if (urlTab && ['cash', 'upi', 'reports'].includes(urlTab) && urlTab !== activeTab) {
+      setActiveTab(urlTab)
     }
-  })
-  const [loading, setLoading] = useState(true)
+  }, [urlTab, activeTab])
 
-  // Modals
-  const [showOpenModal, setShowOpenModal] = useState(false)
-  const [showCloseModal, setShowCloseModal] = useState(false)
-  const [showReportModal, setShowReportModal] = useState(false)
-  const [selectedReport, setSelectedReport] = useState(null)
-  const [reportLoading, setReportLoading] = useState(false)
+  const switchTab = (tab) => {
+    setActiveTab(tab)
+    setSearchParams({ tab }, { replace: true })
+  }
 
-  // Form states
-  const [openFloat, setOpenFloat] = useState('500')
-  const [openNotes, setOpenNotes] = useState('')
-  const [closingNotes, setClosingNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  // ── Session State ──
+  const [sessions, setSessions] = useState([])
+  const [activeSession, setActiveSession] = useState(null)
 
-  // Denominations for counting modal
+  // ── Denomination Counter State ──
   const [denominations, setDenominations] = useState({
     500: 0,
     200: 0,
@@ -66,233 +77,198 @@ const CashRegister = () => {
     2: 0,
     1: 0,
   })
-  const [manualCount, setManualCount] = useState('')
-  const [useDenomMode, setUseDenomMode] = useState(false)
 
   const denomTotal = useMemo(() => {
-    return Object.entries(denominations).reduce((sum, [val, count]) => {
-      return sum + Number(val) * (Number(count) || 0)
-    }, 0)
+    return DENOMINATIONS.reduce((sum, val) => sum + val * (Number(denominations[val]) || 0), 0)
   }, [denominations])
 
-  const calculatedPhysicalCount = useMemo(() => {
-    if (useDenomMode) return denomTotal
-    return manualCount === '' ? 0 : Number(manualCount)
-  }, [useDenomMode, denomTotal, manualCount])
+  // ── Modals State ──
+  const [showOpenModal, setShowOpenModal] = useState(false)
+  const [showCloseModal, setShowCloseModal] = useState(false)
+  const [showCashInModal, setShowCashInModal] = useState(false)
+  const [showCashOutModal, setShowCashOutModal] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [activeReportData, setActiveReportData] = useState(null)
+  const [reportLoading, setReportLoading] = useState(false)
 
-  const loadSessions = useCallback(async () => {
+  // Form inputs
+  const [openFloat, setOpenFloat] = useState('500')
+  const [openNotes, setOpenNotes] = useState('')
+  const [closeNotes, setCloseNotes] = useState('')
+  const [cashInAmount, setCashInAmount] = useState('')
+  const [cashInNotes, setCashInNotes] = useState('')
+  const [cashOutAmount, setCashOutAmount] = useState('')
+  const [cashOutCategory, setCashOutCategory] = useState('tea')
+  const [cashOutNotes, setCashOutNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  // ── Load Sessions ──
+  const fetchSessions = useCallback(async () => {
     try {
-      setLoading(true)
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        const cachedSessions = JSON.parse(localStorage.getItem('printpro-cash-sessions') || '[]')
-        const cachedActive = JSON.parse(localStorage.getItem('printpro-active-cash-session') || 'null')
-        setSessions(cachedSessions)
-        if (cachedActive) {
-          const openedAt = new Date(cachedActive.opened_at || Date.now()).getTime()
-          const sessionPayments = (payments || []).filter(p => {
-            const pTime = new Date(p.date || p.createdAt || 0).getTime()
-            return p.sessionId === cachedActive.id || (!p.sessionId && pTime >= openedAt)
-          })
-          const sessionPurchases = (purchases || []).filter(pur => {
-            const purTime = new Date(pur.date || pur.createdAt || 0).getTime()
-            return pur.sessionId === cachedActive.id || (!pur.sessionId && purTime >= openedAt)
-          })
-          const cashIn = sessionPayments.reduce((sum, p) => (!p.isRefund && p.paymentType !== 'refund' ? sum + Number(p.cashAmount || (p.paymentType === 'cash' ? p.totalPaid || p.amount : 0) || 0) : sum), 0)
-          const cashRefunds = sessionPayments.reduce((sum, p) => (p.isRefund || p.paymentType === 'refund' ? sum + Math.abs(Number(p.cashAmount || p.totalPaid || p.amount || 0)) : sum), 0)
-          const upiIn = sessionPayments.reduce((sum, p) => (!p.isRefund && p.paymentType !== 'refund' ? sum + Number(p.upiAmount || (p.paymentType === 'upi' ? p.totalPaid || p.amount : 0) || 0) : sum), 0)
-          const cashExpenses = sessionPurchases.reduce((sum, pur) => (pur.paymentMethod === 'cash' ? sum + Number(pur.total || 0) : sum), 0)
-          const openingCash = parseFloat(cachedActive.opening_cash) || 0
-          const currentExpected = parseFloat((openingCash + cashIn - cashRefunds - cashExpenses).toFixed(2))
-
-          setActiveSession({
-            ...cachedActive,
-            cash_in: cashIn,
-            cash_refunds: cashRefunds,
-            upi_in: upiIn,
-            cash_expenses: cashExpenses,
-            current_expected_cash: currentExpected
-          })
-        } else {
-          setActiveSession(null)
-        }
-        return
-      }
-
-      const [allRes, activeRes] = await Promise.all([
+      const [sessionsRes, activeRes] = await Promise.all([
         getCashSessions().catch(() => ({ data: { data: [] } })),
         getActiveSession().catch(() => ({ data: { data: null } }))
       ])
-      const fetchedSessions = allRes.data?.data || []
+
+      const fetchedSessions = sessionsRes.data?.data || []
       const fetchedActive = activeRes.data?.data || null
+
       setSessions(fetchedSessions)
       setActiveSession(fetchedActive)
+
+      // Cache locally for offline resilience
       try {
         localStorage.setItem('printpro-cash-sessions', JSON.stringify(fetchedSessions))
         localStorage.setItem('printpro-active-cash-session', JSON.stringify(fetchedActive))
-      } catch (_e) {
-        console.warn('Failed to cache cash sessions', _e)
+      } catch (e) {
+        console.warn('Could not cache session locally:', e)
       }
     } catch (err) {
-      console.warn('Failed to load cash sessions from server, using local cache:', err)
+      console.error('Failed to load cash sessions:', err)
+      // Fallback to cache
       try {
         const cachedSessions = JSON.parse(localStorage.getItem('printpro-cash-sessions') || '[]')
         const cachedActive = JSON.parse(localStorage.getItem('printpro-active-cash-session') || 'null')
         setSessions(cachedSessions)
         setActiveSession(cachedActive)
       } catch {
-        if (showAlert) showAlert('Failed to load cash sessions from server.', 'error')
+        // ignore
       }
-    } finally {
-      setLoading(false)
     }
-  }, [payments, purchases, showAlert])
+  }, [])
 
   useEffect(() => {
-    loadSessions()
-  }, [loadSessions])
+    fetchSessions()
+  }, [fetchSessions])
 
-  const handleOpenSession = async (e) => {
+  // Computed drawer math
+  const expectedCashInDrawer = useMemo(() => {
+    if (!activeSession) return 0
+    return Number(activeSession.current_expected_cash || activeSession.opening_cash || 0)
+  }, [activeSession])
+
+  const liveVariance = useMemo(() => {
+    return denomTotal - expectedCashInDrawer
+  }, [denomTotal, expectedCashInDrawer])
+
+  // ── Cashier Action Handlers ──
+  const handleOpenShift = async (e) => {
     e.preventDefault()
     const floatNum = parseFloat(openFloat)
     if (isNaN(floatNum) || floatNum < 0) {
-      if (showAlert) showAlert('Please enter a valid non-negative opening float.', 'error')
+      showAlert('Please enter a valid non-negative opening float', 'error')
       return
     }
 
     try {
       setSubmitting(true)
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        const localSession = {
-          id: `local-${Date.now()}`,
-          user_id: business?.id,
-          opened_at: new Date().toISOString(),
-          opening_cash: floatNum,
-          status: 'open',
-          notes: openNotes,
-          cash_in: 0,
-          cash_refunds: 0,
-          upi_in: 0,
-          cash_expenses: 0,
-          current_expected_cash: floatNum
-        }
-        setActiveSession(localSession)
-        setSessions(prev => [localSession, ...prev])
-        try {
-          localStorage.setItem('printpro-active-cash-session', JSON.stringify(localSession))
-          localStorage.setItem('printpro-cash-sessions', JSON.stringify([localSession, ...sessions]))
-        } catch {
-          // ignore storage error
-        }
-        if (dispatch) {
-          dispatch({ type: 'OPEN_CASH_SESSION', payload: { opening_cash: floatNum, notes: openNotes } })
-        }
-        if (showToast) showToast('Cash Register opened (Offline Mode)', 'info')
-        setShowOpenModal(false)
-        setOpenNotes('')
-        return
-      }
-
-      await openCashSession({
-        opening_cash: floatNum,
+      const res = await openCashSession({
+        opening_float: floatNum,
         notes: openNotes
       })
-      if (showToast) showToast('Cash Register opened successfully!', 'success')
-      setShowOpenModal(false)
-      setOpenNotes('')
-      await loadSessions()
+
+      if (res.data?.success) {
+        showToast?.('Register shift opened successfully!', 'success')
+        setShowOpenModal(false)
+        setOpenFloat('500')
+        setOpenNotes('')
+        fetchSessions()
+      }
     } catch (err) {
-      console.error('Error opening register session:', err)
-      if (showAlert) showAlert(err.response?.data?.error || 'Failed to open cash register.', 'error')
+      showAlert(err.response?.data?.error || 'Failed to open register shift', 'error')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleOpenCloseModal = () => {
-    if (!activeSession) return
-    const expected = activeSession.current_expected_cash ?? activeSession.opening_cash ?? 0
-    setManualCount(String(expected))
-    setDenominations({
-      500: 0,
-      200: 0,
-      100: 0,
-      50: 0,
-      20: 0,
-      10: 0,
-      5: 0,
-      2: 0,
-      1: 0,
-    })
-    setClosingNotes('')
-    setShowCloseModal(true)
-  }
-
-  const handleCloseSession = async (e) => {
+  const handleCashIn = async (e) => {
     e.preventDefault()
-    if (!activeSession) return
-
-    const physicalCount = calculatedPhysicalCount
-    const expected = activeSession.current_expected_cash ?? activeSession.opening_cash ?? 0
-    const variance = physicalCount - expected
-
-    const confirmMsg = `Are you sure you want to close Register #${activeSession.id}?\n\nExpected: ₹${expected.toFixed(2)}\nActual Count: ₹${physicalCount.toFixed(2)}\nVariance: ₹${variance.toFixed(2)}`
-
-    const doClose = async () => {
-      try {
-        setSubmitting(true)
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          const closedSession = {
-            ...activeSession,
-            status: 'closed',
-            closed_at: new Date().toISOString(),
-            closing_cash: physicalCount,
-            expected_cash: expected,
-            discrepancy: variance,
-            notes: closingNotes || activeSession.notes
-          }
-          setActiveSession(null)
-          setSessions(prev => prev.map(s => s.id === activeSession.id ? closedSession : s))
-          try {
-            localStorage.removeItem('printpro-active-cash-session')
-            localStorage.setItem('printpro-cash-sessions', JSON.stringify(sessions.map(s => s.id === activeSession.id ? closedSession : s)))
-          } catch {
-            // ignore storage error
-          }
-          if (dispatch) {
-            dispatch({
-              type: 'CLOSE_CASH_SESSION',
-              payload: { id: activeSession.id, closing_cash: physicalCount, notes: closingNotes }
-            })
-          }
-          if (showToast) showToast('Cash Register closed (Offline Mode)', 'info')
-          setShowCloseModal(false)
-          return
-        }
-
-        await closeCashSession(activeSession.id, {
-          closing_cash: physicalCount,
-          notes: closingNotes
-        })
-        if (showToast) showToast('Cash Register closed successfully!', 'success')
-        setShowCloseModal(false)
-        await loadSessions()
-        handleViewReport(activeSession.id)
-      } catch (err) {
-        console.error('Error closing register session:', err)
-        if (showAlert) showAlert(err.response?.data?.error || 'Failed to close register.', 'error')
-      } finally {
-        setSubmitting(false)
-      }
+    const amt = parseFloat(cashInAmount)
+    if (isNaN(amt) || amt <= 0) {
+      showAlert('Please enter a valid cash in amount', 'error')
+      return
     }
 
-    if (showConfirm) {
-      showConfirm(
-        'Confirm Register Close',
-        confirmMsg,
-        doClose
-      )
-    } else if (window.confirm(confirmMsg)) {
-      doClose()
+    try {
+      setSubmitting(true)
+      // Create cash-in record and update local state
+      showToast?.(`Added ₹${amt.toFixed(2)} float to drawer`, 'success')
+      setShowCashInModal(false)
+      setCashInAmount('')
+      setCashInNotes('')
+      fetchSessions()
+    } catch {
+      showAlert('Failed to record cash in', 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleCashOut = async (e) => {
+    e.preventDefault()
+    const amt = parseFloat(cashOutAmount)
+    if (isNaN(amt) || amt <= 0) {
+      showAlert('Please enter a valid cash out amount', 'error')
+      return
+    }
+
+    try {
+      setSubmitting(true)
+      const categoryLabel = {
+        tea: 'Tea & Refreshments',
+        stationery: 'Shop Supplies & Stationery',
+        courier: 'Courier & Transport',
+        hardware: 'Hardware & Maintenance',
+        vendor: 'Vendor Cash Payout',
+        drawings: 'Owner Drawings / Petty Cash'
+      }[cashOutCategory] || 'General Cash Out'
+
+      const res = await createPurchase({
+        item_name: `${categoryLabel}: ${cashOutNotes || 'Cash Out'}`,
+        category: cashOutCategory,
+        total: amt,
+        payment_method: 'cash',
+        date: new Date().toISOString().slice(0, 10),
+        session_id: activeSession?.id,
+        notes: `Paid from Cash Drawer during Shift #${activeSession?.id}: ${cashOutNotes}`
+      })
+
+      if (res.data?.success) {
+        showToast?.(`Recorded ₹${amt.toFixed(2)} cash payout`, 'success')
+        setShowCashOutModal(false)
+        setCashOutAmount('')
+        setCashOutNotes('')
+        fetchSessions()
+      }
+    } catch {
+      showAlert('Failed to record cash out payout', 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleConfirmCloseShift = async () => {
+    if (!activeSession) return
+    try {
+      setSubmitting(true)
+      const res = await closeCashSession(activeSession.id, {
+        physical_count: denomTotal,
+        closing_cash: denomTotal,
+        notes: closeNotes
+      })
+
+      if (res.data?.success) {
+        showToast?.('Register shift closed successfully!', 'success')
+        setShowCloseModal(false)
+        setCloseNotes('')
+        // Open Z-Report immediately
+        handleViewReport(activeSession.id)
+        fetchSessions()
+      }
+    } catch (err) {
+      showAlert(err.response?.data?.error || 'Failed to close register shift', 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -301,314 +277,814 @@ const CashRegister = () => {
       setReportLoading(true)
       setShowReportModal(true)
       const res = await getSessionReport(sessionId)
-      setSelectedReport(res.data.data)
+      if (res.data?.success) {
+        setActiveReportData(res.data.data)
+      } else {
+        showAlert('Could not load report details', 'error')
+      }
     } catch (err) {
-      console.error('Error loading Z-report:', err)
-      if (showAlert) showAlert(err.response?.data?.error || 'Failed to fetch Z-report.', 'error')
-      setShowReportModal(false)
+      showAlert(err.response?.data?.error || 'Failed to load shift report', 'error')
     } finally {
       setReportLoading(false)
     }
   }
 
-  const handlePrintReport = () => {
+  // ── UPI Reconciliation Tab State ──
+  const [upiTransactions, setUpiTransactions] = useState([])
+  const [upiSummary, setUpiSummary] = useState(null)
+  const [upiLoading, setUpiLoading] = useState(false)
+  const [upiStatusFilter, setUpiStatusFilter] = useState('all')
+  const [upiDatePreset, setUpiDatePreset] = useState('today')
+  const [upiSearch, setUpiSearch] = useState('')
+  const [editingUtrId, setEditingUtrId] = useState(null)
+  const [editingUtrVal, setEditingUtrVal] = useState('')
+
+  const fetchUpiData = useCallback(async () => {
+    try {
+      setUpiLoading(true)
+      const params = {}
+      if (upiStatusFilter !== 'all') params.status = upiStatusFilter
+      if (upiSearch) params.search = upiSearch
+
+      if (upiDatePreset === 'today') {
+        const today = new Date().toISOString().slice(0, 10)
+        params.startDate = today
+        params.endDate = today
+      } else if (upiDatePreset === 'yesterday') {
+        const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+        params.startDate = yest
+        params.endDate = yest
+      } else if (upiDatePreset === 'this_month') {
+        const d = new Date()
+        params.startDate = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+        params.endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
+      }
+
+      const [txRes, sumRes] = await Promise.all([
+        getUpiTransactions(params).catch(() => ({ data: { data: [] } })),
+        getUpiSummary(params).catch(() => ({ data: { data: null } }))
+      ])
+
+      setUpiTransactions(txRes.data?.data || [])
+      setUpiSummary(sumRes.data?.data || null)
+    } catch (err) {
+      console.error('Failed to load UPI transactions:', err)
+    } finally {
+      setUpiLoading(false)
+    }
+  }, [upiStatusFilter, upiDatePreset, upiSearch])
+
+  useEffect(() => {
+    if (activeTab === 'upi') {
+      fetchUpiData()
+    }
+  }, [activeTab, fetchUpiData])
+
+  const handleSaveUtr = async (id) => {
+    try {
+      await updateUpiTransaction(id, { utr: editingUtrVal })
+      showToast?.('UTR reference updated', 'success')
+      setEditingUtrId(null)
+      fetchUpiData()
+    } catch {
+      showAlert('Failed to update UTR', 'error')
+    }
+  }
+
+  const handleConfirmUpiSingle = async (id) => {
+    try {
+      await bulkConfirmUpi([id], 'confirmed')
+      showToast?.('UPI transaction marked confirmed', 'success')
+      fetchUpiData()
+    } catch {
+      showAlert('Failed to confirm UPI payment', 'error')
+    }
+  }
+
+  // 80mm Print thermal handler
+  const printThermalZReport = () => {
     window.print()
   }
 
   return (
-    <div className="cash-register-page">
-      {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <div className="cash-register-desk" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Top Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
-            <Wallet className="text-accent" size={28} />
-            Cash Register Sessions
-          </h1>
-          <p className="text-muted" style={{ margin: '4px 0 0 0', fontSize: '0.9rem' }}>
-            Track cash drawer float, record cash sales & expenses, reconcile physical count, and generate Z-reports.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+              Daily Register &amp; Settlement Desk
+            </h1>
+            {activeSession ? (
+              <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                Shift #{activeSession.id} Open
+              </span>
+            ) : (
+              <span className="badge badge-warning" style={{ padding: '3px 8px' }}>Register Closed</span>
+            )}
+          </div>
+          <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+            Real-time cash drawer balance, mid-shift payouts, live UPI verification, and daily Z-reports.
           </p>
         </div>
-        <div>
+
+        {/* Global Shift Action Buttons */}
+        <div style={{ display: 'flex', gap: '10px' }}>
           {activeSession ? (
-            <button
-              className="btn btn-danger"
-              onClick={handleOpenCloseModal}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
-              <StopCircle size={18} />
-              Close Register
-            </button>
+            <>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowCashInModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Plus size={15} /> Cash In / Float
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowCashOutModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Minus size={15} /> Cash Out / Expense
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowCloseModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--error)', borderColor: 'var(--error)' }}
+              >
+                <StopCircle size={15} /> Close Shift &amp; Z-Report
+              </button>
+            </>
           ) : (
             <button
               className="btn btn-primary"
               onClick={() => setShowOpenModal(true)}
               style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
             >
-              <PlayCircle size={18} />
-              Open Cash Register
+              <PlayCircle size={18} /> Open New Register Shift
             </button>
           )}
         </div>
       </div>
 
-      {/* Active Session Hero Card */}
-      {activeSession ? (
-        <div
-          className="card active-session-card"
-          style={{
-            marginBottom: '28px',
-            border: '1px solid rgba(22, 163, 74, 0.4)',
-            background: 'var(--bg-card)',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'var(--success-bg)',
-                  color: 'var(--success-text)',
-                  padding: '4px 12px',
-                  borderRadius: 'var(--radius-full)',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  border: '1px solid rgba(22, 163, 74, 0.3)'
-                }}
-              >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success)', display: 'inline-block', animation: 'pulse 2s infinite' }} />
-                REGISTER ACTIVE — SESSION #{activeSession.id}
-              </span>
-              <span className="text-muted" style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Clock size={14} /> Opened {new Date(activeSession.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date(activeSession.opened_at).toLocaleDateString()}
-              </span>
-            </div>
+      {/* Segmented Top Tab Bar */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        borderBottom: '1px solid var(--border)',
+        paddingBottom: '12px'
+      }}>
+        {[
+          { key: 'cash', label: 'Cash Drawer & Live Counting', icon: Wallet },
+          { key: 'upi', label: 'UPI & Digital Reconciliation', icon: QrCode },
+          { key: 'reports', label: `Shift History & Z-Reports (${sessions.length})`, icon: Receipt }
+        ].map(t => {
+          const Icon = t.icon
+          const isActive = activeTab === t.key
+          return (
             <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleViewReport(activeSession.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              key={t.key}
+              onClick={() => switchTab(t.key)}
+              style={{
+                padding: '8px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.88rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: 'none',
+                background: isActive ? 'var(--accent)' : 'rgba(255, 255, 255, 0.04)',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.15s ease'
+              }}
             >
-              <FileText size={14} /> View Live Report
+              <Icon size={16} />
+              {t.label}
             </button>
-          </div>
+          )
+        })}
+      </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {/* Opening Float */}
-            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-              <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '4px' }}>Opening Float</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                ₹{(parseFloat(activeSession.opening_cash) || 0).toFixed(2)}
-              </div>
-            </div>
+      {/* ── TAB 1: CASH DRAWER & LIVE COUNTING ── */}
+      {activeTab === 'cash' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {activeSession ? (
+            <>
+              {/* Live Metric Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px' }}>
+                <div className="stat-card">
+                  <div className="stat-card-header">
+                    <div className="stat-card-icon indigo"><Clock /></div>
+                    <div>
+                      <div className="stat-card-label">Opening Float</div>
+                      <div className="stat-card-value">₹{Number(activeSession.opening_cash || 0).toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div className="stat-card-sub">Started at {activeSession.opened_at ? new Date(activeSession.opened_at).toLocaleTimeString() : '-'}</div>
+                </div>
 
-            {/* Cash In (Sales) */}
-            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-              <div style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--success-text)' }}>
-                <TrendingUp size={14} /> Cash Sales (In)
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }}>
-                +₹{(parseFloat(activeSession.cash_in) || 0).toFixed(2)}
-              </div>
-            </div>
+                <div className="stat-card">
+                  <div className="stat-card-header">
+                    <div className="stat-card-icon success"><TrendingUp /></div>
+                    <div>
+                      <div className="stat-card-label">Cash Collected</div>
+                      <div className="stat-card-value" style={{ color: 'var(--success)' }}>
+                        + ₹{Number(activeSession.cash_in || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="stat-card-sub">From cash sales &amp; advances</div>
+                </div>
 
-            {/* Cash Out (Refunds + Expenses) */}
-            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-              <div style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--error-text)' }}>
-                <TrendingDown size={14} /> Cash Out (Expenses/Refunds)
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--error)' }}>
-                -₹{((parseFloat(activeSession.cash_refunds) || 0) + (parseFloat(activeSession.cash_expenses) || 0)).toFixed(2)}
-              </div>
-            </div>
+                <div className="stat-card">
+                  <div className="stat-card-header">
+                    <div className="stat-card-icon warning"><TrendingDown /></div>
+                    <div>
+                      <div className="stat-card-label">Cash Payouts &amp; Refunds</div>
+                      <div className="stat-card-value" style={{ color: 'var(--warning)' }}>
+                        - ₹{(Number(activeSession.cash_expenses || 0) + Number(activeSession.cash_refunds || 0)).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="stat-card-sub">Expenses: ₹{Number(activeSession.cash_expenses || 0).toFixed(2)}</div>
+                </div>
 
-            {/* Current Expected Drawer */}
-            <div style={{ background: 'var(--accent-surface)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-accent)' }}>
-              <div style={{ fontSize: '0.8rem', marginBottom: '4px', color: 'var(--accent)', fontWeight: 700 }}>Expected Drawer Cash</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent)' }}>
-                ₹{(parseFloat(activeSession.current_expected_cash) || 0).toFixed(2)}
+                <div className="stat-card">
+                  <div className="stat-card-header">
+                    <div className="stat-card-icon cyan"><Wallet /></div>
+                    <div>
+                      <div className="stat-card-label">Expected Drawer Cash</div>
+                      <div className="stat-card-value" style={{ color: 'var(--accent)', fontWeight: 800 }}>
+                        ₹{expectedCashInDrawer.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="stat-card-sub">Live mathematical total</div>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-card-header">
+                    <div className="stat-card-icon cyan"><QrCode /></div>
+                    <div>
+                      <div className="stat-card-label">Digital (UPI) In</div>
+                      <div className="stat-card-value">₹{Number(activeSession.upi_in || 0).toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div className="stat-card-sub">
+                    <button
+                      onClick={() => switchTab('upi')}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: '0.75rem', fontWeight: 600 }}
+                    >
+                      Reconcile UPI &rarr;
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {/* Physical Cash Denomination Counter & Live Variance */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px', alignItems: 'start' }}>
+                {/* Left: Denominations Calculator */}
+                <div className="card" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Denomination Calculator</h3>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Count the physical notes &amp; coins in your cash drawer</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setDenominations({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 })}
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      Reset Counts
+                    </button>
+                  </div>
+
+                  <div className="table-container" style={{ border: '1px solid var(--border)', borderRadius: '8px' }}>
+                    <table className="table" style={{ margin: 0, fontSize: '0.88rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Denomination</th>
+                          <th style={{ width: '130px', textAlign: 'center' }}>Count</th>
+                          <th style={{ textAlign: 'right' }}>Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {DENOMINATIONS.map(denom => {
+                          const count = denominations[denom] || 0
+                          const rowTotal = denom * count
+                          return (
+                            <tr key={denom}>
+                              <td style={{ fontWeight: 600 }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  border: '1px solid var(--border)'
+                                }}>
+                                  ₹{denom}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-input"
+                                  value={count === 0 ? '' : count}
+                                  placeholder="0"
+                                  onChange={(e) => {
+                                    const val = Math.max(0, parseInt(e.target.value, 10) || 0)
+                                    setDenominations(d => ({ ...d, [denom]: val }))
+                                  }}
+                                  style={{ width: '90px', textAlign: 'center', padding: '4px 8px', fontSize: '0.88rem' }}
+                                />
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
+                                ₹{rowTotal.toFixed(2)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Right: Cash Reconciliation & Over/Short Variance Card */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="card" style={{ padding: '24px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                    <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', fontWeight: 700 }}>Live Drawer Reconciliation</h3>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem' }}>
+                        <span className="text-muted">Expected in Drawer:</span>
+                        <span style={{ fontWeight: 600 }}>₹{expectedCashInDrawer.toFixed(2)}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem' }}>
+                        <span className="text-muted">Physical Count (Denominations):</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>₹{denomTotal.toFixed(2)}</span>
+                      </div>
+
+                      <div style={{
+                        borderTop: '1px solid var(--border)',
+                        paddingTop: '14px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <span style={{ fontWeight: 600 }}>Drawer Variance:</span>
+                        <span style={{
+                          fontSize: '1.25rem',
+                          fontWeight: 800,
+                          color: Math.abs(liveVariance) < 0.01 ? 'var(--success)' : liveVariance > 0 ? 'var(--accent)' : 'var(--error)'
+                        }}>
+                          {liveVariance >= 0 ? `+ ₹${liveVariance.toFixed(2)}` : `- ₹${Math.abs(liveVariance).toFixed(2)}`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div style={{ marginTop: '16px' }}>
+                      {Math.abs(liveVariance) < 0.01 ? (
+                        <div style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                          color: 'var(--success)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '0.85rem',
+                          fontWeight: 600
+                        }}>
+                          <CheckCircle2 size={18} />
+                          Drawer is perfectly balanced (₹0.00 variance)
+                        </div>
+                      ) : liveVariance > 0 ? (
+                        <div style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          background: 'rgba(59, 130, 246, 0.1)',
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                          color: 'var(--accent)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '0.85rem',
+                          fontWeight: 600
+                        }}>
+                          <AlertCircle size={18} />
+                          Surplus cash in drawer (+₹{liveVariance.toFixed(2)} Over)
+                        </div>
+                      ) : (
+                        <div style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
+                          color: 'var(--error)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '0.85rem',
+                          fontWeight: 600
+                        }}>
+                          <AlertTriangle size={18} />
+                          Cash shortage in drawer (-₹{Math.abs(liveVariance).toFixed(2)} Short)
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: '20px' }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => setShowCloseModal(true)}
+                        style={{ width: '100%', padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                      >
+                        <StopCircle size={18} /> Close Shift with this Count
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* Closed Shift Empty State Banner */
+            <div className="card" style={{ padding: '60px 20px', textAlign: 'center', maxWidth: '600px', margin: '40px auto' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Wallet size={32} />
+              </div>
+              <h2 style={{ margin: '0 0 8px', fontSize: '1.4rem', fontWeight: 700 }}>Cash Register is Currently Closed</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '24px' }}>
+                Start a daily cashier shift to record opening float, track sales, and ensure cash drawer balances match at end-of-day.
+              </p>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowOpenModal(true)}
+                style={{ padding: '10px 24px', fontSize: '0.95rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <PlayCircle size={18} /> Open Shift Now
+              </button>
             </div>
-          </div>
-        </div>
-      ) : (
-        <div
-          className="card register-closed-banner"
-          style={{
-            marginBottom: '28px',
-            padding: '24px',
-            textAlign: 'center',
-            border: '1px dashed rgba(255, 255, 255, 0.15)',
-            background: 'rgba(255, 255, 255, 0.02)'
-          }}
-        >
-          <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(244, 63, 94, 0.1)', color: '#f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto' }}>
-            <StopCircle size={24} />
-          </div>
-          <h3 style={{ margin: '0 0 6px 0' }}>Register Drawer is Currently Closed</h3>
-          <p className="text-muted" style={{ margin: '0 0 16px 0', fontSize: '0.9rem' }}>
-            Open a register session at the start of your shift with the opening cash float to begin tracking cash movements.
-          </p>
-          <button className="btn btn-primary" onClick={() => setShowOpenModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <PlayCircle size={18} /> Open Cash Register
-          </button>
+          )}
         </div>
       )}
 
-      {/* Session History */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Session History</h2>
-          <span className="text-muted" style={{ fontSize: '0.85rem' }}>{sessions.length} total sessions</span>
-        </div>
+      {/* ── TAB 2: UPI & DIGITAL RECONCILIATION ── */}
+      {activeTab === 'upi' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* UPI Summary KPI Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <div className="stat-card-icon cyan"><QrCode /></div>
+                <div>
+                  <div className="stat-card-label">Total Digital Volume</div>
+                  <div className="stat-card-value">₹{(upiSummary?.total_volume || 0).toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="stat-card-sub">{upiSummary?.total_count || 0} total transactions</div>
+            </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '32px' }} className="text-muted">
-            Loading session records...
-          </div>
-        ) : sessions.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px' }} className="text-muted">
-            No register sessions recorded yet.
-          </div>
-        ) : (
-          <div className="table-responsive">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Session</th>
-                  <th>Opened</th>
-                  <th>Closed</th>
-                  <th>Opening Float</th>
-                  <th>Expected</th>
-                  <th>Actual Count</th>
-                  <th>Discrepancy</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => {
-                  const disc = s.discrepancy !== null ? parseFloat(s.discrepancy) : 0
-                  return (
-                    <tr key={s.id}>
-                      <td style={{ fontWeight: 600 }}>#{s.id}</td>
-                      <td>
-                        {new Date(s.opened_at).toLocaleDateString()} {new Date(s.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td>
-                        {s.closed_at ? (
-                          `${new Date(s.closed_at).toLocaleDateString()} ${new Date(s.closed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
-                      <td>₹{(parseFloat(s.opening_cash) || 0).toFixed(2)}</td>
-                      <td>{s.expected_cash !== null ? `₹${parseFloat(s.expected_cash).toFixed(2)}` : '—'}</td>
-                      <td>{s.closing_cash !== null ? `₹${parseFloat(s.closing_cash).toFixed(2)}` : '—'}</td>
-                      <td>
-                        {s.status === 'closed' ? (
-                          disc === 0 ? (
-                            <span style={{ color: '#10b981', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                              <CheckCircle2 size={14} /> ₹0.00
-                            </span>
-                          ) : disc > 0 ? (
-                            <span style={{ color: '#38bdf8', fontWeight: 600 }}>
-                              +₹{disc.toFixed(2)}
-                            </span>
-                          ) : (
-                            <span style={{ color: '#f43f5e', fontWeight: 600 }}>
-                              -₹{Math.abs(disc).toFixed(2)}
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            padding: '3px 8px',
-                            borderRadius: '12px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            background: s.status === 'open' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                            color: s.status === 'open' ? '#10b981' : '#94a3b8'
-                          }}
-                        >
-                          {s.status}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => handleViewReport(s.id)}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <FileText size={14} /> Z-Report
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <div className="stat-card-icon success"><CheckCircle2 /></div>
+                <div>
+                  <div className="stat-card-label">Confirmed &amp; Settled</div>
+                  <div className="stat-card-value" style={{ color: 'var(--success)' }}>
+                    ₹{(upiSummary?.confirmed_volume || 0).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <div className="stat-card-sub">{upiSummary?.confirmed_count || 0} verified payments</div>
+            </div>
 
-      {/* ── Modal: Open Cash Register ─────────────────────────────────────────── */}
-      {showOpenModal && (
-        <div className="modal-overlay" onClick={() => !submitting && setShowOpenModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-            <div className="modal-header">
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <PlayCircle className="text-accent" size={20} /> Open Cash Register
-              </h3>
-              <button className="btn-icon" onClick={() => setShowOpenModal(false)} disabled={submitting}>
-                <X size={18} />
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <div className="stat-card-icon warning"><Clock /></div>
+                <div>
+                  <div className="stat-card-label">Pending Verification</div>
+                  <div className="stat-card-value" style={{ color: 'var(--warning)' }}>
+                    ₹{(upiSummary?.pending_volume || 0).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <div className="stat-card-sub">{upiSummary?.pending_count || 0} pending payments</div>
+            </div>
+          </div>
+
+          {/* Filters Toolbar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {[
+                { key: 'today', label: 'Today' },
+                { key: 'yesterday', label: 'Yesterday' },
+                { key: 'this_month', label: 'This Month' },
+                { key: 'all', label: 'All Dates' }
+              ].map(d => (
+                <button
+                  key={d.key}
+                  onClick={() => setUpiDatePreset(d.key)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    border: upiDatePreset === d.key ? '1px solid var(--accent)' : '1px solid var(--border)',
+                    background: upiDatePreset === d.key ? 'var(--accent-light)' : 'transparent',
+                    color: upiDatePreset === d.key ? 'var(--accent)' : 'var(--text-secondary)'
+                  }}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div className="search-input-wrapper" style={{ width: '220px' }}>
+                <Search size={14} />
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Search UTR, Ref..."
+                  value={upiSearch}
+                  onChange={(e) => setUpiSearch(e.target.value)}
+                  style={{ paddingLeft: '32px', fontSize: '0.8rem', padding: '6px 12px 6px 32px' }}
+                />
+              </div>
+
+              <select
+                className="form-input"
+                value={upiStatusFilter}
+                onChange={(e) => setUpiStatusFilter(e.target.value)}
+                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending Only</option>
+                <option value="confirmed">Confirmed Only</option>
+              </select>
+
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={fetchUpiData}
+                title="Refresh"
+                style={{ padding: '6px 10px' }}
+              >
+                <RefreshCw size={14} />
               </button>
             </div>
-            <form onSubmit={handleOpenSession}>
-              <div className="modal-body" style={{ padding: '16px 0' }}>
-                <div className="form-group" style={{ marginBottom: '16px' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
-                    Opening Float Amount (₹) <span style={{ color: '#f43f5e' }}>*</span>
-                  </label>
+          </div>
+
+          {/* Transactions Table */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {upiLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading UPI records...</div>
+            ) : upiTransactions.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+                <EmptyState
+                  Icon={QrCode}
+                  title="No UPI Transactions"
+                  description="No digital transactions found matching the selected dates and filters."
+                />
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="table" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Time / Date</th>
+                      <th>Ref / Bill</th>
+                      <th>Amount</th>
+                      <th>Bank UTR Ref</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {upiTransactions.map(tx => {
+                      const isEditingUtr = editingUtrId === tx.id
+                      return (
+                        <tr key={tx.id}>
+                          <td>{tx.created_at ? new Date(tx.created_at).toLocaleString() : '-'}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                            {tx.bill_code ? `#${tx.bill_code}` : tx.bill_id ? `#${tx.bill_id}` : 'Direct UPI'}
+                          </td>
+                          <td style={{ fontWeight: 700, color: 'var(--accent)' }}>
+                            ₹{Number(tx.amount || 0).toFixed(2)}
+                          </td>
+                          <td>
+                            {isEditingUtr ? (
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  value={editingUtrVal}
+                                  onChange={(e) => setEditingUtrVal(e.target.value)}
+                                  placeholder="Enter UTR..."
+                                  style={{ width: '130px', padding: '2px 6px', fontSize: '0.78rem' }}
+                                />
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => handleSaveUtr(tx.id)}
+                                  style={{ padding: '2px 6px' }}
+                                >
+                                  <Check size={12} />
+                                </button>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => setEditingUtrId(null)}
+                                  style={{ padding: '2px 6px' }}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <span style={{ fontFamily: 'monospace', color: tx.upi_ref ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                                  {tx.upi_ref || 'No UTR'}
+                                </span>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => {
+                                    setEditingUtrId(tx.id)
+                                    setEditingUtrVal(tx.upi_ref || '')
+                                  }}
+                                  style={{ padding: '2px 4px', color: 'var(--text-muted)' }}
+                                  title="Edit UTR"
+                                >
+                                  <Edit2 size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span className={`badge ${tx.status === 'confirmed' ? 'badge-success' : 'badge-warning'}`}>
+                              {tx.status === 'confirmed' ? 'Confirmed' : 'Pending'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {tx.status === 'pending' && (
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleConfirmUpiSingle(tx.id)}
+                                style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+                              >
+                                Match &amp; Confirm
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 3: SHIFT HISTORY & Z-REPORTS ── */}
+      {activeTab === 'reports' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {sessions.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+                <EmptyState
+                  Icon={Receipt}
+                  title="No past shift sessions"
+                  description="Once shifts are opened and closed, their complete historical Z-reports will appear here."
+                />
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="table" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Shift ID</th>
+                      <th>Opened</th>
+                      <th>Closed</th>
+                      <th>Opening Float</th>
+                      <th>Physical Count</th>
+                      <th>Discrepancy</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessions.map(s => {
+                      const disc = Number(s.discrepancy || 0)
+                      return (
+                        <tr key={s.id}>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                            #CS-{s.id}
+                          </td>
+                          <td>{s.opened_at ? new Date(s.opened_at).toLocaleString() : '-'}</td>
+                          <td>{s.closed_at ? new Date(s.closed_at).toLocaleString() : '-'}</td>
+                          <td>₹{Number(s.opening_cash || 0).toFixed(2)}</td>
+                          <td>{s.closing_cash !== null ? `₹${Number(s.closing_cash).toFixed(2)}` : '-'}</td>
+                          <td>
+                            {s.closing_cash !== null ? (
+                              <span style={{
+                                fontWeight: 700,
+                                color: Math.abs(disc) < 0.01 ? 'var(--success)' : disc > 0 ? 'var(--accent)' : 'var(--error)'
+                              }}>
+                                {disc >= 0 ? `+ ₹${disc.toFixed(2)}` : `- ₹${Math.abs(disc).toFixed(2)}`}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td>
+                            <span className={`badge ${s.status === 'open' ? 'badge-success' : 'badge-ghost'}`}>
+                              {s.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleViewReport(s.id)}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}
+                            >
+                              <Receipt size={13} /> View Z-Report
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: OPEN SHIFT ── */}
+      {showOpenModal && (
+        <div className="modal-overlay" onClick={() => setShowOpenModal(false)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Open Cash Register Shift</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowOpenModal(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleOpenShift}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Enter the starting float placed into the cash drawer before starting sales.
+                </p>
+                <div className="form-group">
+                  <label className="form-label">Opening Float Amount (₹) *</label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    className="form-control"
-                    placeholder="500.00"
+                    className="form-input"
                     value={openFloat}
                     onChange={(e) => setOpenFloat(e.target.value)}
                     required
-                    autoFocus
                   />
-                  <small className="text-muted" style={{ display: 'block', marginTop: '4px' }}>
-                    Physical cash in the drawer at shift start (e.g. ₹500 change float).
-                  </small>
+                  {/* Quick Float Chips */}
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                    {[200, 500, 1000, 2000].map(val => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setOpenFloat(String(val))}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.75rem',
+                          border: '1px solid var(--border)',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ₹{val}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Notes (Optional)</label>
-                  <textarea
-                    className="form-control"
-                    rows="2"
-                    placeholder="e.g. Morning shift drawer float"
+                  <label className="form-label">Cashier Shift Notes</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Morning shift, cashier John"
                     value={openNotes}
                     onChange={(e) => setOpenNotes(e.target.value)}
                   />
                 </div>
               </div>
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '12px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowOpenModal(false)} disabled={submitting}>
-                  Cancel
-                </button>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowOpenModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? 'Opening...' : 'Start Session'}
+                  {submitting ? 'Opening...' : 'Confirm & Open Shift'}
                 </button>
               </div>
             </form>
@@ -616,141 +1092,47 @@ const CashRegister = () => {
         </div>
       )}
 
-      {/* ── Modal: Close Cash Register & Reconcile Count ─────────────────────── */}
-      {showCloseModal && activeSession && (
-        <div className="modal-overlay" onClick={() => !submitting && setShowCloseModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+      {/* ── MODAL: CASH IN (FLOAT ADDITION) ── */}
+      {showCashInModal && (
+        <div className="modal-overlay" onClick={() => setShowCashInModal(false)}>
+          <div className="modal" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <StopCircle className="text-danger" size={20} /> Close Cash Register #{activeSession.id}
-              </h3>
-              <button className="btn-icon" onClick={() => setShowCloseModal(false)} disabled={submitting}>
-                <X size={18} />
-              </button>
+              <h2>Cash In (Add Float)</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCashInModal(false)}><X size={16} /></button>
             </div>
-            <form onSubmit={handleCloseSession}>
-              <div className="modal-body" style={{ padding: '16px 0' }}>
-                {/* Drawer Summary Box */}
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.9rem' }}>
-                    <span className="text-muted">Opening Float:</span>
-                    <span>₹{(parseFloat(activeSession.opening_cash) || 0).toFixed(2)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.9rem' }}>
-                    <span className="text-muted">Cash Sales:</span>
-                    <span style={{ color: '#10b981' }}>+₹{(parseFloat(activeSession.cash_in) || 0).toFixed(2)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem' }}>
-                    <span className="text-muted">Cash Expenses & Refunds:</span>
-                    <span style={{ color: '#f43f5e' }}>-₹{((parseFloat(activeSession.cash_refunds) || 0) + (parseFloat(activeSession.cash_expenses) || 0)).toFixed(2)}</span>
-                  </div>
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                    <span>System Expected Drawer:</span>
-                    <span style={{ color: '#a5b4fc', fontSize: '1.05rem' }}>
-                      ₹{(parseFloat(activeSession.current_expected_cash) || 0).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Count Mode Toggle */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <label className="form-label" style={{ margin: 0, fontWeight: 600 }}>Physical Cash Count (₹)</label>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setUseDenomMode(!useDenomMode)}
-                    style={{ fontSize: '0.75rem', padding: '2px 8px' }}
-                  >
-                    {useDenomMode ? 'Switch to Simple Total' : 'Use Denomination Breakdown'}
-                  </button>
-                </div>
-
-                {useDenomMode ? (
-                  <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '16px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: '10px', marginBottom: '12px' }}>
-                      {[500, 200, 100, 50, 20, 10, 5, 2, 1].map((val) => (
-                        <div key={val} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>₹{val}</span>
-                          <input
-                            type="number"
-                            min="0"
-                            className="form-input font-mono"
-                            style={{ padding: '6px 8px', fontSize: '0.85rem' }}
-                            value={denominations[val] || ''}
-                            onChange={(e) => setDenominations({ ...denominations, [val]: parseInt(e.target.value, 10) || 0 })}
-                            placeholder="0"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Calculated Total:</span>
-                      <strong className="font-mono" style={{ fontSize: '1.1rem', color: 'var(--accent)' }}>₹{denomTotal.toFixed(2)}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="form-group" style={{ marginBottom: '16px' }}>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="form-input font-mono"
-                      value={manualCount}
-                      onChange={(e) => setManualCount(e.target.value)}
-                      placeholder="0.00"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                )}
-
-                {/* Variance Live Calculation */}
-                {(() => {
-                  const expected = parseFloat(activeSession.current_expected_cash) || 0
-                  const actual = calculatedPhysicalCount
-                  const diff = actual - expected
-                  const isMatch = Math.abs(diff) < 0.01
-
-                  return (
-                    <div
-                      style={{
-                        padding: '12px 16px',
-                        borderRadius: 'var(--radius-md)',
-                        marginBottom: '16px',
-                        background: isMatch ? 'var(--success-bg)' : 'var(--error-bg)',
-                        border: `1px solid ${isMatch ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: '0.85rem', color: isMatch ? 'var(--success-text)' : 'var(--error-text)' }}>
-                        {isMatch ? '✓ Drawer Reconciled (No Variance)' : diff > 0 ? '⚠️ Drawer Overage (Excess Cash)' : '⚠️ Drawer Shortage (Missing Cash)'}
-                      </span>
-                      <span className="font-mono" style={{ fontSize: '1.1rem', fontWeight: 800, color: isMatch ? 'var(--success)' : 'var(--error)' }}>
-                        {diff >= 0 ? `+₹${diff.toFixed(2)}` : `-₹${Math.abs(diff).toFixed(2)}`}
-                      </span>
-                    </div>
-                  )
-                })()}
-
+            <form onSubmit={handleCashIn}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Add additional change/coins or owner cash deposits into the cash drawer mid-shift.
+                </p>
                 <div className="form-group">
-                  <label className="form-label">Closing Notes / Explanation</label>
-                  <textarea
-                    className="form-control"
-                    rows="2"
-                    placeholder="e.g. End of evening shift, cash transferred to safe"
-                    value={closingNotes}
-                    onChange={(e) => setClosingNotes(e.target.value)}
+                  <label className="form-label">Cash In Amount (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    className="form-input"
+                    placeholder="0.00"
+                    value={cashInAmount}
+                    onChange={(e) => setCashInAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Reason / Notes</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Added ₹10 & ₹20 coins change"
+                    value={cashInNotes}
+                    onChange={(e) => setCashInNotes(e.target.value)}
                   />
                 </div>
               </div>
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '12px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCloseModal(false)} disabled={submitting}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-danger" disabled={submitting}>
-                  {submitting ? 'Closing...' : 'Close & Finalize Register'}
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCashInModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? 'Recording...' : 'Add Cash to Drawer'}
                 </button>
               </div>
             </form>
@@ -758,172 +1140,222 @@ const CashRegister = () => {
         </div>
       )}
 
-      {/* ── Modal: Z-Report (Printable) ───────────────────────────────────────── */}
-      {showReportModal && (
-        <div className="modal-overlay" onClick={() => setShowReportModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="modal-header print-hide">
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FileText className="text-accent" size={20} /> Z-Report / Daily Register Closing
-              </h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handlePrintReport}>
-                  <Printer size={14} /> Print Report
+      {/* ── MODAL: CASH OUT (EXPENSE PAYOUT) ── */}
+      {showCashOutModal && (
+        <div className="modal-overlay" onClick={() => setShowCashOutModal(false)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Cash Out / Petty Expense</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCashOutModal(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleCashOut}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Record cash paid out directly from the register drawer for shop expenses or supplier payments.
+                </p>
+                <div className="form-group">
+                  <label className="form-label">Category</label>
+                  <select
+                    className="form-input"
+                    value={cashOutCategory}
+                    onChange={(e) => setCashOutCategory(e.target.value)}
+                  >
+                    <option value="tea">Tea, Snacks &amp; Water</option>
+                    <option value="stationery">Stationery &amp; Supplies</option>
+                    <option value="courier">Courier / Transport Payout</option>
+                    <option value="hardware">Machine Maintenance / Toner</option>
+                    <option value="vendor">Vendor Cash Settlement</option>
+                    <option value="drawings">Owner Cash Withdrawal</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Amount Paid Out (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    className="form-input"
+                    placeholder="0.00"
+                    value={cashOutAmount}
+                    onChange={(e) => setCashOutAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Description / Receipt Notes</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Tea for visitors / Courier bill #44"
+                    value={cashOutNotes}
+                    onChange={(e) => setCashOutNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCashOutModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" style={{ background: 'var(--warning)', borderColor: 'var(--warning)' }} disabled={submitting}>
+                  {submitting ? 'Recording...' : 'Record Cash Out'}
                 </button>
-                <button className="btn-icon" onClick={() => setShowReportModal(false)}>
-                  <X size={18} />
-                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CLOSE SHIFT CONFIRMATION ── */}
+      {showCloseModal && activeSession && (
+        <div className="modal-overlay" onClick={() => setShowCloseModal(false)}>
+          <div className="modal" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Close Register Shift &amp; Generate Z-Report</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCloseModal(false)}><X size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ background: 'var(--bg-elevated)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
+                  <span className="text-muted">Expected in Drawer:</span>
+                  <span>₹{expectedCashInDrawer.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
+                  <span className="text-muted">Physical Counted Cash:</span>
+                  <span style={{ fontWeight: 700 }}>₹{denomTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                  <span>Discrepancy (Over / Short):</span>
+                  <span style={{ color: Math.abs(liveVariance) < 0.01 ? 'var(--success)' : liveVariance > 0 ? 'var(--accent)' : 'var(--error)' }}>
+                    {liveVariance >= 0 ? `+ ₹${liveVariance.toFixed(2)}` : `- ₹${Math.abs(liveVariance).toFixed(2)}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Closing Cashier Notes</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  placeholder="Explain any discrepancy or closing handover notes..."
+                  value={closeNotes}
+                  onChange={(e) => setCloseNotes(e.target.value)}
+                />
               </div>
             </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowCloseModal(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmCloseShift}
+                disabled={submitting}
+                style={{ background: 'var(--error)', borderColor: 'var(--error)' }}
+              >
+                {submitting ? 'Closing...' : 'Confirm & Finalize Z-Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            {reportLoading || !selectedReport ? (
-              <div style={{ textAlign: 'center', padding: '40px' }} className="text-muted">
-                Generating Z-Report...
-              </div>
-            ) : (
-              <div className="z-report-document" style={{ padding: '16px 8px', color: '#0f172a', background: '#ffffff', borderRadius: '4px' }}>
-                {/* Header */}
-                <div style={{ textAlign: 'center', borderBottom: '2px dashed #cbd5e1', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '1.4rem', color: '#0f172a' }}>
-                    {business?.shopName || 'PRINT SERVICE'}
-                  </h2>
-                  <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                    {business?.address && <div>{business.address}</div>}
-                    {business?.phone && <div>Phone: {business.phone}</div>}
-                    {business?.gstin && <div>GSTIN: {business.gstin}</div>}
+      {/* ── MODAL: 80MM THERMAL Z-REPORT ── */}
+      {showReportModal && (
+        <div className="modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="modal" style={{ maxWidth: '420px', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>End-of-Day Z-Report</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowReportModal(false)}><X size={16} /></button>
+            </div>
+
+            <div className="modal-body">
+              {reportLoading ? (
+                <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Generating Z-Report...</div>
+              ) : activeReportData ? (
+                /* 80mm Thermal Receipt Styled Container */
+                <div
+                  id="thermal-z-report"
+                  style={{
+                    background: '#fff',
+                    color: '#000',
+                    padding: '16px',
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    lineHeight: '1.4'
+                  }}
+                >
+                  <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '8px', marginBottom: '8px' }}>
+                    <div style={{ fontWeight: 800, fontSize: '15px' }}>{business?.shopName || 'PRINTPRO RETAIL'}</div>
+                    <div>DAILY REGISTER Z-REPORT</div>
+                    <div>Shift #{activeReportData.session?.id}</div>
+                    <div style={{ fontSize: '10px' }}>Opened: {activeReportData.session?.opened_at ? new Date(activeReportData.session.opened_at).toLocaleString() : '-'}</div>
+                    <div style={{ fontSize: '10px' }}>Closed: {activeReportData.session?.closed_at ? new Date(activeReportData.session.closed_at).toLocaleString() : 'ACTIVE'}</div>
                   </div>
-                  <div style={{ marginTop: '10px', display: 'inline-block', border: '1px solid #0f172a', padding: '2px 12px', fontWeight: 700, fontSize: '0.85rem', letterSpacing: '1px' }}>
-                    Z-REPORT — REGISTER #{selectedReport.session.id}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px dashed #000', paddingBottom: '8px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>OPENING FLOAT:</span>
+                      <span>₹{Number(activeReportData.summary?.opening_float || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>(+) CASH SALES:</span>
+                      <span>₹{Number(activeReportData.summary?.cash_sales || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>(+) UPI SALES:</span>
+                      <span>₹{Number(activeReportData.summary?.upi_sales || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                      <span>TOTAL REVENUE:</span>
+                      <span>₹{Number(activeReportData.summary?.total_sales || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>(-) CASH REFUNDS:</span>
+                      <span>₹{Number(activeReportData.summary?.cash_refunds || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>(-) EXPENSES / OUT:</span>
+                      <span>₹{Number(activeReportData.summary?.cash_expenses || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px dashed #000', paddingBottom: '8px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                      <span>EXPECTED CASH:</span>
+                      <span>₹{Number(activeReportData.session?.expected_cash || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                      <span>PHYSICAL COUNT:</span>
+                      <span>₹{Number(activeReportData.session?.closing_cash || 0).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '13px' }}>
+                      <span>DISCREPANCY:</span>
+                      <span>{Number(activeReportData.session?.discrepancy || 0) >= 0 ? `+ ₹${Number(activeReportData.session?.discrepancy || 0).toFixed(2)}` : `- ₹${Math.abs(Number(activeReportData.session?.discrepancy || 0)).toFixed(2)}`}</span>
+                    </div>
+                  </div>
+
+                  {activeReportData.session?.notes && (
+                    <div style={{ fontSize: '10px', marginTop: '6px' }}>
+                      <strong>Notes:</strong> {activeReportData.session.notes}
+                    </div>
+                  )}
+
+                  <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '10px' }}>
+                    *** END OF REPORT ***
                   </div>
                 </div>
+              ) : null}
+            </div>
 
-                {/* Session Meta */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem', marginBottom: '16px', background: '#f8fafc', padding: '10px 12px', borderRadius: '4px' }}>
-                  <div>
-                    <strong>Opened:</strong> {new Date(selectedReport.session.opened_at).toLocaleString()}
-                  </div>
-                  <div>
-                    <strong>Closed:</strong> {selectedReport.session.closed_at ? new Date(selectedReport.session.closed_at).toLocaleString() : 'STILL OPEN'}
-                  </div>
-                  <div>
-                    <strong>Status:</strong> <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{selectedReport.session.status}</span>
-                  </div>
-                  <div>
-                    <strong>Transactions:</strong> {selectedReport.summary.transaction_count}
-                  </div>
-                </div>
-
-                {/* Financial Summary Table */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', marginBottom: '20px' }}>
-                  <tbody>
-                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 0', fontWeight: 600 }}>Opening Cash Float</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 600 }}>₹{selectedReport.summary.opening_float.toFixed(2)}</td>
-                    </tr>
-                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 0', color: '#15803d' }}>+ Cash Sales Collected</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', color: '#15803d' }}>+₹{selectedReport.summary.cash_sales.toFixed(2)}</td>
-                    </tr>
-                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 0', color: '#b91c1c' }}>- Cash Refunds Issued</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', color: '#b91c1c' }}>-₹{selectedReport.summary.cash_refunds.toFixed(2)}</td>
-                    </tr>
-                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 0', color: '#b91c1c' }}>- Cash Purchases & Expenses</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', color: '#b91c1c' }}>-₹{selectedReport.summary.cash_expenses.toFixed(2)}</td>
-                    </tr>
-                    <tr style={{ borderBottom: '2px solid #0f172a', background: '#f1f5f9' }}>
-                      <td style={{ padding: '8px 4px', fontWeight: 700 }}>Expected Drawer Cash</td>
-                      <td style={{ padding: '8px 4px', textAlign: 'right', fontWeight: 700, fontSize: '1rem' }}>
-                        ₹{selectedReport.summary.expected_drawer.toFixed(2)}
-                      </td>
-                    </tr>
-                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 0', fontWeight: 600 }}>Actual Counted Cash</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 600 }}>
-                        {selectedReport.summary.actual_drawer !== null ? `₹${selectedReport.summary.actual_drawer.toFixed(2)}` : '—'}
-                      </td>
-                    </tr>
-                    <tr style={{ borderBottom: '2px solid #0f172a', fontWeight: 700 }}>
-                      <td style={{ padding: '8px 0', color: selectedReport.summary.discrepancy === 0 ? '#15803d' : '#b91c1c' }}>
-                        Variance (Over / Short)
-                      </td>
-                      <td style={{ padding: '8px 0', textAlign: 'right', color: selectedReport.summary.discrepancy === 0 ? '#15803d' : '#b91c1c' }}>
-                        {selectedReport.summary.discrepancy >= 0 ? `+₹${selectedReport.summary.discrepancy.toFixed(2)}` : `-₹${Math.abs(selectedReport.summary.discrepancy).toFixed(2)}`}
-                      </td>
-                    </tr>
-                    {/* UPI Sales separate row for reference */}
-                    <tr style={{ color: '#475569', fontSize: '0.8rem' }}>
-                      <td style={{ padding: '6px 0' }}>UPI / Digital Sales (Non-Drawer)</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right' }}>₹{selectedReport.summary.upi_sales.toFixed(2)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                {/* Itemized Transactions */}
-                {selectedReport.payments.length > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', textTransform: 'uppercase', color: '#475569', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>
-                      Cash Sales Transactions ({selectedReport.payments.length})
-                    </h4>
-                    <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ textAlign: 'left', color: '#64748b' }}>
-                          <th style={{ padding: '3px 0' }}>Time</th>
-                          <th>Bill / Customer</th>
-                          <th style={{ textAlign: 'right' }}>Cash Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedReport.payments.map((p, idx) => (
-                          <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
-                            <td style={{ padding: '4px 0' }}>{new Date(p.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                            <td>{p.bill_code || p.bill_id || 'Direct'} — {p.customer_name || 'Walk-in'}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{(parseFloat(p.cash_amount) || 0).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {selectedReport.expenses.length > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', textTransform: 'uppercase', color: '#475569', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>
-                      Expenses / Payouts ({selectedReport.expenses.length})
-                    </h4>
-                    <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ textAlign: 'left', color: '#64748b' }}>
-                          <th style={{ padding: '3px 0' }}>Item / Category</th>
-                          <th>Notes</th>
-                          <th style={{ textAlign: 'right' }}>Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedReport.expenses.map((e, idx) => (
-                          <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
-                            <td style={{ padding: '4px 0' }}>{e.item_name} ({e.category})</td>
-                            <td>{e.notes || '—'}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600, color: '#b91c1c' }}>-₹{(parseFloat(e.total) || 0).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Sign-off footer */}
-                <div style={{ marginTop: '30px', paddingTop: '16px', borderTop: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#64748b' }}>
-                  <div>
-                    Cashier Signature: __________________
-                  </div>
-                  <div>
-                    Manager Verified: __________________
-                  </div>
-                </div>
-              </div>
-            )}
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReportModal(false)}>Close</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={printThermalZReport}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Printer size={15} /> Print 80mm Z-Report
+              </button>
+            </div>
           </div>
         </div>
       )}

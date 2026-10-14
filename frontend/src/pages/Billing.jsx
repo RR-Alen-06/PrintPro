@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, Banknote } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, Banknote, GitMerge } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
 import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
+import GroupBilling from './GroupBilling'
 
 
 const makeInitialRow = (inventory) => ({
@@ -26,6 +27,29 @@ const makeInitialRow = (inventory) => ({
 const Billing = () => {
   const { business, customers, settings, inventory, bills, payments, addBill, addCustomer, deleteBill, recordPayment, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
+  const navigate = useNavigate()
+
+  const [billingMode, setBillingMode] = useState(() => {
+    return new URLSearchParams(location.search).get('mode') === 'group' ? 'group' : 'standard'
+  })
+
+  useEffect(() => {
+    const m = new URLSearchParams(location.search).get('mode')
+    if (m === 'group' && billingMode !== 'group') {
+      setBillingMode('group')
+    } else if (m !== 'group' && billingMode === 'group') {
+      setBillingMode('standard')
+    }
+  }, [location.search, billingMode])
+
+  const handleSwitchBillingMode = (mode) => {
+    setBillingMode(mode)
+    if (mode === 'group') {
+      navigate('/billing?mode=group', { replace: true })
+    } else {
+      navigate('/billing', { replace: true })
+    }
+  }
 
   const [customerType, setCustomerType] = useState('regular')
   // For regular: select from dropdown
@@ -144,8 +168,60 @@ const Billing = () => {
         })
         setItemRows(loadedRows.length > 0 ? loadedRows : [makeInitialRow(inventory)])
       }
+    } else if (params.get('duplicate')) {
+      const dupId = params.get('duplicate')
+      const billToDup = bills.find((b) => b.id === dupId)
+      if (billToDup) {
+        setIsEditing(false)
+        setEditingBillId(null)
+        setCustomerType(billToDup.customerType || 'regular')
+        if (billToDup.customerType === 'regular') {
+          setCustomerId(billToDup.customerId)
+        } else {
+          setRandomCustomerId(billToDup.customerId)
+          setRandomMode('existing')
+        }
+        setCustomerName(billToDup.customerName || '')
+        setCustomerPhone(billToDup.customerPhone || '')
+        setCustomerEmail(billToDup.customerEmail || '')
+        setDate(new Date().toISOString().slice(0, 10))
+        setDiscountType(billToDup.discountType || 'flat')
+        setDiscountValue(billToDup.discountValue || 0)
+        setNotes(billToDup.notes || '')
+        const loadedRows = billToDup.items.map((item, idx) => {
+          const invItem = inventory.find((i) => i.id === item.itemId)
+          return {
+            id: `row-${Date.now()}-${idx}-${Math.random()}`,
+            itemId: item.itemId || '',
+            itemName: item.itemName || item.name || (invItem?.name) || 'Custom Item',
+            isCustom: !item.itemId,
+            printType: item.printType || 'color',
+            sides: item.sides || 'single',
+            qty: item.qty || 1,
+            unitPrice: item.unitPrice || 0,
+            amount: item.amount || 0,
+            gstRate: item.gstRate || 0,
+          }
+        })
+        setItemRows(loadedRows.length > 0 ? loadedRows : [makeInitialRow(inventory)])
+      }
+    } else if (params.get('customerId')) {
+      const targetCustId = params.get('customerId')
+      const targetCust = customers.find((c) => c.id === targetCustId)
+      if (targetCust) {
+        setCustomerType(targetCust.type || 'regular')
+        if (targetCust.type === 'regular') {
+          setCustomerId(targetCust.id)
+        } else {
+          setRandomCustomerId(targetCust.id)
+          setRandomMode('existing')
+          setCustomerName(targetCust.name || '')
+          setCustomerPhone(targetCust.phone || '')
+          setCustomerEmail(targetCust.email || '')
+        }
+      }
     }
-  }, [location.search, bills, inventory])
+  }, [location.search, bills, inventory, customers])
 
   // ── Derived from live bills state so modal always reflects latest ──────────
   const liveBill = useMemo(() => {
@@ -1431,12 +1507,46 @@ const Billing = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Billing</h1>
-        <p>Create orders with full split payment, discount and credit handling.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Billing / POS</h1>
+          <p style={{ margin: '4px 0 0' }}>
+            {billingMode === 'group'
+              ? 'Multi-customer collective print orders and shared group settlements.'
+              : 'Create orders with full split payment, discount and credit handling.'}
+          </p>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          gap: '6px',
+          background: 'var(--bg-elevated)',
+          padding: '4px',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border)'
+        }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${billingMode === 'standard' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => handleSwitchBillingMode('standard')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FileText size={15} /> Standard POS
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${billingMode === 'group' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => handleSwitchBillingMode('group')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <GitMerge size={15} /> Group / Split POS
+          </button>
+        </div>
       </div>
 
-      {lastBillId && successBill ? (
+      {billingMode === 'group' ? (
+        <GroupBilling />
+      ) : lastBillId && successBill ? (
         <BillSuccessScreen
           bill={successBill}
           onDownload={() => downloadBillPDF(successBill)}
