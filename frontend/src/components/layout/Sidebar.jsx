@@ -29,6 +29,7 @@ const navGroups = [
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: Home, permKey: undefined },
       { label: 'Billing / POS', path: '/billing', icon: FileText, permKey: 'billing' },
+      { label: 'Payment Received', path: '/payments', icon: Wallet, permKey: 'billing' },
       { label: 'Group Billing', path: '/group-billing', icon: GitMerge, permKey: 'billing' },
       { label: 'Cash Register', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
       { label: 'UPI Reconciliation', path: '/upi-reconciliation', icon: QrCode, permKey: 'accounting' },
@@ -41,7 +42,6 @@ const navGroups = [
       { label: 'Customers', path: '/customers', icon: Users, permKey: 'customers' },
       { label: 'Customer Ledger', path: '/customer-ledger', icon: BookOpen, permKey: 'ledger' },
       { label: 'Customer Bills', path: '/customer-bills', icon: FileText, permKey: 'customers' },
-      { label: 'Advance Payments', path: '/advance-payments', icon: Wallet, permKey: 'advancePayments' },
       { label: 'Refunds', path: '/refunds', icon: RefreshCw, permKey: 'accounting' },
     ]
   },
