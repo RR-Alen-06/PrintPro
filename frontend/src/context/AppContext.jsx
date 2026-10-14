@@ -1062,6 +1062,8 @@ export const AppProvider = ({ children }) => {
         const mappedCustomers = fetchedCustomers.map(c => ({
           id: c.id,
           type: c.type || 'regular',
+          customer_code: c.customer_code || '',
+          customerCode: c.customer_code || '',
           name: c.name || '',
           phone: c.phone || '',
           email: c.email || '',

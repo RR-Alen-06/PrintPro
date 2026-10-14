@@ -49,6 +49,9 @@ const validateCustomer = [
     .optional()
     .isFloat()
     .withMessage('Credit limit must be a number'),
+  body('customer_code')
+    .optional()
+    .trim(),
   handleValidationErrors,
 ];
 
