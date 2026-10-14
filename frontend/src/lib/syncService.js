@@ -44,6 +44,7 @@ export const syncEntityToCloud = async (action, payload) => {
           type: payload.updates?.type || payload.type || 'regular',
           credit_balance: payload.updates?.creditBalance !== undefined ? payload.updates.creditBalance : (payload.creditBalance || 0),
           credit_limit: payload.updates?.creditLimit !== undefined ? payload.updates.creditLimit : (payload.creditLimit || 0),
+          customer_code: payload.updates?.customerCode || payload.updates?.customer_code || payload.customerCode || payload.customer_code,
         });
       }
       break;
@@ -58,6 +59,7 @@ export const syncEntityToCloud = async (action, payload) => {
           type: payload.data?.type || 'regular',
           credit_balance: payload.data?.creditBalance || 0,
           credit_limit: payload.data?.creditLimit || 0,
+          customer_code: payload.data?.customerCode || payload.data?.customer_code,
         });
       }
       break;
