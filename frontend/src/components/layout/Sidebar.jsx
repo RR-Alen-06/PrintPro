@@ -15,34 +15,27 @@ import {
   Receipt,
   TrendingUp,
   Wallet,
-  BookOpen,
   RefreshCw,
-  GitMerge,
-  QrCode,
   X
 } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 
 const navGroups = [
   {
-    title: 'POS & Billing',
+    title: 'POS & Register',
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: Home, permKey: undefined },
       { label: 'Billing / POS', path: '/billing', icon: FileText, permKey: 'billing' },
       { label: 'Payment Received', path: '/payments', icon: Wallet, permKey: 'billing' },
-      { label: 'Group Billing', path: '/group-billing', icon: GitMerge, permKey: 'billing' },
-      { label: 'Cash Register', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
-      { label: 'UPI Reconciliation', path: '/upi-reconciliation', icon: QrCode, permKey: 'accounting' },
+      { label: 'Register & UPI Desk', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
       { label: 'Receipt Preview', path: '/receipt', icon: Receipt, permKey: 'receipt' },
     ]
   },
   {
-    title: 'Customers & Ledgers',
+    title: 'Customers & Sales',
     items: [
-      { label: 'Customers', path: '/customers', icon: Users, permKey: 'customers' },
-      { label: 'Customer Ledger', path: '/customer-ledger', icon: BookOpen, permKey: 'ledger' },
-      { label: 'Customer Bills', path: '/customer-bills', icon: FileText, permKey: 'customers' },
-      { label: 'Refunds', path: '/refunds', icon: RefreshCw, permKey: 'accounting' },
+      { label: 'Customer 360 Hub', path: '/customers', icon: Users, permKey: 'customers' },
+      { label: 'Refunds & Returns', path: '/refunds', icon: RefreshCw, permKey: 'accounting' },
     ]
   },
   {
