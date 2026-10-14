@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Download, Wallet, CheckCircle, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, FileText, ExternalLink, Loader2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Download, Wallet, Share2, Copy, Link2, AlertCircle, ArrowLeftRight, FileText, ExternalLink, Loader2 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { exportCustomerLedgerPdf } from '../api/ledger'
 import EmptyState from '../components/common/EmptyState'
@@ -32,21 +33,10 @@ const getLedgerPeriodRange = (period) => {
 }
 
 const CustomerLedger = () => {
-  const { business, customers, settings, bills, payments, advancePayments, recordPayment, showToast } = useAppContext()
+  const navigate = useNavigate()
+  const { business, customers, settings, bills, payments, advancePayments, showToast } = useAppContext()
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
-
-  const getUpiLink = (amount, notesText = 'Ledger Payment') => {
-    if (!business?.upiId || amount <= 0) return ''
-    const params = new URLSearchParams({
-      pa: business.upiId,
-      pn: business.shopName || 'PrintPro',
-      am: amount.toFixed(2),
-      cu: 'INR',
-      tn: notesText,
-    })
-    return `upi://pay?${params.toString()}`
-  }
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(activeCustomers[0]?.id || '')
   const [ledgerPeriod, setLedgerPeriod] = useState('all')
@@ -54,17 +44,6 @@ const CustomerLedger = () => {
   const [customEndDate, setCustomEndDate] = useState('')
   const [exportingPdf, setExportingPdf] = useState(false)
   const [lastExportedPdf, setLastExportedPdf] = useState(null)
-  
-  const [payCash, setPayCash] = useState(0)
-  const [payUpi, setPayUpi] = useState(0)
-  const [returnChange, setReturnChange] = useState(false)
-  const [paySuccess, setPaySuccess] = useState(false)
-  const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
-
-  const copyUpiLink = (link) => {
-    if (!link) return
-    navigator.clipboard.writeText(link)
-  }
 
   const selectedCustomer = useMemo(
     () => activeCustomers.find((c) => c.id === selectedCustomerId),
@@ -117,26 +96,6 @@ const CustomerLedger = () => {
     }
     return entries
   }, [bills, payments, advancePayments, selectedCustomerId, ledgerPeriod, customStartDate, customEndDate, settings])
-
-  const handleApplyPayment = () => {
-    const cash = Number(payCash || 0)
-    const upi = Number(payUpi || 0)
-    if (cash + upi <= 0 || !selectedCustomer) return
-
-    recordPayment({
-      customerId: selectedCustomer.id,
-      cashAmount: cash,
-      upiAmount: upi,
-      notes: `Payment from ledger page`,
-      returnChangeUpi: returnChange ? Math.max(0, (cash + upi) - outstanding) : 0
-    })
-
-    setPayCash(0)
-    setPayUpi(0)
-    setReturnChange(false)
-    setPaySuccess(true)
-    setTimeout(() => setPaySuccess(false), 3500)
-  }
 
   const totalBilled = customerBills.reduce((s, b) => s + Number(b.total || 0), 0)
   // Separate gross payments and refund payments for clear display
@@ -521,141 +480,29 @@ const CustomerLedger = () => {
             )}
           </div>
 
-          {/* Record Payment Form */}
+          {/* Payment Actions Hub Link */}
           {selectedCustomer && (
-            <div className="card" style={{ width: '100%' }}>
-              <h3 style={{ marginBottom: '12px', fontSize: '1.1rem', fontWeight: 600 }}>Record Payment</h3>
-              {outstanding > 0 ? (
-                <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-                  FIFO billing logic. Outstanding: <strong style={{ color: 'var(--warning)' }}>₹{outstanding.toFixed(2)}</strong>
-                </p>
-              ) : (
-                <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-                  No outstanding balance. Added to advance credit.
-                </p>
-              )}
-
-              {paySuccess && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '10px 14px', marginBottom: '12px',
-                  background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
-                  borderRadius: 'var(--radius-md)', color: 'var(--success)', fontSize: '0.875rem'
-                }}>
-                  <CheckCircle size={16} /> Payment recorded successfully!
-                </div>
-              )}
-
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Cash (₹)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={payCash}
-                    onChange={(e) => setPayCash(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI (₹)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={payUpi}
-                    onChange={(e) => {
-                      setPayUpi(e.target.value)
-                      setUpiCheckoutAmount(0)
-                    }}
-                  />
-                </div>
-              </div>
-
-              {(Number(payCash || 0) + Number(payUpi || 0) > outstanding) && outstanding > 0 && (
-                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.1)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)' }}>
-                  <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '6px', fontWeight: 600 }}>
-                    Change Due: ₹{((Number(payCash || 0) + Number(payUpi || 0)) - outstanding).toFixed(2)}
-                  </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={returnChange}
-                      onChange={(e) => setReturnChange(e.target.checked)}
-                    />
-                    Return change immediately (via UPI) to prevent it from becoming Advance Credit.
-                  </label>
-                </div>
-              )}
-
-              <div className="form-group" style={{ marginTop: '12px' }}>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI QR Checkout</label>
-                <div className="form-inline" style={{ gap: '12px', display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setUpiCheckoutAmount(Number(payUpi || 0))} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Link2 size={14} /> Generate QR
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={!upiCheckoutAmount || !business?.upiId}
-                    onClick={() => copyUpiLink(getUpiLink(upiCheckoutAmount, 'Ledger payment'))}
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <Copy size={14} /> Copy Link
-                  </button>
-                </div>
-                {business?.upiId ? (
-                  <>
-                    {upiCheckoutAmount > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(getUpiLink(upiCheckoutAmount, 'Ledger payment'))}`}
-                          alt="UPI QR Code"
-                          style={{ borderRadius: '8px', border: '3px solid var(--accent)', padding: '4px', background: '#fff' }}
-                          width={100} height={100}
-                        />
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Scan to pay ₹{upiCheckoutAmount.toFixed(2)}</span>
-                      </div>
-                    )}
-                  </>
+            <div className="card" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>Payment Actions</span>
+                {outstanding > 0 ? (
+                  <span className="badge badge-warning" style={{ fontSize: '0.78rem' }}>Due: ₹{outstanding.toFixed(2)}</span>
                 ) : (
-                  <p className="text-muted" style={{ marginTop: '6px', fontSize: '0.78rem' }}>Set UPI ID in settings to enable QR codes.</p>
+                  <span className="badge badge-success" style={{ fontSize: '0.78rem' }}>Fully Settled</span>
                 )}
               </div>
-
-              {(() => {
-                const totalPaying = Number(payCash || 0) + Number(payUpi || 0)
-                const balanceAfter = Math.max(outstanding - totalPaying, 0)
-                const excessToAdvance = Math.max(totalPaying - outstanding, 0)
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px', background: 'var(--bg-elevated)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                      <span className="text-muted">Paying Now:</span>
-                      <strong>₹{totalPaying.toFixed(2)}</strong>
-                    </div>
-                    {outstanding > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                        <span className="text-muted">Balance After:</span>
-                        <strong style={{ color: balanceAfter > 0 ? 'var(--warning)' : 'var(--success)' }}>₹{balanceAfter.toFixed(2)}</strong>
-                      </div>
-                    )}
-                    {excessToAdvance > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', color: 'var(--info)', background: 'var(--info-bg)', padding: '4px 8px', borderRadius: '4px', marginTop: '4px' }}>
-                        <Wallet size={12} /> ₹{excessToAdvance.toFixed(2)} to Advance Credit
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
+              <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>
+                {outstanding > 0
+                  ? `Customer has ₹${outstanding.toFixed(2)} pending dues. Settle bills in Payment Received.`
+                  : 'Customer has no outstanding dues. You can collect advance deposits in Payment Received.'}
+              </p>
               <button
+                type="button"
                 className="btn btn-primary"
-                onClick={handleApplyPayment}
-                disabled={Number(payCash || 0) + Number(payUpi || 0) <= 0}
-                style={{ width: '100%' }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                onClick={() => navigate(`/payments?customerId=${selectedCustomer.id}`)}
               >
-                <CheckCircle size={16} /> Apply Payment
+                <Wallet size={16} /> Open Payment Received
               </button>
             </div>
           )}

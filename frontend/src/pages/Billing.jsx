@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2 } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, Banknote } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
@@ -73,6 +73,10 @@ const Billing = () => {
   // Decimal rounding state
   const [showRoundingModal, setShowRoundingModal] = useState(false)
   const [pendingBillPayload, setPendingBillPayload] = useState(null)
+
+  // Excess payment / change prompt state
+  const [showExcessModal, setShowExcessModal] = useState(false)
+  const [pendingExcessInfo, setPendingExcessInfo] = useState(null)
 
   // Refund Modal state
   const [showRefundModal, setShowRefundModal] = useState(false)
@@ -930,23 +934,7 @@ const Billing = () => {
     })
 
     const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
-    const changeDue = totalPaidNow - total
-
-    let finalCashAmount = Number(cashAmount || 0)
-    let finalUpiAmount = Number(upiAmount || 0)
-    let finalAmountPaid = amountPaid
-
-    let returnChangeUpi = 0
-
-    if (changeDue > 0) {
-      if (changeHandling === 'upi_refund') {
-        returnChangeUpi = changeDue
-        finalAmountPaid = total
-      } else if (changeHandling === 'cash_refund') {
-        finalCashAmount = Number((finalCashAmount - changeDue).toFixed(2))
-        finalAmountPaid = total
-      }
-    }
+    const changeDue = Number((totalPaidNow - total).toFixed(2))
 
     const billPayload = {
       customerId: customerIdToUse,
@@ -959,20 +947,22 @@ const Billing = () => {
       discountValue: Number(discountValue || 0),
       discountAmount,
       gstAmount: totalGst,
-      cgst: cgst,
-      sgst: sgst,
+      cgst,
+      sgst,
       total,
       rounding: 0,
-      cashAmount: finalCashAmount,
-      upiAmount: finalUpiAmount,
-      returnChangeUpi: returnChangeUpi,
-      amountPaid: finalAmountPaid,
+      cashAmount: Number(cashAmount || 0),
+      upiAmount: Number(upiAmount || 0),
+      returnChangeUpi: 0,
+      amountPaid: totalPaidNow,
       advanceUsed: appliedAdvance,
+      excessToAdvance: false,
+      excessAmount: 0,
       notes,
       paymentMode,
       promoCode: appliedPromo?.code || null,
       promoDiscount: appliedPromo ? discountAmount : 0,
-      loyaltyDiscount: loyaltyDiscount,
+      loyaltyDiscount,
       loyaltyPointsRedeemed: Number(loyaltyPointsRedeemedInput || 0),
       items: mergedItemRows.map((row) => ({
         itemId: row.itemId,
@@ -986,40 +976,85 @@ const Billing = () => {
       })),
     }
 
-    if (isEditing) {
-      const updatedPayload = { ...billPayload, id: editingBillId }
-      const decimalPart = total - Math.floor(total)
-      if (decimalPart > 0 && decimalPart < 1) {
-        setPendingBillPayload(updatedPayload)
-        setShowRoundingModal(true)
-        return
-      }
-      processEditBillSave(updatedPayload)
+    if (changeDue > 0) {
+      setPendingExcessInfo({
+        billPayload,
+        changeDue,
+        totalPaidNow,
+        total,
+        customerIdToUse,
+        customerNameToUse,
+        isEditing,
+        editingBillId,
+      })
+      setShowExcessModal(true)
       return
     }
 
-    // Check for decimal in total — offer rounding
-    const decimalPart = total - Math.floor(total)
+    finalizeBillSave(billPayload, isEditing, editingBillId)
+  }
+
+  const finalizeBillSave = (payload, isEdit, editId) => {
+    const decimalPart = payload.total - Math.floor(payload.total)
     if (decimalPart > 0 && decimalPart < 1) {
-      setPendingBillPayload(billPayload)
+      setPendingBillPayload(isEdit ? { ...payload, id: editId } : payload)
       setShowRoundingModal(true)
       return
     }
 
-    const newBillId = addBill(billPayload)
-    setLastBillId(newBillId)
+    if (isEdit) {
+      processEditBillSave({ ...payload, id: editId })
+    } else {
+      const newBillId = addBill(payload)
+      setLastBillId(newBillId)
 
-    if (appliedPromo) {
-      trackPromoUse({
-        promo_code_id: appliedPromo.id,
-        code: appliedPromo.code,
-        bill_id: newBillId,
-        customer_id: customerIdToUse || null,
-        discount_applied: appliedPromo.discountAmount || discountAmount,
-      }).catch((err) => console.error('Failed to track promo use in cloud:', err))
+      if (appliedPromo) {
+        trackPromoUse({
+          promo_code_id: appliedPromo.id,
+          code: appliedPromo.code,
+          bill_id: newBillId,
+          customer_id: payload.customerId || null,
+          discount_applied: appliedPromo.discountAmount || payload.discountAmount || 0,
+        }).catch((err) => console.error('Failed to track promo use in cloud:', err))
+      }
+
+      resetForm()
+      if (payload.excessToAdvance && payload.excessAmount > 0) {
+        showToast?.(`Bill created! ₹${payload.excessAmount.toFixed(2)} added to advance balance.`, 'success')
+      } else {
+        showToast?.('Bill created successfully!', 'success')
+      }
+    }
+  }
+
+  const handleExcessChoice = (choice) => {
+    if (!pendingExcessInfo) return
+    const { billPayload, changeDue, totalPaidNow, total, isEditing: isEdit, editingBillId: editId } = pendingExcessInfo
+
+    let updatedPayload = { ...billPayload }
+
+    if (choice === 'advance') {
+      updatedPayload.excessToAdvance = true
+      updatedPayload.excessAmount = changeDue
+      updatedPayload.amountPaid = totalPaidNow
+      updatedPayload.changeHandling = 'advance'
+    } else if (choice === 'cash_refund') {
+      updatedPayload.excessToAdvance = false
+      updatedPayload.excessAmount = 0
+      updatedPayload.cashAmount = Math.max(0, Number((Number(billPayload.cashAmount || 0) - changeDue).toFixed(2)))
+      updatedPayload.amountPaid = total
+      updatedPayload.changeHandling = 'cash_refund'
+    } else if (choice === 'upi_refund') {
+      updatedPayload.excessToAdvance = false
+      updatedPayload.excessAmount = 0
+      updatedPayload.returnChangeUpi = changeDue
+      updatedPayload.amountPaid = total
+      updatedPayload.changeHandling = 'upi_refund'
     }
 
-    resetForm()
+    setShowExcessModal(false)
+    setPendingExcessInfo(null)
+    finalizeBillSave(updatedPayload, isEdit, editId)
   }
 
   const resetForm = () => {
@@ -2642,6 +2677,133 @@ const Billing = () => {
               <button type="button" className="btn btn-ghost" onClick={closeBillModal}>
                 <X size={16} /> Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Excess Payment / Change Handling Modal ──────────────────────── */}
+      {showExcessModal && pendingExcessInfo && (
+        <div className="modal-overlay" onClick={() => { setShowExcessModal(false); setPendingExcessInfo(null) }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Wallet size={20} style={{ color: 'var(--success)' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Excess Payment Received</h3>
+              </div>
+              <button
+                className="modal-close btn-icon"
+                type="button"
+                onClick={() => { setShowExcessModal(false); setPendingExcessInfo(null) }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '12px 16px',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.875rem' }}>
+                  <span className="text-muted">Customer:</span>
+                  <strong>{pendingExcessInfo.customerNameToUse || 'Guest / Walk-in'}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.875rem' }}>
+                  <span className="text-muted">Bill Total:</span>
+                  <strong>₹{pendingExcessInfo.total.toFixed(2)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.875rem' }}>
+                  <span className="text-muted">Amount Handed:</span>
+                  <strong>₹{pendingExcessInfo.totalPaidNow.toFixed(2)}</strong>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  paddingTop: '8px',
+                  borderTop: '1px dashed var(--border)',
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: 'var(--success)'
+                }}>
+                  <span>Excess Change:</span>
+                  <span>₹{pendingExcessInfo.changeDue.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                How would you like to handle the <strong>₹{pendingExcessInfo.changeDue.toFixed(2)}</strong> excess amount?
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    fontSize: '0.9rem',
+                    fontWeight: 600
+                  }}
+                  onClick={() => handleExcessChoice('advance')}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Wallet size={18} /> Add to Customer Advance
+                  </span>
+                  <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px' }}>
+                    +₹{pendingExcessInfo.changeDue.toFixed(2)}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    fontSize: '0.9rem'
+                  }}
+                  onClick={() => handleExcessChoice('cash_refund')}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Banknote size={18} /> Return Physical Cash Change
+                  </span>
+                  <span>₹{pendingExcessInfo.changeDue.toFixed(2)}</span>
+                </button>
+
+                {pendingExcessInfo.billPayload.upiAmount > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 16px',
+                      fontSize: '0.85rem'
+                    }}
+                    onClick={() => handleExcessChoice('upi_refund')}
+                  >
+                    <span>Return via UPI Refund</span>
+                    <span>₹{pendingExcessInfo.changeDue.toFixed(2)}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: '100%', marginTop: '6px', fontSize: '0.82rem' }}
+                  onClick={() => { setShowExcessModal(false); setPendingExcessInfo(null) }}
+                >
+                  Cancel / Adjust Amount
+                </button>
+              </div>
             </div>
           </div>
         </div>

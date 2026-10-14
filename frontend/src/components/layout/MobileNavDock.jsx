@@ -1,8 +1,8 @@
 import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, FileText, Plus, Users, BookOpen } from 'lucide-react'
+import { Home, Wallet, Plus, Users, Menu } from 'lucide-react'
 
-const MobileNavDock = () => {
+const MobileNavDock = ({ onOpenMenu }) => {
   const navigate = useNavigate()
 
   return (
@@ -17,13 +17,13 @@ const MobileNavDock = () => {
           <span>Home</span>
         </NavLink>
 
-        {/* Destination 2: Bills */}
+        {/* Destination 2: Payment Received */}
         <NavLink
-          to="/customer-bills"
+          to="/payments"
           className={({ isActive }) => `mobile-dock-item${isActive ? ' active' : ''}`}
         >
-          <FileText size={20} />
-          <span>Bills</span>
+          <Wallet size={20} />
+          <span>Payments</span>
         </NavLink>
 
         {/* Raised Central Quick-Sale Action Button */}
@@ -46,14 +46,17 @@ const MobileNavDock = () => {
           <span>Customers</span>
         </NavLink>
 
-        {/* Destination 4: Ledger */}
-        <NavLink
-          to="/customer-ledger"
-          className={({ isActive }) => `mobile-dock-item${isActive ? ' active' : ''}`}
+        {/* Destination 4: More Menu Drawer Trigger */}
+        <button
+          type="button"
+          className="mobile-dock-item"
+          onClick={onOpenMenu}
+          aria-label="Open Navigation Drawer"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
         >
-          <BookOpen size={20} />
-          <span>Ledger</span>
-        </NavLink>
+          <Menu size={20} />
+          <span>More</span>
+        </button>
       </nav>
     </div>
   )
