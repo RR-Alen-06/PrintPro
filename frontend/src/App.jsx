@@ -18,15 +18,11 @@ import DataManagement from './pages/DataManagement'
 import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
-import CustomerLedger from './pages/CustomerLedger'
 import Analytics from './pages/Analytics'
 import PaymentReceived from './pages/PaymentReceived'
-import CustomerBills from './pages/CustomerBills'
 import AuthCallback from './pages/AuthCallback'
-import GroupBilling from './pages/GroupBilling'
 import Refunds from './pages/Refunds'
 import CashRegister from './pages/CashRegister'
-import UpiReconciliation from './pages/UpiReconciliation'
 
 function App() {
   const { currentUser, hydrated, isOnline } = useAppContext()
@@ -107,13 +103,13 @@ function App() {
             <Route path="/receipt" element={<Receipt />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/customer-ledger" element={<CustomerLedger />} />
-            <Route path="/customer-bills" element={<CustomerBills />} />
+            <Route path="/customer-ledger" element={<Navigate to="/customers?tab=ledger" replace />} />
+            <Route path="/customer-bills" element={<Navigate to="/customers?tab=bills" replace />} />
             <Route path="/advance-payments" element={<Navigate to="/payments" replace />} />
             <Route path="/cash-register" element={<CashRegister />} />
-            <Route path="/upi-reconciliation" element={<UpiReconciliation />} />
+            <Route path="/upi-reconciliation" element={<Navigate to="/cash-register?tab=upi" replace />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/group-billing" element={<GroupBilling />} />
+            <Route path="/group-billing" element={<Navigate to="/billing?mode=group" replace />} />
             <Route path="/refunds" element={<Refunds />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
