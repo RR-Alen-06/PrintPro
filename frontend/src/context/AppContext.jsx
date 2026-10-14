@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useCallback, useRef } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
@@ -13,6 +13,18 @@ import { getPromoCodes } from '../api/promoCodes'
 import { getAdvancePayments } from '../api/advancePayments'
 import { getCustomerGroups } from '../api/customerGroups'
 import { getGroupBills } from '../api/groupBills'
+import {
+  loadUserState,
+  saveUserState,
+  getOfflineQueue,
+  enqueueOfflineAction,
+  migrateLegacyLocalStorage,
+  closeUserDatabase,
+  getDeadLetterQueue,
+  removeDeadLetterItem,
+  saveIdMapping,
+} from '../lib/indexedDbStore'
+import { processUserOfflineQueue } from '../lib/offlineSyncEngine'
 
 const AppContext = createContext(null)
 
@@ -101,16 +113,81 @@ const loadState = () => {
 }
 
 const saveState = (state) => {
-  try {
-    const { currentUser: _c, users: _u, ...rest } = state
-    localStorage.setItem('printpro-state', JSON.stringify(rest))
-  } catch (error) {
-    console.error('Failed to save write-through cache to localStorage', error)
+  if (state?.currentUser?.id) {
+    saveUserState(state.currentUser.id, state).catch((error) => {
+      console.warn('Failed to save write-through cache to IndexedDB', error)
+    })
   }
 }
 
 const baseReducer = (state, action) => {
   switch (action.type) {
+    case 'RESET_STATE': {
+      return {
+        ...initialState,
+        currentUser: null,
+      }
+    }
+    case 'RECONCILE_SERVER_IDS': {
+      const reconciliations = Array.isArray(action.payload) ? action.payload : [action.payload]
+      let updatedBills = [...state.bills]
+      let updatedCustomers = [...state.customers]
+      let updatedPayments = [...state.payments]
+      let updatedAdvances = [...state.advancePayments]
+
+      for (const rec of reconciliations) {
+        const { tempId, serverId, serverCode } = rec
+        if (!tempId || !serverId) continue
+
+        updatedBills = updatedBills.map((b) => {
+          if (b.id === tempId) {
+            return { ...b, id: serverId, billNumber: serverCode || b.billNumber, bill_number: serverCode || b.bill_number }
+          }
+          if (b.customerId === tempId) {
+            return { ...b, customerId: serverId }
+          }
+          return b
+        })
+
+        updatedCustomers = updatedCustomers.map((c) => {
+          if (c.id === tempId) {
+            return { ...c, id: serverId, customerCode: serverCode || c.customerCode, customer_code: serverCode || c.customer_code }
+          }
+          return c
+        })
+
+        updatedPayments = updatedPayments.map((p) => {
+          if (p.id === tempId) {
+            return { ...p, id: serverId, paymentNumber: serverCode || p.paymentNumber, payment_number: serverCode || p.payment_number }
+          }
+          if (p.billId === tempId) {
+            return { ...p, billId: serverId }
+          }
+          if (p.customerId === tempId) {
+            return { ...p, customerId: serverId }
+          }
+          return p
+        })
+
+        updatedAdvances = updatedAdvances.map((a) => {
+          if (a.id === tempId) {
+            return { ...a, id: serverId, advanceNumber: serverCode || a.advanceNumber, advance_number: serverCode || a.advance_number }
+          }
+          if (a.customerId === tempId) {
+            return { ...a, customerId: serverId }
+          }
+          return a
+        })
+      }
+
+      return {
+        ...state,
+        bills: updatedBills,
+        customers: updatedCustomers,
+        payments: updatedPayments,
+        advancePayments: updatedAdvances,
+      }
+    }
     case 'HYDRATE_FROM_CLOUD':
     case 'SYNC_CLOUD_DATA': {
       const mergedSettings = {
@@ -696,17 +773,10 @@ export const AppProvider = ({ children }) => {
   const [toast, setToast] = useState(null)
   const [dialog, setDialog] = useState(null)
 
-  // 1. Offline Action Queue (persisted separately in localStorage under 'printpro-offline-queue')
-  const [offlineQueue, setOfflineQueue] = useState(() => {
-    try {
-      const stored = localStorage.getItem('printpro-offline-queue')
-      return stored ? JSON.parse(stored) : []
-    } catch {
-      return []
-    }
-  })
-
-  const isProcessingQueueRef = useRef(false)
+  // 1. Offline Action Queue & DLQ state (persisted per-user in IndexedDB)
+  const [offlineQueue, setOfflineQueue] = useState([])
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [dlqItems, setDlqItems] = useState([])
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type })
@@ -723,49 +793,66 @@ export const AppProvider = ({ children }) => {
     setDialog({ title, message, onConfirm, onCancel: () => setDialog(null), confirmText, type })
   }
 
-  // 2. Sequential offline queue processor (processes on reconnect: dequeues, fires API, removes on success, stops on failure)
-  const processOfflineQueue = useCallback(async () => {
-    if (isProcessingQueueRef.current || (typeof navigator !== 'undefined' && !navigator.onLine)) return
-
-    let queue = []
-    try {
-      const stored = localStorage.getItem('printpro-offline-queue')
-      queue = stored ? JSON.parse(stored) : []
-    } catch {
+  const refreshQueues = useCallback(async (userId) => {
+    if (!userId) {
+      setOfflineQueue([])
+      setDlqItems([])
       return
     }
-
-    if (!queue || queue.length === 0) return
-
-    isProcessingQueueRef.current = true
-    console.log(`Processing ${queue.length} offline action(s)...`)
-
-    const currentQueue = [...queue]
-    let successCount = 0
-
-    while (currentQueue.length > 0) {
-      const item = currentQueue[0]
-      try {
-        await syncEntityToCloud(item.actionType, item.payload)
-        currentQueue.shift()
-        successCount++
-        setOfflineQueue([...currentQueue])
-        try {
-          localStorage.setItem('printpro-offline-queue', JSON.stringify(currentQueue))
-        } catch {
-          // ignore storage quota errors
-        }
-      } catch (err) {
-        console.warn(`Offline queue sync stopped at action ${item.actionType}:`, err)
-        break // Preserves strict FIFO order on network/server error
-      }
-    }
-
-    isProcessingQueueRef.current = false
-    if (successCount > 0) {
-      showToast(`Synced ${successCount} queued change${successCount > 1 ? 's' : ''} to cloud`, 'success')
+    try {
+      const [queue, dlq] = await Promise.all([
+        getOfflineQueue(userId),
+        getDeadLetterQueue(userId)
+      ])
+      setOfflineQueue(queue)
+      setDlqItems(dlq)
+    } catch (err) {
+      console.warn('Failed to refresh queues from IndexedDB:', err)
     }
   }, [])
+
+  // 2. Sequential offline queue processor (processes on reconnect & triggers)
+  const processOfflineQueue = useCallback(async () => {
+    const userId = state.currentUser?.id
+    if (!userId || isSyncing || (typeof navigator !== 'undefined' && !navigator.onLine)) return
+
+    setIsSyncing(true)
+    try {
+      await processUserOfflineQueue(userId, {
+        onSyncSuccess: (count, reconciled) => {
+          if (reconciled && reconciled.length > 0) {
+            rawDispatch({ type: 'RECONCILE_SERVER_IDS', payload: reconciled })
+          }
+          if (count > 0) {
+            showToast(`Synced ${count} queued change${count > 1 ? 's' : ''} to cloud`, 'success')
+          }
+        },
+        onDeadLetter: () => {
+          showToast('1 offline change failed validation and was saved to Review log', 'warning')
+        },
+        onQueueUpdated: async () => {
+          await refreshQueues(userId)
+        }
+      })
+      await refreshQueues(userId)
+    } catch (err) {
+      console.warn('Offline queue sync encountered non-fatal error:', err)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [state.currentUser?.id, isSyncing, refreshQueues])
+
+  const dismissDlqItem = useCallback(async (dlqId) => {
+    const userId = state.currentUser?.id
+    if (!userId || dlqId === undefined) return
+    try {
+      await removeDeadLetterItem(userId, dlqId)
+      await refreshQueues(userId)
+      showToast('Quarantined action dismissed', 'info')
+    } catch (err) {
+      console.error('Failed to dismiss DLQ item:', err)
+    }
+  }, [state.currentUser?.id, refreshQueues])
 
   // 3. Dispatch wrapper: 0ms UI lag optimistic updates with cloud write and fallback offline queue
   const dispatch = (action) => {
@@ -777,6 +864,8 @@ export const AppProvider = ({ children }) => {
       'SET_CURRENT_USER',
       'HYDRATE_FROM_CLOUD',
       'SYNC_CLOUD_DATA',
+      'RECONCILE_SERVER_IDS',
+      'RESET_STATE',
       'INCREMENT_COUNTER',
       'MARK_NOTIFICATION_READ',
       'MARK_ALL_NOTIFICATIONS_READ',
@@ -787,46 +876,44 @@ export const AppProvider = ({ children }) => {
       return
     }
 
-    // If offline, push to queue immediately
+    const userId = state.currentUser?.id
+    if (!userId) return
+
+    // If offline, push to IndexedDB queue immediately
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      const queueItem = {
+      enqueueOfflineAction(userId, {
         actionType: action.type,
-        payload: action.payload,
-        timestamp: Date.now()
-      }
-      setOfflineQueue(prev => {
-        const next = [...prev, queueItem]
-        try {
-          localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
-        } catch {
-          // ignore storage quota errors
-        }
-        return next
-      })
+        payload: action.payload
+      }).then(() => refreshQueues(userId)).catch(err => console.error('Failed to enqueue offline action:', err))
       return
     }
 
     // Online: attempt cloud write. If failed or network dropped, queue for offline retry
     syncEntityToCloud(action.type, action.payload)
-      .then(() => {
-        console.log(`Sync confirmed: Cloud write succeeded for ${action.type}`)
+      .then(async (response) => {
+        const serverData = response?.data?.data || response?.data
+        if (serverData && (serverData.id || serverData.bill_number || serverData.customer_code)) {
+          const originalTempId = action.payload?.id
+          const serverId = serverData.id
+          const serverCode = serverData.bill_number || serverData.customer_code || serverData.payment_number || ''
+          if (originalTempId && originalTempId !== serverId) {
+            await saveIdMapping(userId, originalTempId, serverId, serverCode)
+            rawDispatch({
+              type: 'RECONCILE_SERVER_IDS',
+              payload: [{ tempId: originalTempId, serverId, serverCode, actionType: action.type }]
+            })
+          }
+        }
       })
       .catch((err) => {
-        console.warn(`Cloud write failed for ${action.type}, queuing for retry:`, err)
-        const queueItem = {
+        console.warn(`Cloud write failed for ${action.type}, queuing in IndexedDB for retry:`, err.message)
+        enqueueOfflineAction(userId, {
           actionType: action.type,
-          payload: action.payload,
-          timestamp: Date.now()
-        }
-        setOfflineQueue(prev => {
-          const next = [...prev, queueItem]
-          try {
-            localStorage.setItem('printpro-offline-queue', JSON.stringify(next))
-          } catch {
-            // ignore storage quota errors
-          }
-          return next
-        })
+          payload: action.payload
+        }).then(() => {
+          refreshQueues(userId)
+          processOfflineQueue()
+        }).catch(e => console.error('Failed to enqueue offline action:', e))
       })
   }
 
@@ -875,6 +962,7 @@ export const AppProvider = ({ children }) => {
 
       if (session) {
         console.log('Auth state changed:', session.user.email)
+        const userId = session.user.id
         dispatch({
           type: 'SET_CURRENT_USER',
           payload: {
@@ -886,10 +974,22 @@ export const AppProvider = ({ children }) => {
             avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || '',
           }
         });
+
+        // 0ms instant hydration from user's isolated IndexedDB
+        migrateLegacyLocalStorage(userId)
+          .then(() => loadUserState(userId))
+          .then((cachedState) => {
+            if (cachedState) {
+              rawDispatch({ type: 'HYDRATE_FROM_CLOUD', payload: cachedState })
+            }
+            refreshQueues(userId)
+          })
+          .catch((err) => console.warn('Failed loading cached user state from IndexedDB:', err))
       } else {
         console.log('Auth state changed: signed out')
         dispatch({ type: 'SET_CURRENT_USER', payload: null });
-        dispatch({ type: 'HYDRATE_FROM_CLOUD', payload: {} });
+        dispatch({ type: 'RESET_STATE', payload: null });
+        refreshQueues(null)
       }
     }
 
@@ -904,6 +1004,7 @@ export const AppProvider = ({ children }) => {
     return () => {
       subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch all business manager data from database when user is authenticated, and keep it in sync periodically
@@ -1981,13 +2082,22 @@ export const AppProvider = ({ children }) => {
   }
 
   const logout = async () => {
+    const userId = state.currentUser?.id
     try {
+      if (userId) {
+        closeUserDatabase(userId)
+      }
       await supabase.auth.signOut()
     } catch (err) {
       console.warn('Supabase signOut error:', err)
     } finally {
-      dispatch({ type: 'SET_CURRENT_USER', payload: null })
-      window.location.href = '/auth'
+      rawDispatch({ type: 'SET_CURRENT_USER', payload: null })
+      rawDispatch({ type: 'RESET_STATE', payload: null })
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('printpro-state')
+        window.localStorage.removeItem('printpro-offline-queue')
+        window.location.href = '/auth'
+      }
     }
   }
 
@@ -2404,11 +2514,15 @@ export const AppProvider = ({ children }) => {
       deleteAdvancePayment: (id) => dispatch({ type: 'DELETE_ADVANCE_PAYMENT', payload: id }),
       payGroupMember: (payload) => dispatch({ type: 'PAY_GROUP_MEMBER', payload }),
       offlineQueue,
+      offlineQueueLength: offlineQueue.length,
       pendingSyncCount: offlineQueue.length,
+      isSyncing,
+      dlqItems,
+      dismissDlqItem,
       processOfflineQueue,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, isOnline, toast, dialog, offlineQueue, processOfflineQueue]
+    [state, isOnline, toast, dialog, offlineQueue, isSyncing, dlqItems, processOfflineQueue, dismissDlqItem]
   )
 
   return (
