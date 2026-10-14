@@ -933,35 +933,42 @@ const Analytics = () => {
             <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <PieChartIcon size={18} className="text-accent" /> Payment Mode Distribution
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
-              <div style={{ height: '200px' }}>
-                <Doughnut
-                  data={paymentDonutData}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom' } },
-                    cutout: '70%'
-                  }}
-                />
+            {((paymentBreakdown?.cash_collected || summaryData?.cash_revenue || 0) === 0 &&
+              (paymentBreakdown?.upi_collected || summaryData?.upi_revenue || 0) === 0) ? (
+              <div className="text-muted" style={{ padding: '36px', textAlign: 'center' }}>
+                No payment collection records available for this period.
               </div>
-              <div style={{ display: 'grid', gap: '10px' }}>
-                <div style={{ padding: '10px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', borderLeft: '3px solid #10b981' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#10b981' }}>Cash Share</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                    {paymentBreakdown?.cash_percentage || 0}%
-                  </div>
-                  <div className="text-muted" style={{ fontSize: '0.72rem' }}>₹{(summaryData?.cash_revenue || 0).toFixed(2)}</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
+                <div style={{ height: '200px' }}>
+                  <Doughnut
+                    data={paymentDonutData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: { legend: { position: 'bottom' } },
+                      cutout: '70%'
+                    }}
+                  />
                 </div>
-                <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.08)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#3b82f6' }}>UPI Share</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                    {paymentBreakdown?.upi_percentage || 0}%
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <div style={{ padding: '10px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', borderLeft: '3px solid #10b981' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#10b981' }}>Cash Share</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                      {paymentBreakdown?.cash_percentage || 0}%
+                    </div>
+                    <div className="text-muted" style={{ fontSize: '0.72rem' }}>₹{(summaryData?.cash_revenue || 0).toFixed(2)}</div>
                   </div>
-                  <div className="text-muted" style={{ fontSize: '0.72rem' }}>₹{(summaryData?.upi_revenue || 0).toFixed(2)}</div>
+                  <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.08)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#3b82f6' }}>UPI Share</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                      {paymentBreakdown?.upi_percentage || 0}%
+                    </div>
+                    <div className="text-muted" style={{ fontSize: '0.72rem' }}>₹{(summaryData?.upi_revenue || 0).toFixed(2)}</div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

@@ -4,10 +4,13 @@ import { useTheme } from '../context/ThemeContext'
 import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor } from 'lucide-react'
 import { updateLoyaltySettings } from '../api/loyalty'
 import { createPromoCode, updatePromoCode, deletePromoCode, bulkGeneratePromoCodes } from '../api/promoCodes'
+import { clearAllDataApi } from '../api/settings'
+import { wipeUserDatabase } from '../lib/indexedDbStore'
 
 const Settings = () => {
-  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, showAlert } = useAppContext()
+  const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, showAlert, currentUser } = useAppContext()
   const { theme, setTheme } = useTheme()
+
 
   // Business profile local state
   const [biz, setBiz] = useState({
@@ -431,15 +434,58 @@ const Settings = () => {
     setTimeout(() => setAcctSaved(false), 3000)
   }
 
-  const handleClearData = () => {
-    showConfirm(
-      'Clear All Data',
-      'This permanently erases ALL data: bills, customers, payments, expenses, and settings. This cannot be undone. Are you absolutely sure?',
-      () => {
-        localStorage.removeItem('printpro-state')
-        window.location.reload()
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [isDeletingData, setIsDeletingData] = useState(false)
+
+  const handleOpenClearModal = () => {
+    setDeleteConfirmText('')
+    setShowClearModal(true)
+  }
+
+  const handleExecuteClearData = async () => {
+    if (deleteConfirmText.trim() !== 'DELETE' || isDeletingData) return
+    try {
+      setIsDeletingData(true)
+      // 1. Wipe database records on backend
+      await clearAllDataApi()
+
+      // 2. Wipe IndexedDB offline cache for this user
+      if (currentUser?.id) {
+        await wipeUserDatabase(currentUser.id)
       }
-    )
+
+      // 3. Clear all PrintPro localStorage keys
+      const keysToRemove = [
+        'printpro-state',
+        'printpro-cash-sessions',
+        'printpro-active-cash-session',
+        'printpro-analytics-cache',
+        'printpro-offline-queue',
+        'printpro-dead-letter-queue',
+        'printpro-sync-metadata'
+      ]
+      keysToRemove.forEach((k) => {
+        try {
+          localStorage.removeItem(k)
+        } catch {
+          // ignore
+        }
+      })
+
+      showToast('All business data has been permanently cleared. Reloading...', 'success')
+      setShowClearModal(false)
+      setTimeout(() => {
+        window.location.reload()
+      }, 700)
+    } catch (err) {
+      console.error('Failed to clear all data:', err)
+      showAlert(
+        'Error Clearing Data',
+        err.response?.data?.message || err.message || 'Failed to clear cloud data. Please check your network connection.'
+      )
+      setIsDeletingData(false)
+    }
   }
 
   return (
@@ -1861,7 +1907,7 @@ const Settings = () => {
                 <button
                   type="button"
                   className="btn btn-danger"
-                  onClick={handleClearData}
+                  onClick={handleOpenClearModal}
                 >
                   Clear All Data
                 </button>
@@ -1870,8 +1916,119 @@ const Settings = () => {
           </div>
         </div>
       </div>
+
+      {/* Factory Reset Modal with "DELETE" confirmation safeguard */}
+      {showClearModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+            backdropFilter: 'blur(4px)',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isDeletingData) setShowClearModal(false)
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              maxWidth: '480px',
+              width: '100%',
+              background: 'var(--bg-surface)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+              padding: '24px',
+              borderRadius: 'var(--radius-lg)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '50%',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: 'var(--error)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--error)' }}>Factory Reset — Clear All Data</h3>
+                <p className="text-muted" style={{ margin: '2px 0 0 0', fontSize: '0.8rem' }}>Permanent and irreversible action</p>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '18px' }}>
+              <p style={{ margin: '0 0 10px 0' }}>
+                This will <strong>permanently purge all records</strong> from the cloud database and your local device storage, including:
+              </p>
+              <ul style={{ margin: '0 0 12px 18px', padding: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                <li>All customer profiles and credit/advance ledger history</li>
+                <li>All invoices, split bills, and bill items</li>
+                <li>All payments, refunds, cash sessions, and UPI logs</li>
+                <li>All inventory items, expense logs, and loyalty events</li>
+              </ul>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary)' }}>
+                To proceed, type <span style={{ color: 'var(--error)', fontFamily: 'monospace', background: 'rgba(239,68,68,0.1)', padding: '2px 6px', borderRadius: '4px' }}>DELETE</span> below to confirm:
+              </p>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '20px' }}>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Type DELETE to confirm"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                autoFocus
+                disabled={isDeletingData}
+                style={{
+                  borderColor: deleteConfirmText === 'DELETE' ? 'var(--error)' : 'var(--border)',
+                  textAlign: 'center',
+                  fontFamily: 'monospace',
+                  fontSize: '1rem',
+                  letterSpacing: '0.1em',
+                  fontWeight: 700,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isDeletingData}
+                onClick={() => setShowClearModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleteConfirmText.trim() !== 'DELETE' || isDeletingData}
+                onClick={handleExecuteClearData}
+                style={{ minWidth: '130px' }}
+              >
+                {isDeletingData ? 'Purging Data...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export default Settings
+

@@ -185,10 +185,11 @@ const CustomerBills = () => {
 
   const addRow = () => {
     setDuplicateWarning('')
-    let defaultItemId = inventory[0]?.id || ''
+    const hasInv = inventory && inventory.length > 0
+    let defaultItemId = hasInv ? (inventory[0]?.id || '') : ''
     let defaultPrintType = 'color'
     let defaultSides = 'single'
-    let defaultItemName = inventory[0]?.name || 'Custom Item'
+    let defaultItemName = hasInv ? (inventory[0]?.name || '') : ''
 
     let foundUnused = false
     const combos = [
@@ -198,31 +199,33 @@ const CustomerBills = () => {
       { printType: 'bw', sides: 'double' }
     ]
 
-    for (const item of inventory) {
-      for (const combo of combos) {
-        const exists = itemRows.some(
-          (r) => !r.isCustom && r.itemId === item.id && r.printType === combo.printType && r.sides === combo.sides
-        )
-        if (!exists) {
-          defaultItemId = item.id
-          defaultPrintType = combo.printType
-          defaultSides = combo.sides
-          defaultItemName = item.name
-          foundUnused = true
-          break
+    if (hasInv) {
+      for (const item of inventory) {
+        for (const combo of combos) {
+          const exists = itemRows.some(
+            (r) => !r.isCustom && r.itemId === item.id && r.printType === combo.printType && r.sides === combo.sides
+          )
+          if (!exists) {
+            defaultItemId = item.id
+            defaultPrintType = combo.printType
+            defaultSides = combo.sides
+            defaultItemName = item.name
+            foundUnused = true
+            break
+          }
         }
+        if (foundUnused) break
       }
-      if (foundUnused) break
     }
 
-    const unitPrice = getItemBasePrice(defaultItemId, defaultPrintType, defaultSides)
+    const unitPrice = hasInv ? getItemBasePrice(defaultItemId, defaultPrintType, defaultSides) : 0
     setItemRows((current) => [
       ...current,
       {
         id: `row-${Date.now()}-${Math.random()}`,
         itemId: defaultItemId,
         itemName: defaultItemName,
-        isCustom: false,
+        isCustom: !hasInv,
         printType: defaultPrintType,
         sides: defaultSides,
         qty: 1,
