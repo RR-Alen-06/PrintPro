@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import EmptyState from '../components/common/EmptyState'
@@ -26,8 +26,14 @@ import {
   Phone,
   Mail,
   MessageCircle,
-  Tag
+  Tag,
+  ShieldCheck,
+  Lock,
+  Eye,
+  EyeOff,
+  Layers
 } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 import { getCustomerLoyalty, adjustCustomerLoyalty } from '../api/loyalty'
 import { exportCustomerLedgerPdf } from '../api/ledger'
 import { LedgerService } from '../utils/financialServices'
@@ -42,7 +48,131 @@ const EMPTY_CUSTOMER_FORM = {
   openingCash: '',
   openingUpi: '',
   openingBalanceMethod: 'cash',
+  groupId: '',
 }
+
+const getNextRegularCustomerCode = (customers = []) => {
+  let maxNum = 0
+  customers.forEach(c => {
+    if (c.type === 'regular') {
+      const code = c.customer_code || c.customerCode || ''
+      const match = code.match(/RC-?(\d+)/i)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        if (num > maxNum) maxNum = num
+      }
+    }
+  })
+  return `RC-${String(maxNum + 1).padStart(4, '0')}`
+}
+
+function generateClientSideStatementPdf(customer, rows, summary) {
+  const doc = new jsPDF()
+  const shopName = summary.business?.shopName || 'PrintPro'
+  const ownerName = summary.business?.ownerName || ''
+  const phone = summary.business?.phone || ''
+  const gstin = summary.business?.gstin || ''
+
+  // Header
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text(shopName, 14, 18)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  let y = 24
+  if (ownerName) { doc.text(`Prop: ${ownerName}`, 14, y); y += 5 }
+  if (phone) { doc.text(`Phone: ${phone}`, 14, y); y += 5 }
+  if (gstin) { doc.text(`GSTIN: ${gstin}`, 14, y); y += 5 }
+
+  // Title
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.text('STATEMENT OF ACCOUNT', 14, y + 4)
+  y += 10
+
+  doc.setLineWidth(0.3)
+  doc.line(14, y, 196, y)
+  y += 6
+
+  // Customer block
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text(`Customer: ${customer.name}`, 14, y)
+  const custCode = customer.customer_code || customer.customerCode || customer.id || ''
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Account Code: ${custCode}`, 140, y)
+  y += 5
+  if (customer.phone) { doc.text(`Phone: ${customer.phone}`, 14, y); y += 5 }
+  if (customer.address) { doc.text(`Address: ${customer.address}`, 14, y); y += 5 }
+  doc.text(`Generated: ${new Date().toLocaleDateString()}`, 140, y - 5)
+
+  y += 4
+  doc.line(14, y, 196, y)
+  y += 8
+
+  // Financial KPI box
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.rect(14, y, 182, 16)
+  doc.text(`Total Debits: Rs. ${summary.debits.toFixed(2)}`, 18, y + 6)
+  doc.text(`Total Credits: Rs. ${summary.credits.toFixed(2)}`, 80, y + 6)
+  doc.text(`Net Balance: Rs. ${summary.balance.toFixed(2)}`, 140, y + 6)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(`Period: ${summary.startDate ? `${summary.startDate} to ${summary.endDate}` : 'All Time'}`, 18, y + 12)
+  y += 22
+
+  // Table header
+  doc.setFillColor(245, 245, 245)
+  doc.rect(14, y, 182, 7, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('Date', 16, y + 5)
+  doc.text('Ref / ID', 40, y + 5)
+  doc.text('Type', 80, y + 5)
+  doc.text('Debit (Rs.)', 125, y + 5, { align: 'right' })
+  doc.text('Credit (Rs.)', 160, y + 5, { align: 'right' })
+  doc.text('Balance (Rs.)', 194, y + 5, { align: 'right' })
+  y += 9
+
+  // Table rows
+  doc.setFont('helvetica', 'normal')
+  rows.slice(0, 35).forEach(r => {
+    if (y > 275) {
+      doc.addPage()
+      y = 15
+    }
+    doc.text(String(r.date || '').slice(0, 10), 16, y)
+    doc.text(String(r.refId || r.id || '').slice(0, 18), 40, y)
+    doc.text(String(r.type || '').slice(0, 22), 80, y)
+    doc.text(r.debit ? Number(r.debit).toFixed(2) : '—', 125, y, { align: 'right' })
+    doc.text(r.credit ? Number(r.credit).toFixed(2) : '—', 160, y, { align: 'right' })
+    doc.text(Number(r.balance || 0).toFixed(2), 194, y, { align: 'right' })
+    y += 6
+  })
+
+  // Footer
+  y += 8
+  if (y > 275) {
+    doc.addPage()
+    y = 20
+  }
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'italic')
+  doc.text('This is a computer-generated statement. Thank you for your business.', 105, y, { align: 'center' })
+
+  doc.save(`${custCode || 'Customer'}_Statement.pdf`)
+}
+
+const getCustomerGroup = (customer, customerGroups = []) => {
+  if (!customer) return null
+  return customerGroups.find(g =>
+    (customer.groupId && g.id === customer.groupId) ||
+    (Array.isArray(g.memberIds) && g.memberIds.includes(customer.id))
+  ) || null
+}
+
 
 const LEDGER_PERIODS = [
   { key: 'all', label: 'All Time' },
@@ -90,11 +220,13 @@ const Customers = () => {
     payments,
     advancePayments,
     settings,
+    customerGroups = [],
     addCustomer,
     updateCustomer,
     deleteCustomer,
     restoreCustomer,
     updateCustomerFull,
+    updateCustomerGroup,
     editBill,
     deleteBill,
     applyPostDiscount,
@@ -162,6 +294,30 @@ const Customers = () => {
   // ── Filter & Search for Directory (Left Pane) ──
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState('all') // 'all', 'regular', 'random', 'due', 'advance', 'deleted'
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState('all')
+
+  // Convert Walk-in to Regular modal state
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [convertName, setConvertName] = useState('')
+  const [convertPhone, setConvertPhone] = useState('')
+  const [convertPin, setConvertPin] = useState('')
+  const [convertError, setConvertError] = useState('')
+  const [showConvertPin, setShowConvertPin] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
+
+  // Dual WhatsApp Share dropdown
+  const [showWhatsAppDropdown, setShowWhatsAppDropdown] = useState(false)
+  const whatsAppDropdownRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (whatsAppDropdownRef.current && !whatsAppDropdownRef.current.contains(e.target)) {
+        setShowWhatsAppDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Pre-calculated customer balances
   const customerDueMap = useMemo(() => {
@@ -178,6 +334,11 @@ const Customers = () => {
     return customers.filter((c) => {
       if (filterType === 'deleted') return c.deleted === true
       if (c.deleted) return false
+
+      if (selectedGroupFilter !== 'all') {
+        const cGroup = getCustomerGroup(c, customerGroups)
+        if (!cGroup || cGroup.id !== selectedGroupFilter) return false
+      }
 
       const displayId = getDisplayCustomerId(c)
       const q = searchQuery.toLowerCase().trim()
@@ -198,7 +359,7 @@ const Customers = () => {
 
       return true
     })
-  }, [customers, filterType, searchQuery, customerDueMap])
+  }, [customers, filterType, selectedGroupFilter, searchQuery, customerDueMap, customerGroups])
 
   // Selected customer's bills (newest first)
   const customerBills = useMemo(() => {
@@ -229,11 +390,13 @@ const Customers = () => {
 
   const openEditCustomerModal = (c = selectedCustomer) => {
     if (!c) return
+    const currentGroup = getCustomerGroup(c, customerGroups)
     setCustomerForm({
       type: c.type || 'regular',
       name: c.name || '',
       phone: c.phone || '',
       email: c.email || '',
+      groupId: currentGroup?.id || c.groupId || '',
       creditBalance: String(c.creditBalance || c.advanceBalance || 0),
       openingCash: '',
       openingUpi: '',
@@ -261,12 +424,30 @@ const Customers = () => {
     }
 
     if (isEditingCustomer && selectedCustomer) {
+      const prevGroup = getCustomerGroup(selectedCustomer, customerGroups)
+      const newGroupId = customerForm.groupId || ''
+
       updateCustomerFull(selectedCustomer.id, {
         name: customerForm.name.trim(),
         phone: customerForm.phone.trim(),
         email: customerForm.email.trim(),
-        creditBalance: customerForm.type === 'regular' ? Number(customerForm.creditBalance || 0) : 0,
+        groupId: newGroupId,
+        creditBalance: selectedCustomer.type === 'regular' ? Number(customerForm.creditBalance || 0) : 0,
       })
+
+      // Synchronize group membership if group changed
+      if (prevGroup && prevGroup.id !== newGroupId && updateCustomerGroup) {
+        const nextMembers = (prevGroup.memberIds || []).filter(mId => mId !== selectedCustomer.id)
+        updateCustomerGroup(prevGroup.id, { memberIds: nextMembers })
+      }
+      if (newGroupId && (!prevGroup || prevGroup.id !== newGroupId) && updateCustomerGroup) {
+        const targetGroup = customerGroups.find(g => g.id === newGroupId)
+        if (targetGroup) {
+          const nextMembers = Array.from(new Set([...(targetGroup.memberIds || []), selectedCustomer.id]))
+          updateCustomerGroup(targetGroup.id, { memberIds: nextMembers })
+        }
+      }
+
       showToast?.('Customer details updated successfully', 'success')
       setShowCustomerModal(false)
     } else {
@@ -278,16 +459,72 @@ const Customers = () => {
         name: customerForm.name.trim(),
         phone: customerForm.phone.trim(),
         email: customerForm.email.trim(),
+        groupId: customerForm.groupId || '',
         creditBalance: isRegular ? Number(customerForm.creditBalance || 0) : 0,
         openingCash: opCash,
         openingUpi: opUpi,
         openingBalanceMethod: customerForm.openingBalanceMethod,
       })
+      if (customerForm.groupId && newCust?.id && updateCustomerGroup) {
+        const targetGroup = customerGroups.find(g => g.id === customerForm.groupId)
+        if (targetGroup) {
+          const nextMembers = Array.from(new Set([...(targetGroup.memberIds || []), newCust.id]))
+          updateCustomerGroup(targetGroup.id, { memberIds: nextMembers })
+        }
+      }
       showToast?.('New customer added successfully', 'success')
       setShowCustomerModal(false)
       if (newCust?.id) {
         selectCustomer(newCust.id, 'overview')
       }
+    }
+  }
+
+  // ── Convert Walk-in to Regular Customer (Master PIN Protected) ──
+  const openConvertModal = () => {
+    if (!selectedCustomer) return
+    setConvertName(selectedCustomer.name || '')
+    setConvertPhone(selectedCustomer.phone || '')
+    setConvertPin('')
+    setConvertError('')
+    setShowConvertPin(false)
+    setShowConvertModal(true)
+  }
+
+  const handleConvertCustomer = (e) => {
+    e.preventDefault()
+    if (!selectedCustomer) return
+    if (!convertName.trim()) {
+      setConvertError('Customer name is required')
+      return
+    }
+    if (!convertPhone.trim() || !/^\d{7,15}$/.test(convertPhone.trim())) {
+      setConvertError('A valid phone number (7-15 digits) is required for regular accounts')
+      return
+    }
+    const currentPin = settings?.securityPin || '0000'
+    if (convertPin.trim() !== currentPin) {
+      setConvertError('Incorrect Master Security PIN')
+      return
+    }
+
+    setIsConverting(true)
+    try {
+      const newCode = getNextRegularCustomerCode(customers)
+      updateCustomerFull(selectedCustomer.id, {
+        type: 'regular',
+        name: convertName.trim(),
+        phone: convertPhone.trim(),
+        customer_code: newCode,
+        customerCode: newCode
+      })
+      showToast?.(`Converted to Regular customer! New Account Code: ${newCode}`, 'success')
+      setShowConvertModal(false)
+    } catch (err) {
+      console.error('Failed to convert customer:', err)
+      setConvertError('Failed to convert customer. Please try again.')
+    } finally {
+      setIsConverting(false)
     }
   }
 
@@ -530,46 +767,120 @@ const Customers = () => {
     if (!selectedCustomer) return
     setExportingPdf(true)
     showToast?.('Generating official statement PDF...', 'info')
-    try {
-      const dateParams = {}
-      if (ledgerPeriod === 'custom') {
-        if (customStartDate) dateParams.startDate = customStartDate
-        if (customEndDate) dateParams.endDate = customEndDate
-      } else {
-        const range = getLedgerPeriodRange(ledgerPeriod)
-        if (range) {
-          dateParams.startDate = range.start.toISOString().slice(0, 10)
-          dateParams.endDate = range.end.toISOString().slice(0, 10)
-        }
+    const dateParams = {}
+    if (ledgerPeriod === 'custom') {
+      if (customStartDate) dateParams.startDate = customStartDate
+      if (customEndDate) dateParams.endDate = customEndDate
+    } else {
+      const range = getLedgerPeriodRange(ledgerPeriod)
+      if (range) {
+        dateParams.startDate = range.start.toISOString().slice(0, 10)
+        dateParams.endDate = range.end.toISOString().slice(0, 10)
       }
+    }
 
+    try {
       const res = await exportCustomerLedgerPdf(selectedCustomer.id, dateParams)
-      if (res.success && (res.fullUrl || res.pdfUrl)) {
+      if (res && res.success && (res.fullUrl || res.pdfUrl)) {
         const hostedUrl = res.fullUrl || (window.location.origin + res.pdfUrl)
         showToast?.('Statement PDF generated!', 'success')
         window.open(hostedUrl, '_blank')
-      } else {
-        showAlert('Could not generate statement PDF', 'error')
+        return
       }
     } catch (err) {
-      console.error('Failed to export PDF:', err)
-      showAlert(err.response?.data?.error || 'Failed to export statement PDF', 'error')
+      console.warn('Server PDF unavailable, falling back to client-side statement generator:', err)
     } finally {
       setExportingPdf(false)
     }
+
+    // High-Fidelity Client-Side Statement PDF Fallback
+    try {
+      generateClientSideStatementPdf(selectedCustomer, ledgerEntries, {
+        debits: ledgerDebits,
+        credits: ledgerCredits,
+        balance: ledgerFinalBalance,
+        startDate: dateParams.startDate,
+        endDate: dateParams.endDate,
+        business: business || settings?.business || {}
+      })
+      showToast?.('Statement PDF generated locally!', 'success')
+    } catch (fallbackErr) {
+      console.error('Fallback PDF generation error:', fallbackErr)
+      showAlert('Could not generate statement PDF', 'error')
+    }
   }
 
-  const handleShareStatementWhatsApp = () => {
+  // ── Dual-Mode WhatsApp Sharing ──
+  const handleShareWhatsAppQuick = () => {
     if (!selectedCustomer || !selectedCustomer.phone) {
       showAlert('Customer has no phone number on record for WhatsApp', 'warning')
       return
     }
     const cleanPhone = selectedCustomer.phone.replace(/[^0-9]/g, '')
     const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
-    const text = encodeURIComponent(
-      `Hello ${selectedCustomer.name},\nHere is your account statement from ${business?.shopName || 'PrintPro'}:\nTotal Invoiced: ₹${ledgerDebits.toFixed(2)}\nTotal Payments: ₹${ledgerCredits.toFixed(2)}\nNet Balance: ₹${ledgerFinalBalance.toFixed(2)}\nThank you for your business!`
-    )
-    window.open(`https://wa.me/${targetPhone}?text=${text}`, '_blank')
+    const shopName = business?.shopName || 'PrintPro'
+    const upiId = business?.upiId || ''
+    const due = totalDue
+
+    let msg = `Dear ${selectedCustomer.name},\n`
+    msg += `This is a friendly reminder from *${shopName}* regarding your pending balance.\n\n`
+    msg += `*Outstanding Balance: ₹${due.toFixed(2)}*\n`
+    if (advanceBal > 0.01) {
+      msg += `Available Advance: ₹${advanceBal.toFixed(2)}\n`
+    }
+    if (upiId && due > 0) {
+      const upiLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${due.toFixed(2)}&cu=INR&tn=Payment%20Settlement`
+      msg += `\nYou can clear your balance via UPI:\nUPI ID: *${upiId}*\nPayment Link: ${upiLink}\n`
+    }
+    msg += `\nPlease feel free to contact us if you have any questions.\nThank you for choosing ${shopName}!`
+
+    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
+  const handleShareWhatsAppDetailed = () => {
+    if (!selectedCustomer || !selectedCustomer.phone) {
+      showAlert('Customer has no phone number on record for WhatsApp', 'warning')
+      return
+    }
+    const cleanPhone = selectedCustomer.phone.replace(/[^0-9]/g, '')
+    const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
+    const shopName = business?.shopName || 'PrintPro'
+    const upiId = business?.upiId || ''
+    const displayId = getDisplayCustomerId(selectedCustomer)
+
+    const pendingBills = customerBills.filter(b => !b.deleted && (Number(b.balance) > 0.01 || b.status !== 'paid'))
+
+    let msg = `*ACCOUNT STATEMENT - ${shopName.toUpperCase()}*\n`
+    msg += `*Customer:* ${selectedCustomer.name} (${displayId})\n`
+    msg += `*Date:* ${new Date().toLocaleDateString()}\n`
+    msg += `--------------------------------\n`
+    msg += `*Total Invoiced:* ₹${totalBilled.toFixed(2)}\n`
+    msg += `*Total Due:* ₹${totalDue.toFixed(2)}\n`
+    if (advanceBal > 0.01) {
+      msg += `*Advance Balance:* ₹${advanceBal.toFixed(2)}\n`
+    }
+    msg += `--------------------------------\n\n`
+
+    if (pendingBills.length > 0) {
+      msg += `*PENDING INVOICES (${pendingBills.length}):*\n`
+      pendingBills.forEach((b, idx) => {
+        const billCode = b.bill_code || b.billCode || b.id
+        const bDate = b.date ? String(b.date).slice(0, 10) : ''
+        msg += `${idx + 1}. *${billCode}* (${bDate})\n`
+        msg += `   Total: ₹${Number(b.total || 0).toFixed(2)} | Due: *₹${Number(b.balance || 0).toFixed(2)}*\n`
+      })
+      msg += `--------------------------------\n`
+    } else {
+      msg += `No pending invoices. Account is fully settled!\n--------------------------------\n`
+    }
+
+    if (upiId && totalDue > 0) {
+      const upiLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${totalDue.toFixed(2)}&cu=INR&tn=Invoice%20Settlement`
+      msg += `\n*Quick UPI Settlement:*\nUPI ID: *${upiId}*\nPay directly: ${upiLink}\n`
+    }
+
+    msg += `\nThank you for your business!\n*${shopName}*`
+    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
   return (
@@ -651,6 +962,59 @@ const Customers = () => {
                 </button>
               ))}
             </div>
+
+            {/* Customer Groups Filter Strip */}
+            {customerGroups.length > 0 && (
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '6px', fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  <Layers size={11} />
+                  <span>GROUP TAGS</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGroupFilter('all')}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: selectedGroupFilter === 'all' ? '1px solid #9333ea' : '1px solid var(--border)',
+                      background: selectedGroupFilter === 'all' ? 'rgba(147, 51, 234, 0.12)' : 'transparent',
+                      color: selectedGroupFilter === 'all' ? '#9333ea' : 'var(--text-muted)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    All Groups
+                  </button>
+                  {customerGroups.map(g => {
+                    const count = (g.memberIds || []).length
+                    const isSelected = selectedGroupFilter === g.id
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setSelectedGroupFilter(isSelected ? 'all' : g.id)}
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '0.68rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          border: isSelected ? '1px solid #9333ea' : '1px solid var(--border)',
+                          background: isSelected ? 'rgba(147, 51, 234, 0.15)' : 'transparent',
+                          color: isSelected ? '#9333ea' : 'var(--text-muted)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {g.name} {count > 0 && `(${count})`}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Customer Cards Scroll Area */}
@@ -669,6 +1033,7 @@ const Customers = () => {
                 const due = customerDueMap[c.id] || 0
                 const adv = Number(c.advanceBalance || c.creditBalance || 0)
                 const displayId = getDisplayCustomerId(c)
+                const cGroup = getCustomerGroup(c, customerGroups)
 
                 return (
                   <div
@@ -685,13 +1050,30 @@ const Customers = () => {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {c.name}
                           </span>
                           <span className={`badge ${c.type === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
                             {c.type === 'regular' ? 'Regular' : 'Walk-in'}
                           </span>
+                          {cGroup && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: '0.62rem',
+                                padding: '1px 5px',
+                                background: 'rgba(147, 51, 234, 0.1)',
+                                color: '#9333ea',
+                                border: '1px solid rgba(147, 51, 234, 0.25)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              <Tag size={10} /> {cGroup.name}
+                            </span>
+                          )}
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                           <span style={{ fontFamily: 'monospace' }}>{displayId}</span>
@@ -744,11 +1126,32 @@ const Customers = () => {
                     {selectedCustomer.name?.charAt(0)?.toUpperCase() || 'C'}
                   </div>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                       <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700 }}>{selectedCustomer.name}</h2>
                       <span className={`badge ${selectedCustomer.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
                         {selectedCustomer.type === 'regular' ? 'Regular Customer' : 'Walk-in Customer'}
                       </span>
+                      {(() => {
+                        const selGroup = getCustomerGroup(selectedCustomer, customerGroups)
+                        if (!selGroup) return null
+                        return (
+                          <span
+                            className="badge"
+                            style={{
+                              background: 'rgba(147, 51, 234, 0.12)',
+                              color: '#9333ea',
+                              border: '1px solid rgba(147, 51, 234, 0.3)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '0.74rem',
+                              padding: '2px 8px'
+                            }}
+                          >
+                            <Tag size={12} /> {selGroup.name}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '6px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                       <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -770,6 +1173,24 @@ const Customers = () => {
 
                 {/* Primary Action Buttons */}
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  {selectedCustomer.type === 'random' && (
+                    <button
+                      className="btn btn-sm"
+                      onClick={openConvertModal}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        color: 'var(--accent)',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        fontWeight: 600
+                      }}
+                      title="Upgrade Walk-in customer to Regular account with Master PIN"
+                    >
+                      <ShieldCheck size={15} /> Convert to Regular
+                    </button>
+                  )}
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => navigate(`/payments?customerId=${selectedCustomer.id}`)}
@@ -1250,14 +1671,84 @@ const Customers = () => {
                     </div>
 
                     {/* Export / Share Actions */}
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleShareStatementWhatsApp}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <MessageCircle size={15} color="#25D366" /> Share WhatsApp
-                      </button>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <div style={{ position: 'relative' }} ref={whatsAppDropdownRef}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setShowWhatsAppDropdown(prev => !prev)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          <MessageCircle size={15} color="#25D366" />
+                          <span>Share WhatsApp</span>
+                          <ChevronDown size={14} />
+                        </button>
+                        {showWhatsAppDropdown && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '100%',
+                              right: 0,
+                              marginTop: '6px',
+                              background: 'var(--bg-card, #ffffff)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '8px',
+                              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+                              zIndex: 100,
+                              minWidth: '250px',
+                              padding: '6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              style={{
+                                width: '100%',
+                                justifyContent: 'flex-start',
+                                textAlign: 'left',
+                                padding: '8px 12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                borderRadius: '6px'
+                              }}
+                              onClick={() => {
+                                setShowWhatsAppDropdown(false)
+                                handleShareWhatsAppQuick()
+                              }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)' }}>⚡ Quick Due Reminder</span>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Brief outstanding balance + UPI link</span>
+                            </button>
+                            <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              style={{
+                                width: '100%',
+                                justifyContent: 'flex-start',
+                                textAlign: 'left',
+                                padding: '8px 12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                borderRadius: '6px'
+                              }}
+                              onClick={() => {
+                                setShowWhatsAppDropdown(false)
+                                handleShareWhatsAppDetailed()
+                              }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)' }}>📋 Detailed Account Statement</span>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Itemized pending bills + payment link</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
                       <button
                         className="btn btn-primary btn-sm"
                         onClick={handleExportStatementPdf}
@@ -1403,17 +1894,47 @@ const Customers = () => {
             </div>
             <form onSubmit={handleCustomerSubmit}>
               <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div className="form-group">
-                  <label className="form-label">Customer Type</label>
-                  <select
-                    className="form-input"
-                    value={customerForm.type}
-                    onChange={(e) => setCustomerForm(f => ({ ...f, type: e.target.value }))}
-                  >
-                    <option value="regular">Regular Customer (Account & Credit)</option>
-                    <option value="random">Walk-in / Cash Only</option>
-                  </select>
-                </div>
+                {isEditingCustomer ? (
+                  <div className="form-group">
+                    <label className="form-label">Customer Type</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '4px' }}>
+                      <span className={`badge ${customerForm.type === 'regular' ? 'badge-info' : 'badge-warning'}`}>
+                        {customerForm.type === 'regular' ? 'Regular Customer' : 'Walk-in Customer'}
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        (Protected. Walk-in accounts must be converted via Master PIN)
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="form-group">
+                    <label className="form-label">Customer Type</label>
+                    <select
+                      className="form-input"
+                      value={customerForm.type}
+                      onChange={(e) => setCustomerForm(f => ({ ...f, type: e.target.value }))}
+                    >
+                      <option value="regular">Regular Customer (Account & Credit)</option>
+                      <option value="random">Walk-in / Cash Only</option>
+                    </select>
+                  </div>
+                )}
+
+                {customerGroups.length > 0 && (
+                  <div className="form-group">
+                    <label className="form-label">Customer Group / Tag</label>
+                    <select
+                      className="form-input"
+                      value={customerForm.groupId || ''}
+                      onChange={(e) => setCustomerForm(f => ({ ...f, groupId: e.target.value }))}
+                    >
+                      <option value="">No Group (General)</option>
+                      {customerGroups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="form-group">
                   <label className="form-label">Customer Name *</label>
@@ -1822,6 +2343,117 @@ const Customers = () => {
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={() => setLoyaltyCustomer(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 5: CONVERT WALK-IN TO REGULAR WITH MASTER PIN ── */}
+      {showConvertModal && selectedCustomer && (
+        <div className="modal-overlay" onClick={() => setShowConvertModal(false)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={20} color="var(--accent)" />
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Convert to Regular Customer</h2>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Protected Operation · Master Security PIN</div>
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowConvertModal(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleConvertCustomer}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  fontSize: '0.82rem',
+                  color: 'var(--text-secondary)'
+                }}>
+                  Converting this customer will grant full credit tracking, ledger histories, and statement downloads. A permanent Regular Customer code (<strong>{getNextRegularCustomerCode(customers)}</strong>) will be assigned.
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Customer Name *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={convertName}
+                    onChange={(e) => setConvertName(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Customer Phone * (Required for Regular)</label>
+                  <input
+                    type="tel"
+                    className="form-input"
+                    placeholder="10-digit mobile number"
+                    value={convertPhone}
+                    onChange={(e) => setConvertPhone(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Lock size={13} />
+                    <span>Enter Master Security PIN *</span>
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showConvertPin ? 'text' : 'password'}
+                      className="form-input"
+                      placeholder="4-6 digit owner PIN"
+                      value={convertPin}
+                      onChange={(e) => {
+                        setConvertPin(e.target.value)
+                        setConvertError('')
+                      }}
+                      autoComplete="new-password"
+                      maxLength={6}
+                      required
+                      style={{ paddingRight: '40px', letterSpacing: showConvertPin ? 'normal' : '0.25em' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConvertPin(p => !p)}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '4px'
+                      }}
+                      tabIndex={-1}
+                    >
+                      {showConvertPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Configured under Settings → Security & Protected Operations
+                  </span>
+                </div>
+
+                {convertError && (
+                  <div className="form-error" style={{ fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '6px 10px', borderRadius: '6px' }}>
+                    {convertError}
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowConvertModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isConverting}>
+                  {isConverting ? 'Converting...' : 'Verify PIN & Convert'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

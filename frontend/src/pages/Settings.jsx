@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { useTheme } from '../context/ThemeContext'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor } from 'lucide-react'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor, ShieldCheck, Lock, Eye, EyeOff } from 'lucide-react'
 import { updateLoyaltySettings } from '../api/loyalty'
 import { createPromoCode, updatePromoCode, deletePromoCode, bulkGeneratePromoCodes } from '../api/promoCodes'
 import { clearAllDataApi } from '../api/settings'
 import { wipeUserDatabase } from '../lib/indexedDbStore'
+
 
 const Settings = () => {
   const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, showAlert, currentUser } = useAppContext()
@@ -432,6 +433,29 @@ const Settings = () => {
     updateSettings({ gstRate: Number(acct.gstRate), viewMode: acct.viewMode, refundsEnabled: acct.refundsEnabled })
     setAcctSaved(true)
     setTimeout(() => setAcctSaved(false), 3000)
+  }
+
+  // Master Security PIN local state
+  const [securityPin, setSecurityPin] = useState(settings.securityPin || '')
+  const [showPin, setShowPin] = useState(false)
+  const [pinSaved, setPinSaved] = useState(false)
+
+  useEffect(() => {
+    if (settings.securityPin !== undefined) {
+      setSecurityPin(settings.securityPin || '')
+    }
+  }, [settings.securityPin])
+
+  const handleSavePin = (e) => {
+    e.preventDefault()
+    if (securityPin && !/^\d{4,6}$/.test(securityPin.trim())) {
+      showAlert('Invalid PIN', 'Master Security PIN must be 4 to 6 numeric digits.')
+      return
+    }
+    updateSettings({ securityPin: securityPin.trim() })
+    setPinSaved(true)
+    showToast?.('Master Security PIN saved successfully!', 'success')
+    setTimeout(() => setPinSaved(false), 3000)
   }
 
   const [showClearModal, setShowClearModal] = useState(false)
@@ -1796,7 +1820,73 @@ const Settings = () => {
         </form>
       </div>
 
-      {/* Section 5: App Preferences */}
+      {/* Section 5: Security & Protected Operations */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+          <div style={{ width: '36px', height: '36px', background: 'rgba(99, 102, 241, 0.15)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
+            <ShieldCheck size={18} />
+          </div>
+          <div>
+            <h2 style={{ margin: 0 }}>Security & Protected Operations</h2>
+            <p className="text-muted" style={{ fontSize: '0.82rem', margin: 0 }}>Configure master authorization PIN for high-privilege operations.</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSavePin}>
+          <div style={{ maxWidth: '440px' }}>
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Lock size={14} /> Master Security PIN (4–6 Digits)
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  className="form-input"
+                  type={showPin ? 'text' : 'password'}
+                  maxLength={6}
+                  value={securityPin}
+                  onChange={(e) => setSecurityPin(e.target.value.replace(/\D/g, ''))}
+                  placeholder="e.g. 1234"
+                  style={{
+                    paddingRight: '40px',
+                    fontFamily: 'monospace',
+                    fontSize: '1.1rem',
+                    letterSpacing: '0.2em',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin(!showPin)}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                  }}
+                  title={showPin ? 'Hide PIN' : 'Show PIN'}
+                >
+                  {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '6px', lineHeight: 1.4 }}>
+                This Master PIN is required to authorize protected actions, such as converting Walk-in customers to Regular customers with ledger credit access.
+              </p>
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {pinSaved ? <CheckCircle size={15} /> : <Save size={15} />}
+              {pinSaved ? 'PIN Saved!' : 'Save Security PIN'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Section 6: App Preferences */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
           <div style={{ width: '36px', height: '36px', background: 'var(--error-bg)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--error)' }}>
