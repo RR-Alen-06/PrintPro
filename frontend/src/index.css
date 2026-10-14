@@ -626,6 +626,32 @@ h5 { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
   font-size: 0.78rem;
   font-weight: 600;
   user-select: none;
+  cursor: default;
+}
+.offline-sync-badge.interactive {
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.offline-sync-badge.interactive:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+.offline-sync-badge.sync-pulse {
+  background: var(--info-bg, rgba(59, 130, 246, 0.1));
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--info, #3b82f6);
+}
+.offline-sync-badge.dlq-warning {
+  background: var(--error-bg, rgba(239, 68, 68, 0.1));
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--error, #ef4444);
+}
+@keyframes spinClockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin-animation {
+  animation: spinClockwise 1s linear infinite;
 }
 
 /* Popover Dropdown */

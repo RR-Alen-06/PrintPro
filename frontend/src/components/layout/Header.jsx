@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, PanelLeftClose, PanelLeft, RefreshCw, AlertTriangle, X } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
@@ -13,13 +13,18 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
     markAllNotificationsRead,
     deleteNotification,
     clearAllNotifications,
-    offlineQueue = []
+    offlineQueue = [],
+    isSyncing = false,
+    dlqItems = [],
+    dismissDlqItem,
+    processOfflineQueue
   } = useAppContext()
   
   const { resolvedTheme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showDlqModal, setShowDlqModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef(null)
 
@@ -69,15 +74,40 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
       </div>
 
       <div className="header-right">
-        {/* Pending Offline Sync Badge */}
-        {offlineQueue.length > 0 && (
+        {/* Sync Status & Offline Badge */}
+        {isSyncing ? (
           <div
-            className="offline-sync-badge"
-            title="Changes queued locally. They will sync automatically when online."
+            className="offline-sync-badge sync-pulse"
+            title="Syncing changes to cloud..."
+          >
+            <RefreshCw size={13} className="spin-animation" />
+            <span>Syncing...</span>
+          </div>
+        ) : offlineQueue.length > 0 ? (
+          <button
+            type="button"
+            className="offline-sync-badge interactive offline-pending"
+            onClick={processOfflineQueue}
+            title="Click to sync queued changes immediately"
+            style={{ border: 'none' }}
           >
             <CloudOff size={14} />
             <span>{offlineQueue.length} {offlineQueue.length === 1 ? 'change' : 'changes'} pending</span>
-          </div>
+          </button>
+        ) : null}
+
+        {/* Dead-Letter Queue (DLQ) Review Badge */}
+        {dlqItems.length > 0 && (
+          <button
+            type="button"
+            className="offline-sync-badge interactive dlq-warning"
+            onClick={() => setShowDlqModal(true)}
+            title="Some offline changes failed validation. Click to review."
+            style={{ border: 'none' }}
+          >
+            <AlertTriangle size={13} />
+            <span>{dlqItems.length} review</span>
+          </button>
         )}
 
         {/* Google Stitch Search Bar */}
@@ -366,6 +396,51 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
           )}
         </div>
       </div>
+
+      {/* Dead-Letter Review Modal */}
+      {showDlqModal && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={18} color="var(--error)" />
+                <h3 style={{ margin: 0 }}>Sync Review ({dlqItems.length})</h3>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowDlqModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              The following actions were quarantined because the server rejected them. They will not block your normal billing.
+            </p>
+            <div style={{ maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+              {dlqItems.map((item) => (
+                <div key={item.id} style={{ padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{item.actionType}</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--error)', marginTop: '2px', wordBreak: 'break-word' }}>
+                      {typeof item.error === 'object' ? item.error.message || item.error.data?.error || 'Validation error' : item.error}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: 'var(--text-muted)' }}
+                    onClick={() => dismissDlqItem?.(item.id)}
+                    title="Dismiss"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowDlqModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   )
 }
