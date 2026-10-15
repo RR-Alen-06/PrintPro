@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Wallet,
   RefreshCw,
+  Gift,
   X
 } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
@@ -35,6 +36,7 @@ const navGroups = [
     title: 'Customers & Sales',
     items: [
       { label: 'Customer 360 Hub', path: '/customers', icon: Users, permKey: 'customers' },
+      { label: 'Promos & Loyalty', path: '/promos-and-loyalty', icon: Gift, permKey: 'billing' },
       { label: 'Refunds & Returns', path: '/refunds', icon: RefreshCw, permKey: 'accounting' },
     ]
   },

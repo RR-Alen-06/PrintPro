@@ -23,6 +23,7 @@ import PaymentReceived from './pages/PaymentReceived'
 import AuthCallback from './pages/AuthCallback'
 import Refunds from './pages/Refunds'
 import CashRegister from './pages/CashRegister'
+import PromosAndLoyalty from './pages/PromosAndLoyalty'
 
 function App() {
   const { currentUser, hydrated, isOnline } = useAppContext()
@@ -97,6 +98,7 @@ function App() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/deleted-bills" element={<DeletedBills />} />
+            <Route path="/promos-and-loyalty" element={<PromosAndLoyalty />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/data-management" element={<DataManagement />} />
             <Route path="/search" element={<Search />} />
