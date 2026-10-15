@@ -7,14 +7,18 @@ async function getPaymentsForBill(req, res, next) {
     const pool = getPool();
     const billId = req.params.billId || req.params.id;
 
-    const [bill] = await pool.query('SELECT id FROM bills WHERE id = ? AND user_id = ?', [billId, req.user.id]);
-    if (bill.length === 0) {
+    const [bills] = await pool.query(
+      'SELECT id, bill_number, invoice_number FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ?',
+      [billId, billId, billId, req.user.id]
+    );
+    if (bills.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
+    const bill = bills[0];
     const [payments] = await pool.query(
-      'SELECT * FROM payments WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date ASC',
-      [billId, req.user.id]
+      'SELECT * FROM payments WHERE (bill_id = ? OR bill_id = ? OR bill_id = ?) AND user_id = ? AND deleted_at IS NULL ORDER BY date ASC',
+      [String(bill.id), bill.bill_number || '', bill.invoice_number || '', req.user.id]
     );
 
     res.json({ success: true, data: payments });
@@ -42,28 +46,35 @@ async function recordPayment(req, res, next) {
       return res.status(400).json({ success: false, error: 'Payment amount must be greater than zero' });
     }
 
-    // Resolve customer_id: either passed directly or derived from bill_id
     let customerId = customer_id;
-    if (!customerId && bill_id) {
+    let resolvedBill = null;
+
+    if (bill_id) {
       const [billRows] = await conn.query(
-        'SELECT customer_id FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
-        [bill_id, req.user.id]
+        'SELECT id, customer_id, bill_number, invoice_number FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+        [bill_id, bill_id, bill_id, req.user.id]
       );
-      if (billRows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Bill not found' });
+      if (billRows.length > 0) {
+        resolvedBill = billRows[0];
+        if (!customerId) {
+          customerId = resolvedBill.customer_id;
+        }
       }
-      customerId = billRows[0].customer_id;
     }
 
     if (!customerId) {
-      return res.status(400).json({ success: false, error: 'customer_id or bill_id is required' });
+      return res.status(400).json({ success: false, error: 'customer_id or valid bill_id is required' });
     }
 
-    // Verify customer belongs to the user
-    const [custRows] = await conn.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    // Resolve customer to guaranteed UUID
+    const [custRows] = await conn.query(
+      'SELECT id, credit_balance FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customerId, customerId, req.user.id]
+    );
     if (custRows.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
+    const resolvedCustomerId = custRows[0].id;
 
     // Resolve active session ID if not passed
     let activeSessionId = req.body.session_id || null;
@@ -79,8 +90,8 @@ async function recordPayment(req, res, next) {
     const [unpaidBills] = await conn.query(
       `SELECT * FROM bills
        WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL AND status != 'paid'
-       ORDER BY date ASC, id ASC`,
-      [customerId, req.user.id]
+       ORDER BY date ASC, created_at ASC`,
+      [resolvedCustomerId, req.user.id]
     );
 
     let remainingCash = cashAmt;
@@ -116,7 +127,7 @@ async function recordPayment(req, res, next) {
       const [payResult] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, bill.id, customerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment', activeSessionId]
+        [req.user.id, bill.id, resolvedCustomerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment', activeSessionId]
       );
 
       // Auto-create UPI transaction if upi_amount > 0
@@ -124,7 +135,7 @@ async function recordPayment(req, res, next) {
         await conn.query(
           `INSERT INTO upi_transactions (user_id, payment_id, bill_id, customer_id, upi_ref, amount, status, date)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW())`,
-          [req.user.id, payResult.insertId, bill.id, customerId, req.body.upi_ref || '', applyUpi]
+          [req.user.id, payResult.insertId, bill.id, resolvedCustomerId, req.body.upi_ref || '', applyUpi]
         );
       }
 
@@ -154,27 +165,26 @@ async function recordPayment(req, res, next) {
     if (excess > 0) {
       await conn.query(
         'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND user_id = ?',
-        [excess, customerId, req.user.id]
+        [excess, resolvedCustomerId, req.user.id]
       );
 
-      // Record excess as a payment entry (no specific bill)
-      if (paymentRecords.length === 0 && bill_id) {
-        const [pr] = await conn.query(
-          `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
-           VALUES (?, ?, ?, ?, ?, ?, 'full', ?, ?)`,
-          [req.user.id, bill_id, customerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit', activeSessionId]
+      // Record excess as a payment entry
+      const targetBillId = resolvedBill ? resolvedBill.id : (bill_id || null);
+      const [pr] = await conn.query(
+        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'full', ?, ?)`,
+        [req.user.id, targetBillId, resolvedCustomerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit', activeSessionId]
+      );
+      if (remainingUpi > 0) {
+        await conn.query(
+          `INSERT INTO upi_transactions (user_id, payment_id, bill_id, customer_id, upi_ref, amount, status, date)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+          [req.user.id, pr.insertId, targetBillId, resolvedCustomerId, req.body.upi_ref || '', remainingUpi]
         );
-        if (remainingUpi > 0) {
-          await conn.query(
-            `INSERT INTO upi_transactions (user_id, payment_id, bill_id, customer_id, upi_ref, amount, status, date)
-             VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW())`,
-            [req.user.id, pr.insertId, bill_id, customerId, req.body.upi_ref || '', remainingUpi]
-          );
-        }
-        paymentRecords.push({ paymentId: pr.insertId, billId: bill_id, applied: excess, excess });
       }
+      paymentRecords.push({ paymentId: pr.insertId, billId: targetBillId, applied: excess, excess });
 
-      logger.info(`FIFO: Excess credit added to customer balance`, { customerId, excess: process.env.NODE_ENV === 'production' ? '[REDACTED]' : excess.toFixed(2) });
+      logger.info(`FIFO: Excess credit added to customer balance`, { customerId: resolvedCustomerId, excess: excess.toFixed(2) });
     }
 
     await conn.commit();
@@ -226,8 +236,8 @@ async function recordRefund(req, res, next) {
 
     if (bill_id && bill_id !== 'REFUND') {
       const [billRows] = await conn.query(
-        'SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
-        [bill_id, req.user.id]
+        'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+        [bill_id, bill_id, bill_id, req.user.id]
       );
       if (billRows.length === 0) {
         return res.status(404).json({ success: false, error: 'Bill not found' });
@@ -251,10 +261,14 @@ async function recordRefund(req, res, next) {
     }
 
     // Verify customer
-    const [custRows] = await conn.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    const [custRows] = await conn.query(
+      'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customerId, customerId, req.user.id]
+    );
     if (custRows.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
+    const resolvedCustomerId = custRows[0].id;
 
     // Insert refund payment row (negative amounts, is_refund = true, payment_type = 'refund')
     let payResult = null;
@@ -269,7 +283,7 @@ async function recordRefund(req, res, next) {
         [
           req.user.id,
           bill ? bill.id : null,
-          customerId,
+          resolvedCustomerId,
           finalCash,
           finalUpi,
           -totalRefund,
@@ -307,7 +321,7 @@ async function recordRefund(req, res, next) {
       const advAmt = parseFloat(advance_refund_amount);
       await conn.query(
         'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND user_id = ?',
-        [advAmt, customerId, req.user.id]
+        [advAmt, resolvedCustomerId, req.user.id]
       );
     }
 
@@ -318,7 +332,7 @@ async function recordRefund(req, res, next) {
       data: {
         payment_id: payResult?.insertId,
         refund_amount: totalRefund,
-        customer_id: customerId,
+        customer_id: resolvedCustomerId,
         bill_id: bill?.id || null
       }
     });
@@ -356,8 +370,8 @@ async function deletePayment(req, res, next) {
     // 2. Reverse bill amount_paid & balance if attached to a bill
     if (payment.bill_id) {
       const [billRows] = await conn.query(
-        'SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
-        [payment.bill_id, req.user.id]
+        'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+        [payment.bill_id, payment.bill_id, payment.bill_id, req.user.id]
       );
 
       if (billRows.length > 0) {
@@ -409,7 +423,7 @@ async function listDeletedPayments(req, res, next) {
       `SELECT p.*, c.name AS customer_name, b.total AS bill_total
        FROM payments p
        LEFT JOIN customers c ON p.customer_id = c.id AND p.user_id = c.user_id
-       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
+       LEFT JOIN bills b ON (p.bill_id::text = b.id::text OR p.bill_id = b.bill_number OR p.bill_id = b.invoice_number) AND p.user_id = b.user_id
        WHERE p.user_id = ? AND p.deleted_at IS NOT NULL
        ORDER BY p.deleted_at DESC`,
       [req.user.id]
@@ -429,7 +443,7 @@ async function listRefundPayments(req, res, next) {
       SELECT p.*, c.name AS customer_name, b.total AS bill_total
       FROM payments p
       LEFT JOIN customers c ON p.customer_id = c.id AND p.user_id = c.user_id
-      LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
+      LEFT JOIN bills b ON (p.bill_id::text = b.id::text OR p.bill_id = b.bill_number OR p.bill_id = b.invoice_number) AND p.user_id = b.user_id
       WHERE p.user_id = ? AND (p.is_refund = true OR p.payment_type = 'refund' OR p.total_paid < 0) AND p.deleted_at IS NULL
     `;
     const params = [req.user.id];
@@ -458,18 +472,22 @@ async function getPaymentsByCustomer(req, res, next) {
     const pool = getPool();
     const { customerId } = req.params;
 
-    const [customer] = await pool.query('SELECT id FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
+    const [customer] = await pool.query(
+      'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customerId, customerId, req.user.id]
+    );
     if (customer.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
 
+    const resolvedCustomerId = customer[0].id;
     const [payments] = await pool.query(
       `SELECT p.*, b.total AS bill_total, b.status AS bill_status
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
+       LEFT JOIN bills b ON (p.bill_id::text = b.id::text OR p.bill_id = b.bill_number OR p.bill_id = b.invoice_number) AND p.user_id = b.user_id
        WHERE p.customer_id = ? AND p.user_id = ? AND p.deleted_at IS NULL
        ORDER BY p.date DESC`,
-      [customerId, req.user.id]
+      [resolvedCustomerId, req.user.id]
     );
 
     res.json({ success: true, data: payments });

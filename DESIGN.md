@@ -112,7 +112,7 @@ This document defines the **Hybrid Stitch Fusion** design system rules, design t
 
 Designed for optimal data density on PC terminals and thumb ergonomic efficiency on mobile counters simultaneously:
 
-* **Desktop Rail**: Slim collapsible icon rail (`--sidebar-collapsed-width: 68px`) with persistent toggle (`⌘K`/header icon), tooltips on hover, and smooth expansion to 250px.
+* **Fixed Desktop Sidebar**: High-density desktop navigation sidebar (`--sidebar-width: 250px`) with clear categorization, intuitive badges, and effortless zero-toggle navigation.
 * **Header Density**: Slim 52px top app bar with keyboard search pill, quick POS trigger, and reactive theme toggle.
 * **Micro-Sizing Tokens**:
   * Inputs & Buttons: `--input-height-compact: 32px`, `--btn-height-compact: 32px`.

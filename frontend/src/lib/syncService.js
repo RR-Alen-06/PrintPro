@@ -31,7 +31,9 @@ export const syncEntityToCloud = async (action, payload) => {
         address: payload.address,
         type: payload.type || 'regular',
         credit_balance: payload.creditBalance || payload.openingBalance || 0,
+        advance_balance: payload.advanceBalance || payload.creditBalance || 0,
         credit_limit: payload.creditLimit || 0,
+        customer_code: payload.customerCode || payload.customer_code || payload.id,
       });
 
     case 'UPDATE_CUSTOMER':
@@ -43,6 +45,7 @@ export const syncEntityToCloud = async (action, payload) => {
           address: payload.updates?.address !== undefined ? payload.updates.address : payload.address,
           type: payload.updates?.type || payload.type || 'regular',
           credit_balance: payload.updates?.creditBalance !== undefined ? payload.updates.creditBalance : (payload.creditBalance || 0),
+          advance_balance: payload.updates?.advanceBalance !== undefined ? payload.updates.advanceBalance : (payload.advanceBalance || 0),
           credit_limit: payload.updates?.creditLimit !== undefined ? payload.updates.creditLimit : (payload.creditLimit || 0),
           customer_code: payload.updates?.customerCode || payload.updates?.customer_code || payload.customerCode || payload.customer_code,
         });
@@ -58,6 +61,7 @@ export const syncEntityToCloud = async (action, payload) => {
           address: payload.data?.address,
           type: payload.data?.type || 'regular',
           credit_balance: payload.data?.creditBalance || 0,
+          advance_balance: payload.data?.advanceBalance || 0,
           credit_limit: payload.data?.creditLimit || 0,
           customer_code: payload.data?.customerCode || payload.data?.customer_code,
         });
@@ -103,17 +107,36 @@ export const syncEntityToCloud = async (action, payload) => {
 
     case 'ADD_BILL':
       if (payload.customerId && !payload.isGroupParent) {
-        const items = (payload.items || []).map((item) => ({
-          item_name: item.itemName || item.name || 'Item',
-          print_type: item.printType || 'color',
-          sides: item.sides || 'single',
-          qty: item.qty || 1,
-          unit_price: item.unitPrice || item.rate || 0,
-          amount: item.amount || (Number(item.qty || 1) * Number(item.unitPrice || item.rate || 0)),
-        }));
+        const items = (payload.items || []).map((item) => {
+          const name = item.itemName || item.name || item.item_name || 'Print Item';
+          let printType = 'color';
+          if (item.printType === 'color' || item.printType === 'bw') {
+            printType = item.printType;
+          } else if (item.print_type === 'color' || item.print_type === 'bw') {
+            printType = item.print_type;
+          }
+          let sides = 'single';
+          if (item.sides === 'single' || item.sides === 'double') {
+            sides = item.sides;
+          }
+          const qty = Number(item.qty || 1);
+          const unitPrice = Number(item.unitPrice !== undefined ? item.unitPrice : (item.rate !== undefined ? item.rate : (item.unit_price || 0)));
+          const amount = item.amount !== undefined ? Number(item.amount) : (qty * unitPrice);
+
+          return {
+            name,
+            item_name: name,
+            print_type: printType,
+            sides,
+            qty,
+            unit_price: unitPrice,
+            amount,
+          };
+        });
 
         return await createBill({
           id: payload.id,
+          bill_number: payload.billNumber || payload.bill_number || payload.id,
           customer_id: payload.customerId,
           date: payload.date ? new Date(payload.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
           due_date: payload.dueDate ? new Date(payload.dueDate).toISOString().slice(0, 10) : null,
@@ -159,13 +182,13 @@ export const syncEntityToCloud = async (action, payload) => {
       return await restoreBill(payload.id || payload);
 
     case 'ADD_PAYMENT':
-      if (payload.billId && payload.customerId) {
+      if (payload.billId || payload.customerId) {
         return await createPayment({
-          bill_id: payload.billId,
-          customer_id: payload.customerId,
-          cash_amount: payload.cashAmount || 0,
-          upi_amount: payload.upiAmount || 0,
-          total_paid: payload.totalPaid || 0,
+          bill_id: payload.billId || payload.bill_id || null,
+          customer_id: payload.customerId || payload.customer_id || null,
+          cash_amount: payload.cashAmount !== undefined ? payload.cashAmount : (payload.cash_amount || 0),
+          upi_amount: payload.upiAmount !== undefined ? payload.upiAmount : (payload.upi_amount || 0),
+          total_paid: payload.totalPaid !== undefined ? payload.totalPaid : (payload.total_paid || 0),
           payment_type: payload.paymentType || (payload.isRefund ? 'refund' : 'partial'),
           is_refund: !!payload.isRefund,
           notes: payload.notes || '',
