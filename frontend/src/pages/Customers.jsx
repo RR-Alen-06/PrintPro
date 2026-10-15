@@ -31,7 +31,10 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Layers
+  Layers,
+  Calendar,
+  CheckCircle2,
+  PackageCheck
 } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { getCustomerLoyalty, adjustCustomerLoyalty } from '../api/loyalty'
@@ -165,6 +168,353 @@ function generateClientSideStatementPdf(customer, rows, summary) {
   doc.save(`${custCode || 'Customer'}_Statement.pdf`)
 }
 
+export const formatProductVariant = (item) => {
+  if (!item) return 'Custom Item'
+  const baseName = (item.itemName || item.name || 'Print Item').trim()
+  
+  let ptLabel = ''
+  if (item.printType === 'bw') ptLabel = 'B/W'
+  else if (item.printType === 'color') ptLabel = 'Color'
+  
+  let sidesLabel = ''
+  if (item.sides === 'single') sidesLabel = 'Single'
+  else if (item.sides === 'double') sidesLabel = 'Double'
+
+  const lower = baseName.toLowerCase()
+  const parts = [baseName]
+
+  if (ptLabel && !lower.includes('b/w') && !lower.includes('bw') && !lower.includes('black') && !lower.includes('color')) {
+    parts.push(ptLabel)
+  }
+  if (sidesLabel && !lower.includes('single') && !lower.includes('double')) {
+    parts.push(sidesLabel)
+  }
+
+  return parts.join(' ')
+}
+
+export const formatStatementDate = (dateVal) => {
+  if (!dateVal) return '-'
+  try {
+    const d = new Date(dateVal)
+    if (isNaN(d.getTime())) return String(dateVal).slice(0, 10)
+    const day = String(d.getDate()).padStart(2, '0')
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const year = d.getFullYear()
+    return `${day}/${month}/${year}`
+  } catch {
+    return String(dateVal).slice(0, 10)
+  }
+}
+
+export const formatStatementTime = (bill) => {
+  const timeSource = bill?.createdAt || bill?.date
+  if (!timeSource) return ''
+  try {
+    const d = new Date(timeSource)
+    if (isNaN(d.getTime())) return ''
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+  } catch {
+    return ''
+  }
+}
+
+function generateConsolidatedStatementPdf(customer, bills, payments, summary) {
+  const doc = new jsPDF()
+  const shopName = summary.business?.shopName || 'PRINT PRO'
+  const ownerName = summary.business?.ownerName || ''
+  const phone = summary.business?.phone || ''
+  const gstin = summary.business?.gstin || ''
+  const displayId = summary.displayCustomerId || customer.customer_code || customer.customerCode || customer.id || 'CUST'
+
+  // Header
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(18)
+  doc.text(shopName.toUpperCase(), 14, 18)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  let y = 24
+  if (ownerName) { doc.text(`Prop: ${ownerName}`, 14, y); y += 5 }
+  if (phone) { doc.text(`Phone: ${phone}`, 14, y); y += 5 }
+  if (gstin) { doc.text(`GSTIN: ${gstin}`, 14, y); y += 5 }
+
+  // Title Box
+  doc.setFillColor(248, 249, 250)
+  doc.rect(14, y, 182, 14, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(13)
+  doc.setTextColor(30, 41, 59)
+  doc.text('CONSOLIDATED PURCHASE STATEMENT', 18, y + 6)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(100, 116, 139)
+  doc.text(`Period: ${summary.periodLabel || 'All Invoices'}   |   Statement Date: ${summary.statementDate || new Date().toLocaleDateString()}`, 18, y + 11)
+  y += 18
+
+  // Customer Account Summary Box
+  doc.setDrawColor(226, 232, 240)
+  doc.setFillColor(255, 255, 255)
+  doc.roundedRect(14, y, 182, 24, 2, 2, 'FD')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(15, 23, 42)
+  doc.text(customer.name || 'Valued Customer', 18, y + 7)
+
+  // Status badge
+  const isSettled = Number(summary.totalDue || 0) <= 0.01
+  doc.setFontSize(8)
+  if (isSettled) {
+    doc.setTextColor(22, 101, 52)
+    doc.text('[ All Dues Settled ]', 150, y + 7)
+  } else {
+    doc.setTextColor(180, 83, 9)
+    doc.text(`[ Outstanding Due: Rs. ${Number(summary.totalDue).toFixed(2)} ]`, 130, y + 7)
+  }
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(71, 85, 105)
+  doc.text(`Customer ID / Code: ${displayId}`, 18, y + 14)
+  doc.text(`Contact Phone: ${customer.phone || 'N/A'}`, 95, y + 14)
+  doc.text(`Email Address: ${customer.email || 'N/A'}`, 18, y + 20)
+  y += 28
+
+  // 4 KPI Summary Tiles
+  const tileW = 43.5
+  const tileH = 14
+  const kpis = [
+    { label: 'Total Invoiced', value: `Rs. ${Number(summary.totalInvoiced || 0).toFixed(2)}`, sub: 'Billed amount in period' },
+    { label: 'Total Paid', value: `Rs. ${Number(summary.totalPaid || 0).toFixed(2)}`, sub: 'Collected payments' },
+    { label: 'Invoices Count', value: `${bills.length} bills`, sub: 'Transactions logged' },
+    { label: 'Units Purchased', value: `${summary.totalVolume || 0} qty`, sub: 'Total line items volume' }
+  ]
+
+  kpis.forEach((kpi, idx) => {
+    const tx = 14 + (idx * (tileW + 2.6))
+    doc.setFillColor(248, 250, 252)
+    doc.setDrawColor(226, 232, 240)
+    doc.roundedRect(tx, y, tileW, tileH, 1, 1, 'FD')
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(100, 116, 139)
+    doc.text(kpi.label, tx + 3, y + 4)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    doc.setTextColor(15, 23, 42)
+    doc.text(kpi.value, tx + 3, y + 9)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6)
+    doc.setTextColor(148, 163, 184)
+    doc.text(kpi.sub, tx + 3, y + 12.5)
+  })
+  y += 18
+
+  // SECTION 1: Product Selling Breakdown
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9.5)
+  doc.setTextColor(30, 41, 59)
+  doc.text('PRODUCT SELLING BREAKDOWN (VARIANT-LEVEL)', 14, y)
+  y += 4
+
+  // Variant Table Header
+  doc.setFillColor(241, 245, 249)
+  doc.rect(14, y, 182, 6, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(71, 85, 105)
+  doc.text('#', 16, y + 4.2)
+  doc.text('Product Description / Variant', 24, y + 4.2)
+  doc.text('Qty', 130, y + 4.2, { align: 'right' })
+  doc.text('Total (Rs.)', 192, y + 4.2, { align: 'right' })
+  y += 7
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(15, 23, 42)
+  
+  const variants = summary.productVariants || []
+  if (variants.length === 0) {
+    doc.text('No product purchase records found.', 16, y + 4)
+    y += 8
+  } else {
+    variants.forEach((v, idx) => {
+      if (y > 270) { doc.addPage(); y = 18 }
+      doc.text(String(idx + 1), 16, y + 4)
+      doc.text(String(v.name).slice(0, 55), 24, y + 4)
+      doc.text(`${v.totalQty} qty`, 130, y + 4, { align: 'right' })
+      doc.text(Number(v.totalAmount).toFixed(2), 192, y + 4, { align: 'right' })
+      y += 5.5
+    })
+  }
+  y += 5
+
+  // SECTION 2: Date-by-Date Itemized Purchases
+  if (y > 255) { doc.addPage(); y = 18 }
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9.5)
+  doc.setTextColor(30, 41, 59)
+  doc.text('DATE-BY-DATE ITEMIZED PURCHASES', 14, y)
+  y += 4
+
+  const dateGroups = summary.dateGroups || []
+  if (dateGroups.length === 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(100, 116, 139)
+    doc.text('No invoice transactions logged in this period.', 16, y + 4)
+    y += 10
+  } else {
+    dateGroups.forEach(dg => {
+      if (y > 260) { doc.addPage(); y = 18 }
+      doc.setFillColor(248, 250, 252)
+      doc.rect(14, y, 182, 5.5, 'F')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.setTextColor(15, 23, 42)
+      doc.text(`${dg.dateStr}`, 16, y + 4)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.5)
+      doc.setTextColor(100, 116, 139)
+      doc.text(`${dg.bills.length} Invoice${dg.bills.length > 1 ? 's' : ''}`, 192, y + 4, { align: 'right' })
+      y += 7.5
+
+      dg.bills.forEach(bill => {
+        if (y > 260) { doc.addPage(); y = 18 }
+        const billCode = getDisplayBillId(bill)
+        const timeStr = formatStatementTime(bill)
+        const bTotal = Number(bill.total || 0)
+        const bPaid = Number(bill.amountPaid || 0)
+        const bBal = Number(bill.balance || 0)
+        const settled = bBal <= 0.01
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.setTextColor(30, 41, 59)
+        doc.text(`Invoice #${billCode}`, 18, y + 3.5)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(100, 116, 139)
+        if (timeStr) doc.text(timeStr, 60, y + 3.5)
+
+        if (settled) {
+          doc.setTextColor(22, 101, 52)
+          doc.text('Fully Settled', 192, y + 3.5, { align: 'right' })
+        } else {
+          doc.setTextColor(180, 83, 9)
+          doc.text(`Due: Rs. ${bBal.toFixed(2)}`, 192, y + 3.5, { align: 'right' })
+        }
+        y += 5.5
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7)
+        doc.setTextColor(100, 116, 139)
+        doc.text('#', 20, y + 3)
+        doc.text('Product Description', 28, y + 3)
+        doc.text('Qty', 120, y + 3, { align: 'right' })
+        doc.text('Unit Rate', 155, y + 3, { align: 'right' })
+        doc.text('Total', 192, y + 3, { align: 'right' })
+        y += 4.5
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(51, 65, 85)
+
+        ;(bill.items || []).forEach((it, itIdx) => {
+          if (y > 270) { doc.addPage(); y = 18 }
+          const desc = formatProductVariant(it)
+          const qty = it.qty || 1
+          const rate = Number(it.unitPrice || 0)
+          const amt = Number(it.amount || (qty * rate))
+          doc.text(String(itIdx + 1), 20, y + 3)
+          doc.text(desc.slice(0, 48), 28, y + 3)
+          doc.text(String(qty), 120, y + 3, { align: 'right' })
+          doc.text(`Rs. ${rate.toFixed(2)}`, 155, y + 3, { align: 'right' })
+          doc.text(`Rs. ${amt.toFixed(2)}`, 192, y + 3, { align: 'right' })
+          y += 4
+        })
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7)
+        doc.setTextColor(71, 85, 105)
+        doc.text(`Total: Rs. ${bTotal.toFixed(2)}   |   Paid: Rs. ${bPaid.toFixed(2)}${bBal > 0.01 ? `   |   Due: Rs. ${bBal.toFixed(2)}` : ''}`, 192, y + 3, { align: 'right' })
+        y += 6.5
+      })
+      y += 2
+    })
+  }
+
+  // SECTION 3: Payment & Collection History
+  if (payments && payments.length > 0) {
+    if (y > 255) { doc.addPage(); y = 18 }
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9.5)
+    doc.setTextColor(30, 41, 59)
+    doc.text('PAYMENT & COLLECTION HISTORY', 14, y)
+    y += 4
+
+    doc.setFillColor(241, 245, 249)
+    doc.rect(14, y, 182, 6, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.setTextColor(71, 85, 105)
+    doc.text('#', 16, y + 4.2)
+    doc.text('Date', 24, y + 4.2)
+    doc.text('Payment Ref / Mode', 60, y + 4.2)
+    doc.text('Notes / Allocation', 115, y + 4.2)
+    doc.text('Amount (Rs.)', 192, y + 4.2, { align: 'right' })
+    y += 7
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(15, 23, 42)
+
+    payments.forEach((p, idx) => {
+      if (y > 270) { doc.addPage(); y = 18 }
+      const pDate = formatStatementDate(p.date || p.createdAt)
+      const pRef = p.reference || p.transactionRef || p.id?.slice(0, 8) || `PAY-${idx + 1}`
+      const pMode = p.paymentMethod || 'Payment'
+      const pNotes = (p.notes || (p.billId ? `Bill #${p.billId?.slice(0, 8)}` : 'Account Settlement')).slice(0, 40)
+      const pAmt = Number(p.amount || 0).toFixed(2)
+
+      doc.text(String(idx + 1), 16, y + 4)
+      doc.text(pDate, 24, y + 4)
+      doc.text(`${pRef} (${pMode})`.slice(0, 30), 60, y + 4)
+      doc.text(pNotes, 115, y + 4)
+      doc.text(pAmt, 192, y + 4, { align: 'right' })
+      y += 5.5
+    })
+    y += 4
+  }
+
+  // SECTION 4: Statement Reconciliation & Footer
+  if (y > 250) { doc.addPage(); y = 18 }
+  doc.setLineWidth(0.3)
+  doc.setDrawColor(203, 213, 225)
+  doc.line(14, y, 196, y)
+  y += 5
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Purchases: Rs. ${Number(summary.totalInvoiced || 0).toFixed(2)}`, 16, y + 3)
+  doc.text(`Payments Collected: Rs. ${Number(summary.totalPaid || 0).toFixed(2)}`, 75, y + 3)
+  doc.text(`Net Outstanding: Rs. ${Number(summary.totalDue || 0).toFixed(2)}`, 140, y + 3)
+  y += 9
+
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(7)
+  doc.setTextColor(148, 163, 184)
+  doc.text('This is a computer-generated consolidated purchase statement. Powered by PrintPro ERP.', 105, y + 2, { align: 'center' })
+
+  doc.save(`${displayId}_Consolidated_Statement.pdf`)
+}
+
 const getCustomerGroup = (customer, customerGroups = []) => {
   if (!customer) return null
   return customerGroups.find(g =>
@@ -252,7 +602,7 @@ const Customers = () => {
 
   // Active top tab state
   const [activeTab, setActiveTab] = useState(() => {
-    return ['overview', 'bills', 'ledger'].includes(urlTab) ? urlTab : 'overview'
+    return ['overview', 'bills', 'ledger', 'statement'].includes(urlTab) ? urlTab : 'overview'
   })
 
   // Sync state with URL when search params change externally
@@ -260,7 +610,7 @@ const Customers = () => {
     if (urlCustomerId && customers.some(c => c.id === urlCustomerId) && urlCustomerId !== selectedCustomerId) {
       setSelectedCustomerId(urlCustomerId)
     }
-    if (urlTab && ['overview', 'bills', 'ledger'].includes(urlTab) && urlTab !== activeTab) {
+    if (urlTab && ['overview', 'bills', 'ledger', 'statement'].includes(urlTab) && urlTab !== activeTab) {
       setActiveTab(urlTab)
     }
   }, [urlCustomerId, urlTab, customers, selectedCustomerId, activeTab])
@@ -883,6 +1233,234 @@ const Customers = () => {
     window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
+  // ── Consolidated Statement State & Handlers ──
+  const [stmtPeriod, setStmtPeriod] = useState('all') // 'all', 'today', 'this_month', 'last_month', 'custom'
+  const [stmtStartDate, setStmtStartDate] = useState('')
+  const [stmtEndDate, setStmtEndDate] = useState('')
+
+  const getStatementPeriodRange = (period) => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    if (period === 'today') {
+      return { start: today, end: new Date(today.getTime() + 86400000 - 1) }
+    }
+    if (period === 'this_month') {
+      return {
+        start: new Date(now.getFullYear(), now.getMonth(), 1),
+        end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      }
+    }
+    if (period === 'last_month') {
+      return {
+        start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+        end: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+      }
+    }
+    return null
+  }
+
+  const statementPeriodLabel = useMemo(() => {
+    if (stmtPeriod === 'all') return 'All Invoices'
+    if (stmtPeriod === 'today') return 'Today'
+    if (stmtPeriod === 'this_month') return 'This Month'
+    if (stmtPeriod === 'last_month') return 'Last Month'
+    if (stmtPeriod === 'custom') {
+      return `${stmtStartDate || 'Start'} to ${stmtEndDate || 'End'}`
+    }
+    return 'All Invoices'
+  }, [stmtPeriod, stmtStartDate, stmtEndDate])
+
+  const statementBills = useMemo(() => {
+    if (!customerBills.length) return []
+    if (stmtPeriod === 'all') return customerBills
+
+    if (stmtPeriod === 'custom') {
+      return customerBills.filter(b => {
+        const d = new Date(b.date || b.createdAt)
+        if (stmtStartDate && d < new Date(stmtStartDate)) return false
+        if (stmtEndDate && d > new Date(new Date(stmtEndDate).setHours(23, 59, 59, 999))) return false
+        return true
+      })
+    }
+
+    const range = getStatementPeriodRange(stmtPeriod)
+    if (!range) return customerBills
+    return customerBills.filter(b => {
+      const d = new Date(b.date || b.createdAt)
+      return d >= range.start && d <= range.end
+    })
+  }, [customerBills, stmtPeriod, stmtStartDate, stmtEndDate])
+
+  const statementPayments = useMemo(() => {
+    if (!selectedCustomerId) return []
+    const custPayments = payments.filter(p => p.customerId === selectedCustomerId && !p.notes?.includes('advance deposit'))
+    if (stmtPeriod === 'all') return custPayments
+
+    if (stmtPeriod === 'custom') {
+      return custPayments.filter(p => {
+        const d = new Date(p.date || p.createdAt)
+        if (stmtStartDate && d < new Date(stmtStartDate)) return false
+        if (stmtEndDate && d > new Date(new Date(stmtEndDate).setHours(23, 59, 59, 999))) return false
+        return true
+      })
+    }
+
+    const range = getStatementPeriodRange(stmtPeriod)
+    if (!range) return custPayments
+    return custPayments.filter(p => {
+      const d = new Date(p.date || p.createdAt)
+      return d >= range.start && d <= range.end
+    })
+  }, [payments, selectedCustomerId, stmtPeriod, stmtStartDate, stmtEndDate])
+
+  const productVariantSummary = useMemo(() => {
+    const map = {}
+    statementBills.forEach(b => {
+      (b.items || []).forEach(it => {
+        const variantName = formatProductVariant(it)
+        if (!map[variantName]) {
+          map[variantName] = {
+            name: variantName,
+            totalQty: 0,
+            totalAmount: 0,
+            itemCount: 0,
+            unitRates: []
+          }
+        }
+        const qty = Number(it.qty || 0)
+        const amt = Number(it.amount || (qty * Number(it.unitPrice || 0)))
+        map[variantName].totalQty += qty
+        map[variantName].totalAmount += amt
+        map[variantName].itemCount += 1
+        if (it.unitPrice) map[variantName].unitRates.push(Number(it.unitPrice))
+      })
+    })
+    return Object.values(map).sort((a, b) => b.totalAmount - a.totalAmount)
+  }, [statementBills])
+
+  const statementTotalVolume = useMemo(() => {
+    return productVariantSummary.reduce((s, p) => s + p.totalQty, 0)
+  }, [productVariantSummary])
+
+  const statementTotalInvoiced = useMemo(() => {
+    return statementBills.reduce((s, b) => s + Number(b.total || 0), 0)
+  }, [statementBills])
+
+  const statementTotalPaid = useMemo(() => {
+    const paidOnBills = statementBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+    const separatePayments = statementPayments.reduce((s, p) => s + Number(p.amount || 0), 0)
+    return Math.max(paidOnBills, separatePayments)
+  }, [statementBills, statementPayments])
+
+  const statementTotalDue = useMemo(() => {
+    return statementBills.reduce((s, b) => s + Number(b.balance || 0), 0)
+  }, [statementBills])
+
+  const statementDateGroups = useMemo(() => {
+    const groups = {}
+    statementBills.forEach(b => {
+      const dKey = formatStatementDate(b.date || b.createdAt)
+      if (!groups[dKey]) {
+        groups[dKey] = {
+          dateStr: dKey,
+          bills: [],
+          rawDate: new Date(b.date || b.createdAt || 0)
+        }
+      }
+      groups[dKey].bills.push(b)
+    })
+    return Object.values(groups).sort((a, b) => b.rawDate - a.rawDate)
+  }, [statementBills])
+
+  const handlePrintStatement = () => {
+    window.print()
+  }
+
+  const handleDownloadConsolidatedPdf = () => {
+    if (!selectedCustomer) return
+    generateConsolidatedStatementPdf(selectedCustomer, statementBills, statementPayments, {
+      displayCustomerId: getDisplayCustomerId(selectedCustomer),
+      periodLabel: statementPeriodLabel,
+      statementDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      totalInvoiced: statementTotalInvoiced,
+      totalPaid: statementTotalPaid,
+      totalDue: statementTotalDue,
+      totalVolume: statementTotalVolume,
+      productVariants: productVariantSummary,
+      dateGroups: statementDateGroups,
+      business: business || settings?.business || {}
+    })
+    showToast?.('Consolidated Statement PDF downloaded!', 'success')
+  }
+
+  const handleShareConsolidatedWhatsApp = () => {
+    if (!selectedCustomer?.phone) {
+      showAlert('Customer has no phone number on record for WhatsApp', 'warning')
+      return
+    }
+    const cleanPhone = selectedCustomer.phone.replace(/[^0-9]/g, '')
+    const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
+    const shopName = business?.shopName || 'PrintPro'
+    const displayId = getDisplayCustomerId(selectedCustomer)
+    const isSettled = statementTotalDue <= 0.01
+
+    let msg = `*CONSOLIDATED PURCHASE STATEMENT*\n`
+    msg += `*${shopName.toUpperCase()}*\n`
+    msg += `----------------------------------------\n`
+    msg += `*Customer:* ${selectedCustomer.name}\n`
+    msg += `*Customer ID:* ${displayId}\n`
+    msg += `*Period:* ${statementPeriodLabel}\n`
+    msg += `*Statement Date:* ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}\n`
+    msg += `*Account Status:* ${isSettled ? '✅ All Dues Settled' : `⚠️ Due: ₹${statementTotalDue.toFixed(2)}`}\n\n`
+
+    msg += `*📊 SUMMARY:*\n`
+    msg += `• Total Invoiced: ₹${statementTotalInvoiced.toFixed(2)}\n`
+    msg += `• Total Paid: ₹${statementTotalPaid.toFixed(2)}\n`
+    msg += `• Invoices Count: ${statementBills.length} bills\n`
+    msg += `• Units Volume: ${statementTotalVolume} qty\n\n`
+
+    if (productVariantSummary.length > 0) {
+      msg += `*📦 PRODUCT SELLING BREAKDOWN:*\n`
+      productVariantSummary.forEach((p, idx) => {
+        msg += `${idx + 1}. *${p.name}*: ${p.totalQty} qty | ₹${p.totalAmount.toFixed(2)}\n`
+      })
+      msg += `\n`
+    }
+
+    if (statementDateGroups.length > 0) {
+      msg += `*🧾 DATE-BY-DATE PURCHASES:*\n`
+      statementDateGroups.forEach(dg => {
+        msg += `📅 *${dg.dateStr}* (${dg.bills.length} Invoice${dg.bills.length > 1 ? 's' : ''}):\n`
+        dg.bills.forEach(b => {
+          const bCode = getDisplayBillId(b)
+          const bSettled = Number(b.balance || 0) <= 0.01
+          msg += `  • *${bCode}*: ₹${Number(b.total || 0).toFixed(2)} (${bSettled ? 'Settled' : `Due: ₹${Number(b.balance || 0).toFixed(2)}`})\n`
+          ;(b.items || []).forEach(it => {
+            msg += `    - ${formatProductVariant(it)} x${it.qty} = ₹${Number(it.amount || 0).toFixed(2)}\n`
+          })
+        })
+      })
+      msg += `\n`
+    }
+
+    if (statementPayments.length > 0) {
+      msg += `*💳 PAYMENTS COLLECTED:*\n`
+      statementPayments.slice(0, 10).forEach((p, idx) => {
+        msg += `${idx + 1}. ${formatStatementDate(p.date || p.createdAt)}: ₹${Number(p.amount || 0).toFixed(2)} (${p.paymentMethod || 'Payment'})\n`
+      })
+      msg += `\n`
+    }
+
+    msg += `----------------------------------------\n`
+    msg += `*Net Outstanding Balance: ₹${statementTotalDue.toFixed(2)}*\n`
+    if (business?.upiId && statementTotalDue > 0) {
+      msg += `\n*Quick UPI Settlement:*\nUPI ID: *${business.upiId}*\n`
+    }
+    msg += `\nThank you for visiting!\n*${shopName}*`
+
+    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
   return (
     <div className="customers-workspace" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Top Header */}
@@ -1255,7 +1833,8 @@ const Customers = () => {
                 {[
                   { key: 'overview', label: 'Overview & Loyalty', icon: Users },
                   { key: 'bills', label: `Invoices & Bills (${customerBills.length})`, icon: FileText },
-                  { key: 'ledger', label: 'Account Ledger & Statement', icon: ClipboardList }
+                  { key: 'ledger', label: 'Account Ledger', icon: ClipboardList },
+                  { key: 'statement', label: 'Consolidated Statement', icon: PackageCheck }
                 ].map(t => {
                   const Icon = t.icon
                   const isActive = activeTab === t.key
@@ -1868,6 +2447,653 @@ const Customers = () => {
                       </table>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ── SUB-TAB 4: CONSOLIDATED STATEMENT ── */}
+            {activeTab === 'statement' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Print Styles for Consolidated Statement */}
+                <style>{`
+                  @media print {
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #printable-consolidated-statement, #printable-consolidated-statement * {
+                      visibility: visible !important;
+                    }
+                    #printable-consolidated-statement {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      max-width: 100% !important;
+                      margin: 0 !important;
+                      padding: 24px !important;
+                      background: #ffffff !important;
+                      color: #0f172a !important;
+                      box-shadow: none !important;
+                      border: none !important;
+                    }
+                    .statement-no-print {
+                      display: none !important;
+                    }
+                  }
+                `}</style>
+
+                {/* Control Toolbar */}
+                <div className="card statement-no-print" style={{ padding: '16px 20px', background: 'var(--bg-card)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                    {/* Period Filter Buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginRight: '4px' }}>
+                        Period:
+                      </span>
+                      {[
+                        { key: 'all', label: `All Invoices (${customerBills.length})` },
+                        { key: 'today', label: 'Today' },
+                        { key: 'this_month', label: 'This Month' },
+                        { key: 'last_month', label: 'Last Month' },
+                        { key: 'custom', label: 'Custom Range' }
+                      ].map(p => (
+                        <button
+                          key={p.key}
+                          type="button"
+                          className="btn btn-sm"
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '20px',
+                            fontSize: '0.76rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            border: stmtPeriod === p.key ? '1px solid var(--accent)' : '1px solid var(--border)',
+                            background: stmtPeriod === p.key ? 'var(--accent-light)' : 'transparent',
+                            color: stmtPeriod === p.key ? 'var(--accent)' : 'var(--text-muted)'
+                          }}
+                          onClick={() => setStmtPeriod(p.key)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handlePrintStatement}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Printer size={15} /> Print Statement
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleDownloadConsolidatedPdf}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Download size={15} /> Download PDF
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={handleShareConsolidatedWhatsApp}
+                        style={{
+                          background: '#22c55e',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <MessageCircle size={15} /> WhatsApp Statement
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Custom Date Pickers */}
+                  {stmtPeriod === 'custom' && (
+                    <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.78rem' }}>Start Date</label>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={stmtStartDate}
+                          onChange={(e) => setStmtStartDate(e.target.value)}
+                          style={{ fontSize: '0.82rem' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.78rem' }}>End Date</label>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={stmtEndDate}
+                          onChange={(e) => setStmtEndDate(e.target.value)}
+                          style={{ fontSize: '0.82rem' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Printable Statement Document ── */}
+                <div
+                  id="printable-consolidated-statement"
+                  className="card"
+                  style={{
+                    padding: '32px',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius-lg)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '24px'
+                  }}
+                >
+                  {/* Document Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', borderBottom: '2px solid var(--border)', paddingBottom: '16px' }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+                        {business?.shopName || 'PRINT PRO'}
+                      </h2>
+                      {business?.ownerName && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>Prop: {business.ownerName}</div>}
+                      {business?.phone && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Phone: {business.phone}</div>}
+                      {business?.gstin && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>GSTIN: {business.gstin}</div>}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Consolidated Purchase Statement
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Period: <strong>{statementPeriodLabel}</strong>
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        Statement Date: <strong>{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Customer Account Summary Card */}
+                  <div style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '20px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+                        Customer Account Summary
+                      </div>
+                      <div>
+                        {statementTotalDue <= 0.01 ? (
+                          <span style={{
+                            background: 'rgba(34, 197, 94, 0.15)',
+                            color: '#16a34a',
+                            border: '1px solid rgba(34, 197, 94, 0.3)',
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            fontWeight: 700,
+                            fontSize: '0.78rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            <CheckCircle2 size={14} /> All Dues Settled
+                          </span>
+                        ) : (
+                          <span style={{
+                            background: 'rgba(234, 179, 8, 0.15)',
+                            color: '#ca8a04',
+                            border: '1px solid rgba(234, 179, 8, 0.3)',
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            fontWeight: 700,
+                            fontSize: '0.78rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            <AlertTriangle size={14} /> Outstanding Due: ₹{statementTotalDue.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Customer Name</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {selectedCustomer.name}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Contact Phone</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {selectedCustomer.phone || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Email Address</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {selectedCustomer.email || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Customer ID / Code</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {getDisplayCustomerId(selectedCustomer)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4 KPI Summary Tiles */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                    <div className="card" style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Invoiced
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, marginTop: '4px', color: 'var(--text-primary)' }}>
+                        ₹{statementTotalInvoiced.toFixed(2)}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Billed amount in period
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Paid
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, marginTop: '4px', color: 'var(--success)' }}>
+                        ₹{statementTotalPaid.toFixed(2)}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Collected payments
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Invoices Count
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, marginTop: '4px', color: 'var(--text-primary)' }}>
+                        {statementBills.length} bills
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Transactions logged
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Units Purchased
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, marginTop: '4px', color: '#9333ea' }}>
+                        {statementTotalVolume} qty
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Total line items volume
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── SECTION 1: Product Selling Breakdown (Variant-Level Aggregate) ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Product Selling Breakdown (Variant-Level)
+                        </h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          Itemized volumes and totals distinguishing print type (B/W vs Color) and sides (Single vs Double).
+                        </p>
+                      </div>
+                      <span className="badge badge-info" style={{ fontSize: '0.74rem' }}>
+                        {productVariantSummary.length} Variant(s)
+                      </span>
+                    </div>
+
+                    <div className="table-container" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                      <table className="table" style={{ margin: 0, fontSize: '0.84rem' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-elevated)' }}>
+                            <th style={{ width: '40px' }}>#</th>
+                            <th>Product Description / Variant</th>
+                            <th style={{ textAlign: 'right' }}>Qty</th>
+                            <th style={{ textAlign: 'right' }}>Avg / Unit Rate</th>
+                            <th style={{ textAlign: 'right' }}>Total Amount (₹)</th>
+                            <th style={{ textAlign: 'right' }}>% Volume</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productVariantSummary.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                                No product purchase records found in this period.
+                              </td>
+                            </tr>
+                          ) : (
+                            productVariantSummary.map((pv, idx) => {
+                              const avgRate = pv.totalQty > 0 ? (pv.totalAmount / pv.totalQty) : 0
+                              const pct = statementTotalVolume > 0 ? ((pv.totalQty / statementTotalVolume) * 100).toFixed(1) : '0'
+                              return (
+                                <tr key={idx}>
+                                  <td style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                  <td style={{ fontWeight: 600 }}>{pv.name}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{pv.totalQty} qty</td>
+                                  <td style={{ textAlign: 'right' }}>₹{avgRate.toFixed(2)}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{pv.totalAmount.toFixed(2)}</td>
+                                  <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{pct}%</td>
+                                </tr>
+                              )
+                            })
+                          )}
+                        </tbody>
+                        {productVariantSummary.length > 0 && (
+                          <tfoot>
+                            <tr style={{ background: 'var(--bg-elevated)', fontWeight: 700 }}>
+                              <td colSpan={2}>Aggregate Purchases Total</td>
+                              <td style={{ textAlign: 'right' }}>{statementTotalVolume} qty</td>
+                              <td></td>
+                              <td style={{ textAlign: 'right' }}>₹{statementTotalInvoiced.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right' }}>100%</td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* ── SECTION 2: Date-by-Date Itemized Purchases ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Date-by-Date Itemized Purchases
+                        </h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          Chronological timeline of invoices and detailed line items.
+                        </p>
+                      </div>
+                      <span className="badge badge-ghost" style={{ fontSize: '0.74rem' }}>
+                        {statementDateGroups.length} Date Groups
+                      </span>
+                    </div>
+
+                    {statementDateGroups.length === 0 ? (
+                      <div style={{ padding: '30px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)' }}>
+                        No invoices logged for this customer during the selected period.
+                      </div>
+                    ) : (
+                      statementDateGroups.map((dg, gIdx) => (
+                        <div
+                          key={gIdx}
+                          style={{
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-md)',
+                            overflow: 'hidden',
+                            background: 'var(--bg-elevated)'
+                          }}
+                        >
+                          {/* Date Group Header */}
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 16px',
+                            background: 'rgba(99, 102, 241, 0.08)',
+                            borderBottom: '1px solid var(--border)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                              <Calendar size={15} style={{ color: 'var(--accent)' }} />
+                              <span>{dg.dateStr}</span>
+                            </div>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                              {dg.bills.length} Invoice{dg.bills.length > 1 ? 's' : ''}
+                            </span>
+                          </div>
+
+                          {/* Bills within Date Group */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px 16px' }}>
+                            {dg.bills.map((bill) => {
+                              const bDisplayId = getDisplayBillId(bill)
+                              const bTime = formatStatementTime(bill)
+                              const bBal = Number(bill.balance || 0)
+                              const isSettled = bBal <= 0.01
+
+                              return (
+                                <div
+                                  key={bill.id}
+                                  style={{
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '6px',
+                                    padding: '12px 14px',
+                                    background: 'var(--bg-card)'
+                                  }}
+                                >
+                                  {/* Invoice Mini-Header */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                                        #{bDisplayId}
+                                      </span>
+                                      {bTime && (
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                          {bTime}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      {isSettled ? (
+                                        <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>
+                                          Fully Settled
+                                        </span>
+                                      ) : (
+                                        <span className="badge badge-warning" style={{ fontSize: '0.72rem' }}>
+                                          Due: ₹{bBal.toFixed(2)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Line items table */}
+                                  <table className="table" style={{ margin: 0, fontSize: '0.8rem' }}>
+                                    <thead>
+                                      <tr style={{ background: 'transparent' }}>
+                                        <th style={{ width: '32px' }}>#</th>
+                                        <th>Product Description</th>
+                                        <th style={{ textAlign: 'right' }}>Qty</th>
+                                        <th style={{ textAlign: 'right' }}>Unit Rate</th>
+                                        <th style={{ textAlign: 'right' }}>Total</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {(bill.items || []).map((it, itIdx) => {
+                                        const desc = formatProductVariant(it)
+                                        const qty = Number(it.qty || 1)
+                                        const rate = Number(it.unitPrice || 0)
+                                        const amt = Number(it.amount || (qty * rate))
+                                        return (
+                                          <tr key={itIdx}>
+                                            <td style={{ color: 'var(--text-muted)' }}>{itIdx + 1}</td>
+                                            <td style={{ fontWeight: 600 }}>{desc}</td>
+                                            <td style={{ textAlign: 'right' }}>{qty}</td>
+                                            <td style={{ textAlign: 'right' }}>₹{rate.toFixed(2)}</td>
+                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{amt.toFixed(2)}</td>
+                                          </tr>
+                                        )
+                                      })}
+                                    </tbody>
+                                  </table>
+
+                                  {/* Invoice Totals Strip */}
+                                  <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'flex-end',
+                                    alignItems: 'center',
+                                    gap: '16px',
+                                    marginTop: '8px',
+                                    paddingTop: '8px',
+                                    borderTop: '1px dashed var(--border)',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600
+                                  }}>
+                                    <span>Total: <strong>₹{Number(bill.total || 0).toFixed(2)}</strong></span>
+                                    <span style={{ color: 'var(--success)' }}>Paid: <strong>₹{Number(bill.amountPaid || 0).toFixed(2)}</strong></span>
+                                    {bBal > 0.01 && (
+                                      <span style={{ color: 'var(--warning)' }}>Due: <strong>₹{bBal.toFixed(2)}</strong></span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* ── SECTION 3: Payment & Collection History ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Payment & Collection History
+                        </h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          Settlement transactions, receipt vouchers, and payments collected.
+                        </p>
+                      </div>
+                      <span className="badge badge-success" style={{ fontSize: '0.74rem' }}>
+                        {statementPayments.length} Receipt(s)
+                      </span>
+                    </div>
+
+                    <div className="table-container" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                      <table className="table" style={{ margin: 0, fontSize: '0.84rem' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-elevated)' }}>
+                            <th style={{ width: '40px' }}>#</th>
+                            <th>Date</th>
+                            <th>Receipt / Ref ID</th>
+                            <th>Payment Mode</th>
+                            <th>Allocation / Notes</th>
+                            <th style={{ textAlign: 'right' }}>Amount Collected (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {statementPayments.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                                No separate payment vouchers recorded in this period.
+                              </td>
+                            </tr>
+                          ) : (
+                            statementPayments.map((p, idx) => {
+                              const pDate = formatStatementDate(p.date || p.createdAt)
+                              const pTime = formatStatementTime(p)
+                              const pRef = p.reference || p.transactionRef || p.id?.slice(0, 8) || `PAY-${idx + 1}`
+                              const pMode = p.paymentMethod || 'Payment'
+                              const pNotes = p.notes || (p.billId ? `Bill #${p.billId?.slice(0, 8)}` : 'Account Settlement')
+                              const pAmt = Number(p.amount || 0)
+
+                              return (
+                                <tr key={p.id || idx}>
+                                  <td style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                  <td>{pDate} {pTime && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{pTime}</span>}</td>
+                                  <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{pRef}</td>
+                                  <td>
+                                    <span className="badge badge-ghost" style={{ textTransform: 'capitalize' }}>
+                                      {pMode}
+                                    </span>
+                                  </td>
+                                  <td style={{ color: 'var(--text-muted)' }}>{pNotes}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>
+                                    ₹{pAmt.toFixed(2)}
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          )}
+                        </tbody>
+                        {statementPayments.length > 0 && (
+                          <tfoot>
+                            <tr style={{ background: 'var(--bg-elevated)', fontWeight: 700 }}>
+                              <td colSpan={5}>Total Collections Logged</td>
+                              <td style={{ textAlign: 'right', color: 'var(--success)' }}>
+                                ₹{statementTotalPaid.toFixed(2)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* ── SECTION 4: Statement Reconciliation & Footer ── */}
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '14px'
+                  }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Purchases Billed</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '2px', color: 'var(--text-primary)' }}>
+                          ₹{statementTotalInvoiced.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Payments Collected</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '2px', color: 'var(--success)' }}>
+                          ₹{statementTotalPaid.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Available Advance / Credit</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '2px', color: 'var(--accent)' }}>
+                          ₹{advanceBal.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Net Outstanding Balance</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '2px', color: statementTotalDue > 0.01 ? 'var(--warning)' : 'var(--text-primary)' }}>
+                          ₹{statementTotalDue.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      paddingTop: '12px',
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}>
+                      <div style={{ fontSize: '0.82rem', color: statementTotalDue <= 0.01 ? 'var(--success)' : 'var(--warning)', fontWeight: 600 }}>
+                        {statementTotalDue <= 0.01
+                          ? '✓ Account is fully settled. No pending balance.'
+                          : `⚠ Pending settlement of ₹${statementTotalDue.toFixed(2)}. ${business?.upiId ? `Pay via UPI: ${business.upiId}` : ''}`}
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Thank you for visiting. Powered by PrintPro ERP.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
