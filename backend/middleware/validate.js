@@ -107,23 +107,45 @@ const validateBill = [
   body('items')
     .isArray({ min: 1 })
     .withMessage('At least one item is required in the bill'),
-  body('items.*.name')
-    .trim()
-    .notEmpty()
-    .withMessage('Item name is required'),
+  body('items.*')
+    .custom((item) => {
+      if (!item || typeof item !== 'object') {
+        throw new Error('Item must be an object');
+      }
+      const name = item.name || item.item_name || item.itemName;
+      if (!name || !String(name).trim()) {
+        throw new Error('Item name is required');
+      }
+      return true;
+    }),
   body('items.*.print_type')
-    .isIn(['color', 'bw'])
-    .withMessage('Print type must be either "color" or "bw"'),
+    .optional({ checkFalsy: true })
+    .custom((val) => {
+      const v = String(val).toLowerCase();
+      if (['color', 'bw', 'colour'].includes(v) || v.includes('color') || v.includes('bw')) {
+        return true;
+      }
+      return true;
+    }),
   body('items.*.sides')
-    .isIn(['single', 'double'])
-    .withMessage('Sides must be either "single" or "double"'),
+    .optional({ checkFalsy: true })
+    .custom((val) => {
+      const v = String(val).toLowerCase();
+      if (['single', 'double'].includes(v) || v.includes('single') || v.includes('double')) {
+        return true;
+      }
+      return true;
+    }),
   body('items.*.qty')
+    .optional()
     .isInt({ min: 1 })
     .withMessage('Quantity must be an integer greater than 0'),
   body('items.*.unit_price')
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Unit price must be a positive number'),
   body('items.*.amount')
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Item total amount must be a positive number'),
   handleValidationErrors,
@@ -186,19 +208,34 @@ const validateBillUpdate = [
     .optional()
     .isArray()
     .withMessage('Items must be an array'),
-  body('items.*.name')
+  body('items.*')
     .optional()
-    .trim()
-    .notEmpty()
-    .withMessage('Item name cannot be empty'),
+    .custom((item) => {
+      if (!item || typeof item !== 'object') return true;
+      const name = item.name || item.item_name || item.itemName;
+      if (!name || !String(name).trim()) {
+        throw new Error('Item name cannot be empty');
+      }
+      return true;
+    }),
   body('items.*.print_type')
-    .optional()
-    .isIn(['color', 'bw'])
-    .withMessage('Print type must be either "color" or "bw"'),
+    .optional({ checkFalsy: true })
+    .custom((val) => {
+      const v = String(val).toLowerCase();
+      if (['color', 'bw', 'colour'].includes(v) || v.includes('color') || v.includes('bw')) {
+        return true;
+      }
+      return true;
+    }),
   body('items.*.sides')
-    .optional()
-    .isIn(['single', 'double'])
-    .withMessage('Sides must be either "single" or "double"'),
+    .optional({ checkFalsy: true })
+    .custom((val) => {
+      const v = String(val).toLowerCase();
+      if (['single', 'double'].includes(v) || v.includes('single') || v.includes('double')) {
+        return true;
+      }
+      return true;
+    }),
   body('items.*.qty')
     .optional()
     .isInt({ min: 1 })

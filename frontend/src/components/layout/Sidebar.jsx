@@ -60,7 +60,7 @@ const navGroups = [
   }
 ]
 
-const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
+const Sidebar = ({ isOpen, onClose }) => {
   const { currentUser, settings, notifications = [] } = useAppContext()
   const isMerchant = !!currentUser
   const unreadCount = notifications.filter(n => !n.read).length
@@ -74,7 +74,7 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
         </button>
 
         <div className="sidebar-logo">
-          <div className="sidebar-logo-icon" onClick={onToggleCollapse} style={{ cursor: 'pointer' }} title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}>
+          <div className="sidebar-logo-icon">
             <Printer size={18} />
           </div>
           <div className="sidebar-logo-text">
@@ -107,7 +107,6 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
                       to={item.path}
                       className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
                       onClick={onClose}
-                      title={isCollapsed ? item.label : undefined}
                     >
                       <Icon />
                       <span style={{ flex: 1 }}>{item.label}</span>

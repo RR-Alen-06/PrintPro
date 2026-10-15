@@ -1452,6 +1452,7 @@ export const AppProvider = ({ children }) => {
 
     const newBill = {
       id: billId,
+      billNumber: billId,
       ...billData,
       customerName,
       amountPaid: 0,
@@ -1682,6 +1683,7 @@ export const AppProvider = ({ children }) => {
       payload: {
         ...customerData,
         id: customerId,
+        customerCode: customerId,
         creditBalance: totalOpening,
         advanceBalance: totalOpening,
         openingCash,
