@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, PanelLeftClose, PanelLeft, RefreshCw, AlertTriangle, X } from 'lucide-react'
+import { Search, Bell, Plus, LogOut, User, Menu, CloudOff, Sun, Moon, Check, Trash2, RefreshCw, AlertTriangle, X } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -25,7 +25,7 @@ const getPageTitle = (pathname, search) => {
   return 'Dashboard'
 }
 
-const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
+const Header = ({ onMenuClick }) => {
   const {
     currentUser,
     logout,
@@ -81,17 +81,6 @@ const Header = ({ onMenuClick, isCollapsed, onToggleCollapse }) => {
         <button className="header-menu-btn" type="button" aria-label="Toggle menu" onClick={onMenuClick}>
           <Menu size={18} />
         </button>
-        {onToggleCollapse && (
-          <button
-            className="header-icon-btn d-none-mobile"
-            type="button"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            onClick={onToggleCollapse}
-          >
-            {isCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
-          </button>
-        )}
         <div className="header-title" style={{ fontWeight: 600, fontSize: '0.98rem', color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
           {pageTitle}
         </div>

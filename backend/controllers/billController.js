@@ -1,5 +1,10 @@
 const { getPool } = require('../config/db');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUUID(str) {
+  return typeof str === 'string' && UUID_REGEX.test(str);
+}
+
 // GET / - List bills
 async function listBills(req, res, next) {
   try {
@@ -21,8 +26,8 @@ async function listBills(req, res, next) {
     }
 
     if (customer_id) {
-      sql += ' AND b.customer_id = ?';
-      params.push(customer_id);
+      sql += ' AND (b.customer_id::text = ? OR c.customer_code = ?)';
+      params.push(customer_id, customer_id);
     }
 
     if (date_from) {
@@ -102,21 +107,25 @@ async function getBill(req, res, next) {
     const [bills] = await pool.query(
       `SELECT b.*, c.name AS customer_name, c.phone AS customer_phone
        FROM bills b LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id
-       WHERE b.id = ? AND b.user_id = ?`,
-      [id, req.user.id]
+       WHERE (b.id::text = ? OR b.bill_number = ? OR b.invoice_number = ?) AND b.user_id = ?`,
+      [id, id, id, req.user.id]
     );
 
     if (bills.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
-    const [items] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [id, req.user.id]);
-    const [payments] = await pool.query('SELECT * FROM payments WHERE bill_id = ? AND user_id = ? ORDER BY date ASC', [id, req.user.id]);
+    const bill = bills[0];
+    const [items] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [bill.id, req.user.id]);
+    const [payments] = await pool.query(
+      'SELECT * FROM payments WHERE (bill_id = ? OR bill_id = ? OR bill_id = ?) AND user_id = ? ORDER BY date ASC',
+      [String(bill.id), bill.bill_number || '', bill.invoice_number || '', req.user.id]
+    );
 
     res.json({
       success: true,
       data: {
-        ...bills[0],
+        ...bill,
         items,
         payments
       }
@@ -142,42 +151,90 @@ async function createBill(req, res, next) {
       return res.status(400).json({ success: false, error: 'customer_id, date, and items are required' });
     }
 
-    // Verify customer exists
-    const [custRows] = await conn.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customer_id, req.user.id]);
+    // Verify and resolve customer
+    const [custRows] = await conn.query(
+      'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customer_id, customer_id, req.user.id]
+    );
     if (custRows.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer not found' });
     }
+    const customer = custRows[0];
+    const resolvedCustomerId = customer.id;
 
-    // Use client-provided ID if sent (reconciliation), otherwise generate one
     let billId = req.body.id;
-    if (!billId) {
+    let billNumber = req.body.bill_number || req.body.invoice_number || null;
+
+    if (!isUUID(billId)) {
+      if (billId && !billNumber) {
+        billNumber = billId;
+      }
+      billId = require('crypto').randomUUID();
+    }
+
+    if (!billNumber) {
       const [maxBill] = await conn.query(
-        `SELECT id FROM bills WHERE user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        `SELECT bill_number FROM bills WHERE user_id = ? AND bill_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(bill_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
         [req.user.id]
       );
-
       let nextNum = 1;
-      if (maxBill.length > 0) {
-        const lastId = maxBill[0].id;
-        const numPart = lastId.replace(/[^0-9]/g, '');
+      if (maxBill.length > 0 && maxBill[0]?.bill_number) {
+        const lastCode = maxBill[0].bill_number;
+        const numPart = lastCode.replace(/[^0-9]/g, '');
         nextNum = parseInt(numPart || '0', 10) + 1;
       }
-      billId = `BILL-${String(nextNum).padStart(4, '0')}`;
+      billNumber = `BILL-${String(nextNum).padStart(4, '0')}`;
+    }
+
+    // Idempotent check for offline sync retry
+    const [existingBills] = await conn.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR (bill_number IS NOT NULL AND bill_number = ?)) AND user_id = ?',
+      [billId, billNumber, req.user.id]
+    );
+    if (existingBills.length > 0) {
+      const existing = existingBills[0];
+      const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [existing.id, req.user.id]);
+      await conn.commit();
+      return res.status(200).json({
+        success: true,
+        data: { ...existing, items: existingItems }
+      });
     }
 
     // Calculate subtotal from items
     let subtotal = 0;
     const billItems = items.map(item => {
-      const amount = parseFloat(item.qty) * parseFloat(item.unit_price);
+      const qty = parseInt(item.qty, 10) || 1;
+      const unitPrice = parseFloat(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || item.rate || 0)) || 0;
+      const amount = parseFloat((qty * unitPrice).toFixed(2));
       subtotal += amount;
+
+      let printType = 'color';
+      if (item.print_type === 'color' || item.print_type === 'bw') {
+        printType = item.print_type;
+      } else if (item.printType === 'color' || item.printType === 'bw') {
+        printType = item.printType;
+      } else if (typeof item.print_type === 'string' && (item.print_type.toLowerCase().includes('bw') || item.print_type.toLowerCase().includes('b/w'))) {
+        printType = 'bw';
+      }
+
+      let sides = 'single';
+      if (item.sides === 'single' || item.sides === 'double') {
+        sides = item.sides;
+      } else if (typeof item.sides === 'string' && item.sides.toLowerCase().includes('double')) {
+        sides = 'double';
+      }
+
+      const itemName = (item.name || item.item_name || item.itemName || 'Print Item').trim();
+
       return {
         bill_id: billId,
-        item_name: item.item_name,
-        print_type: item.print_type,
-        sides: item.sides,
-        qty: item.qty,
-        unit_price: item.unit_price,
-        amount: parseFloat(amount.toFixed(2))
+        item_name: itemName,
+        print_type: printType,
+        sides: sides,
+        qty: qty,
+        unit_price: unitPrice,
+        amount: amount
       };
     });
 
@@ -205,9 +262,8 @@ async function createBill(req, res, next) {
     let billStatus = 'unpaid';
 
     // Auto-apply customer credit balance
-    const customer = custRows[0];
     let creditUsed = 0;
-    if (customer.credit_balance > 0) {
+    if (parseFloat(customer.credit_balance || 0) > 0) {
       creditUsed = Math.min(parseFloat(customer.credit_balance), balance);
       amountPaid = parseFloat(creditUsed.toFixed(2));
       balance = parseFloat((balance - creditUsed).toFixed(2));
@@ -221,16 +277,16 @@ async function createBill(req, res, next) {
 
       // Reduce customer credit balance
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance - ? WHERE id = ? AND user_id = ?',
-        [creditUsed, customer_id, req.user.id]
+        'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - ?) WHERE id = ? AND user_id = ?',
+        [creditUsed, resolvedCustomerId, req.user.id]
       );
     }
 
     // Insert bill
     await conn.query(
-      `INSERT INTO bills (id, user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [billId, req.user.id, customer_id, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '']
+      `INSERT INTO bills (id, user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, bill_number, invoice_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [billId, req.user.id, resolvedCustomerId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', billNumber, billNumber]
     );
 
     // Insert bill items
@@ -247,14 +303,14 @@ async function createBill(req, res, next) {
       await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, billId, customer_id, creditUsed, 0, creditUsed, balance <= 0 ? 'full' : 'partial', 'Auto-applied from credit balance']
+        [req.user.id, billId, resolvedCustomerId, creditUsed, 0, creditUsed, balance <= 0 ? 'full' : 'partial', 'Auto-applied from credit balance']
       );
     }
 
     // Audit log
     await conn.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, 'CREATE', 'bill', billId, JSON.stringify({ customer_id, total, items: billItems.length, credit_applied: creditUsed })]
+      [req.user.id, 'CREATE', 'bill', billId, JSON.stringify({ customer_id: resolvedCustomerId, total, items: billItems.length, credit_applied: creditUsed, bill_number: billNumber })]
     );
 
     await conn.commit();
@@ -292,16 +348,30 @@ async function updateBill(req, res, next) {
       status: reqStatus, balance: reqBalance, amount_paid: reqAmountPaid, total: reqTotal, subtotal: reqSubtotal
     } = req.body;
 
-    const [existing] = await conn.query('SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, req.user.id]);
+    const [existing] = await conn.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+      [id, id, id, req.user.id]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const oldBill = existing[0];
-    const [oldItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [id, req.user.id]);
+    const actualBillId = oldBill.id;
+    const [oldItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
     // Update basic fields
-    const updatedCustomerId = customer_id || oldBill.customer_id;
+    let updatedCustomerId = oldBill.customer_id;
+    if (customer_id) {
+      const [cRows] = await conn.query(
+        'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+        [customer_id, customer_id, req.user.id]
+      );
+      if (cRows.length > 0) {
+        updatedCustomerId = cRows[0].id;
+      }
+    }
+
     const updatedDate = date || oldBill.date;
     const updatedDueDate = due_date !== undefined ? (due_date || null) : oldBill.due_date;
     const updatedNotes = notes !== undefined ? notes : oldBill.notes;
@@ -320,16 +390,35 @@ async function updateBill(req, res, next) {
     // If items are provided, recalculate
     if (items && items.length > 0) {
       // Delete old items
-      await conn.query('DELETE FROM bill_items WHERE bill_id = ? AND user_id = ?', [id, req.user.id]);
+      await conn.query('DELETE FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
       subtotal = 0;
       for (const item of items) {
-        const amount = parseFloat((item.qty * item.unit_price).toFixed(2));
+        const qty = parseInt(item.qty, 10) || 1;
+        const unitPrice = parseFloat(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || item.rate || 0)) || 0;
+        const amount = parseFloat((qty * unitPrice).toFixed(2));
         subtotal += amount;
+
+        let printType = 'color';
+        if (item.print_type === 'color' || item.print_type === 'bw') {
+          printType = item.print_type;
+        } else if (item.printType === 'color' || item.printType === 'bw') {
+          printType = item.printType;
+        }
+
+        let sides = 'single';
+        if (item.sides === 'single' || item.sides === 'double') {
+          sides = item.sides;
+        } else if (typeof item.sides === 'string' && item.sides.toLowerCase().includes('double')) {
+          sides = 'double';
+        }
+
+        const itemName = (item.name || item.item_name || item.itemName || 'Print Item').trim();
+
         await conn.query(
           `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, id, item.name || item.item_name, item.print_type, item.sides, item.qty, item.unit_price, amount]
+          [req.user.id, actualBillId, itemName, printType, sides, qty, unitPrice, amount]
         );
       }
       subtotal = parseFloat(subtotal.toFixed(2));
@@ -357,7 +446,6 @@ async function updateBill(req, res, next) {
         status = 'unpaid';
       }
     } else if (!reqStatus && reqBalance !== undefined) {
-      // If balance changed without explicit status
       if (balance <= 0) status = 'paid';
       else if (amountPaid > 0) status = 'partial';
       else status = 'unpaid';
@@ -367,13 +455,13 @@ async function updateBill(req, res, next) {
       `UPDATE bills SET customer_id = ?, date = ?, due_date = ?, subtotal = ?, discount_type = ?,
        discount_value = ?, gst_percent = ?, gst_amount = ?, total = ?, amount_paid = ?, balance = ?, status = ?, notes = ?
        WHERE id = ? AND user_id = ?`,
-      [updatedCustomerId, updatedDate, updatedDueDate, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, Math.max(0, balance), status, updatedNotes, id, req.user.id]
+      [updatedCustomerId, updatedDate, updatedDueDate, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, Math.max(0, balance), status, updatedNotes, actualBillId, req.user.id]
     );
 
     // Audit log
     await conn.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, 'UPDATE', 'bill', id, JSON.stringify({ ...oldBill, items: oldItems }), JSON.stringify({ total, balance, status })]
+      [req.user.id, 'UPDATE', 'bill', actualBillId, JSON.stringify({ ...oldBill, items: oldItems }), JSON.stringify({ total, balance, status })]
     );
 
     await conn.commit();
@@ -381,9 +469,9 @@ async function updateBill(req, res, next) {
     // Fetch updated bill
     const [updatedBill] = await pool.query(
       `SELECT b.*, c.name AS customer_name FROM bills b LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id WHERE b.id = ? AND b.user_id = ?`,
-      [id, req.user.id]
+      [actualBillId, req.user.id]
     );
-    const [updatedItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [id, req.user.id]);
+    const [updatedItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
     res.json({ success: true, data: { ...updatedBill[0], items: updatedItems } });
   } catch (err) {
@@ -400,17 +488,21 @@ async function deleteBill(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [existing] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, req.user.id]);
+    const [existing] = await pool.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+      [id, id, id, req.user.id]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
-    await pool.query('UPDATE bills SET deleted_at = NOW() WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const actualBillId = existing[0].id;
+    await pool.query('UPDATE bills SET deleted_at = NOW() WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
     // Audit log
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value) VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, 'DELETE', 'bill', id, JSON.stringify(existing[0])]
+      [req.user.id, 'DELETE', 'bill', actualBillId, JSON.stringify(existing[0])]
     );
 
     res.json({ success: true, message: 'Bill soft-deleted successfully' });
@@ -425,20 +517,24 @@ async function restoreBill(req, res, next) {
     const pool = getPool();
     const { id } = req.params;
 
-    const [existing] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NOT NULL', [id, req.user.id]);
+    const [existing] = await pool.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NOT NULL',
+      [id, id, id, req.user.id]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Deleted bill not found' });
     }
 
-    await pool.query('UPDATE bills SET deleted_at = NULL WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const actualBillId = existing[0].id;
+    await pool.query('UPDATE bills SET deleted_at = NULL WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
     // Audit log
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, new_value) VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, 'RESTORE', 'bill', id, JSON.stringify({ restored: true })]
+      [req.user.id, 'RESTORE', 'bill', actualBillId, JSON.stringify({ restored: true })]
     );
 
-    const [restored] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [restored] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
     res.json({ success: true, data: restored[0] });
   } catch (err) {
     next(err);
@@ -456,12 +552,16 @@ async function applyDiscount(req, res, next) {
       return res.status(400).json({ success: false, error: 'discount_type and discount_value are required' });
     }
 
-    const [existing] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, req.user.id]);
+    const [existing] = await pool.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+      [id, id, id, req.user.id]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const bill = existing[0];
+    const actualBillId = bill.id;
     const subtotal = parseFloat(bill.subtotal);
     const discVal = parseFloat(discount_value);
 
@@ -484,19 +584,19 @@ async function applyDiscount(req, res, next) {
 
     await pool.query(
       `UPDATE bills SET discount_type = ?, discount_value = ?, gst_amount = ?, total = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?`,
-      [discount_type, discVal, gstAmount, total, Math.max(0, balance), status, id, req.user.id]
+      [discount_type, discVal, gstAmount, total, Math.max(0, balance), status, actualBillId, req.user.id]
     );
 
     // Audit log
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, 'UPDATE', 'bill', id,
+      [req.user.id, 'UPDATE', 'bill', actualBillId,
         JSON.stringify({ discount_type: bill.discount_type, discount_value: bill.discount_value, total: bill.total }),
         JSON.stringify({ discount_type, discount_value: discVal, total, balance })
       ]
     );
 
-    const [updated] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [updated] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
     res.json({ success: true, data: updated[0] });
   } catch (err) {
     next(err);

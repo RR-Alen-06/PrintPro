@@ -60,7 +60,6 @@
 
   /* Layout & Sizing - Stitch Micro-Compact Mode */
   --sidebar-width: 250px;
-  --sidebar-collapsed-width: 68px;
   --header-height: 52px;
   --bottom-nav-height: 58px;
   --radius-xs: 4px;
@@ -241,10 +240,6 @@ h5 { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
   transition: margin-left var(--transition-slow);
 }
 
-.app-layout.sidebar-collapsed .main-wrapper {
-  margin-left: var(--sidebar-collapsed-width);
-}
-
 .main-content {
   flex: 1;
   padding: 14px 20px;
@@ -271,10 +266,6 @@ h5 { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
   transition: width var(--transition-slow), transform var(--transition-slow);
   overflow-y: auto;
   overflow-x: hidden;
-}
-
-.app-layout.sidebar-collapsed .sidebar {
-  width: var(--sidebar-collapsed-width);
 }
 
 .sidebar-logo {
@@ -309,18 +300,6 @@ h5 { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
   gap: 6px;
   white-space: nowrap;
   transition: opacity var(--transition-fast);
-}
-
-.app-layout.sidebar-collapsed .sidebar-logo-text,
-.app-layout.sidebar-collapsed .sidebar-section-label,
-.app-layout.sidebar-collapsed .sidebar-link span {
-  display: none;
-}
-
-.app-layout.sidebar-collapsed .sidebar-link {
-  justify-content: center;
-  padding: 8px;
-  border-radius: var(--radius-md);
 }
 
 .sidebar-logo-badge {
@@ -431,10 +410,6 @@ h5 { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
   padding: 0 16px;
   z-index: 90;
   transition: left var(--transition-slow), background-color 0.25s ease;
-}
-
-.app-layout.sidebar-collapsed .header {
-  left: var(--sidebar-collapsed-width);
 }
 
 .header-left {
