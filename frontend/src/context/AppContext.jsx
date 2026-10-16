@@ -1140,6 +1140,12 @@ export const AppProvider = ({ children }) => {
           cashAmount: Number(p.cash_amount || 0),
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
+          amount: Number(p.total_paid || (Number(p.cash_amount || 0) + Number(p.upi_amount || 0))),
+          paymentMethod: Number(p.cash_amount || 0) > 0 && Number(p.upi_amount || 0) > 0
+            ? 'Cash + UPI'
+            : Number(p.upi_amount || 0) > 0
+              ? 'UPI'
+              : 'Cash',
           paymentType: p.payment_type || 'partial',
           isRefund: !!p.is_refund,
           notes: p.notes || ''
