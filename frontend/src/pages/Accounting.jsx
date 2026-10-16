@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Trash2, CheckCircle, Plus, Banknote, Smartphone } from 'lucide-react'
 import PeriodReport from '../components/PeriodReport'
 import EmptyState from '../components/common/EmptyState'
+import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 
 const Accounting = () => {
   const { bills, payments, expenses, advancePayments, customers, addExpense, deleteExpense, deletedPayments } = useAppContext()
@@ -27,15 +28,16 @@ const Accounting = () => {
     const activeBills = bills.filter((b) => !b.deleted && !b.isGroupParent)
 
     // Separate normal payments from refund payments
-    const normalPayments = (payments || []).filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
-    const refundPaymentsList = (payments || []).filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
+    const isPaymentRefund = p => !!p.isRefund || !!p.is_refund || p.paymentType === 'refund' || p.payment_type === 'refund' || Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0) < 0
+    const normalPayments = (payments || []).filter(p => !isPaymentRefund(p) && Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0) >= 0)
+    const refundPaymentsList = (payments || []).filter(p => isPaymentRefund(p))
 
     // Realized Revenue = sum of amountPaid on active bills
     // After the ADD_PAYMENT refund fix, bill.amountPaid is already net of refunds.
     const realizedRevenue = activeBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
 
     // Total refund outflow
-    const totalRefundOutflow = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
+    const totalRefundOutflow = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0)), 0)
 
     const totalExpenses = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0)
 
@@ -52,14 +54,16 @@ const Accounting = () => {
       return n.includes('from advance deposit') || n.includes('advance deposit') || n.includes('credit balance')
     }
 
-    // Cash inflow from payments (refund payments have negative cashAmount, naturally reduces sum)
+    // Cash inflow from payments (normal payments only)
     const pInflow = (payments || [])
-      .filter((p) => !isAdvNote(p.notes))
-      .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
-    // Advance inflow EXCLUDING refund-credit advance deposits (those are internal transfers)
+      .filter((p) => !isAdvNote(p.notes) && !isPaymentRefund(p) && Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0) >= 0)
+      .reduce((sum, p) => sum + Number(p.cashAmount ?? p.cash_amount ?? 0) + Number(p.upiAmount ?? p.upi_amount ?? 0), 0)
+
+    // Advance inflow EXCLUDING refund-credit advance deposits and EXCLUDING advance returns
     const advInflow = (advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && ap.type !== 'return' && ap.type !== 'refund' && ap.type !== 'refunded' && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
+
     const totalCashInflow = pInflow + advInflow
 
     const netCashFlow = totalCashInflow - totalExpenses
@@ -68,14 +72,34 @@ const Accounting = () => {
       .reduce((s, b) => s + Number(b.balance || 0), 0)
 
     // Cash/UPI collected from NORMAL payments only (not refunds)
-    const cashFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const upiFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const cashFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.cashAmount ?? p.cash_amount ?? 0), 0)
+    const upiFromNormalPayments = normalPayments.reduce((s, p) => s + Number(p.upiAmount ?? p.upi_amount ?? 0), 0)
+
     // Cash/UPI refunded out
-    const cashRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
-    const upiRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
-    // Net cash/UPI collected (gross - refunds)
-    const cashFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiFromAdvances = (advancePayments || []).filter(ap => ap.amount > 0 && !ap.isRefundCredit).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cashAmount ?? p.cash_amount ?? 0)), 0)
+    const upiRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upiAmount ?? p.upi_amount ?? 0)), 0)
+
+    // Net cash/UPI collected from normal advances (excluding returns)
+    const cashFromAdvances = (advancePayments || [])
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && ap.type !== 'return' && ap.type !== 'refund' && ap.type !== 'refunded' && Number(ap.amount || 0) > 0)
+      .reduce((s, ap) => {
+        if (ap.cashAmount !== undefined && ap.cashAmount !== null && Number(ap.cashAmount) !== 0) {
+          return s + Number(ap.cashAmount)
+        }
+        const mode = (ap.paymentMode || ap.payment_mode || ap.paymentMethod || 'cash').toLowerCase()
+        return s + (mode.includes('cash') || !mode.includes('upi') ? Number(ap.amount || 0) : 0)
+      }, 0)
+
+    const upiFromAdvances = (advancePayments || [])
+      .filter(ap => !ap.isRefundCredit && !ap.isReturn && ap.type !== 'return' && ap.type !== 'refund' && ap.type !== 'refunded' && Number(ap.amount || 0) > 0)
+      .reduce((s, ap) => {
+        if (ap.upiAmount !== undefined && ap.upiAmount !== null && Number(ap.upiAmount) !== 0) {
+          return s + Number(ap.upiAmount)
+        }
+        const mode = (ap.paymentMode || ap.payment_mode || ap.paymentMethod || '').toLowerCase()
+        return s + (mode.includes('upi') ? Number(ap.amount || 0) : 0)
+      }, 0)
+
     const cashCollected = cashFromNormalPayments + cashFromAdvances  // gross cash received
     const upiCollected = upiFromNormalPayments + upiFromAdvances      // gross UPI received
 
@@ -92,38 +116,78 @@ const Accounting = () => {
   }, [bills, payments, expenses, advancePayments, customers])
 
   const refundStats = useMemo(() => {
-    // 1. Bill Refunds (negative payments)
-    const billRefundsList = payments.filter((p) => p.totalPaid < 0 || p.isRefund)
-    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const billRefundsCash = billRefundsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    // 1. Bill Refunds (negative payments, is_refund, or refund payment_type)
+    const billRefundsList = (payments || []).filter((p) => 
+      p.isRefund || p.is_refund || p.paymentType === 'refund' || p.payment_type === 'refund' || Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0) < 0
+    )
+    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0)), 0)
+    const billRefundsCash = billRefundsList.reduce((s, p) => {
+      const c = Math.abs(Number(p.cashAmount ?? p.cash_amount ?? 0))
+      if (c > 0) return s + c
+      const m = String(p.paymentMethod || p.payment_method || '').toLowerCase()
+      if (m === 'cash') return s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0))
+      return s
+    }, 0)
+    const billRefundsUpi = billRefundsList.reduce((s, p) => {
+      const u = Math.abs(Number(p.upiAmount ?? p.upi_amount ?? 0))
+      if (u > 0) return s + u
+      const m = String(p.paymentMethod || p.payment_method || '').toLowerCase()
+      if (m === 'upi') return s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0))
+      return s
+    }, 0)
 
     // 2. Payment Deletions (deleted payments)
     const delPaymentsList = deletedPayments || []
-    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
-    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
-    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
+    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0)), 0)
+    const delPaymentsCash = delPaymentsList.reduce((s, p) => {
+      const c = Math.abs(Number(p.cashAmount ?? p.cash_amount ?? 0))
+      if (c > 0) return s + c
+      const m = String(p.paymentMethod || p.payment_method || '').toLowerCase()
+      if (m === 'cash') return s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0))
+      return s
+    }, 0)
+    const delPaymentsUpi = delPaymentsList.reduce((s, p) => {
+      const u = Math.abs(Number(p.upiAmount ?? p.upi_amount ?? 0))
+      if (u > 0) return s + u
+      const m = String(p.paymentMethod || p.payment_method || '').toLowerCase()
+      if (m === 'upi') return s + Math.abs(Number(p.totalPaid ?? p.total_paid ?? p.amount ?? 0))
+      return s
+    }, 0)
 
-    // 3. Advance Returns (negative advance payments)
-    const advReturnsList = (advancePayments || []).filter((ap) => ap.amount < 0 || ap.isReturn)
-    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    // 3. Advance Returns (negative advance payments, isReturn, or type return/refund)
+    const advReturnsList = (advancePayments || []).filter((ap) => 
+      ap.isReturn || ap.type === 'return' || ap.type === 'refund' || ap.type === 'refunded' || Number(ap.amount || 0) < 0
+    )
+    const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
+    const advReturnsCash = advReturnsList.reduce((s, ap) => {
+      if (ap.cashAmount !== undefined && ap.cashAmount !== null && Number(ap.cashAmount) !== 0) {
+        return s + Math.abs(Number(ap.cashAmount))
+      }
+      const mode = (ap.paymentMode || ap.payment_mode || ap.paymentMethod || 'cash').toLowerCase()
+      return s + (mode.includes('cash') || !mode.includes('upi') ? Math.abs(Number(ap.amount || 0)) : 0)
+    }, 0)
+    const advReturnsUpi = advReturnsList.reduce((s, ap) => {
+      if (ap.upiAmount !== undefined && ap.upiAmount !== null && Number(ap.upiAmount) !== 0) {
+        return s + Math.abs(Number(ap.upiAmount))
+      }
+      const mode = (ap.paymentMode || ap.payment_mode || ap.paymentMethod || '').toLowerCase()
+      return s + (mode.includes('upi') ? Math.abs(Number(ap.amount || 0)) : 0)
+    }, 0)
 
     return {
-      billRefundsTotal: Math.abs(billRefundsTotal),
-      billRefundsCash: Math.abs(billRefundsCash),
-      billRefundsUpi: Math.abs(billRefundsUpi),
+      billRefundsTotal,
+      billRefundsCash,
+      billRefundsUpi,
       billRefundsList,
 
-      delPaymentsTotal: Math.abs(delPaymentsTotal),
-      delPaymentsCash: Math.abs(delPaymentsCash),
-      delPaymentsUpi: Math.abs(delPaymentsUpi),
+      delPaymentsTotal,
+      delPaymentsCash,
+      delPaymentsUpi,
       delPaymentsList,
 
-      advReturnsTotal: Math.abs(advReturnsTotal),
-      advReturnsCash: Math.abs(advReturnsCash),
-      advReturnsUpi: Math.abs(advReturnsUpi),
+      advReturnsTotal,
+      advReturnsCash,
+      advReturnsUpi,
       advReturnsList,
     }
   }, [payments, deletedPayments, advancePayments])
@@ -133,49 +197,76 @@ const Accounting = () => {
     
     // Add bill refunds
     refundStats.billRefundsList.forEach(r => {
+      const bill = (bills || []).find(b => String(b.id) === String(r.billId || r.bill_id))
+      const billCode = bill ? getDisplayBillId(bill) : (r.billId || r.bill_id ? getDisplayBillId(r.billId || r.bill_id) : 'N/A')
+      const tot = Math.abs(Number(r.totalPaid ?? r.total_paid ?? r.amount ?? 0))
+      const c = Math.abs(Number(r.cashAmount ?? r.cash_amount ?? 0))
+      const u = Math.abs(Number(r.upiAmount ?? r.upi_amount ?? 0))
+      const m = String(r.paymentMethod || r.payment_method || '').toLowerCase()
+      const cashVal = c > 0 ? c : (m === 'cash' ? tot : 0)
+      const upiVal = u > 0 ? u : (m === 'upi' ? tot : 0)
       logs.push({
-        id: r.id,
+        id: String(r.id),
         date: r.date,
         type: 'Bill Refund',
-        description: `Refund for Bill #${r.billId}`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.totalPaid || 0),
+        description: `Refund for Bill #${billCode}`,
+        cash: cashVal,
+        upi: upiVal,
+        total: tot,
         notes: r.notes || '',
       })
     })
 
     // Add deleted payments
     refundStats.delPaymentsList.forEach(r => {
+      const bill = (bills || []).find(b => String(b.id) === String(r.billId || r.bill_id))
+      const billCode = bill ? getDisplayBillId(bill) : (r.billId || r.bill_id ? getDisplayBillId(r.billId || r.bill_id) : 'N/A')
+      const tot = Math.abs(Number(r.totalPaid ?? r.total_paid ?? r.amount ?? 0))
+      const c = Math.abs(Number(r.cashAmount ?? r.cash_amount ?? 0))
+      const u = Math.abs(Number(r.upiAmount ?? r.upi_amount ?? 0))
+      const m = String(r.paymentMethod || r.payment_method || '').toLowerCase()
+      const cashVal = c > 0 ? c : (m === 'cash' ? tot : 0)
+      const upiVal = u > 0 ? u : (m === 'upi' ? tot : 0)
       logs.push({
-        id: r.id,
-        date: r.deletedAt || r.date,
+        id: String(r.id),
+        date: r.deletedAt || r.deleted_at || r.date,
         type: 'Payment Deletion',
-        description: `Deleted Payment for Bill #${r.billId}`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.totalPaid || 0),
-        notes: `Deleted on ${new Date(r.deletedAt).toLocaleDateString()}`,
+        description: `Deleted Payment for Bill #${billCode}`,
+        cash: cashVal,
+        upi: upiVal,
+        total: tot,
+        notes: r.deletedAt || r.deleted_at ? `Deleted on ${new Date(r.deletedAt || r.deleted_at).toLocaleDateString()}` : (r.notes || ''),
       })
     })
 
     // Add advance returns
     refundStats.advReturnsList.forEach(r => {
+      const cust = (customers || []).find(c => String(c.id) === String(r.customerId || r.customer_id))
+      const custLabel = cust ? `${cust.name} (${getDisplayCustomerId(cust)})` : (r.customerId || r.customer_id ? `Customer #${r.customerId || r.customer_id}` : 'Customer')
+      const mode = (r.paymentMode || r.payment_mode || r.paymentMethod || 'cash').toLowerCase()
+      const amt = Math.abs(Number(r.amount || 0))
+      const cashAmt = r.cashAmount !== undefined && r.cashAmount !== null && Number(r.cashAmount) !== 0
+        ? Math.abs(Number(r.cashAmount))
+        : (mode.includes('cash') || !mode.includes('upi') ? amt : 0)
+      const upiAmt = r.upiAmount !== undefined && r.upiAmount !== null && Number(r.upiAmount) !== 0
+        ? Math.abs(Number(r.upiAmount))
+        : (mode.includes('upi') ? amt : 0)
+
       logs.push({
-        id: r.id,
+        id: String(r.id),
         date: r.date,
         type: 'Advance Return',
-        description: `Returned Advance to Customer #${r.customerId}`,
-        cash: Math.abs(r.cashAmount || 0),
-        upi: Math.abs(r.upiAmount || 0),
-        total: Math.abs(r.amount || 0),
+        description: `Returned Advance to ${custLabel}`,
+        cash: cashAmt,
+        upi: upiAmt,
+        total: amt,
         notes: r.notes || '',
       })
     })
 
     // Sort by date descending
     return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [refundStats])
+  }, [refundStats, bills, customers])
 
   // ── Expense form ──────────────────────────────────────────────────────────
   const handleExpenseChange = (field, value) => {

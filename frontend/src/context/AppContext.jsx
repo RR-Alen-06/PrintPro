@@ -1160,6 +1160,12 @@ export const AppProvider = ({ children }) => {
           cashAmount: Number(p.cash_amount || 0),
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
+          amount: Number(p.total_paid || (Number(p.cash_amount || 0) + Number(p.upi_amount || 0))),
+          paymentMethod: Number(p.cash_amount || 0) > 0 && Number(p.upi_amount || 0) > 0
+            ? 'Cash + UPI'
+            : Number(p.upi_amount || 0) > 0
+              ? 'UPI'
+              : 'Cash',
           paymentType: p.payment_type || 'partial',
           isRefund: !!p.is_refund,
           notes: p.notes || ''
@@ -1238,16 +1244,27 @@ export const AppProvider = ({ children }) => {
           isActive: p.is_active !== false
         }))
 
-        const mappedAdvances = fetchedAdvances.map(a => ({
-          id: String(a.id),
-          customerId: a.customer_id,
-          amount: Number(a.amount || 0),
-          paymentMode: a.payment_mode || 'cash',
-          type: a.type || 'deposit',
-          billId: a.bill_id,
-          notes: a.notes || '',
-          date: a.date || a.created_at || new Date().toISOString()
-        }))
+        const mappedAdvances = fetchedAdvances.map(a => {
+          const rawAmt = Number(a.amount || 0)
+          const mode = (a.payment_mode || a.paymentMode || 'cash').toLowerCase()
+          const isUpi = mode.includes('upi')
+          const isRet = a.type === 'return' || a.type === 'refund' || a.type === 'refunded' || rawAmt < 0 || !!a.isReturn
+          const normAmt = isRet ? -Math.abs(rawAmt) : Math.abs(rawAmt)
+          return {
+            id: String(a.id),
+            customerId: a.customer_id,
+            amount: normAmt,
+            paymentMode: mode,
+            paymentMethod: mode,
+            cashAmount: !isUpi ? normAmt : 0,
+            upiAmount: isUpi ? normAmt : 0,
+            type: a.type || (isRet ? 'return' : 'deposit'),
+            billId: a.bill_id,
+            notes: a.notes || '',
+            date: a.date || a.created_at || new Date().toISOString(),
+            isReturn: isRet
+          }
+        })
 
         const mappedGroups = fetchedGroups.map(g => ({
           id: String(g.id),
