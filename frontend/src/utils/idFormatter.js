@@ -24,6 +24,8 @@ export const getDisplayBillId = (bill) => {
   }
   if (bill.bill_number) return bill.bill_number;
   if (bill.billNumber) return bill.billNumber;
+  if (bill.invoice_number) return bill.invoice_number;
+  if (bill.invoiceNumber) return bill.invoiceNumber;
   if (bill.id && !isUuid(String(bill.id))) return String(bill.id);
   if (bill.id) return `BILL-${String(bill.id).slice(0, 4).toUpperCase()}`;
   return 'BILL-0001';

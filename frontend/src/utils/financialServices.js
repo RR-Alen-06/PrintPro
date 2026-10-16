@@ -258,15 +258,21 @@ export const LedgerService = {
         creditAmt = Math.max(0, creditAmt);
       }
 
+      let billLabel = 'General';
+      if (payment.billId) {
+        const matchedBill = bills.find(b => b.id === payment.billId || b.billNumber === payment.billId || b.bill_number === payment.billId || b.invoice_number === payment.billId);
+        billLabel = matchedBill ? getDisplayBillId(matchedBill) : getDisplayBillId(payment.billId);
+      }
+
       entries.push({
         type: isRefund ? 'refund' : (payment.isGroupPayment ? 'group_payment' : 'payment'),
         date: payment.date,
         id: payment.id,
         description: isRefund 
-          ? `Refund — Bill #${payment.billId}` 
+          ? `Refund — Bill #${billLabel}` 
           : (payment.isGroupPayment 
               ? `Full Group Payment — ${payment.groupBillId}` 
-              : `Payment — ${payment.billId || 'General'}`),
+              : `Payment — ${billLabel}`),
         subtext: payment.isGroupPayment 
           ? `Paid ₹${payment.totalPaid.toFixed(2)} for Split Group ${payment.groupBillId}`
           : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(payment.upiAmount || 0).toFixed(2)}`,

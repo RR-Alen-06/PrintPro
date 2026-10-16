@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
+import { getDisplayBillId } from '../utils/idFormatter'
 
 const makeItemRow = (inventory = []) => {
   const hasInv = inventory && inventory.length > 0
@@ -1870,7 +1871,7 @@ const GroupBillsHistory = () => {
                     <div style={{ marginTop: '8px', fontSize: '12px', color: '#a1a1aa' }}>This will automatically settle:</div>
                     {previewSettlements.map(({ bill, apply }) => (
                       <div key={bill.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
-                        <span>✓ {bill.customerName} ({bill.id})</span>
+                        <span>✓ {bill.customerName} ({getDisplayBillId(bill)})</span>
                         <strong style={{ color: '#10b981' }}>₹{apply.toFixed(2)}</strong>
                       </div>
                     ))}

@@ -50,9 +50,14 @@ async function recordPayment(req, res, next) {
     let resolvedBill = null;
 
     if (bill_id) {
+      const cleanBillId = String(bill_id).trim();
+      const numOnly = cleanBillId.replace(/[^0-9]/g, '');
       const [billRows] = await conn.query(
-        'SELECT id, customer_id, bill_number, invoice_number FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
-        [bill_id, bill_id, bill_id, req.user.id]
+        `SELECT id, customer_id, bill_number, invoice_number, balance, total, status FROM bills 
+         WHERE (id::text = ? OR bill_number = ? OR invoice_number = ? 
+                OR (NULLIF(regexp_replace(COALESCE(bill_number, ''), '[^0-9]', '', 'g'), '') IS NOT NULL AND regexp_replace(COALESCE(bill_number, ''), '[^0-9]', '', 'g') = ?)) 
+           AND user_id = ? AND deleted_at IS NULL`,
+        [cleanBillId, cleanBillId, cleanBillId, numOnly || '___none___', req.user.id]
       );
       if (billRows.length > 0) {
         resolvedBill = billRows[0];
@@ -94,11 +99,18 @@ async function recordPayment(req, res, next) {
       [resolvedCustomerId, req.user.id]
     );
 
+    let billsToProcess = unpaidBills;
+    if (resolvedBill) {
+      const match = unpaidBills.find(b => b.id === resolvedBill.id);
+      const others = unpaidBills.filter(b => b.id !== resolvedBill.id);
+      billsToProcess = match ? [match, ...others] : (resolvedBill.status !== 'paid' ? [resolvedBill, ...others] : unpaidBills);
+    }
+
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
     const paymentRecords = [];
 
-    for (const bill of unpaidBills) {
+    for (const bill of billsToProcess) {
       const outstanding = parseFloat(bill.balance);
       if (outstanding <= 0) continue;
 
@@ -169,7 +181,7 @@ async function recordPayment(req, res, next) {
       );
 
       // Record excess as a payment entry
-      const targetBillId = resolvedBill ? resolvedBill.id : (bill_id || null);
+      const targetBillId = resolvedBill ? resolvedBill.id : null;
       const [pr] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
          VALUES (?, ?, ?, ?, ?, ?, 'full', ?, ?)`,

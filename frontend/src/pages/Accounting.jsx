@@ -46,9 +46,15 @@ const Accounting = () => {
       .filter((c) => !c.deleted)
       .reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0)
 
+    const isAdvNote = (notes) => {
+      if (!notes) return false
+      const n = String(notes).toLowerCase()
+      return n.includes('from advance deposit') || n.includes('advance deposit') || n.includes('credit balance')
+    }
+
     // Cash inflow from payments (refund payments have negative cashAmount, naturally reduces sum)
     const pInflow = (payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !isAdvNote(p.notes))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     // Advance inflow EXCLUDING refund-credit advance deposits (those are internal transfers)
     const advInflow = (advancePayments || [])

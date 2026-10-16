@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAppContext } from '../context/AppContext'
 import { MessageCircle, CheckCircle, ShieldAlert, Phone } from 'lucide-react'
 import { getOverdueNotifications } from '../api/notifications'
+import { getDisplayBillId } from '../utils/idFormatter'
 
 const NotificationsPage = () => {
   const { business, notifications, markNotificationRead, markAllNotificationsRead, showToast } = useAppContext()
@@ -47,7 +48,7 @@ const NotificationsPage = () => {
     const text = `*Payment Reminder from ${shopName}*%0A` +
       `------------------------%0A` +
       `Dear *${bill.customer_name || 'Customer'}*,%0A` +
-      `This is a gentle reminder that your invoice *#${bill.id}* for *₹${Number(bill.balance || 0).toFixed(2)}* is overdue by *${bill.days_overdue || 1} day(s)* (Due Date: ${bill.due_date}).%0A` +
+      `This is a gentle reminder that your invoice *#${getDisplayBillId(bill)}* for *₹${Number(bill.balance || 0).toFixed(2)}* is overdue by *${bill.days_overdue || 1} day(s)* (Due Date: ${bill.due_date}).%0A` +
       upiLine +
       `------------------------%0A` +
       `Please clear the balance at your earliest convenience. Thank you!`
@@ -160,7 +161,7 @@ const NotificationsPage = () => {
               <tbody>
                 {overdueBills.map((bill) => (
                   <tr key={bill.id}>
-                    <td className="font-mono text-muted" style={{ fontWeight: 600 }}>{bill.id}</td>
+                    <td className="font-mono text-muted" style={{ fontWeight: 600 }}>{getDisplayBillId(bill)}</td>
                     <td style={{ fontWeight: 600 }}>{bill.customer_name || 'Walk-in'}</td>
                     <td>
                       {bill.customer_phone ? (

@@ -49,7 +49,7 @@ function isTransientNetworkError(error) {
  * Recursively or deeply rewrites any temporary IDs present in an action payload
  * using the provided idMappings map.
  */
-function rewritePayloadReferences(payload, idMappings) {
+export function rewritePayloadReferences(payload, idMappings) {
   if (!payload || typeof payload !== 'object' || idMappings.size === 0) {
     return payload;
   }
