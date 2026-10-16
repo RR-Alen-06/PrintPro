@@ -1932,6 +1932,10 @@ export const AppProvider = ({ children }) => {
 
       const newBill = {
         id: billId,
+        billNumber: billId,
+        bill_number: billId,
+        invoiceNumber: billId,
+        invoice_number: billId,
         customerId: member.customerId,
         customerName,
         customerType: customer?.type || 'regular',

@@ -277,16 +277,19 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
 }
 
 // ── Member card (Case 1 & 2) ──────────────────────────────────────────────────
-const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, _promoCodes, _date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount }) => {
+const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRemove, settings, _promoCodes, _date, memberTotals, sharedRows, onAddNewCustomerClick, sharedDiscountMode, sharedGroupDiscount, sharedCostDistribution = 'split' }) => {
   const customer = customers.find((c) => c.id === member.customerId)
   const advance = Number(customer?.advanceBalance || customer?.creditBalance || 0)
   const loyaltyEnabled = settings?.loyaltyEnabled !== false
   const loyaltyRedeemEnabled = settings?.loyaltyRedeemEnabled !== false
   const hasLoyalty = customer && customer.type === 'regular' && loyaltyEnabled && loyaltyRedeemEnabled
 
+  const memberCount = Math.max(members.length, 1)
+  const isSplitCost = sharedCostDistribution === 'split'
   const sharedGst = (sharedRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+  const memberSharedGst = isSplitCost && memberCount > 1 ? (sharedGst / memberCount) : sharedGst
   const addonGst = member.hasAddons ? (member.addonRows || []).reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
-  const autoGst = sharedGst + addonGst
+  const autoGst = memberSharedGst + addonGst
 
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '16px', marginBottom: '12px' }}>
@@ -558,6 +561,7 @@ const GroupBilling = () => {
   ])
   const [sharedDiscountMode, setSharedDiscountMode] = useState('individual') // 'individual' | 'group'
   const [sharedGroupDiscount, setSharedGroupDiscount] = useState({ type: 'flat', value: 0 })
+  const [sharedCostDistribution, setSharedCostDistribution] = useState('split') // 'split' | 'full'
 
   // ── Split mode state ────────────────────────────────────────────────────────
   const [splitRows, setSplitRows] = useState(() => [makeItemRow(inventory)])
@@ -574,13 +578,18 @@ const GroupBilling = () => {
   // ── Shared mode calculations ─────────────────────────────────────────────────
   const sharedSubtotal = useMemo(() => sharedRows.reduce((s, r) => s + Number(r.amount || 0), 0), [sharedRows])
 
-  const memberTotals = useMemo(() =>
-    members.map((m) => {
+  const memberTotals = useMemo(() => {
+    const memberCount = Math.max(members.length, 1)
+    const isSplitCost = sharedCostDistribution === 'split'
+    const memberSharedShare = isSplitCost ? (sharedSubtotal / memberCount) : sharedSubtotal
+    const sharedGst = sharedRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+    const memberSharedGst = isSplitCost ? (sharedGst / memberCount) : sharedGst
+
+    return members.map((m) => {
       const addonSubtotal = m.hasAddons ? m.addonRows.reduce((s, r) => s + Number(r.amount || 0), 0) : 0
-      const baseTotal = sharedSubtotal + addonSubtotal
-      const sharedGst = sharedRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+      const baseTotal = memberSharedShare + addonSubtotal
       const addonGst = m.hasAddons ? m.addonRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0) : 0
-      const autoGst = sharedGst + addonGst
+      const autoGst = memberSharedGst + addonGst
       const gstAmount = m.customGst !== undefined && m.customGst !== '' ? Number(m.customGst) : autoGst
       const cgst = gstAmount / 2
       const sgst = gstAmount / 2
@@ -621,9 +630,10 @@ const GroupBilling = () => {
         loyaltyDiscount: loyaltyDisc,
         total: Math.max(baseTotal + gstAmount - disc - loyaltyDisc, 0)
       }
-    }),
-    [members, sharedSubtotal, sharedRows, settings, sharedDiscountMode, sharedGroupDiscount]
-  )
+    })
+  },
+  [members, sharedSubtotal, sharedRows, settings, sharedDiscountMode, sharedGroupDiscount, sharedCostDistribution]
+)
 
   // ── Split mode calculations ──────────────────────────────────────────────────
   const splitSubtotal = useMemo(() => splitRows.reduce((s, r) => s + Number(r.amount || 0), 0), [splitRows])
@@ -788,6 +798,7 @@ const GroupBilling = () => {
     setRoundingMode('up')
     setSharedDiscountMode('individual')
     setSharedGroupDiscount({ type: 'flat', value: 0 })
+    setSharedCostDistribution('split')
     setSplitDiscountMode('individual')
     setSplitGroupDiscount({ type: 'flat', value: 0 })
   }
@@ -806,19 +817,29 @@ const GroupBilling = () => {
     }
 
     setIsSubmitting(true)
+    const memberCount = Math.max(members.length, 1)
+    const isSplitCost = sharedCostDistribution === 'split'
     const groupMembers = members.map((m, i) => {
       const { subtotal, gstAmount, cgst, sgst, discountAmount, loyaltyDiscount, total } = memberTotals[i]
       const allItems = [
-        ...sharedRows.map((r) => ({
-          itemId: r.itemId,
-          itemName: r.itemName,
-          printType: r.printType,
-          sides: r.sides,
-          qty: Number(r.qty),
-          unitPrice: Number(r.unitPrice),
-          amount: Number(r.amount),
-          gstRate: Number(r.gstRate || 0),
-        })),
+        ...sharedRows.map((r) => {
+          const qty = Number(r.qty)
+          const baseUnitPrice = Number(r.unitPrice)
+          const baseAmount = Number(r.amount)
+          const unitPrice = isSplitCost && memberCount > 1 ? Number((baseUnitPrice / memberCount).toFixed(2)) : baseUnitPrice
+          const amount = isSplitCost && memberCount > 1 ? Number((baseAmount / memberCount).toFixed(2)) : baseAmount
+          const itemName = isSplitCost && memberCount > 1 ? `${r.itemName} (1/${memberCount} share)` : r.itemName
+          return {
+            itemId: r.itemId,
+            itemName,
+            printType: r.printType,
+            sides: r.sides,
+            qty,
+            unitPrice,
+            amount,
+            gstRate: Number(r.gstRate || 0),
+          }
+        }),
         ...(m.hasAddons
           ? m.addonRows.map((r) => ({
             itemId: r.itemId,
@@ -1007,8 +1028,15 @@ const GroupBilling = () => {
           {/* Shared items section */}
           <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Shared Items <span style={{ color: '#71717a', fontSize: '12px', fontWeight: 400 }}>(same for all members)</span></h3>
-              <div style={{ fontSize: '14px', color: '#a3e635', fontWeight: 700 }}>Subtotal: ₹{sharedSubtotal.toFixed(2)}</div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Shared Items <span style={{ color: '#71717a', fontSize: '12px', fontWeight: 400 }}>({sharedCostDistribution === 'split' ? 'divided equally among members' : 'same for all members'})</span></h3>
+              <div style={{ fontSize: '14px', color: '#a3e635', fontWeight: 700 }}>
+                Subtotal: ₹{sharedSubtotal.toFixed(2)}
+                {members.length > 1 && sharedCostDistribution === 'split' && (
+                  <span style={{ fontSize: '12px', color: '#71717a', fontWeight: 400, marginLeft: '6px' }}>
+                    (₹{(sharedSubtotal / members.length).toFixed(2)} / member)
+                  </span>
+                )}
+              </div>
             </div>
             <div style={{ fontSize: '12px', color: '#71717a', marginBottom: '10px', display: 'grid', gridTemplateColumns: '1.4fr 90px 90px 60px 90px 80px 1fr 32px', gap: '6px' }}>
               <span>Item</span><span>Type</span><span>Sides</span><span>Qty</span><span>Unit Price</span><span>GST Rate</span><span style={{ textAlign: 'right' }}>Amount</span><span></span>
@@ -1017,10 +1045,32 @@ const GroupBilling = () => {
             <ItemRowEditor rows={sharedRows} setRows={setSharedRows} inventory={inventory} />
           </div>
 
-          {/* Discount Settings */}
+          {/* Discount & Distribution Settings */}
           <div className="card" style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: 600 }}>Discount Settings</h3>
-            <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: 600 }}>Billing & Discount Settings</h3>
+            <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: '12px', color: '#71717a', marginBottom: '6px' }}>Cost Distribution</div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={`btn ${sharedCostDistribution === 'split' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                    onClick={() => setSharedCostDistribution('split')}
+                  >
+                    Divide Equally (₹{(sharedSubtotal / Math.max(members.length, 1)).toFixed(2)} / member)
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${sharedCostDistribution === 'full' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                    onClick={() => setSharedCostDistribution('full')}
+                  >
+                    Full Amount per Member (₹{sharedSubtotal.toFixed(2)} each)
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <div style={{ fontSize: '12px', color: '#71717a', marginBottom: '6px' }}>Discount Mode</div>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -1102,6 +1152,7 @@ const GroupBilling = () => {
                 }}
                 sharedDiscountMode={sharedDiscountMode}
                 sharedGroupDiscount={sharedGroupDiscount}
+                sharedCostDistribution={sharedCostDistribution}
               />
             ))}
           </div>
@@ -1131,7 +1182,14 @@ const GroupBilling = () => {
                         <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <td style={{ padding: '8px 10px', color: '#71717a' }}>{i + 1}</td>
                           <td style={{ padding: '8px 10px', fontWeight: 600 }}>{cust?.name || <span style={{ color: '#ef4444' }}>Not selected</span>}</td>
-                          <td style={{ padding: '8px 10px' }}>₹{sharedSubtotal.toFixed(2)}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            ₹{(sharedCostDistribution === 'split' ? sharedSubtotal / Math.max(members.length, 1) : sharedSubtotal).toFixed(2)}
+                            {sharedCostDistribution === 'split' && members.length > 1 && (
+                              <span style={{ fontSize: '10px', color: '#71717a', display: 'block' }}>
+                                (1/{members.length} share)
+                              </span>
+                            )}
+                          </td>
                           <td style={{ padding: '8px 10px' }}>₹{(m.hasAddons ? m.addonRows.reduce((s, r) => s + Number(r.amount || 0), 0) : 0).toFixed(2)}</td>
                           <td style={{ padding: '8px 10px', color: '#818cf8' }}>₹{gstAmount.toFixed(2)}</td>
                           <td style={{ padding: '8px 10px', color: '#f59e0b' }}>-₹{discountAmount.toFixed(2)}</td>
