@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, ArrowLeftRight } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
-import { getDisplayBillId } from '../utils/idFormatter'
+import { getDisplayBillId, getDisplayCustomerId, getDisplayGroupId, getDisplayPaymentId } from '../utils/idFormatter'
 
 const makeItemRow = (inventory = []) => {
   const hasInv = inventory && inventory.length > 0
@@ -297,7 +297,7 @@ const MemberCard = ({ member, idx, members, customers, inventory, onChange, onRe
             <select className="form-input" style={{ minWidth: '180px', fontSize: '13px' }} value={member.customerId}
               onChange={(e) => onChange(member.id, { customerId: e.target.value })}>
               <option value="">— Select Customer —</option>
-              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+              {customers.filter((c) => !c.deleted && !members.some(m => m.id !== member.id && m.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>)}
             </select>
             <button
               type="button"
@@ -1305,7 +1305,7 @@ const GroupBilling = () => {
                       <select className="form-input" style={{ flex: 1, fontSize: '13px' }} value={m.customerId}
                         onChange={(e) => updateSplitMember(m.id, { customerId: e.target.value })}>
                         <option value="">— Select Customer —</option>
-                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+                        {activeCustomers.filter((c) => !splitMembers.some(sm => sm.id !== m.id && sm.customerId === c.id)).map((c) => <option key={c.id} value={c.id}>{c.name} ({getDisplayCustomerId(c)})</option>)}
                       </select>
                       <button
                         type="button"
@@ -1696,7 +1696,7 @@ const GroupBillsHistory = () => {
               onClick={() => setExpanded(isExpanded ? null : grp.id)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--accent)' }}>{grp.id}</span>
+                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--accent)' }}>{getDisplayGroupId(grp)}</span>
                 <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', background: grp.type === 'split' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.12)', color: grp.type === 'split' ? '#818cf8' : '#10b981', fontWeight: 600 }}>
                   {grp.type === 'split' ? 'Split' : 'Shared'}
                 </span>
@@ -1724,7 +1724,7 @@ const GroupBillsHistory = () => {
                     <tbody>
                       {memberBills.map((b) => (
                         <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '7px 10px', color: 'var(--accent)', fontWeight: 600 }}>{b.id}</td>
+                          <td style={{ padding: '7px 10px', color: 'var(--accent)', fontWeight: 600 }}>{getDisplayBillId(b)}</td>
                           <td style={{ padding: '7px 10px' }}>{b.customerName}</td>
                           <td style={{ padding: '7px 10px' }}>₹{Number(b.total).toFixed(2)}</td>
                           <td style={{ padding: '7px 10px', color: '#10b981' }}>₹{Number(b.amountPaid).toFixed(2)}</td>
@@ -1749,7 +1749,7 @@ const GroupBillsHistory = () => {
                                   if (grp.type === 'split') {
                                     openPayModal(b, grp)
                                   } else {
-                                    recordSpecificBillPayment({ billId: b.id, customerId: b.customerId, cashAmount: b.balance > 0 ? b.balance : b.total, upiAmount: 0, notes: `Payment for group member bill ${b.id}` })
+                                    recordSpecificBillPayment({ billId: b.id, customerId: b.customerId, cashAmount: b.balance > 0 ? b.balance : b.total, upiAmount: 0, notes: `Payment for group member bill ${getDisplayBillId(b)}` })
                                   }
                                 }}
                               >Pay</button>
@@ -1767,10 +1767,10 @@ const GroupBillsHistory = () => {
                       <CheckCircle size={14} /> Split Settlement View
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '10px', fontSize: '12px' }}>
-                      <div><span style={{ color: '#a1a1aa' }}>Group ID:</span> <strong>{grp.id}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Group ID:</span> <strong>{getDisplayGroupId(grp)}</strong></div>
                       <div><span style={{ color: '#a1a1aa' }}>Total:</span> <strong>₹{totalAmount.toFixed(2)}</strong></div>
                       <div><span style={{ color: '#a1a1aa' }}>Actual Payer:</span> <strong>{customers.find(c => c.id === groupPayment.customerId)?.name || 'Unknown'}</strong></div>
-                      <div><span style={{ color: '#a1a1aa' }}>Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{groupPayment.id}</strong></div>
+                      <div><span style={{ color: '#a1a1aa' }}>Ref:</span> <strong style={{ fontFamily: 'monospace' }}>{getDisplayPaymentId(groupPayment)}</strong></div>
                     </div>
                     <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
                       <div style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', marginBottom: '4px' }}>Members Settled:</div>
