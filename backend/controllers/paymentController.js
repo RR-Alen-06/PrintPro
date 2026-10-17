@@ -40,7 +40,10 @@ async function recordPayment(req, res, next) {
 
     const cashAmt = parseFloat(cash_amount) || 0;
     const upiAmt = parseFloat(upi_amount) || 0;
-    const totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
+    let totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
+    if (totalPaid <= 0 && req.body.total_paid) {
+      totalPaid = parseFloat(Number(req.body.total_paid).toFixed(2));
+    }
 
     if (totalPaid <= 0) {
       return res.status(400).json({ success: false, error: 'Payment amount must be greater than zero' });
@@ -108,6 +111,7 @@ async function recordPayment(req, res, next) {
 
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
+    let remainingAdvance = (cashAmt === 0 && upiAmt === 0 && totalPaid > 0) ? totalPaid : 0;
     const paymentRecords = [];
 
     for (const bill of billsToProcess) {
@@ -127,7 +131,12 @@ async function recordPayment(req, res, next) {
         remainingUpi = parseFloat((remainingUpi - applyUpi).toFixed(2));
       }
 
-      const applyTotal = parseFloat((applyCash + applyUpi).toFixed(2));
+      let applyTotal = parseFloat((applyCash + applyUpi).toFixed(2));
+      if (applyTotal <= 0 && remainingAdvance > 0) {
+        const applyAdv = Math.min(remainingAdvance, outstanding);
+        remainingAdvance = parseFloat((remainingAdvance - applyAdv).toFixed(2));
+        applyTotal = applyAdv;
+      }
       if (applyTotal <= 0) continue;
 
       const newAmountPaid = parseFloat((parseFloat(bill.amount_paid) + applyTotal).toFixed(2));
@@ -151,6 +160,17 @@ async function recordPayment(req, res, next) {
         );
       }
 
+      // If this was an advance deduction, atomically decrement customer advance_balance and credit_balance
+      if (applyCash === 0 && applyUpi === 0 && applyTotal > 0) {
+        await conn.query(
+          `UPDATE customers SET
+             credit_balance = GREATEST(0, COALESCE(credit_balance, 0) - ?),
+             advance_balance = GREATEST(0, COALESCE(advance_balance, 0) - ?)
+           WHERE id = ? AND user_id = ?`,
+          [applyTotal, resolvedCustomerId, req.user.id]
+        );
+      }
+
       // Update the bill
       await conn.query(
         'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?',
@@ -169,7 +189,7 @@ async function recordPayment(req, res, next) {
 
       paymentRecords.push({ paymentId: payResult.insertId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
 
-      if (remainingCash <= 0 && remainingUpi <= 0) break;
+      if (remainingCash <= 0 && remainingUpi <= 0 && remainingAdvance <= 0) break;
     }
 
     // ── Handle excess (overpayment) ───────────────────────────────────────────

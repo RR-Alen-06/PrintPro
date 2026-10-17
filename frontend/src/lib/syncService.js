@@ -277,6 +277,15 @@ export const syncEntityToCloud = async (action, payload) => {
         date: payload.date || new Date().toISOString().slice(0, 10),
       });
 
+    case 'USE_ADVANCE':
+      if (payload.customerId && payload.newBalance !== undefined) {
+        return await updateCustomer(payload.customerId, {
+          advance_balance: payload.newBalance,
+          credit_balance: payload.newBalance,
+        });
+      }
+      break;
+
     case 'ADD_CUSTOMER_GROUP':
       return await createCustomerGroup({
         name: payload.name,

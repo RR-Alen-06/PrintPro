@@ -1093,7 +1093,8 @@ export const AppProvider = ({ children }) => {
           phone: c.phone || '',
           email: c.email || '',
           address: c.address || '',
-          creditBalance: Number(c.credit_balance || 0),
+          advanceBalance: Number(c.advance_balance !== undefined && c.advance_balance !== null ? c.advance_balance : (c.credit_balance || 0)),
+          creditBalance: Number(c.credit_balance !== undefined && c.credit_balance !== null ? c.credit_balance : (c.advance_balance || 0)),
           creditLimit: Number(c.credit_limit || 0),
           loyaltyPoints: Number(c.loyalty_points || 0),
           createdAt: c.created_at || new Date().toISOString()
@@ -1386,6 +1387,7 @@ export const AppProvider = ({ children }) => {
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     let remainingAdvance = totalAmount
+    let totalUsedAdvance = 0
 
     for (const bill of unpaidBills) {
       if (remainingAdvance <= 0) break
@@ -1394,6 +1396,8 @@ export const AppProvider = ({ children }) => {
       if (billRemaining <= 0) continue
 
       const applyAmt = Math.min(remainingAdvance, billRemaining)
+      remainingAdvance = Number((remainingAdvance - applyAmt).toFixed(2))
+      totalUsedAdvance = Number((totalUsedAdvance + applyAmt).toFixed(2))
       
       // Proportional split of cash vs UPI for this FIFO payment
       let applyCash = 0
@@ -1447,6 +1451,25 @@ export const AppProvider = ({ children }) => {
         type: 'USE_ADVANCE',
         payload: { customerId: data.customerId, amount: applyAmt }
       })
+    }
+
+    if (totalUsedAdvance > 0) {
+      const cust = state.customers.find((c) => c.id === data.customerId)
+      if (cust) {
+        const curBal = Number(cust.advanceBalance ?? cust.creditBalance ?? 0)
+        const finalBal = Math.max(0, curBal + totalAmount - totalUsedAdvance)
+        dispatch({
+          type: 'UPDATE_CUSTOMER',
+          payload: {
+            id: cust.id,
+            updates: {
+              ...cust,
+              advanceBalance: finalBal,
+              creditBalance: finalBal,
+            }
+          }
+        })
+      }
     }
 
     return id

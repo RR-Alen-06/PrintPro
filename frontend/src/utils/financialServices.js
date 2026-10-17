@@ -360,7 +360,7 @@ export const DashboardService = {
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
     const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
     const totalRefunds = payments.filter((p) => p.totalPaid < 0 || p.isRefund).reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
-    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
+    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Math.max(0, Number(c.advanceBalance !== undefined && c.advanceBalance !== null ? c.advanceBalance : (c.creditBalance || 0))), 0);
 
     return {
       netRevenue: grossRevenue,
