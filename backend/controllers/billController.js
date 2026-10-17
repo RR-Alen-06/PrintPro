@@ -261,10 +261,11 @@ async function createBill(req, res, next) {
     let amountPaid = 0;
     let billStatus = 'unpaid';
 
-    // Auto-apply customer credit balance
+    // Auto-apply customer credit balance ONLY if advance_used was requested
     let creditUsed = 0;
-    if (parseFloat(customer.credit_balance || 0) > 0) {
-      creditUsed = Math.min(parseFloat(customer.credit_balance), balance);
+    const requestedAdvanceUsed = parseFloat(req.body.advance_used !== undefined ? req.body.advance_used : (req.body.advanceUsed || 0)) || 0;
+    if (requestedAdvanceUsed > 0 && parseFloat(customer.credit_balance || 0) > 0) {
+      creditUsed = Math.min(parseFloat(customer.credit_balance), requestedAdvanceUsed, balance);
       amountPaid = parseFloat(creditUsed.toFixed(2));
       balance = parseFloat((balance - creditUsed).toFixed(2));
 
@@ -298,12 +299,12 @@ async function createBill(req, res, next) {
       );
     }
 
-    // If credit was used, create a payment record for it
+    // If credit was used, create a payment record for it with cash_amount = 0 and upi_amount = 0 (no new cash received)
     if (creditUsed > 0) {
       await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, billId, resolvedCustomerId, creditUsed, 0, creditUsed, balance <= 0 ? 'full' : 'partial', 'Auto-applied from credit balance']
+         VALUES (?, ?, ?, 0, 0, ?, ?, ?)`,
+        [req.user.id, billId, resolvedCustomerId, creditUsed, balance <= 0 ? 'full' : 'partial', 'Auto-applied from credit balance (from advance deposit)']
       );
     }
 

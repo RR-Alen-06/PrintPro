@@ -4,9 +4,9 @@ export const getPromoCodes = () => api.get('/promo-codes')
 
 export const createPromoCode = (data) => api.post('/promo-codes', data)
 
-export const updatePromoCode = (id, data) => api.put(`/promo-codes/${id}`, data)
+export const updatePromoCode = (id, data) => api.put(`/promo-codes/${encodeURIComponent(id)}`, data)
 
-export const deletePromoCode = (id) => api.delete(`/promo-codes/${id}`)
+export const deletePromoCode = (id) => api.delete(`/promo-codes/${encodeURIComponent(id)}`)
 
 export const bulkGeneratePromoCodes = (data) => api.post('/promo-codes/bulk-generate', data)
 
