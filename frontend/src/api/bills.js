@@ -9,16 +9,16 @@ export const getBills = (filters = {}) => {
   return api.get('/bills', { params })
 }
 
-export const getBill = (id) => api.get(`/bills/${id}`)
+export const getBill = (id) => api.get(`/bills/${encodeURIComponent(id)}`)
 
 export const createBill = (data) => api.post('/bills', data)
 
-export const updateBill = (id, data) => api.put(`/bills/${id}`, data)
+export const updateBill = (id, data) => api.put(`/bills/${encodeURIComponent(id)}`, data)
 
-export const deleteBill = (id) => api.delete(`/bills/${id}`)
+export const deleteBill = (id) => api.delete(`/bills/${encodeURIComponent(id)}`)
 
-export const restoreBill = (id) => api.post(`/bills/${id}/restore`)
+export const restoreBill = (id) => api.post(`/bills/${encodeURIComponent(id)}/restore`)
 
 export const getDeletedBills = () => api.get('/bills/deleted/all')
 
-export const applyDiscount = (id, discountData) => api.post(`/bills/${id}/discount`, discountData)
+export const applyDiscount = (id, discountData) => api.post(`/bills/${encodeURIComponent(id)}/discount`, discountData)
