@@ -258,15 +258,21 @@ export const LedgerService = {
         creditAmt = Math.max(0, creditAmt);
       }
 
+      let billLabel = 'General';
+      if (payment.billId) {
+        const matchedBill = bills.find(b => b.id === payment.billId || b.billNumber === payment.billId || b.bill_number === payment.billId || b.invoice_number === payment.billId);
+        billLabel = matchedBill ? getDisplayBillId(matchedBill) : getDisplayBillId(payment.billId);
+      }
+
       entries.push({
         type: isRefund ? 'refund' : (payment.isGroupPayment ? 'group_payment' : 'payment'),
         date: payment.date,
         id: payment.id,
         description: isRefund 
-          ? `Refund — Bill #${payment.billId}` 
+          ? `Refund — Bill #${billLabel}` 
           : (payment.isGroupPayment 
               ? `Full Group Payment — ${payment.groupBillId}` 
-              : `Payment — ${payment.billId || 'General'}`),
+              : `Payment — ${billLabel}`),
         subtext: payment.isGroupPayment 
           ? `Paid ₹${payment.totalPaid.toFixed(2)} for Split Group ${payment.groupBillId}`
           : `Cash ₹${Number(payment.cashAmount || 0).toFixed(2)} · UPI ₹${Number(payment.upiAmount || 0).toFixed(2)}`,
@@ -354,7 +360,7 @@ export const DashboardService = {
     const pendingAmount = activeBills.reduce((sum, b) => sum + Number(b.balance || 0), 0);
     const grossRevenue = activeBills.reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
     const totalRefunds = payments.filter((p) => p.totalPaid < 0 || p.isRefund).reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0);
-    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Number(c.advanceBalance || c.creditBalance || 0), 0);
+    const totalCustomerAdvance = customers.filter((c) => !c.deleted).reduce((sum, c) => sum + Math.max(0, Number(c.advanceBalance !== undefined && c.advanceBalance !== null ? c.advanceBalance : (c.creditBalance || 0))), 0);
 
     return {
       netRevenue: grossRevenue,

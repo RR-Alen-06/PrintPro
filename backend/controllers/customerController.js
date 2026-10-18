@@ -309,14 +309,14 @@ async function getCustomerStatement(req, res, next) {
 
     // Get all bills
     const [bills] = await pool.query(
-      `SELECT id, date, total, amount_paid, balance, status, 'bill' AS entry_type
+      `SELECT id, bill_number, invoice_number, date, total, amount_paid, balance, status, 'bill' AS entry_type
        FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL`,
       [customerId, req.user.id]
     );
 
     // Get all payments
     const [payments] = await pool.query(
-      `SELECT id, date, total_paid, cash_amount, upi_amount, bill_id, payment_type, 'payment' AS entry_type
+      `SELECT id, payment_number, date, total_paid, cash_amount, upi_amount, bill_id, payment_type, notes, 'payment' AS entry_type
        FROM payments WHERE customer_id = ? AND user_id = ?`,
       [customerId, req.user.id]
     );

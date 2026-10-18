@@ -7,16 +7,16 @@ export const getCustomers = (type = 'all', search = '') => {
   return api.get('/customers', { params })
 }
 
-export const getCustomer = (id) => api.get(`/customers/${id}`)
+export const getCustomer = (id) => api.get(`/customers/${encodeURIComponent(id)}`)
 
 export const createCustomer = (data) => api.post('/customers', data)
 
-export const updateCustomer = (id, data) => api.put(`/customers/${id}`, data)
+export const updateCustomer = (id, data) => api.put(`/customers/${encodeURIComponent(id)}`, data)
 
-export const deleteCustomer = (id) => api.delete(`/customers/${id}`)
+export const deleteCustomer = (id) => api.delete(`/customers/${encodeURIComponent(id)}`)
 
-export const getCustomerBills = (id) => api.get(`/customers/${id}/bills`)
+export const getCustomerBills = (id) => api.get(`/customers/${encodeURIComponent(id)}/bills`)
 
-export const getCustomerPayments = (id) => api.get(`/customers/${id}/payments`)
+export const getCustomerPayments = (id) => api.get(`/customers/${encodeURIComponent(id)}/payments`)
 
-export const getCustomerStatement = (id) => api.get(`/customers/${id}/statement`)
+export const getCustomerStatement = (id) => api.get(`/customers/${encodeURIComponent(id)}/statement`)

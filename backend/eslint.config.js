@@ -20,6 +20,7 @@ module.exports = [
     },
     rules: {
       "security/detect-object-injection": "off",
+      "security/detect-non-literal-fs-filename": "off",
       "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
       "no-console": "off",
       "no-undef": "error"

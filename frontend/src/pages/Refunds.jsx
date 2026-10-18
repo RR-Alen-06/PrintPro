@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext'
 import { AlertCircle, Banknote, Smartphone, RefreshCw, User, Share2, Copy, Check, Calendar } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 import { getDeletedPayments, getRefundPayments } from '../api/payments'
+import { getDisplayBillId, getDisplayCustomerId, getDisplayPaymentId, getDisplayAdvanceId } from '../utils/idFormatter'
 
 const Refunds = () => {
   const { advancePayments = [], customers = [], showToast, business } = useAppContext()
@@ -83,21 +84,57 @@ const Refunds = () => {
   const refundStats = useMemo(() => {
     // Bill Refunds (negative payments / is_refund from API)
     const billRefundsList = refundPayments || []
-    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.total_paid || 0)), 0)
-    const billRefundsCash = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.cash_amount || 0)), 0)
-    const billRefundsUpi = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.upi_amount || 0)), 0)
+    const billRefundsTotal = billRefundsList.reduce((s, p) => s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0)), 0)
+    const billRefundsCash = billRefundsList.reduce((s, p) => {
+      const c = Math.abs(Number(p.cash_amount || p.cashAmount || 0))
+      if (c > 0) return s + c
+      const m = String(p.payment_method || p.paymentMethod || '').toLowerCase()
+      if (m === 'cash') return s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0))
+      return s
+    }, 0)
+    const billRefundsUpi = billRefundsList.reduce((s, p) => {
+      const u = Math.abs(Number(p.upi_amount || p.upiAmount || 0))
+      if (u > 0) return s + u
+      const m = String(p.payment_method || p.paymentMethod || '').toLowerCase()
+      if (m === 'upi') return s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0))
+      return s
+    }, 0)
 
     // Payment Deletions (from API)
     const delPaymentsList = deletedPayments || []
-    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.total_paid || 0)), 0)
-    const delPaymentsCash = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.cash_amount || 0)), 0)
-    const delPaymentsUpi = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.upi_amount || 0)), 0)
+    const delPaymentsTotal = delPaymentsList.reduce((s, p) => s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0)), 0)
+    const delPaymentsCash = delPaymentsList.reduce((s, p) => {
+      const c = Math.abs(Number(p.cash_amount || p.cashAmount || 0))
+      if (c > 0) return s + c
+      const m = String(p.payment_method || p.paymentMethod || '').toLowerCase()
+      if (m === 'cash') return s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0))
+      return s
+    }, 0)
+    const delPaymentsUpi = delPaymentsList.reduce((s, p) => {
+      const u = Math.abs(Number(p.upi_amount || p.upiAmount || 0))
+      if (u > 0) return s + u
+      const m = String(p.payment_method || p.paymentMethod || '').toLowerCase()
+      if (m === 'upi') return s + Math.abs(Number(p.total_paid || p.totalPaid || p.amount || 0))
+      return s
+    }, 0)
 
     // Advance Returns (negative advance payments or refund/return types)
     const advReturnsList = (advancePayments || []).filter((ap) => Number(ap.amount || 0) < 0 || ap.isReturn || ap.type === 'refund' || ap.type === 'return' || ap.type === 'refunded')
     const advReturnsTotal = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.amount || 0)), 0)
-    const advReturnsCash = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.cashAmount || 0)), 0)
-    const advReturnsUpi = advReturnsList.reduce((s, ap) => s + Math.abs(Number(ap.upiAmount || 0)), 0)
+    const advReturnsCash = advReturnsList.reduce((s, ap) => {
+      const c = Math.abs(Number(ap.cashAmount || ap.cash_amount || 0))
+      if (c > 0) return s + c
+      const m = String(ap.paymentMode || ap.payment_mode || ap.paymentMethod || 'cash').toLowerCase()
+      if (m.includes('cash') || !m.includes('upi')) return s + Math.abs(Number(ap.amount || 0))
+      return s
+    }, 0)
+    const advReturnsUpi = advReturnsList.reduce((s, ap) => {
+      const u = Math.abs(Number(ap.upiAmount || ap.upi_amount || 0))
+      if (u > 0) return s + u
+      const m = String(ap.paymentMode || ap.payment_mode || ap.paymentMethod || '').toLowerCase()
+      if (m.includes('upi')) return s + Math.abs(Number(ap.amount || 0))
+      return s
+    }, 0)
 
     const grandTotal = billRefundsTotal + delPaymentsTotal + advReturnsTotal
     const grandCash = billRefundsCash + delPaymentsCash + advReturnsCash
@@ -131,61 +168,100 @@ const Refunds = () => {
 
     // Add bill refunds
     refundStats.billRefundsList.forEach((r) => {
+      const tot = Math.abs(Number(r.total_paid || r.totalPaid || r.amount || 0))
+      const c = Math.abs(Number(r.cash_amount || r.cashAmount || 0))
+      const u = Math.abs(Number(r.upi_amount || r.upiAmount || 0))
+      const m = String(r.payment_method || r.paymentMethod || '').toLowerCase()
+      const cashVal = c > 0 ? c : (m === 'cash' ? tot : 0)
+      const upiVal = u > 0 ? u : (m === 'upi' ? tot : 0)
+      const billCode = r.bill_id ? getDisplayBillId(r.bill_id) : 'N/A'
+      const custObj = (customers || []).find((c) => String(c.id) === String(r.customer_id))
+      const custCode = getDisplayCustomerId(custObj || r.customer_id)
+
       logs.push({
-        id: String(r.id),
-        billId: r.bill_id || 'N/A',
+        id: getDisplayPaymentId(r),
+        rawId: String(r.id),
+        billId: billCode,
+        rawBillId: r.bill_id,
         date: r.date || r.created_at,
         type: 'Bill Refund',
-        customerId: r.customer_id,
+        customerId: custCode,
+        rawCustomerId: r.customer_id,
         customerName: r.customer_name || getCustomerName(r.customer_id),
-        description: r.bill_id ? `Refund for Bill #${r.bill_id}` : 'Direct Customer Refund',
-        cash: Math.abs(Number(r.cash_amount || 0)),
-        upi: Math.abs(Number(r.upi_amount || 0)),
-        total: Math.abs(Number(r.total_paid || 0)),
+        description: r.bill_id ? `Refund for Bill #${billCode}` : 'Direct Customer Refund',
+        cash: cashVal,
+        upi: upiVal,
+        total: tot,
         notes: r.notes || '',
-        method: Number(r.cash_amount || 0) !== 0 ? 'cash' : (Number(r.upi_amount || 0) !== 0 ? 'upi' : 'mixed'),
+        method: cashVal > 0 && upiVal > 0 ? 'mixed' : (cashVal > 0 ? 'cash' : (upiVal > 0 ? 'upi' : 'mixed')),
       })
     })
 
     // Add deleted payments
     refundStats.delPaymentsList.forEach((r) => {
+      const tot = Math.abs(Number(r.total_paid || r.totalPaid || r.amount || 0))
+      const c = Math.abs(Number(r.cash_amount || r.cashAmount || 0))
+      const u = Math.abs(Number(r.upi_amount || r.upiAmount || 0))
+      const m = String(r.payment_method || r.paymentMethod || '').toLowerCase()
+      const cashVal = c > 0 ? c : (m === 'cash' ? tot : 0)
+      const upiVal = u > 0 ? u : (m === 'upi' ? tot : 0)
+      const billCode = r.bill_id ? getDisplayBillId(r.bill_id) : 'N/A'
+      const custObj = (customers || []).find((c) => String(c.id) === String(r.customer_id))
+      const custCode = getDisplayCustomerId(custObj || r.customer_id)
+
       logs.push({
-        id: String(r.id),
-        billId: r.bill_id || 'N/A',
+        id: getDisplayPaymentId(r),
+        rawId: String(r.id),
+        billId: billCode,
+        rawBillId: r.bill_id,
         date: r.deleted_at || r.date,
         type: 'Payment Deletion',
-        customerId: r.customer_id,
+        customerId: custCode,
+        rawCustomerId: r.customer_id,
         customerName: r.customer_name || getCustomerName(r.customer_id),
-        description: r.bill_id ? `Deleted Payment for Bill #${r.bill_id}` : 'Deleted Payment',
-        cash: Math.abs(Number(r.cash_amount || 0)),
-        upi: Math.abs(Number(r.upi_amount || 0)),
-        total: Math.abs(Number(r.total_paid || 0)),
+        description: r.bill_id ? `Deleted Payment for Bill #${billCode}` : 'Deleted Payment',
+        cash: cashVal,
+        upi: upiVal,
+        total: tot,
         notes: `Deleted on ${r.deleted_at ? new Date(r.deleted_at).toLocaleDateString() : 'N/A'}`,
-        method: Number(r.cash_amount || 0) > 0 ? 'cash' : (Number(r.upi_amount || 0) > 0 ? 'upi' : 'mixed'),
+        method: cashVal > 0 && upiVal > 0 ? 'mixed' : (cashVal > 0 ? 'cash' : (upiVal > 0 ? 'upi' : 'mixed')),
       })
     })
 
     // Add advance returns
     refundStats.advReturnsList.forEach((r) => {
+      const tot = Math.abs(Number(r.amount || 0))
+      const c = Math.abs(Number(r.cashAmount || r.cash_amount || 0))
+      const u = Math.abs(Number(r.upiAmount || r.upi_amount || 0))
+      const m = String(r.payment_mode || r.paymentMode || r.paymentMethod || 'cash').toLowerCase()
+      const cashVal = c > 0 ? c : (m.includes('cash') || !m.includes('upi') ? tot : 0)
+      const upiVal = u > 0 ? u : (m.includes('upi') ? tot : 0)
+      const custId = r.customerId || r.customer_id
+      const custObj = (customers || []).find((c) => String(c.id) === String(custId))
+      const custCode = getDisplayCustomerId(custObj || custId)
+
       logs.push({
-        id: String(r.id),
-        billId: r.billId || 'N/A',
+        id: getDisplayAdvanceId(r),
+        rawId: String(r.id),
+        billId: r.billId ? getDisplayBillId(r.billId) : 'N/A',
+        rawBillId: r.billId,
         date: r.date,
         type: 'Advance Return',
-        customerId: r.customerId,
-        customerName: r.customerName || getCustomerName(r.customerId),
+        customerId: custCode,
+        rawCustomerId: custId,
+        customerName: r.customerName || getCustomerName(custId),
         description: 'Returned Advance to Customer',
-        cash: Math.abs(Number(r.cashAmount || 0)),
-        upi: Math.abs(Number(r.upiAmount || 0)),
-        total: Math.abs(Number(r.amount || 0)),
+        cash: cashVal,
+        upi: upiVal,
+        total: tot,
         notes: r.notes || '',
-        method: Number(r.cashAmount || 0) !== 0 ? 'cash' : (Number(r.upiAmount || 0) !== 0 ? 'upi' : 'mixed'),
+        method: cashVal > 0 && upiVal > 0 ? 'mixed' : (cashVal > 0 ? 'cash' : (upiVal > 0 ? 'upi' : 'mixed')),
       })
     })
 
     // Sort by date descending
     return logs.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [refundStats, getCustomerName])
+  }, [refundStats, getCustomerName, customers])
 
   // Filter and search refund logs
   const filteredLogs = useMemo(() => {

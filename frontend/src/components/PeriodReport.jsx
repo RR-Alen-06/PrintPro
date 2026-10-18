@@ -74,11 +74,24 @@ const PeriodReport = () => {
     const cashRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.cashAmount || 0)), 0)
     const upiRefunded = refundPayments.reduce((s, p) => s + Math.abs(Number(p.upiAmount || 0)), 0)
 
-    // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit)
-    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit)
+    // Advance collected - EXCLUDE refund-credit advance deposits (isRefundCredit) and EXCLUDE advance returns
+    const isAdvReturn = (ap) => ap.isReturn || ap.type === 'return' || ap.type === 'refund' || ap.type === 'refunded' || Number(ap.amount || 0) < 0
+    const periodAdvancesFiltered = periodAdvances.filter(ap => !ap.isRefundCredit && !isAdvReturn(ap) && Number(ap.amount || 0) > 0)
     const advanceCollected = periodAdvancesFiltered.reduce((s, ap) => s + Number(ap.amount || 0), 0)
-    const cashAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.cashAmount || 0), 0)
-    const upiAdvance = periodAdvancesFiltered.filter(ap => ap.amount > 0).reduce((s, ap) => s + Number(ap.upiAmount || 0), 0)
+    const cashAdvance = periodAdvancesFiltered.reduce((s, ap) => {
+      const c = Number(ap.cashAmount || 0)
+      if (c > 0) return s + c
+      const m = String(ap.paymentMode || ap.payment_mode || '').toLowerCase()
+      if (m.includes('cash') || !m.includes('upi')) return s + Number(ap.amount || 0)
+      return s
+    }, 0)
+    const upiAdvance = periodAdvancesFiltered.reduce((s, ap) => {
+      const u = Number(ap.upiAmount || 0)
+      if (u > 0) return s + u
+      const m = String(ap.paymentMode || ap.payment_mode || '').toLowerCase()
+      if (m.includes('upi')) return s + Number(ap.amount || 0)
+      return s
+    }, 0)
 
     const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
     const cashExpenses = periodExpenses.reduce((s, e) => s + Number(e.cashAmount || 0), 0)

@@ -10,8 +10,8 @@ export const getPurchases = (filters = {}) => {
 
 export const createPurchase = (data) => api.post('/purchases', data)
 
-export const updatePurchase = (id, data) => api.put(`/purchases/${id}`, data)
+export const updatePurchase = (id, data) => api.put(`/purchases/${encodeURIComponent(id)}`, data)
 
-export const deletePurchase = (id) => api.delete(`/purchases/${id}`)
+export const deletePurchase = (id) => api.delete(`/purchases/${encodeURIComponent(id)}`)
 
 export const getPurchaseSummary = () => api.get('/purchases/summary')

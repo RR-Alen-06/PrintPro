@@ -11,7 +11,7 @@ export async function getCustomerLedgerStatement(customerId, params = {}) {
   if (params.endDate) query.append('endDate', params.endDate);
   
   const queryString = query.toString() ? `?${query.toString()}` : '';
-  const response = await api.get(`/ledger/${customerId}${queryString}`);
+  const response = await api.get(`/ledger/${encodeURIComponent(customerId)}${queryString}`);
   return response.data;
 }
 
@@ -21,6 +21,6 @@ export async function getCustomerLedgerStatement(customerId, params = {}) {
  * @param {Object} data - { startDate, endDate }
  */
 export async function exportCustomerLedgerPdf(customerId, data = {}) {
-  const response = await api.post(`/ledger/${customerId}/pdf`, data);
+  const response = await api.post(`/ledger/${encodeURIComponent(customerId)}/pdf`, data);
   return response.data;
 }

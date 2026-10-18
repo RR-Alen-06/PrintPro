@@ -4,6 +4,7 @@ import { Printer, Download, X, Search as SearchIcon, Share2, MessageCircle } fro
 import { useAppContext } from '../context/AppContext'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
+import { getDisplayBillId } from '../utils/idFormatter'
 
 const Receipt = () => {
   const { bills, customers, business, settings, showAlert, showToast } = useAppContext()
@@ -17,7 +18,7 @@ const Receipt = () => {
       pn: business.shopName || 'PrintPro',
       am: amount.toFixed(2),
       cu: 'INR',
-      tn: `Receipt ${selectedBill?.id || ''}`,
+      tn: `Receipt ${selectedBill ? getDisplayBillId(selectedBill) : ''}`,
     })
     return `upi://pay?${params.toString()}`
   }
@@ -40,7 +41,7 @@ const Receipt = () => {
     const text = buildShareText(selectedBill)
     if (navigator.share) {
       try {
-        await navigator.share({ title: `Receipt ${selectedBill.id}`, text })
+        await navigator.share({ title: `Receipt ${getDisplayBillId(selectedBill)}`, text })
       } catch {
         /* user cancelled */
       }
@@ -52,10 +53,17 @@ const Receipt = () => {
 
   const filteredBills = bills
     .filter((b) => !b.deleted)
-    .filter((b) =>
-      b.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.customerName.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    .filter((b) => {
+      const q = searchQuery.toLowerCase()
+      const dispId = getDisplayBillId(b).toLowerCase()
+      return (
+        dispId.includes(q) ||
+        (b.billNumber && b.billNumber.toLowerCase().includes(q)) ||
+        (b.bill_number && b.bill_number.toLowerCase().includes(q)) ||
+        b.id.toLowerCase().includes(q) ||
+        (b.customerName && b.customerName.toLowerCase().includes(q))
+      )
+    })
 
   const getQrCodeBase64 = (upiLink) => {
     return new Promise((resolve) => {
@@ -200,7 +208,7 @@ const Receipt = () => {
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(50, 50, 50)
-    txt(`Bill ID: ${bill.id}`, MARGIN, y)
+    txt(`Bill ID: ${getDisplayBillId(bill)}`, MARGIN, y)
     txt(`Date: ${bill.date}`, W - MARGIN, y, { align: 'right' })
     y += 5
     txt(`Customer: ${bill.customerName}`, MARGIN, y)
@@ -376,7 +384,7 @@ const Receipt = () => {
     if (!bill) return
     const doc = await createPDFDoc(bill)
     if (doc) {
-      doc.save(`Receipt-${bill.id}.pdf`)
+      doc.save(`Receipt-${getDisplayBillId(bill)}.pdf`)
     }
   }
 
@@ -387,13 +395,13 @@ const Receipt = () => {
     
     try {
       const pdfBlob = doc.output('blob')
-      const file = new File([pdfBlob], `Receipt-${selectedBill.id}.pdf`, { type: 'application/pdf' })
+      const file = new File([pdfBlob], `Receipt-${getDisplayBillId(selectedBill)}.pdf`, { type: 'application/pdf' })
       
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: `Receipt ${selectedBill.id}`,
-          text: `Here is the PDF receipt for Bill ${selectedBill.id} from ${business?.shopName || 'PrintPro'}.`,
+          title: `Receipt ${getDisplayBillId(selectedBill)}`,
+          text: `Here is the PDF receipt for Bill ${getDisplayBillId(selectedBill)} from ${business?.shopName || 'PrintPro'}.`,
         })
       } else {
         showToast('Uploading PDF receipt to share...', 'info')
@@ -413,7 +421,7 @@ const Receipt = () => {
     } catch (err) {
       console.error('Failed to share PDF:', err)
       // Fallback
-      doc.save(`Receipt-${selectedBill.id}.pdf`)
+      doc.save(`Receipt-${getDisplayBillId(selectedBill)}.pdf`)
       showAlert('Could not upload PDF receipt for direct sharing. The PDF has been downloaded instead.', 'warning')
     }
   }
@@ -462,7 +470,7 @@ const Receipt = () => {
                   style={{ textAlign: 'left', justifyContent: 'flex-start', padding: '10px 14px' }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700 }}>{bill.id}</div>
+                    <div style={{ fontWeight: 700 }}>{getDisplayBillId(bill)}</div>
                     <div style={{ fontSize: '12px', opacity: 0.75 }}>
                       {bill.customerName} · ₹{bill.total.toFixed(2)} ·{' '}
                       <span style={{ textTransform: 'capitalize' }}>{bill.status}</span>
@@ -583,7 +591,7 @@ const Receipt = () => {
 
             {/* Bill meta */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
-              <span><strong>Bill ID:</strong> {selectedBill.id}</span>
+              <span><strong>Bill ID:</strong> {getDisplayBillId(selectedBill)}</span>
               <span><strong>Date:</strong> {selectedBill.date}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>

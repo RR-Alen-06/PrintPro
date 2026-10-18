@@ -40,7 +40,7 @@ import { jsPDF } from 'jspdf'
 import { getCustomerLoyalty, adjustCustomerLoyalty } from '../api/loyalty'
 import { exportCustomerLedgerPdf } from '../api/ledger'
 import { LedgerService } from '../utils/financialServices'
-import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
+import { getDisplayBillId, getDisplayCustomerId, getDisplayPaymentId } from '../utils/idFormatter'
 
 const EMPTY_CUSTOMER_FORM = {
   type: 'regular',
@@ -217,6 +217,68 @@ export const formatStatementTime = (bill) => {
   } catch {
     return ''
   }
+}
+
+export const getBillItems = (bill) => {
+  if (!bill || !bill.items) return []
+  if (Array.isArray(bill.items)) return bill.items
+  if (typeof bill.items === 'string') {
+    try {
+      const parsed = JSON.parse(bill.items)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+export const resolvePaymentRef = (p, idx = 0) => {
+  if (!p) return `PAY-${idx + 1}`
+  if (p.reference) return String(p.reference)
+  if (p.transactionRef) return String(p.transactionRef)
+  if (p.paymentNumber) return String(p.paymentNumber)
+  if (p.payment_number) return String(p.payment_number)
+  return getDisplayPaymentId(p)
+}
+
+export const resolvePaymentAmount = (p) => {
+  if (!p) return 0
+  if (p.amount !== undefined && p.amount !== null && !isNaN(Number(p.amount))) {
+    return Number(p.amount)
+  }
+  if (p.totalPaid !== undefined && p.totalPaid !== null && !isNaN(Number(p.totalPaid))) {
+    return Number(p.totalPaid)
+  }
+  const cash = Number(p.cashAmount || p.cash_amount || 0)
+  const upi = Number(p.upiAmount || p.upi_amount || 0)
+  return cash + upi
+}
+
+export const resolvePaymentMode = (p) => {
+  if (!p) return 'Payment'
+  if (p.paymentMethod) return p.paymentMethod
+  if (p.payment_mode) return p.payment_mode
+  if (p.paymentMode) return p.paymentMode
+  const cash = Number(p.cashAmount || p.cash_amount || 0)
+  const upi = Number(p.upiAmount || p.upi_amount || 0)
+  if (cash > 0 && upi > 0) return 'Cash + UPI'
+  if (upi > 0) return 'UPI'
+  if (cash > 0) return 'Cash'
+  return 'Payment'
+}
+
+export const resolvePaymentNotes = (p, allBills = []) => {
+  if (!p) return 'Account Settlement'
+  if (p.notes && typeof p.notes === 'string' && p.notes.trim()) {
+    return p.notes.trim()
+  }
+  if (p.billId) {
+    const linkedBill = Array.isArray(allBills) ? allBills.find(b => String(b.id) === String(p.billId)) : null
+    const billCode = linkedBill ? getDisplayBillId(linkedBill) : getDisplayBillId(p.billId)
+    return `Bill #${billCode}`
+  }
+  return 'Account Settlement'
 }
 
 function generateConsolidatedStatementPdf(customer, bills, payments, summary) {
@@ -425,14 +487,14 @@ function generateConsolidatedStatementPdf(customer, bills, payments, summary) {
         doc.setFontSize(7)
         doc.setTextColor(51, 65, 85)
 
-        ;(bill.items || []).forEach((it, itIdx) => {
+        ;(getBillItems(bill)).forEach((it, itIdx) => {
           if (y > 270) { doc.addPage(); y = 18 }
           const desc = formatProductVariant(it)
           const qty = it.qty || 1
           const rate = Number(it.unitPrice || 0)
           const amt = Number(it.amount || (qty * rate))
           doc.text(String(itIdx + 1), 20, y + 3)
-          doc.text(desc.slice(0, 48), 28, y + 3)
+          doc.text(String(desc).slice(0, 48), 28, y + 3)
           doc.text(String(qty), 120, y + 3, { align: 'right' })
           doc.text(`Rs. ${rate.toFixed(2)}`, 155, y + 3, { align: 'right' })
           doc.text(`Rs. ${amt.toFixed(2)}`, 192, y + 3, { align: 'right' })
@@ -477,10 +539,10 @@ function generateConsolidatedStatementPdf(customer, bills, payments, summary) {
     payments.forEach((p, idx) => {
       if (y > 270) { doc.addPage(); y = 18 }
       const pDate = formatStatementDate(p.date || p.createdAt)
-      const pRef = p.reference || p.transactionRef || p.id?.slice(0, 8) || `PAY-${idx + 1}`
-      const pMode = p.paymentMethod || 'Payment'
-      const pNotes = (p.notes || (p.billId ? `Bill #${p.billId?.slice(0, 8)}` : 'Account Settlement')).slice(0, 40)
-      const pAmt = Number(p.amount || 0).toFixed(2)
+      const pRef = resolvePaymentRef(p, idx)
+      const pMode = resolvePaymentMode(p)
+      const pNotes = String(resolvePaymentNotes(p, bills)).slice(0, 40)
+      const pAmt = resolvePaymentAmount(p).toFixed(2)
 
       doc.text(String(idx + 1), 16, y + 4)
       doc.text(pDate, 24, y + 4)
@@ -1214,7 +1276,7 @@ const Customers = () => {
     if (pendingBills.length > 0) {
       msg += `*PENDING INVOICES (${pendingBills.length}):*\n`
       pendingBills.forEach((b, idx) => {
-        const billCode = b.bill_code || b.billCode || b.id
+        const billCode = getDisplayBillId(b)
         const bDate = b.date ? String(b.date).slice(0, 10) : ''
         msg += `${idx + 1}. *${billCode}* (${bDate})\n`
         msg += `   Total: ₹${Number(b.total || 0).toFixed(2)} | Due: *₹${Number(b.balance || 0).toFixed(2)}*\n`
@@ -1316,7 +1378,7 @@ const Customers = () => {
   const productVariantSummary = useMemo(() => {
     const map = {}
     statementBills.forEach(b => {
-      (b.items || []).forEach(it => {
+      getBillItems(b).forEach(it => {
         const variantName = formatProductVariant(it)
         if (!map[variantName]) {
           map[variantName] = {
@@ -1348,7 +1410,7 @@ const Customers = () => {
 
   const statementTotalPaid = useMemo(() => {
     const paidOnBills = statementBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
-    const separatePayments = statementPayments.reduce((s, p) => s + Number(p.amount || 0), 0)
+    const separatePayments = statementPayments.reduce((s, p) => s + resolvePaymentAmount(p), 0)
     return Math.max(paidOnBills, separatePayments)
   }, [statementBills, statementPayments])
 
@@ -1435,8 +1497,8 @@ const Customers = () => {
           const bCode = getDisplayBillId(b)
           const bSettled = Number(b.balance || 0) <= 0.01
           msg += `  • *${bCode}*: ₹${Number(b.total || 0).toFixed(2)} (${bSettled ? 'Settled' : `Due: ₹${Number(b.balance || 0).toFixed(2)}`})\n`
-          ;(b.items || []).forEach(it => {
-            msg += `    - ${formatProductVariant(it)} x${it.qty} = ₹${Number(it.amount || 0).toFixed(2)}\n`
+          getBillItems(b).forEach(it => {
+            msg += `    - ${formatProductVariant(it)} x${it.qty || 1} = ₹${Number(it.amount || ((it.qty || 1) * Number(it.unitPrice || 0))).toFixed(2)}\n`
           })
         })
       })
@@ -1446,7 +1508,7 @@ const Customers = () => {
     if (statementPayments.length > 0) {
       msg += `*💳 PAYMENTS COLLECTED:*\n`
       statementPayments.slice(0, 10).forEach((p, idx) => {
-        msg += `${idx + 1}. ${formatStatementDate(p.date || p.createdAt)}: ₹${Number(p.amount || 0).toFixed(2)} (${p.paymentMethod || 'Payment'})\n`
+        msg += `${idx + 1}. ${formatStatementDate(p.date || p.createdAt)}: ₹${resolvePaymentAmount(p).toFixed(2)} (${resolvePaymentMode(p)})\n`
       })
       msg += `\n`
     }
@@ -2417,7 +2479,7 @@ const Customers = () => {
                             const isCredit = (e.credit || 0) > 0 || (e.advanceIn || 0) > 0
                             return (
                               <tr key={idx}>
-                                <td>{e.date ? e.date.slice(0, 10) : '-'}</td>
+                                <td>{e.date ? String(e.date).slice(0, 10) : '-'}</td>
                                 <td>
                                   <span className={`badge ${
                                     e.type === 'bill' ? 'badge-info' :
@@ -2915,7 +2977,7 @@ const Customers = () => {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {(bill.items || []).map((it, itIdx) => {
+                                      {getBillItems(bill).map((it, itIdx) => {
                                         const desc = formatProductVariant(it)
                                         const qty = Number(it.qty || 1)
                                         const rate = Number(it.unitPrice || 0)
@@ -2999,10 +3061,10 @@ const Customers = () => {
                             statementPayments.map((p, idx) => {
                               const pDate = formatStatementDate(p.date || p.createdAt)
                               const pTime = formatStatementTime(p)
-                              const pRef = p.reference || p.transactionRef || p.id?.slice(0, 8) || `PAY-${idx + 1}`
-                              const pMode = p.paymentMethod || 'Payment'
-                              const pNotes = p.notes || (p.billId ? `Bill #${p.billId?.slice(0, 8)}` : 'Account Settlement')
-                              const pAmt = Number(p.amount || 0)
+                              const pRef = resolvePaymentRef(p, idx)
+                              const pMode = resolvePaymentMode(p)
+                              const pNotes = resolvePaymentNotes(p, bills)
+                              const pAmt = resolvePaymentAmount(p)
 
                               return (
                                 <tr key={p.id || idx}>
