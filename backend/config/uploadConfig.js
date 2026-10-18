@@ -1,4 +1,3 @@
-/* eslint-disable security/detect-non-literal-fs-filename -- Path is strictly validated and sandboxed within UPLOAD_ROOT */
 const path = require('path');
 const os = require('os');
 const fs = require('fs');

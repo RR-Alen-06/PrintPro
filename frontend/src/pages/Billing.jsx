@@ -548,19 +548,19 @@ const Billing = () => {
         </head>
         <body>
           <div class="header">
-            \${settings.logoUrl ? \`<img class="logo-img" src="\${settings.logoUrl}" alt="logo" />\` : ''}
-            <p class="shop-name">\${business?.shopName || 'PrintPro'}</p>
-            <p style="margin: 3px 0;">\${business?.address || ''}</p>
-            <p style="margin: 3px 0;">Ph: \${business?.phone || ''}</p>
-            \${business?.gstin ? \`<p style="margin: 3px 0;">GSTIN: \${business.gstin}</p>\` : ''}
-            \${settings.headerNotes ? \`<p class="custom-note">\${settings.headerNotes}</p>\` : ''}
+            ${settings.logoUrl ? `<img class="logo-img" src="${settings.logoUrl}" alt="logo" />` : ''}
+            <p class="shop-name">${business?.shopName || 'PrintPro'}</p>
+            <p style="margin: 3px 0;">${business?.address || ''}</p>
+            <p style="margin: 3px 0;">Ph: ${business?.phone || ''}</p>
+            ${business?.gstin ? `<p style="margin: 3px 0;">GSTIN: ${business.gstin}</p>` : ''}
+            ${settings.headerNotes ? `<p class="custom-note">${settings.headerNotes}</p>` : ''}
           </div>
           <div class="divider"></div>
           <table class="details-table">
             <tr><td>Bill ID:</td><td class="right">${getDisplayBillId(bill)}</td></tr>
-            <tr><td>Date:</td><td class="right">\${bill.date}</td></tr>
-            <tr><td>Customer:</td><td class="right">\${bill.customerName}</td></tr>
-            <tr><td>Status:</td><td class="right" style="text-transform: uppercase;">\${bill.status}</td></tr>
+            <tr><td>Date:</td><td class="right">${bill.date}</td></tr>
+            <tr><td>Customer:</td><td class="right">${bill.customerName}</td></tr>
+            <tr><td>Status:</td><td class="right" style="text-transform: uppercase;">${bill.status}</td></tr>
           </table>
           <div class="divider"></div>
           <table class="items-table">
@@ -572,42 +572,42 @@ const Billing = () => {
               </tr>
             </thead>
             <tbody>
-              \${bill.items.map(item => \`
+              ${bill.items.map(item => `
                 <tr>
-                  <td>\${item.itemName || item.name}</td>
-                  <td class="right">\${item.qty}</td>
-                  <td class="right">₹\${Number(item.amount).toFixed(2)}</td>
+                  <td>${item.itemName || item.name}</td>
+                  <td class="right">${item.qty}</td>
+                  <td class="right">₹${Number(item.amount).toFixed(2)}</td>
                 </tr>
-              \`).join('')}
+              `).join('')}
             </tbody>
           </table>
           <div class="divider"></div>
           <div class="totals">
-            <div class="totals-row"><span>Subtotal:</span><span>₹\${bill.subtotal.toFixed(2)}</span></div>
-            \${settings.showGstBreakdown !== false && bill.gstAmount > 0 ? \`
-              <div class="totals-row"><span>CGST:</span><span>₹\${(bill.gstAmount / 2).toFixed(2)}</span></div>
-              <div class="totals-row"><span>SGST:</span><span>₹\${(bill.gstAmount / 2).toFixed(2)}</span></div>
-            \` : ''}
-            \${bill.promoCode ? \`
-               <div class="totals-row"><span>Promo Code (\${bill.promoCode}):</span><span>-₹\${(bill.promoDiscount || bill.discountAmount || 0).toFixed(2)}</span></div>
-             \` : (bill.discountAmount > 0 ? \`<div class="totals-row"><span>Discount:</span><span>-₹\${bill.discountAmount.toFixed(2)}</span></div>\` : '')}
-             \${Number(bill.loyaltyPointsRedeemed) > 0 ? \`
-               <div class="totals-row"><span>Loyalty Discount (\${bill.loyaltyPointsRedeemed} pts):</span><span>-₹\${(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))).toFixed(2)}</span></div>
-             \` : ''}
-            <div class="totals-row" style="font-weight: bold; color: ${settings.primaryColor || '#000'};"><span>Total:</span><span>₹\${bill.total.toFixed(2)}</span></div>
-            <div class="totals-row"><span>Paid:</span><span>₹\${bill.amountPaid.toFixed(2)}</span></div>
-            \${bill.balance > 0 ? \`
-              <div class="totals-row" style="color: red; font-weight: bold;"><span>Balance Due:</span><span>₹\${bill.balance.toFixed(2)}</span></div>
-            \` : ''}
+            <div class="totals-row"><span>Subtotal:</span><span>₹${bill.subtotal.toFixed(2)}</span></div>
+            ${settings.showGstBreakdown !== false && bill.gstAmount > 0 ? `
+              <div class="totals-row"><span>CGST:</span><span>₹${(bill.gstAmount / 2).toFixed(2)}</span></div>
+              <div class="totals-row"><span>SGST:</span><span>₹${(bill.gstAmount / 2).toFixed(2)}</span></div>
+            ` : ''}
+            ${bill.promoCode ? `
+               <div class="totals-row"><span>Promo Code (${bill.promoCode}):</span><span>-₹${(bill.promoDiscount || bill.discountAmount || 0).toFixed(2)}</span></div>
+             ` : (bill.discountAmount > 0 ? `<div class="totals-row"><span>Discount:</span><span>-₹${bill.discountAmount.toFixed(2)}</span></div>` : '')}
+             ${Number(bill.loyaltyPointsRedeemed) > 0 ? `
+               <div class="totals-row"><span>Loyalty Discount (${bill.loyaltyPointsRedeemed} pts):</span><span>-₹${(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))).toFixed(2)}</span></div>
+             ` : ''}
+            <div class="totals-row" style="font-weight: bold; color: ${settings.primaryColor || '#000'};"><span>Total:</span><span>₹${bill.total.toFixed(2)}</span></div>
+            <div class="totals-row"><span>Paid:</span><span>₹${bill.amountPaid.toFixed(2)}</span></div>
+            ${bill.balance > 0 ? `
+              <div class="totals-row" style="color: red; font-weight: bold;"><span>Balance Due:</span><span>₹${bill.balance.toFixed(2)}</span></div>
+            ` : ''}
           </div>
           
-          \${settings.loyaltyEnabled !== false ? \`
+          ${settings.loyaltyEnabled !== false ? `
             <div class="divider"></div>
             <div style="font-size: 10px; font-weight: bold;">
-              <div class="totals-row"><span>Points Added:</span><span>+\${bill.loyaltyPointsEarned || 0}</span></div>
-              <div class="totals-row"><span>Total Balance:</span><span>\${bill.customerTotalLoyaltyPoints || 0} pts</span></div>
+              <div class="totals-row"><span>Points Added:</span><span>+${bill.loyaltyPointsEarned || 0}</span></div>
+              <div class="totals-row"><span>Total Balance:</span><span>${bill.customerTotalLoyaltyPoints || 0} pts</span></div>
             </div>
-          \` : ''}
+          ` : ''}
 
           ${bill.balance > 0 && qrCodeUrl ? `
             <div class="qr-container">

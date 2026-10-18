@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
@@ -23,8 +23,9 @@ import {
   getDeadLetterQueue,
   removeDeadLetterItem,
   saveIdMapping,
+  getIdMappings,
 } from '../lib/indexedDbStore'
-import { processUserOfflineQueue } from '../lib/offlineSyncEngine'
+import { processUserOfflineQueue, rewritePayloadReferences } from '../lib/offlineSyncEngine'
 
 const AppContext = createContext(null)
 
@@ -778,6 +779,21 @@ export const AppProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false)
   const [dlqItems, setDlqItems] = useState([])
 
+  // Sequential queue for online cloud writes to prevent race conditions and preserve entity order
+  const onlineSyncQueueRef = useRef(Promise.resolve())
+  const onlineIdMappingsRef = useRef(new Map())
+
+  useEffect(() => {
+    const userId = state.currentUser?.id
+    if (userId) {
+      getIdMappings(userId)
+        .then(mappings => {
+          if (mappings) onlineIdMappingsRef.current = mappings
+        })
+        .catch(err => console.warn('Failed to preload ID mappings:', err))
+    }
+  }, [state.currentUser?.id])
+
   const showToast = (message, type = 'info') => {
     setToast({ message, type })
     setTimeout(() => {
@@ -870,7 +886,8 @@ export const AppProvider = ({ children }) => {
       'MARK_NOTIFICATION_READ',
       'MARK_ALL_NOTIFICATIONS_READ',
       'DELETE_NOTIFICATION',
-      'CLEAR_ALL_NOTIFICATIONS'
+      'CLEAR_ALL_NOTIFICATIONS',
+      'REMOVE_PAYMENTS_FOR_BILL',
     ]
     if (localOnlyActions.includes(action.type)) {
       return
@@ -888,9 +905,13 @@ export const AppProvider = ({ children }) => {
       return
     }
 
-    // Online: attempt cloud write. If failed or network dropped, queue for offline retry
-    syncEntityToCloud(action.type, action.payload)
-      .then(async (response) => {
+    // Online: execute sequentially to guarantee causality (e.g. ADD_BILL finishes and registers ID mappings before ADD_PAYMENT executes)
+    onlineSyncQueueRef.current = onlineSyncQueueRef.current.then(async () => {
+      // 1. Rewrite any temporary ID references in payload
+      const rewrittenPayload = rewritePayloadReferences(action.payload, onlineIdMappingsRef.current)
+
+      try {
+        const response = await syncEntityToCloud(action.type, rewrittenPayload)
         const serverData = response?.data?.data || response?.data
         if (serverData && (serverData.id || serverData.bill_number || serverData.customer_code)) {
           const originalTempId = action.payload?.id
@@ -898,23 +919,27 @@ export const AppProvider = ({ children }) => {
           const serverCode = serverData.bill_number || serverData.customer_code || serverData.payment_number || ''
           if (originalTempId && originalTempId !== serverId) {
             await saveIdMapping(userId, originalTempId, serverId, serverCode)
+            onlineIdMappingsRef.current.set(originalTempId, { serverId, serverCode })
             rawDispatch({
               type: 'RECONCILE_SERVER_IDS',
               payload: [{ tempId: originalTempId, serverId, serverCode, actionType: action.type }]
             })
           }
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         console.warn(`Cloud write failed for ${action.type}, queuing in IndexedDB for retry:`, err.message)
-        enqueueOfflineAction(userId, {
-          actionType: action.type,
-          payload: action.payload
-        }).then(() => {
-          refreshQueues(userId)
+        try {
+          await enqueueOfflineAction(userId, {
+            actionType: action.type,
+            payload: action.payload
+          })
+          await refreshQueues(userId)
           processOfflineQueue()
-        }).catch(e => console.error('Failed to enqueue offline action:', e))
-      })
+        } catch (e) {
+          console.error('Failed to enqueue offline action:', e)
+        }
+      }
+    })
   }
 
   useEffect(() => {
@@ -1068,7 +1093,8 @@ export const AppProvider = ({ children }) => {
           phone: c.phone || '',
           email: c.email || '',
           address: c.address || '',
-          creditBalance: Number(c.credit_balance || 0),
+          advanceBalance: Number(c.advance_balance !== undefined && c.advance_balance !== null ? c.advance_balance : (c.credit_balance || 0)),
+          creditBalance: Number(c.credit_balance !== undefined && c.credit_balance !== null ? c.credit_balance : (c.advance_balance || 0)),
           creditLimit: Number(c.credit_limit || 0),
           loyaltyPoints: Number(c.loyalty_points || 0),
           createdAt: c.created_at || new Date().toISOString()
@@ -1076,6 +1102,10 @@ export const AppProvider = ({ children }) => {
 
         const mappedBills = fetchedBills.map(b => ({
           id: b.id,
+          billNumber: b.bill_number || b.invoice_number || b.billNumber || '',
+          bill_number: b.bill_number || b.invoice_number || '',
+          invoiceNumber: b.invoice_number || b.bill_number || '',
+          invoice_number: b.invoice_number || b.bill_number || '',
           customerId: b.customer_id,
           customerName: b.customer_name || '',
           date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
@@ -1105,10 +1135,18 @@ export const AppProvider = ({ children }) => {
           id: p.id,
           billId: p.bill_id,
           customerId: p.customer_id,
+          paymentNumber: p.payment_number || p.payment_code || '',
+          payment_number: p.payment_number || p.payment_code || '',
           date: p.date || new Date().toISOString(),
           cashAmount: Number(p.cash_amount || 0),
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
+          amount: Number(p.total_paid || (Number(p.cash_amount || 0) + Number(p.upi_amount || 0))),
+          paymentMethod: Number(p.cash_amount || 0) > 0 && Number(p.upi_amount || 0) > 0
+            ? 'Cash + UPI'
+            : Number(p.upi_amount || 0) > 0
+              ? 'UPI'
+              : 'Cash',
           paymentType: p.payment_type || 'partial',
           isRefund: !!p.is_refund,
           notes: p.notes || ''
@@ -1123,6 +1161,12 @@ export const AppProvider = ({ children }) => {
           cashAmount: Number(p.cash_amount || 0),
           upiAmount: Number(p.upi_amount || 0),
           totalPaid: Number(p.total_paid || 0),
+          amount: Number(p.total_paid || (Number(p.cash_amount || 0) + Number(p.upi_amount || 0))),
+          paymentMethod: Number(p.cash_amount || 0) > 0 && Number(p.upi_amount || 0) > 0
+            ? 'Cash + UPI'
+            : Number(p.upi_amount || 0) > 0
+              ? 'UPI'
+              : 'Cash',
           paymentType: p.payment_type || 'partial',
           isRefund: !!p.is_refund,
           notes: p.notes || ''
@@ -1201,16 +1245,27 @@ export const AppProvider = ({ children }) => {
           isActive: p.is_active !== false
         }))
 
-        const mappedAdvances = fetchedAdvances.map(a => ({
-          id: String(a.id),
-          customerId: a.customer_id,
-          amount: Number(a.amount || 0),
-          paymentMode: a.payment_mode || 'cash',
-          type: a.type || 'deposit',
-          billId: a.bill_id,
-          notes: a.notes || '',
-          date: a.date || a.created_at || new Date().toISOString()
-        }))
+        const mappedAdvances = fetchedAdvances.map(a => {
+          const rawAmt = Number(a.amount || 0)
+          const mode = (a.payment_mode || a.paymentMode || 'cash').toLowerCase()
+          const isUpi = mode.includes('upi')
+          const isRet = a.type === 'return' || a.type === 'refund' || a.type === 'refunded' || rawAmt < 0 || !!a.isReturn
+          const normAmt = isRet ? -Math.abs(rawAmt) : Math.abs(rawAmt)
+          return {
+            id: String(a.id),
+            customerId: a.customer_id,
+            amount: normAmt,
+            paymentMode: mode,
+            paymentMethod: mode,
+            cashAmount: !isUpi ? normAmt : 0,
+            upiAmount: isUpi ? normAmt : 0,
+            type: a.type || (isRet ? 'return' : 'deposit'),
+            billId: a.bill_id,
+            notes: a.notes || '',
+            date: a.date || a.created_at || new Date().toISOString(),
+            isReturn: isRet
+          }
+        })
 
         const mappedGroups = fetchedGroups.map(g => ({
           id: String(g.id),
@@ -1332,6 +1387,7 @@ export const AppProvider = ({ children }) => {
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     let remainingAdvance = totalAmount
+    let totalUsedAdvance = 0
 
     for (const bill of unpaidBills) {
       if (remainingAdvance <= 0) break
@@ -1340,6 +1396,8 @@ export const AppProvider = ({ children }) => {
       if (billRemaining <= 0) continue
 
       const applyAmt = Math.min(remainingAdvance, billRemaining)
+      remainingAdvance = Number((remainingAdvance - applyAmt).toFixed(2))
+      totalUsedAdvance = Number((totalUsedAdvance + applyAmt).toFixed(2))
       
       // Proportional split of cash vs UPI for this FIFO payment
       let applyCash = 0
@@ -1393,6 +1451,25 @@ export const AppProvider = ({ children }) => {
         type: 'USE_ADVANCE',
         payload: { customerId: data.customerId, amount: applyAmt }
       })
+    }
+
+    if (totalUsedAdvance > 0) {
+      const cust = state.customers.find((c) => c.id === data.customerId)
+      if (cust) {
+        const curBal = Number(cust.advanceBalance ?? cust.creditBalance ?? 0)
+        const finalBal = Math.max(0, curBal + totalAmount - totalUsedAdvance)
+        dispatch({
+          type: 'UPDATE_CUSTOMER',
+          payload: {
+            id: cust.id,
+            updates: {
+              ...cust,
+              advanceBalance: finalBal,
+              creditBalance: finalBal,
+            }
+          }
+        })
+      }
     }
 
     return id
@@ -1901,6 +1978,10 @@ export const AppProvider = ({ children }) => {
 
       const newBill = {
         id: billId,
+        billNumber: billId,
+        bill_number: billId,
+        invoiceNumber: billId,
+        invoice_number: billId,
         customerId: member.customerId,
         customerName,
         customerType: customer?.type || 'regular',

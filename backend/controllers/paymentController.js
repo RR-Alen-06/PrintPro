@@ -40,7 +40,10 @@ async function recordPayment(req, res, next) {
 
     const cashAmt = parseFloat(cash_amount) || 0;
     const upiAmt = parseFloat(upi_amount) || 0;
-    const totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
+    let totalPaid = parseFloat((cashAmt + upiAmt).toFixed(2));
+    if (totalPaid <= 0 && req.body.total_paid) {
+      totalPaid = parseFloat(Number(req.body.total_paid).toFixed(2));
+    }
 
     if (totalPaid <= 0) {
       return res.status(400).json({ success: false, error: 'Payment amount must be greater than zero' });
@@ -50,9 +53,14 @@ async function recordPayment(req, res, next) {
     let resolvedBill = null;
 
     if (bill_id) {
+      const cleanBillId = String(bill_id).trim();
+      const numOnly = cleanBillId.replace(/[^0-9]/g, '');
       const [billRows] = await conn.query(
-        'SELECT id, customer_id, bill_number, invoice_number FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
-        [bill_id, bill_id, bill_id, req.user.id]
+        `SELECT id, customer_id, bill_number, invoice_number, balance, total, status FROM bills 
+         WHERE (id::text = ? OR bill_number = ? OR invoice_number = ? 
+                OR (NULLIF(regexp_replace(COALESCE(bill_number, ''), '[^0-9]', '', 'g'), '') IS NOT NULL AND regexp_replace(COALESCE(bill_number, ''), '[^0-9]', '', 'g') = ?)) 
+           AND user_id = ? AND deleted_at IS NULL`,
+        [cleanBillId, cleanBillId, cleanBillId, numOnly || '___none___', req.user.id]
       );
       if (billRows.length > 0) {
         resolvedBill = billRows[0];
@@ -94,11 +102,19 @@ async function recordPayment(req, res, next) {
       [resolvedCustomerId, req.user.id]
     );
 
+    let billsToProcess = unpaidBills;
+    if (resolvedBill) {
+      const match = unpaidBills.find(b => b.id === resolvedBill.id);
+      const others = unpaidBills.filter(b => b.id !== resolvedBill.id);
+      billsToProcess = match ? [match, ...others] : (resolvedBill.status !== 'paid' ? [resolvedBill, ...others] : unpaidBills);
+    }
+
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
+    let remainingAdvance = (cashAmt === 0 && upiAmt === 0 && totalPaid > 0) ? totalPaid : 0;
     const paymentRecords = [];
 
-    for (const bill of unpaidBills) {
+    for (const bill of billsToProcess) {
       const outstanding = parseFloat(bill.balance);
       if (outstanding <= 0) continue;
 
@@ -115,7 +131,12 @@ async function recordPayment(req, res, next) {
         remainingUpi = parseFloat((remainingUpi - applyUpi).toFixed(2));
       }
 
-      const applyTotal = parseFloat((applyCash + applyUpi).toFixed(2));
+      let applyTotal = parseFloat((applyCash + applyUpi).toFixed(2));
+      if (applyTotal <= 0 && remainingAdvance > 0) {
+        const applyAdv = Math.min(remainingAdvance, outstanding);
+        remainingAdvance = parseFloat((remainingAdvance - applyAdv).toFixed(2));
+        applyTotal = applyAdv;
+      }
       if (applyTotal <= 0) continue;
 
       const newAmountPaid = parseFloat((parseFloat(bill.amount_paid) + applyTotal).toFixed(2));
@@ -139,6 +160,17 @@ async function recordPayment(req, res, next) {
         );
       }
 
+      // If this was an advance deduction, atomically decrement customer advance_balance and credit_balance
+      if (applyCash === 0 && applyUpi === 0 && applyTotal > 0) {
+        await conn.query(
+          `UPDATE customers SET
+             credit_balance = GREATEST(0, COALESCE(credit_balance, 0) - ?),
+             advance_balance = GREATEST(0, COALESCE(advance_balance, 0) - ?)
+           WHERE id = ? AND user_id = ?`,
+          [applyTotal, resolvedCustomerId, req.user.id]
+        );
+      }
+
       // Update the bill
       await conn.query(
         'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?',
@@ -157,7 +189,7 @@ async function recordPayment(req, res, next) {
 
       paymentRecords.push({ paymentId: payResult.insertId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
 
-      if (remainingCash <= 0 && remainingUpi <= 0) break;
+      if (remainingCash <= 0 && remainingUpi <= 0 && remainingAdvance <= 0) break;
     }
 
     // ── Handle excess (overpayment) ───────────────────────────────────────────
@@ -169,7 +201,7 @@ async function recordPayment(req, res, next) {
       );
 
       // Record excess as a payment entry
-      const targetBillId = resolvedBill ? resolvedBill.id : (bill_id || null);
+      const targetBillId = resolvedBill ? resolvedBill.id : null;
       const [pr] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
          VALUES (?, ?, ?, ?, ?, ?, 'full', ?, ?)`,

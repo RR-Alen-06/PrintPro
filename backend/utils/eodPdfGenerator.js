@@ -1,4 +1,3 @@
-/* eslint-disable security/detect-non-literal-fs-filename -- Path is strictly validated and sandboxed within BASE_UPLOAD_DIR */
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');

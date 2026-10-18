@@ -55,17 +55,25 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
   // 3. Fetch all raw financial records for this customer (all time)
   // Bills
   const [bills] = await pool.query(
-    `SELECT id, total, amount_paid, balance, status,
-            date, created_at
+    `SELECT id, bill_number, invoice_number, total, amount_paid, balance, status,
+            date, created_at, advance_used, promo_code, promo_discount,
+            loyalty_points_earned, loyalty_points_redeemed, loyalty_discount
      FROM bills
      WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL
      ORDER BY created_at ASC`,
     [actualCustomerId, userId]
   );
 
+  const billMap = new Map();
+  for (const b of bills) {
+    const disp = b.bill_number || b.invoice_number || (typeof b.id === 'string' && b.id.includes('-') && b.id.length > 20 ? `BILL-${b.id.slice(0, 4).toUpperCase()}` : b.id);
+    billMap.set(b.id, disp);
+    if (b.bill_number) billMap.set(b.bill_number, disp);
+  }
+
   // Payments (including refunds)
   const [payments] = await pool.query(
-    `SELECT id, bill_id, date, cash_amount, upi_amount,
+    `SELECT id, payment_number, bill_id, date, cash_amount, upi_amount,
             total_paid, payment_type, notes
      FROM payments
      WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL
@@ -116,14 +124,15 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
   for (const b of bills) {
     const total = parseFloat(b.total) || 0;
     const date = b.date || b.created_at;
+    const billDisplay = b.bill_number || b.invoice_number || (typeof b.id === 'string' && b.id.includes('-') && b.id.length > 20 ? `BILL-${b.id.slice(0, 4).toUpperCase()}` : b.id);
     allEvents.push({
       id: `bill-${b.id}`,
       rawDate: new Date(date).getTime(),
       date: new Date(date).toISOString(),
       type: 'bill',
       typeLabel: 'Bill',
-      referenceId: b.bill_no || `BILL-${b.id}`,
-      description: `Invoice #${b.bill_no || b.id}${b.status === 'paid' ? ' (Paid)' : b.status === 'partial' ? ' (Partial)' : ''}`,
+      referenceId: billDisplay,
+      description: `Invoice #${billDisplay}${b.status === 'paid' ? ' (Paid)' : b.status === 'partial' ? ' (Partial)' : ''}`,
       debit: total,
       credit: 0,
       meta: {
@@ -145,6 +154,8 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
     const isRefund = p.is_refund || p.payment_type === 'refund' || totalPaid < 0;
     const date = p.date || p.payment_date || p.created_at;
     const absPaid = Math.abs(totalPaid);
+    const paymentDisplay = p.payment_number || (typeof p.id === 'string' && p.id.includes('-') && p.id.length > 20 ? `REC-${p.id.slice(0, 4).toUpperCase()}` : p.id);
+    const linkedBillDisplay = p.bill_id ? billMap.get(p.bill_id) : null;
 
     if (isRefund) {
       allEvents.push({
@@ -153,8 +164,8 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
         date: new Date(date).toISOString(),
         type: 'refund',
         typeLabel: 'Refund',
-        referenceId: p.receipt_no || `REF-${p.id}`,
-        description: `Refund${p.notes ? ` - ${p.notes}` : ` (Receipt #${p.receipt_no || p.id})`}`,
+        referenceId: paymentDisplay,
+        description: `Refund${linkedBillDisplay ? ` — #${linkedBillDisplay}` : ''}${p.notes ? ` - ${p.notes}` : ` (Receipt #${paymentDisplay})`}`,
         debit: absPaid,
         credit: 0,
         meta: { paymentId: p.id, paymentType: 'refund', notes: p.notes }
@@ -166,8 +177,8 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
         date: new Date(date).toISOString(),
         type: 'payment',
         typeLabel: 'Payment',
-        referenceId: p.receipt_no || `REC-${p.id}`,
-        description: `Payment${p.notes ? ` - ${p.notes}` : ` (Receipt #${p.receipt_no || p.id})`}`,
+        referenceId: paymentDisplay,
+        description: `Payment${linkedBillDisplay ? ` — #${linkedBillDisplay}` : ''}${p.notes ? ` - ${p.notes}` : ` (Receipt #${paymentDisplay})`}`,
         debit: 0,
         credit: absPaid,
         meta: {

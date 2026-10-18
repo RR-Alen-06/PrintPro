@@ -4,11 +4,11 @@ export const getLoyaltySettings = () => api.get('/loyalty/settings')
 
 export const updateLoyaltySettings = (data) => api.put('/loyalty/settings', data)
 
-export const getCustomerLoyalty = (customerId) => api.get(`/loyalty/customer/${customerId}`)
+export const getCustomerLoyalty = (customerId) => api.get(`/loyalty/customer/${encodeURIComponent(customerId)}`)
 
-export const adjustCustomerLoyalty = (customerId, data) => api.post(`/loyalty/customer/${customerId}/adjust`, data)
+export const adjustCustomerLoyalty = (customerId, data) => api.post(`/loyalty/customer/${encodeURIComponent(customerId)}/adjust`, data)
 
-export const deleteLoyaltyEvent = (eventId) => api.delete(`/loyalty/events/${eventId}`)
+export const deleteLoyaltyEvent = (eventId) => api.delete(`/loyalty/events/${encodeURIComponent(eventId)}`)
 
 export const earnLoyaltyPoints = (data) => api.post('/loyalty/earn', data)
 

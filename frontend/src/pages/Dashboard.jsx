@@ -101,9 +101,15 @@ const Dashboard = () => {
     return (filteredData.payments || []).filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
   }, [filteredData.payments])
 
+  const isAdvanceNote = (notes) => {
+    if (!notes) return false
+    const n = String(notes).toLowerCase()
+    return n.includes('from advance deposit') || n.includes('advance deposit') || n.includes('credit balance')
+  }
+
   const totalCashInflow = useMemo(() => {
     const pInflow = (filteredData.payments || [])
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !isAdvanceNote(p.notes))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const advInflow = (filteredData.advancePayments || [])
       .filter(ap => !ap.isRefundCredit)
@@ -147,7 +153,7 @@ const Dashboard = () => {
       .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)
 
     const pInflow = fyPayments
-      .filter((p) => !p.notes?.includes('from advance deposit'))
+      .filter((p) => !isAdvanceNote(p.notes))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
     const advInflow = fyAdvances
       .filter((ap) => !ap.isRefundCredit)
