@@ -62,7 +62,7 @@ router.get('/products', async (req, res, next) => {
     const products = rows.map(r => {
       const rev = parseFloat(r.total_revenue) || 0;
       const pct = grandTotalRev > 0 ? parseFloat(((rev / grandTotalRev) * 100).toFixed(2)) : 0;
-      const typeLabel = r.print_type && r.sides ? `${r.print_type === 'bw' ? 'B&W' : 'Color'} ${r.sides === 'double' ? 'Double' : 'Single'}` : '';
+      const typeLabel = r.print_type && r.sides ? `${r.print_type === 'bw' ? 'B&W' : 'Color'} ${r.sides === 'double' ? '2-Sided' : '1-Sided'}` : '';
       const displayName = typeLabel ? `${r.item_name} (${typeLabel})` : r.item_name;
 
       return {

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
-import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Copy, Link2, Wallet } from 'lucide-react'
+import { ClipboardList, Trash2, Pencil, X, Plus, AlertTriangle, RefreshCw, Copy, Link2, Wallet, Lock } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 
@@ -44,6 +44,7 @@ const CustomerBills = () => {
   const [refundMethod, setRefundMethod] = useState('cash')
   const [refundChoice, setRefundChoice] = useState('direct')
   const [customerUpiId, setCustomerUpiId] = useState('')
+  const [securityPinInput, setSecurityPinInput] = useState('')
   
   const [duplicateWarning, setDuplicateWarning] = useState('')
   const [refundQrGenerated, setRefundQrGenerated] = useState(false)
@@ -68,6 +69,10 @@ const CustomerBills = () => {
 
   // ── Open / Close edit modal ──
   const openEditModal = (bill) => {
+    if (bill.status === 'paid' || Number(bill.balance || 0) <= 0) {
+      showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+      return
+    }
     setEditingBill(bill)
     setDate(bill.date || '')
     setDueDate(bill.dueDate || '')
@@ -370,21 +375,36 @@ const CustomerBills = () => {
 
   const handleConfirmRefund = () => {
     if (!editingBill || !refundInfo) return
+    const billCreated = editingBill.createdAt || editingBill.created_at || editingBill.date
+    const isOlderThan48h = billCreated ? (Date.now() - new Date(billCreated).getTime()) > 48 * 60 * 60 * 1000 : false
+
+    if (isOlderThan48h) {
+      const expectedPin = String(settings?.securityPin || '0000').trim()
+      if (!securityPinInput || securityPinInput.trim() !== expectedPin) {
+        showAlert('Authorization Failed', 'Incorrect Master Security PIN. Refunds after 48 hours strictly require valid Master PIN authorization.')
+        return
+      }
+    }
+
     const refundAction = {
       type: refundChoice,
       method: refundMethod,
       directAmount: refundInfo.directRefund,
-      advanceAmount: refundInfo.advanceRefund
+      advanceAmount: refundInfo.advanceRefund,
+      pinOverride: isOlderThan48h,
+      securityPin: securityPinInput.trim(),
     }
     editBill(editingBill.id, refundInfo.payload, refundAction)
     setShowRefundModal(false)
     setRefundInfo(null)
     setCustomerUpiId('')
     setRefundQrGenerated(false)
+    setSecurityPinInput('')
     closeEditModal()
   }
 
   const initiateFullRefund = (bill) => {
+    setSecurityPinInput('')
     setEditingBill(bill)
     setDate(bill.date || '')
     setDueDate(bill.dueDate || '')
@@ -545,25 +565,49 @@ const CustomerBills = () => {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
-                            onClick={() => openEditModal(bill)}
-                          >
-                            <Pencil size={13} /> Edit
-                          </button>
-                          {Number(bill.amountPaid || 0) > 0 && settings?.refundsEnabled !== false && (
-                            <button
-                              type="button"
-                              className="btn btn-warning btn-sm"
-                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.3)' }}
-                              onClick={() => initiateFullRefund(bill)}
-                            >
-                              <RefreshCw size={13} /> Refund
-                            </button>
-                          )}
+                        {(() => {
+                          const isSettled = bill.status === 'paid' || Number(bill.balance || 0) <= 0
+                          const billCreated = bill.createdAt || bill.created_at || bill.date
+                          const isOlderThan48h = billCreated ? (Date.now() - new Date(billCreated).getTime()) > 48 * 60 * 60 * 1000 : false
+
+                          return (
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px',
+                                  opacity: isSettled ? 0.6 : 1,
+                                  cursor: isSettled ? 'not-allowed' : 'pointer'
+                                }}
+                                disabled={isSettled}
+                                title={isSettled ? "Fully settled bill - editing locked" : "Edit bill"}
+                                onClick={() => {
+                                  if (isSettled) {
+                                    showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+                                    return
+                                  }
+                                  openEditModal(bill)
+                                }}
+                              >
+                                {isSettled ? <Lock size={13} /> : <Pencil size={13} />} {isSettled ? 'Locked' : 'Edit'}
+                              </button>
+                              {Number(bill.amountPaid || 0) > 0 && settings?.refundsEnabled !== false && (
+                                <button
+                                  type="button"
+                                  className="btn btn-warning btn-sm"
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px',
+                                    background: isOlderThan48h ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245,158,11,0.15)',
+                                    color: isOlderThan48h ? 'var(--danger, #ef4444)' : 'var(--warning)',
+                                    border: isOlderThan48h ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(245,158,11,0.3)'
+                                  }}
+                                  title={isOlderThan48h ? "Bill created >48 hrs ago. Master PIN override required to refund." : "Refund bill"}
+                                  onClick={() => initiateFullRefund(bill)}
+                                >
+                                  <RefreshCw size={13} /> {isOlderThan48h ? 'Refund (>48h PIN)' : 'Refund'}
+                                </button>
+                              )}
                           {Number(bill.balance || 0) > 0 && (
                             <button
                               type="button"
@@ -590,7 +634,9 @@ const CustomerBills = () => {
                             <Trash2 size={13} /> Delete
                           </button>
                         </div>
-                      </td>
+                      )
+                    })()}
+                  </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1116,6 +1162,39 @@ const CustomerBills = () => {
                   )}
                 </div>
               )}
+
+              {(() => {
+                const billCreated = editingBill ? (editingBill.createdAt || editingBill.created_at || editingBill.date) : null
+                const isOlderThan48h = billCreated ? (Date.now() - new Date(billCreated).getTime()) > 48 * 60 * 60 * 1000 : false
+
+                if (!isOlderThan48h) return null
+
+                return (
+                  <div style={{
+                    margin: '12px 0',
+                    padding: '12px 14px',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    borderRadius: 'var(--radius-md)'
+                  }}>
+                    <label className="form-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--danger, #ef4444)', marginBottom: '4px' }}>
+                      <Lock size={14} /> Master Security PIN Override Required
+                    </label>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                      This invoice was created more than 48 hours ago. Refunds for expired bills strictly require authorization by Master Security PIN.
+                    </p>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder="Enter 4-6 digit Security PIN"
+                      value={securityPinInput}
+                      onChange={(e) => setSecurityPinInput(e.target.value.replace(/\D/g, ''))}
+                      maxLength={6}
+                      style={{ maxWidth: '240px' }}
+                    />
+                  </div>
+                )
+              })()}
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                 <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowRefundModal(false); setRefundInfo(null); setCustomerUpiId('') }}>

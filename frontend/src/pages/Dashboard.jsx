@@ -111,8 +111,9 @@ const Dashboard = () => {
     const pInflow = (filteredData.payments || [])
       .filter((p) => !isAdvanceNote(p.notes))
       .reduce((sum, p) => sum + Number(p.cashAmount || 0) + Number(p.upiAmount || 0), 0)
+    const isAdvReturn = (ap) => ap.isReturn || ap.type === 'return' || ap.type === 'refund' || ap.type === 'refunded' || Number(ap.amount || 0) < 0
     const advInflow = (filteredData.advancePayments || [])
-      .filter(ap => !ap.isRefundCredit)
+      .filter(ap => !ap.isRefundCredit && !isAdvReturn(ap) && Number(ap.amount || 0) > 0)
       .reduce((sum, ap) => sum + Number(ap.amount || 0), 0)
     return pInflow + advInflow
   }, [filteredData])

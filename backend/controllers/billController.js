@@ -186,21 +186,6 @@ async function createBill(req, res, next) {
       billNumber = `BILL-${String(nextNum).padStart(4, '0')}`;
     }
 
-    // Idempotent check for offline sync retry
-    const [existingBills] = await conn.query(
-      'SELECT * FROM bills WHERE (id::text = ? OR (bill_number IS NOT NULL AND bill_number = ?)) AND user_id = ?',
-      [billId, billNumber, req.user.id]
-    );
-    if (existingBills.length > 0) {
-      const existing = existingBills[0];
-      const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [existing.id, req.user.id]);
-      await conn.commit();
-      return res.status(200).json({
-        success: true,
-        data: { ...existing, items: existingItems }
-      });
-    }
-
     // Calculate subtotal from items
     let subtotal = 0;
     const billItems = items.map(item => {
@@ -226,10 +211,12 @@ async function createBill(req, res, next) {
       }
 
       const itemName = (item.name || item.item_name || item.itemName || 'Print Item').trim();
+      const category = item.category || (item.item_type || 'paper');
 
       return {
         bill_id: billId,
         item_name: itemName,
+        category: category,
         print_type: printType,
         sides: sides,
         qty: qty,
@@ -256,6 +243,42 @@ async function createBill(req, res, next) {
     const gstPct = parseFloat(gst_percent) || 0;
     const gstAmount = parseFloat(((afterDiscount * gstPct) / 100).toFixed(2));
     const total = parseFloat((afterDiscount + gstAmount).toFixed(2));
+
+    // Idempotent check for offline sync retry
+    const [existingBills] = await conn.query(
+      'SELECT * FROM bills WHERE (id::text = ? OR (bill_number IS NOT NULL AND bill_number = ?)) AND user_id = ?',
+      [billId, billNumber, req.user.id]
+    );
+    if (existingBills.length > 0) {
+      const existing = existingBills[0];
+      const isExactIdMatch = existing.id === billId || (req.body.id && String(existing.id) === String(req.body.id));
+      const isSameBillRetry = isExactIdMatch || (
+        existing.customer_id === resolvedCustomerId &&
+        Math.abs(parseFloat(existing.total || 0) - total) < 0.05
+      );
+
+      if (isSameBillRetry) {
+        const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [existing.id, req.user.id]);
+        await conn.commit();
+        return res.status(200).json({
+          success: true,
+          data: { ...existing, items: existingItems }
+        });
+      }
+
+      // Bill number collision: generate a fresh unique bill_number
+      const [maxBill] = await conn.query(
+        `SELECT bill_number FROM bills WHERE user_id = ? AND bill_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(bill_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
+        [req.user.id]
+      );
+      let nextNum = 1;
+      if (maxBill.length > 0 && maxBill[0]?.bill_number) {
+        const lastCode = maxBill[0].bill_number;
+        const numPart = lastCode.replace(/[^0-9]/g, '');
+        nextNum = parseInt(numPart || '0', 10) + 1;
+      }
+      billNumber = `BILL${String(nextNum).padStart(4, '0')}`;
+    }
 
     let balance = total;
     let amountPaid = 0;
@@ -293,9 +316,9 @@ async function createBill(req, res, next) {
     // Insert bill items
     for (const item of billItems) {
       await conn.query(
-        `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, item.bill_id, item.item_name, item.print_type, item.sides, item.qty, item.unit_price, item.amount]
+        `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount, category)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.id, item.bill_id, item.item_name, item.print_type, item.sides, item.qty, item.unit_price, item.amount, item.category || 'paper']
       );
     }
 
@@ -354,11 +377,22 @@ async function updateBill(req, res, next) {
       [id, id, id, req.user.id]
     );
     if (existing.length === 0) {
+      await conn.rollback();
       return res.status(404).json({ success: false, error: 'Bill not found' });
     }
 
     const oldBill = existing[0];
     const actualBillId = oldBill.id;
+
+    // Check if bill is fully settled (paid or balance <= 0)
+    if (oldBill.status === 'paid' || Number(oldBill.balance) <= 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: 'Bill is fully settled and paid. Editing is not permitted.'
+      });
+    }
+
     const [oldItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
     // Update basic fields
@@ -415,11 +449,12 @@ async function updateBill(req, res, next) {
         }
 
         const itemName = (item.name || item.item_name || item.itemName || 'Print Item').trim();
+        const category = item.category || (item.item_type || 'paper');
 
         await conn.query(
-          `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, actualBillId, itemName, printType, sides, qty, unitPrice, amount]
+          `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount, category)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [req.user.id, actualBillId, itemName, printType, sides, qty, unitPrice, amount, category]
         );
       }
       subtotal = parseFloat(subtotal.toFixed(2));
@@ -563,6 +598,11 @@ async function applyDiscount(req, res, next) {
 
     const bill = existing[0];
     const actualBillId = bill.id;
+
+    if (bill.status === 'paid' || Number(bill.balance) <= 0) {
+      return res.status(400).json({ success: false, error: 'Bill is fully settled and paid. Modifying discount is not permitted.' });
+    }
+
     const subtotal = parseFloat(bill.subtotal);
     const discVal = parseFloat(discount_value);
 

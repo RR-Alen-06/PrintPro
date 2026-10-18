@@ -88,6 +88,18 @@ const getPeriodRange = (period) => {
   return { startDate: '', endDate: '' }
 }
 
+export const formatProductVariantLabel = (p) => {
+  if (!p) return ''
+  const name = p.item_name || p.name || 'Item'
+  const pt = p.print_type ? (p.print_type.toLowerCase() === 'bw' ? 'B&W' : 'Color') : null
+  const sides = p.sides ? (p.sides.toLowerCase() === 'double' ? '2-Sided' : (p.sides.toLowerCase() === 'single' ? '1-Sided' : p.sides)) : null
+  const variantParts = [pt, sides].filter(Boolean)
+  if (variantParts.length > 0) {
+    return `${name} (${variantParts.join(' ')})`
+  }
+  return p.display_name || name
+}
+
 const Analytics = () => {
   const { bills, payments, expenses } = useAppContext()
   const reportRef = useRef(null)
@@ -435,7 +447,10 @@ const Analytics = () => {
   const topProductsChartData = useMemo(() => {
     const top5 = [...productsData].sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 5)
     return {
-      labels: top5.map(p => p.item_name.length > 14 ? p.item_name.slice(0, 14) + '...' : p.item_name),
+      labels: top5.map(p => {
+        const full = formatProductVariantLabel(p)
+        return full.length > 20 ? full.slice(0, 19) + '…' : full
+      }),
       datasets: [
         {
           label: 'Revenue (₹)',
@@ -684,7 +699,20 @@ const Analytics = () => {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
-                      plugins: { legend: { display: false } },
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            title: (items) => {
+                              if (!items.length) return ''
+                              const idx = items[0].dataIndex
+                              const top5 = [...productsData].sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 5)
+                              const prod = top5[idx]
+                              return prod ? formatProductVariantLabel(prod) : items[0].label
+                            }
+                          }
+                        }
+                      },
                       scales: {
                         x: { grid: { display: false } },
                         y: { grid: { color: 'rgba(255, 255, 255, 0.05)' } }
