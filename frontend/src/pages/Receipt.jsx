@@ -238,13 +238,17 @@ const Receipt = () => {
     y += 5
 
     doc.setFont('helvetica', 'normal')
+    const isSplitBill = bill.groupRole === 'split' || Boolean(bill.splitCount)
     bill.items.forEach((item) => {
       checkNewPage(8)
-      const name = item.itemName || item.name || '-'
-      const shortName = name.length > 28 ? name.slice(0, 26) + '…' : name
+      const baseName = item.itemName || item.name || '-'
+      const splitBadge = isSplitBill && !baseName.includes('Split') ? ` (Shared 1/${bill.splitCount || 'N'} Split)` : ''
+      const name = `${baseName}${splitBadge}`
+      const shortName = name.length > 32 ? name.slice(0, 30) + '…' : name
+      const isNonPaper = item.category && item.category !== 'paper'
       txt(shortName, col.item, y)
-      txt(item.printType === 'color' ? 'Color' : 'B/W', col.type, y)
-      txt(item.sides === 'single' ? 'Single' : 'Double', col.sides, y)
+      txt(isNonPaper ? '—' : (item.printType === 'color' ? 'Color' : 'B/W'), col.type, y)
+      txt(isNonPaper ? '—' : (item.sides === 'single' ? 'Single' : 'Double'), col.sides, y)
       txt(String(item.qty), col.qty, y)
       txt(`Rs.${Number(item.unitPrice).toFixed(2)}`, col.unit, y)
       txt(`Rs.${Number(item.amount).toFixed(2)}`, col.amt, y)
@@ -619,9 +623,29 @@ const Receipt = () => {
               <tbody>
                 {selectedBill.items.map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0' }}>{item.itemName || item.name}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'color' ? 'Color' : 'B/W'}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'single' ? 'Single' : 'Double'}</td>
+                    <td style={{ padding: '4px 0' }}>
+                      <div>{item.itemName || item.name}</div>
+                      {(selectedBill.groupRole === 'split' || selectedBill.splitCount) && (
+                        <span style={{
+                          display: 'inline-block',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: 'rgba(99, 102, 241, 0.12)',
+                          color: '#4f46e5',
+                          marginTop: '2px'
+                        }}>
+                          (Shared 1/{selectedBill.splitCount || 'N'} Split)
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>
+                      {item.category && item.category !== 'paper' ? '—' : (item.printType === 'color' ? 'Color' : 'B/W')}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>
+                      {item.category && item.category !== 'paper' ? '—' : (item.sides === 'single' ? 'Single' : 'Double')}
+                    </td>
                     <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
                     <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice).toFixed(2)}</td>
                     <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount).toFixed(2)}</td>

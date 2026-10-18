@@ -199,10 +199,15 @@ const baseReducer = (state, action) => {
           ...(action.payload.settings?.staffPermissions || {})
         }
       }
+      const mergedCounters = {
+        ...(state.idCounters || {}),
+        ...(action.payload.idCounters || {})
+      }
       return {
         ...state,
         ...action.payload,
         settings: mergedSettings,
+        idCounters: mergedCounters,
         hydrated: true,
       }
     }
@@ -734,15 +739,68 @@ const reducer = (state, action) => {
 // Legacy random ID kept temporarily for fallback; all new IDs use generateSeqId
 // const generateId = (prefix) => `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`
 
-// Sequential ID generator using state counters
+const extractMaxSeq = (items, prefix) => {
+  if (!Array.isArray(items)) return 0
+  let max = 0
+  const cleanPrefix = prefix.toLowerCase()
+  for (const item of items) {
+    if (!item) continue
+    const candidates = [
+      item.id,
+      item.billNumber,
+      item.bill_number,
+      item.customerCode,
+      item.customer_code,
+      item.paymentNumber,
+      item.paymentCode,
+      item.advanceNumber,
+      item.advance_number,
+      item.invoiceNumber,
+      item.invoice_number,
+      item.groupId,
+      item.groupBillId
+    ]
+    for (const val of candidates) {
+      if (typeof val === 'string' && val.toLowerCase().includes(cleanPrefix)) {
+        const num = parseInt(val.replace(/[^0-9]/g, ''), 10)
+        if (!isNaN(num) && num > max) max = num
+      }
+    }
+  }
+  return max
+}
+
+// Sequential ID generator using state counters and existing entity ID verification
 const generateSeqId = (state, type) => {
   const counters = state.idCounters || {}
-  const current = counters[type] || 0
-  const next = current + 1
-  const padded = String(next).padStart(4, '0')
+  const current = Number(counters[type] || 0)
   const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
-  return `${prefixMap[type] || type}${padded}`
+  const prefix = prefixMap[type] || type
+
+  let maxExisting = current
+  if (type === 'BILL') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.bills, 'BILL'))
+  } else if (type === 'PAY') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.payments, 'PAY'))
+  } else if (type === 'ADV') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.advancePayments, 'ADV'))
+  } else if (type === 'RC') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq((state.customers || []).filter(c => c.type === 'regular'), 'RC'))
+  } else if (type === 'RND') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq((state.customers || []).filter(c => c.type !== 'regular'), 'WI'), extractMaxSeq((state.customers || []).filter(c => c.type !== 'regular'), 'RND'))
+  } else if (type === 'EXP') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.expenses, 'EXP'))
+  } else if (type === 'ITEM' || type === 'item') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.inventory, 'ITEM'))
+  } else if (type === 'GRP' || type === 'SGRP') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.customerGroups, 'GRP'), extractMaxSeq(state.groupBills, 'GRP'))
+  }
+
+  const next = Math.max(current, maxExisting) + 1
+  const padded = String(next).padStart(4, '0')
+  return `${prefix}${padded}`
 }
+
 
 // Tiered loyalty points calculator
 // tiers: [{from: Number, to: Number, points: Number}] - owner-configured ranges
@@ -1110,6 +1168,8 @@ export const AppProvider = ({ children }) => {
           customerName: b.customer_name || '',
           date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
           dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
+          createdAt: b.created_at || b.date || new Date().toISOString(),
+          created_at: b.created_at || b.date || new Date().toISOString(),
           subtotal: Number(b.subtotal || 0),
           discountType: b.discount_type || 'flat',
           discountValue: Number(b.discount_value || 0),
@@ -1123,6 +1183,8 @@ export const AppProvider = ({ children }) => {
           deleted: !!b.deleted_at,
           items: (b.items || []).map(item => ({
             name: item.item_name,
+            itemName: item.item_name,
+            category: item.category || 'paper',
             printType: item.print_type,
             sides: item.sides,
             qty: Number(item.qty || 0),
@@ -1286,6 +1348,17 @@ export const AppProvider = ({ children }) => {
           notes: gb.notes || ''
         }))
 
+        const computedCounters = {
+          RC: extractMaxSeq(mappedCustomers.filter(c => c.type === 'regular'), 'RC'),
+          RND: Math.max(extractMaxSeq(mappedCustomers.filter(c => c.type !== 'regular'), 'WI'), extractMaxSeq(mappedCustomers.filter(c => c.type !== 'regular'), 'RND')),
+          BILL: extractMaxSeq(mappedBills, 'BILL'),
+          PAY: extractMaxSeq(mappedPayments, 'PAY'),
+          EXP: extractMaxSeq(mappedExpenses, 'EXP'),
+          ADV: extractMaxSeq(mappedAdvances, 'ADV'),
+          GRP: Math.max(extractMaxSeq(mappedGroups, 'GRP'), extractMaxSeq(mappedGroupBills, 'GRP')),
+          ITEM: extractMaxSeq(mappedInventory, 'ITEM'),
+        }
+
         rawDispatch({
           type: 'HYDRATE_FROM_CLOUD',
           payload: {
@@ -1300,7 +1373,8 @@ export const AppProvider = ({ children }) => {
             promoCodes: mappedPromos,
             advancePayments: mappedAdvances,
             customerGroups: mappedGroups,
-            groupBills: mappedGroupBills
+            groupBills: mappedGroupBills,
+            idCounters: computedCounters,
           }
         })
       } catch (error) {
@@ -1531,6 +1605,8 @@ export const AppProvider = ({ children }) => {
       id: billId,
       billNumber: billId,
       ...billData,
+      createdAt: billData.createdAt || billData.created_at || new Date().toISOString(),
+      created_at: billData.created_at || billData.createdAt || new Date().toISOString(),
       customerName,
       amountPaid: 0,
       balance: total,
@@ -1960,17 +2036,29 @@ export const AppProvider = ({ children }) => {
 
       const memberTotal = member.total
       let advanceUsed = 0
-      let amountPaid = 0
-      let billStatus = 'unpaid'
 
       if (member.useAdvance && currentAdvance > 0) {
         advanceUsed = Math.min(currentAdvance, memberTotal)
-        amountPaid = advanceUsed
-        billStatus = amountPaid >= memberTotal ? 'paid' : 'partial'
-
         // Deduct from customer advance
         dispatch({ type: 'USE_ADVANCE', payload: { customerId: member.customerId, amount: advanceUsed } })
       }
+
+      const directCash = Number(member.cashPaid || 0)
+      const directUpi = Number(member.upiPaid || 0)
+      const directPaid = directCash + directUpi
+      const sponsoredReceived = Number(member.sponsoredAmount || 0)
+
+      // Total payments received for this bill
+      const totalInitialPaid = advanceUsed + directPaid + sponsoredReceived
+      const finalAmountPaid = Math.min(memberTotal, totalInitialPaid)
+      const finalBalance = Math.max(0, memberTotal - finalAmountPaid)
+      const billStatus = finalBalance <= 0 ? 'paid' : (finalAmountPaid > 0 ? 'partial' : 'unpaid')
+
+      // Note: If directPaid > 0, we dispatch ADD_PAYMENT below.
+      // In the ADD_PAYMENT reducer, payment.totalPaid is added to bill.amountPaid.
+      // So to avoid double-counting in state.bills, initial amountPaid in ADD_BILL payload
+      // is advanceUsed + sponsoredReceived.
+      const initialBillPaid = directPaid > 0 ? (advanceUsed + sponsoredReceived) : finalAmountPaid
 
       const pointsEnabled = state.settings?.loyaltyEnabled !== false
       const loyaltyPointsEarned = pointsEnabled ? calcLoyaltyPoints(memberTotal, state.settings.loyaltyTiers) : 0
@@ -1996,12 +2084,12 @@ export const AppProvider = ({ children }) => {
         cgst: member.cgst || 0,
         sgst: member.sgst || 0,
         total: memberTotal,
-        amountPaid,
-        balance: Math.max(memberTotal - amountPaid, 0),
+        amountPaid: initialBillPaid,
+        balance: finalBalance,
         status: billStatus,
         advanceUsed,
         creditUsed: 0,
-        paymentMethod: { cash: 0, upi: 0 },
+        paymentMethod: { cash: directCash, upi: directUpi },
         rounding: member.rounding || 0,
         notes: groupData.notes || '',
         deleted: false,
@@ -2009,6 +2097,8 @@ export const AppProvider = ({ children }) => {
         groupRole: member.groupRole || 'shared',
         splitTotal: groupData.splitTotal || null,
         splitCount: groupData.splitCount || null,
+        settledByGroupPayment: member.settledByGroupPayment || (sponsoredReceived > 0 && directPaid < memberTotal ? true : undefined),
+        sponsoredAmount: sponsoredReceived,
         loyaltyPointsEarned,
         loyaltyPointsRedeemed,
         customerTotalLoyaltyPoints: customer ? customer.loyaltyPoints : 0,
@@ -2031,6 +2121,48 @@ export const AppProvider = ({ children }) => {
       })
 
       memberBillIds.push(billId)
+    }
+
+    // Record payments for members who contributed cash or upi
+    let payCounterOffset = state.idCounters?.PAY || 0
+    for (let i = 0; i < groupData.members.length; i++) {
+      const member = groupData.members[i]
+      const billId = memberBillIds[i]
+      const directCash = Number(member.cashPaid || 0)
+      const directUpi = Number(member.upiPaid || 0)
+      const directPaid = directCash + directUpi
+      if (directPaid > 0) {
+        payCounterOffset += 1
+        const payId = `PAY${String(payCounterOffset).padStart(4, '0')}`
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+
+        const groupSettlements = (member.sponsoring || []).map(s => ({
+          billId: memberBillIds[s.toMemberIdx],
+          customerId: s.toCustomerId,
+          customerName: s.toCustomerName,
+          amount: Number(s.amount || 0),
+        }))
+
+        dispatch({
+          type: 'ADD_PAYMENT',
+          payload: {
+            id: payId,
+            billId,
+            groupBillId: grpId,
+            customerId: member.customerId,
+            date: groupData.date || new Date().toISOString().slice(0, 10),
+            cashAmount: directCash,
+            upiAmount: directUpi,
+            totalPaid: directPaid,
+            totalAmount: directPaid,
+            isGroupPayment: groupSettlements.length > 0 || groupData.type === 'split',
+            groupSettlements,
+            notes: groupSettlements.length > 0
+              ? `Split payment for ${billId} under group ${grpId} (sponsoring ${groupSettlements.map(g => `${g.customerName}: ₹${g.amount}`).join(', ')})`
+              : `Split payment for bill ${billId} under group ${grpId}`,
+          }
+        })
+      }
     }
 
     // Store group meta record — no separate parent bill needed;
@@ -2214,6 +2346,11 @@ export const AppProvider = ({ children }) => {
     const oldBill = state.bills.find(b => b.id === billId)
     if (!oldBill) return
 
+    if (!refundAction && (oldBill.status === 'paid' || Number(oldBill.balance || 0) <= 0)) {
+      showToast?.('Bill is fully settled and paid. Editing is not permitted.', 'error')
+      return
+    }
+
     const customer = state.customers.find(c => c.id === oldBill.customerId)
 
     // Revert old bill effects
@@ -2321,6 +2458,10 @@ export const AppProvider = ({ children }) => {
               ? `Direct refund of excess payment via ${refundMethod.toUpperCase()}`
               : `Excess payment moved to advance balance`,
             isRefund: true,
+            pin_override: refundAction?.pinOverride || refundAction?.pin_override || false,
+            pinOverride: refundAction?.pinOverride || refundAction?.pin_override || false,
+            security_pin: refundAction?.securityPin || refundAction?.security_pin || '',
+            securityPin: refundAction?.securityPin || refundAction?.security_pin || '',
           }
         })
 
@@ -2521,6 +2662,11 @@ export const AppProvider = ({ children }) => {
   const applyPostDiscount = (billId, discountType, discountValue) => {
     const bill = state.bills.find(b => b.id === billId)
     if (!bill) return
+
+    if (bill.status === 'paid' || Number(bill.balance || 0) <= 0) {
+      showToast?.('Bill is fully settled and paid. Modifying discount is not permitted.', 'error')
+      return
+    }
 
     const customer = state.customers.find(c => c.id === bill.customerId)
 
