@@ -947,7 +947,7 @@ export const AppProvider = ({ children }) => {
       'CLEAR_ALL_NOTIFICATIONS',
       'REMOVE_PAYMENTS_FOR_BILL',
     ]
-    if (localOnlyActions.includes(action.type)) {
+    if (localOnlyActions.includes(action.type) || action.payload?._localOnly) {
       return
     }
 
@@ -1511,8 +1511,8 @@ export const AppProvider = ({ children }) => {
       updatedBill.balance = Math.max(updatedBill.total - updatedBill.amountPaid, 0)
       updatedBill.status = updatedBill.amountPaid >= updatedBill.total ? 'paid' : 'partial'
 
-      // Dispatch bill update
-      dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill } })
+      // Dispatch bill update locally (backend payment record will atomically update bill on cloud)
+      dispatch({ type: 'UPDATE_BILL', payload: { id: bill.id, updates: updatedBill, _localOnly: true } })
 
       // Generate a new sequential PAY ID and increment the counter
       const paySeqId = generateSeqId(state, 'PAY')
@@ -1849,10 +1849,10 @@ export const AppProvider = ({ children }) => {
 
     newBill.settlementBreakdown = settlementBreakdown
 
-    // Dispatch bills updates
+    // Dispatch bills updates locally (backend payment records will update bills on cloud)
     billsToPay.forEach((b) => {
       if (b.id !== billId) {
-        dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
+        dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b, _localOnly: true } })
       }
     })
 
@@ -2038,7 +2038,7 @@ export const AppProvider = ({ children }) => {
     }
 
     updatedBills.forEach((b) => {
-      dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
+      dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b, _localOnly: true } })
     })
   }
 
@@ -2079,6 +2079,7 @@ export const AppProvider = ({ children }) => {
             upi: Number(bill.paymentMethod?.upi || 0) + applyUpi,
           },
         },
+        _localOnly: true,
       },
     })
 

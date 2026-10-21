@@ -158,21 +158,42 @@ export const syncEntityToCloud = async (action, payload) => {
 
     case 'UPDATE_BILL':
       if (payload.id) {
-        return await updateBill(payload.id, {
-          customer_id: payload.updates?.customerId,
-          date: payload.updates?.date,
-          due_date: payload.updates?.dueDate,
-          subtotal: payload.updates?.subtotal,
-          discount_type: payload.updates?.discountType,
-          discount_value: payload.updates?.discountValue,
-          gst_percent: payload.updates?.gstPercent,
-          gst_amount: payload.updates?.gstAmount,
-          total: payload.updates?.total,
-          amount_paid: payload.updates?.amountPaid,
-          balance: payload.updates?.balance,
-          status: payload.updates?.status,
-          notes: payload.updates?.notes,
-        });
+        const u = payload.updates || {};
+        const updateData = {};
+        const custId = u.customerId || u.customer_id;
+        if (custId) updateData.customer_id = custId;
+        if (u.date) updateData.date = new Date(u.date).toISOString().slice(0, 10);
+        if (u.dueDate || u.due_date) updateData.due_date = new Date(u.dueDate || u.due_date).toISOString().slice(0, 10);
+        if (u.subtotal !== undefined && u.subtotal !== null && u.subtotal !== '') updateData.subtotal = Number(u.subtotal);
+        const discType = u.discountType || u.discount_type;
+        if (discType) updateData.discount_type = discType;
+        const discVal = u.discountValue !== undefined ? u.discountValue : u.discount_value;
+        if (discVal !== undefined && discVal !== null && discVal !== '') updateData.discount_value = Number(discVal);
+        const gstPct = u.gstPercent !== undefined ? u.gstPercent : u.gst_percent;
+        if (gstPct !== undefined && gstPct !== null && gstPct !== '') updateData.gst_percent = Number(gstPct);
+        const gstAmt = u.gstAmount !== undefined ? u.gstAmount : u.gst_amount;
+        if (gstAmt !== undefined && gstAmt !== null && gstAmt !== '') updateData.gst_amount = Number(gstAmt);
+        if (u.total !== undefined && u.total !== null && u.total !== '') updateData.total = Number(u.total);
+        const amtPaid = u.amountPaid !== undefined ? u.amountPaid : u.amount_paid;
+        if (amtPaid !== undefined && amtPaid !== null && amtPaid !== '') updateData.amount_paid = Number(amtPaid);
+        if (u.balance !== undefined && u.balance !== null && u.balance !== '') updateData.balance = Number(u.balance);
+        if (u.status) updateData.status = u.status;
+        if (u.notes !== undefined && u.notes !== null) updateData.notes = String(u.notes);
+        if (Array.isArray(u.items) && u.items.length > 0) {
+          updateData.items = u.items.map((it) => ({
+            name: it.name || it.itemName || it.item_name || 'Item',
+            print_type: it.printType || it.print_type || 'color',
+            sides: it.sides || 'single',
+            qty: parseInt(it.qty, 10) || 1,
+            unit_price: parseFloat(it.unitPrice !== undefined ? it.unitPrice : (it.unit_price || 0)),
+            amount: parseFloat(it.amount !== undefined ? it.amount : 0),
+            category: it.category || 'paper'
+          }));
+        }
+        if (payload.pin_override || payload.pinOverride || u.pin_override || u.pinOverride) {
+          updateData.pin_override = true;
+        }
+        return await updateBill(payload.id, updateData);
       }
       break;
 
@@ -325,12 +346,13 @@ export const syncEntityToCloud = async (action, payload) => {
 
     case 'ADD_GROUP_BILL':
       return await createGroupBill({
-        group_id: payload.groupId,
-        title: payload.title,
+        id: payload.id,
+        group_id: payload.groupId || payload.group_id || 'GENERAL',
+        title: payload.title || (payload.type ? `${payload.type.toUpperCase()} Group Bill ${payload.id || ''}` : `Group Bill ${payload.id || ''}`),
         total_amount: payload.totalAmount || 0,
         amount_paid: payload.amountPaid || 0,
         status: payload.status || 'unpaid',
-        member_shares: payload.memberShares || [],
+        member_shares: payload.memberShares || payload.memberBillIds || [],
         notes: payload.notes || '',
         date: payload.date || new Date().toISOString().slice(0, 10),
       });
