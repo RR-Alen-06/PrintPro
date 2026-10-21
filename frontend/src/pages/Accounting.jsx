@@ -46,7 +46,7 @@ const Accounting = () => {
     
     const totalCustomerAdvance = customers
       .filter((c) => !c.deleted)
-      .reduce((sum, c) => sum + Math.max(0, Number(c.advanceBalance !== undefined && c.advanceBalance !== null ? c.advanceBalance : (c.creditBalance || 0))), 0)
+      .reduce((sum, c) => sum + Math.max(0, Number(c.advanceBalance || 0), Number(c.creditBalance || 0)), 0)
 
     const isAdvNote = (notes) => {
       if (!notes) return false

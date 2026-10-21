@@ -53,6 +53,16 @@ async function buildEodReportData(pool, userId, targetDate) {
     [userId, dateStr]
   );
 
+  // 3b. Fetch advance payments for the target day
+  const [advances] = await pool.query(
+    `SELECT a.*, c.name AS customer_name
+     FROM advance_payments a
+     LEFT JOIN customers c ON a.customer_id::text = c.id::text AND a.user_id = c.user_id
+     WHERE a.user_id = ? AND DATE(a.date) = ?
+     ORDER BY a.date DESC`,
+    [userId, dateStr]
+  );
+
   // 4. Fetch daily purchases / expenses
   const [expensesList] = await pool.query(
     `SELECT * FROM purchases
@@ -93,8 +103,22 @@ async function buildEodReportData(pool, userId, targetDate) {
   const nonRefundPayments = payments.filter(p => !p.is_refund && p.payment_type !== 'refund' && parseFloat(p.total_paid || 0) >= 0);
   const refundPayments = payments.filter(p => p.is_refund || p.payment_type === 'refund' || parseFloat(p.total_paid || 0) < 0);
 
-  const collectedCash = nonRefundPayments.reduce((sum, p) => sum + (parseFloat(p.cash_amount) || 0), 0);
-  const collectedUpi = nonRefundPayments.reduce((sum, p) => sum + (parseFloat(p.upi_amount) || 0), 0);
+  const nonReturnAdvances = advances.filter(a => !a.is_return && a.type !== 'return' && a.type !== 'refund' && parseFloat(a.amount || 0) > 0);
+  const advCash = nonReturnAdvances.reduce((sum, a) => {
+    const c = parseFloat(a.cash_amount || 0);
+    if (c > 0) return sum + c;
+    const m = String(a.payment_mode || a.payment_method || 'cash').toLowerCase();
+    return sum + (m.includes('cash') || !m.includes('upi') ? parseFloat(a.amount || 0) : 0);
+  }, 0);
+  const advUpi = nonReturnAdvances.reduce((sum, a) => {
+    const u = parseFloat(a.upi_amount || 0);
+    if (u > 0) return sum + u;
+    const m = String(a.payment_mode || a.payment_method || '').toLowerCase();
+    return sum + (m.includes('upi') ? parseFloat(a.amount || 0) : 0);
+  }, 0);
+
+  const collectedCash = nonRefundPayments.reduce((sum, p) => sum + (parseFloat(p.cash_amount) || 0), 0) + advCash;
+  const collectedUpi = nonRefundPayments.reduce((sum, p) => sum + (parseFloat(p.upi_amount) || 0), 0) + advUpi;
   const totalCollected = collectedCash + collectedUpi;
   const totalRefunds = refundPayments.reduce((sum, p) => sum + Math.abs(parseFloat(p.total_paid) || 0), 0);
 

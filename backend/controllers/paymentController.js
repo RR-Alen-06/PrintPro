@@ -272,6 +272,7 @@ async function recordRefund(req, res, next) {
         [bill_id, bill_id, bill_id, req.user.id]
       );
       if (billRows.length === 0) {
+        await conn.rollback();
         return res.status(404).json({ success: false, error: 'Bill not found' });
       }
       bill = billRows[0];
@@ -281,10 +282,37 @@ async function recordRefund(req, res, next) {
 
       const originalPaid = parseFloat(bill.amount_paid) || 0;
       if (totalRefund > originalPaid) {
+        await conn.rollback();
         return res.status(400).json({
           success: false,
           error: `Refund amount (₹${totalRefund.toFixed(2)}) cannot exceed total amount paid on the bill (₹${originalPaid.toFixed(2)})`
         });
+      }
+
+      // 48-Hour Refund policy enforcement
+      const billCreatedTime = new Date(bill.created_at || bill.date).getTime();
+      const diffHours = (Date.now() - billCreatedTime) / (1000 * 60 * 60);
+      if (diffHours > 48) {
+        const { pin_override, security_pin } = req.body;
+        let authorized = false;
+        if (pin_override) {
+          const [settingsRows] = await conn.query(
+            'SELECT settings FROM user_settings WHERE user_id = ? LIMIT 1',
+            [req.user.id]
+          );
+          const userSettings = (settingsRows[0] && settingsRows[0].settings) || {};
+          const expectedPin = String(userSettings.securityPin || '0000').trim();
+          if (security_pin && String(security_pin).trim() === expectedPin) {
+            authorized = true;
+          }
+        }
+        if (!authorized) {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            error: 'Refund window expired (>48 hrs). Master Security PIN override is required to authorize this refund.'
+          });
+        }
       }
     }
 
