@@ -106,7 +106,24 @@ async function recordPayment(req, res, next) {
     if (resolvedBill) {
       const match = unpaidBills.find(b => b.id === resolvedBill.id);
       const others = unpaidBills.filter(b => b.id !== resolvedBill.id);
-      billsToProcess = match ? [match, ...others] : (resolvedBill.status !== 'paid' ? [resolvedBill, ...others] : unpaidBills);
+      if (match) {
+        billsToProcess = [match, ...others];
+      } else {
+        // Check if resolvedBill has unrecorded payment gap (total > sum(payments))
+        const [paySumRows] = await conn.query(
+          `SELECT COALESCE(SUM(total_paid), 0) AS total_paid FROM payments WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL AND is_refund = false`,
+          [resolvedBill.id, req.user.id]
+        );
+        const paidSoFar = parseFloat(paySumRows[0]?.total_paid || 0);
+        const actualRemaining = parseFloat(Math.max(parseFloat(resolvedBill.total) - paidSoFar, 0).toFixed(2));
+        if (actualRemaining > 0) {
+          resolvedBill.balance = actualRemaining;
+          resolvedBill.amount_paid = paidSoFar;
+          billsToProcess = [resolvedBill, ...others];
+        } else {
+          billsToProcess = others;
+        }
+      }
     }
 
     let remainingCash = cashAmt;
@@ -115,7 +132,15 @@ async function recordPayment(req, res, next) {
     const paymentRecords = [];
 
     for (const bill of billsToProcess) {
-      const outstanding = parseFloat(bill.balance);
+      let outstanding = parseFloat(bill.balance);
+      if (outstanding <= 0) {
+        const [paySumRows] = await conn.query(
+          `SELECT COALESCE(SUM(total_paid), 0) AS total_paid FROM payments WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL AND is_refund = false`,
+          [bill.id, req.user.id]
+        );
+        const paidSoFar = parseFloat(paySumRows[0]?.total_paid || 0);
+        outstanding = parseFloat(Math.max(parseFloat(bill.total) - paidSoFar, 0).toFixed(2));
+      }
       if (outstanding <= 0) continue;
 
       let applyCash = 0;
@@ -139,7 +164,12 @@ async function recordPayment(req, res, next) {
       }
       if (applyTotal <= 0) continue;
 
-      const newAmountPaid = parseFloat((parseFloat(bill.amount_paid) + applyTotal).toFixed(2));
+      const [existingPayRows] = await conn.query(
+        `SELECT COALESCE(SUM(total_paid), 0) AS total_paid FROM payments WHERE bill_id = ? AND user_id = ? AND deleted_at IS NULL AND is_refund = false`,
+        [bill.id, req.user.id]
+      );
+      const prevPaid = parseFloat(existingPayRows[0]?.total_paid || 0);
+      const newAmountPaid = parseFloat((prevPaid + applyTotal).toFixed(2));
       const newBalance = parseFloat(Math.max(parseFloat(bill.total) - newAmountPaid, 0).toFixed(2));
       const newStatus = newAmountPaid >= parseFloat(bill.total) ? 'paid' : 'partial';
       const paymentType = newStatus === 'paid' ? 'full' : 'partial';
