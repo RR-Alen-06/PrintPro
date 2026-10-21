@@ -1158,40 +1158,55 @@ export const AppProvider = ({ children }) => {
           createdAt: c.created_at || new Date().toISOString()
         }))
 
-        const mappedBills = fetchedBills.map(b => ({
-          id: b.id,
-          billNumber: b.bill_number || b.invoice_number || b.billNumber || '',
-          bill_number: b.bill_number || b.invoice_number || '',
-          invoiceNumber: b.invoice_number || b.bill_number || '',
-          invoice_number: b.invoice_number || b.bill_number || '',
-          customerId: b.customer_id,
-          customerName: b.customer_name || '',
-          date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
-          dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
-          createdAt: b.created_at || b.date || new Date().toISOString(),
-          created_at: b.created_at || b.date || new Date().toISOString(),
-          subtotal: Number(b.subtotal || 0),
-          discountType: b.discount_type || 'flat',
-          discountValue: Number(b.discount_value || 0),
-          gstPercent: Number(b.gst_percent || 0),
-          gstAmount: Number(b.gst_amount || 0),
-          total: Number(b.total || 0),
-          amountPaid: Number(b.amount_paid || 0),
-          balance: Number(b.balance || 0),
-          status: b.status || 'unpaid',
-          notes: b.notes || '',
-          deleted: !!b.deleted_at,
-          items: (b.items || []).map(item => ({
-            name: item.item_name,
-            itemName: item.item_name,
-            category: item.category || 'paper',
-            printType: item.print_type,
-            sides: item.sides,
-            qty: Number(item.qty || 0),
-            unitPrice: Number(item.unit_price || 0),
-            amount: Number(item.amount || 0)
-          }))
-        }))
+        const mappedBills = fetchedBills.map(b => {
+          const bPayments = fetchedPayments.filter(
+            p => (p.bill_id === b.id || p.bill_id === b.bill_number) && !p.deleted_at && !p.is_refund
+          )
+          const cashFromPayments = bPayments.reduce((acc, p) => acc + Number(p.cash_amount || 0), 0)
+          const upiFromPayments = bPayments.reduce((acc, p) => acc + Number(p.upi_amount || 0), 0)
+
+          return {
+            id: b.id,
+            billNumber: b.bill_number || b.invoice_number || b.billNumber || '',
+            bill_number: b.bill_number || b.invoice_number || '',
+            invoiceNumber: b.invoice_number || b.bill_number || '',
+            invoice_number: b.invoice_number || b.bill_number || '',
+            customerId: b.customer_id,
+            customerName: b.customer_name || '',
+            date: b.date ? new Date(b.date).toISOString().slice(0, 10) : '',
+            dueDate: b.due_date ? new Date(b.due_date).toISOString().slice(0, 10) : null,
+            createdAt: b.created_at || b.date || new Date().toISOString(),
+            created_at: b.created_at || b.date || new Date().toISOString(),
+            subtotal: Number(b.subtotal || 0),
+            discountType: b.discount_type || 'flat',
+            discountValue: Number(b.discount_value || 0),
+            gstPercent: Number(b.gst_percent || 0),
+            gstAmount: Number(b.gst_amount || 0),
+            total: Number(b.total || 0),
+            amountPaid: Number(b.amount_paid || 0),
+            balance: Number(b.balance || 0),
+            status: b.status || 'unpaid',
+            notes: b.notes || '',
+            deleted: !!b.deleted_at,
+            paymentMethod: {
+              cash: (cashFromPayments === 0 && upiFromPayments === 0 && Number(b.amount_paid || 0) > 0)
+                ? Number(b.amount_paid || 0)
+                : cashFromPayments,
+              upi: upiFromPayments
+            },
+            advanceUsed: Number(b.advance_used || 0),
+            items: (b.items || []).map(item => ({
+              name: item.item_name,
+              itemName: item.item_name,
+              category: item.category || 'paper',
+              printType: item.print_type,
+              sides: item.sides,
+              qty: Number(item.qty || 0),
+              unitPrice: Number(item.unit_price || 0),
+              amount: Number(item.amount || 0)
+            }))
+          }
+        })
 
         const mappedPayments = fetchedPayments.map(p => ({
           id: p.id,
@@ -1623,6 +1638,18 @@ export const AppProvider = ({ children }) => {
       customerTotalLoyaltyPoints: newCustomerPoints,
     }
 
+    // Snapshot of previous unpaid bills before allocation
+    const previousUnpaidBills = unpaidBills.map(b => ({
+      id: b.id,
+      billNumber: b.billNumber || b.bill_number || b.id,
+      date: b.date,
+      total: Number(b.total || 0),
+      dueBefore: Math.max(0, Math.round((Number(b.total || 0) - Number(b.amountPaid || 0)) * 100) / 100),
+      amountPaidBefore: Number(b.amountPaid || 0),
+    }))
+    const totalPreviousDue = previousUnpaidBills.reduce((acc, b) => acc + b.dueBefore, 0)
+    const billAllocations = {}
+
     const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
 
     const cashAmount = Number(billData.cashAmount ?? billData.paymentMethod?.cash ?? 0)
@@ -1658,45 +1685,64 @@ export const AppProvider = ({ children }) => {
       }
     }
 
-    // Distribute new cash/upi (creates payment records)
+    // Distribute new cash/upi proportionally across bills (creates payment records)
+    const totalNewPayment = cashAmount + upiAmount
     for (const bill of billsToPay) {
-      let remaining = bill.total - bill.amountPaid
+      let remaining = Math.max(0, Math.round((bill.total - bill.amountPaid) * 100) / 100)
       if (remaining <= 0) continue
+
+      const R_avail = Math.round((R_cash + R_upi) * 100) / 100
+      const applyTotal = Math.min(remaining, R_avail)
+      if (applyTotal <= 0) continue
 
       let applyCash = 0
       let applyUpi = 0
 
-      if (R_cash > 0) {
-        applyCash = Math.min(R_cash, remaining)
-        R_cash -= applyCash
-        remaining -= applyCash
-      }
-      if (R_upi > 0 && remaining > 0) {
-        applyUpi = Math.min(R_upi, remaining)
-        R_upi -= applyUpi
-        remaining -= applyUpi
+      if (cashAmount > 0 && upiAmount > 0) {
+        // Proportional Cash/UPI allocation
+        const cashRatio = cashAmount / totalNewPayment
+        applyCash = Math.min(R_cash, Math.round(applyTotal * cashRatio * 100) / 100)
+        applyUpi = Math.min(R_upi, Math.round((applyTotal - applyCash) * 100) / 100)
+        const deficit = Math.round((applyTotal - (applyCash + applyUpi)) * 100) / 100
+        if (deficit > 0) {
+          if (Math.round((R_cash - applyCash) * 100) / 100 >= deficit) {
+            applyCash = Math.round((applyCash + deficit) * 100) / 100
+          } else {
+            applyUpi = Math.round((applyUpi + deficit) * 100) / 100
+          }
+        }
+      } else if (cashAmount > 0) {
+        applyCash = Math.min(R_cash, applyTotal)
+      } else {
+        applyUpi = Math.min(R_upi, applyTotal)
       }
 
-      const applyTotal = applyCash + applyUpi
-      if (applyTotal > 0) {
-        bill.amountPaid += applyTotal
-        bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
-        bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
+      R_cash = Math.max(0, Math.round((R_cash - applyCash) * 100) / 100)
+      R_upi = Math.max(0, Math.round((R_upi - applyUpi) * 100) / 100)
 
-        const _payIdx1 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-        paymentRecords.push({
-          id: `PAY${String(_payIdx1).padStart(4, '0')}`,
-          billId: bill.id,
-          customerId: bill.customerId,
-          date: new Date().toISOString(),
-          cashAmount: applyCash,
-          upiAmount: applyUpi,
-          totalPaid: applyTotal,
-          paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
-          excessCredit: 0,
-          notes: billData.notes || 'FIFO payment allocation',
-        })
+      bill.amountPaid = Math.round((bill.amountPaid + applyTotal) * 100) / 100
+      bill.paymentMethod.cash = Math.round(((bill.paymentMethod.cash || 0) + applyCash) * 100) / 100
+      bill.paymentMethod.upi = Math.round(((bill.paymentMethod.upi || 0) + applyUpi) * 100) / 100
+
+      billAllocations[bill.id] = {
+        applied: applyTotal,
+        cash: applyCash,
+        upi: applyUpi
       }
+
+      const _payIdx1 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
+      paymentRecords.push({
+        id: `PAY${String(_payIdx1).padStart(4, '0')}`,
+        billId: bill.id,
+        customerId: bill.customerId,
+        date: new Date().toISOString(),
+        cashAmount: applyCash,
+        upiAmount: applyUpi,
+        totalPaid: applyTotal,
+        paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
+        excessCredit: 0,
+        notes: bill.id === billId ? (billData.notes || 'Payment for current bill') : `Payment applied from checkout of Bill ${billId}`,
+      })
     }
 
     // Update status and balance
@@ -1764,6 +1810,45 @@ export const AppProvider = ({ children }) => {
       }
     }
 
+    // Build Account Settlement Breakdown metadata
+    const previousBillsSettled = previousUnpaidBills.map(pb => {
+      const alloc = billAllocations[pb.id] || { applied: 0, cash: 0, upi: 0 }
+      return {
+        billId: pb.id,
+        billNumber: pb.billNumber,
+        date: pb.date,
+        total: pb.total,
+        dueBefore: pb.dueBefore,
+        applied: alloc.applied,
+        cashApplied: alloc.cash,
+        upiApplied: alloc.upi,
+        remainingBalance: Math.max(0, Math.round((pb.dueBefore - alloc.applied) * 100) / 100)
+      }
+    })
+    const prevAppliedTotal = previousBillsSettled.reduce((s, pb) => s + pb.applied, 0)
+    const currentAlloc = billAllocations[billId] || { applied: 0, cash: 0, upi: 0 }
+    const currentBillBal = Math.max(0, Math.round((total - billsToPay.find(b => b.id === billId).amountPaid) * 100) / 100)
+
+    const settlementBreakdown = {
+      currentBillAmount: total,
+      previousDueTotal: totalPreviousDue,
+      previousBills: previousBillsSettled,
+      totalReceived: cashAmount + upiAmount,
+      totalReceivedCash: cashAmount,
+      totalReceivedUpi: upiAmount,
+      advanceUsed: Math.min(Number(billData.advanceUsed || 0), currentAdvance),
+      excessAddedToAdvance: creditToAdvance ? overpaid : 0,
+      advanceBalance: updatedCustomer ? updatedCustomer.advanceBalance : 0,
+      appliedToCurrentBill: currentAlloc.applied,
+      appliedToCurrentBillCash: currentAlloc.cash,
+      appliedToCurrentBillUpi: currentAlloc.upi,
+      appliedToPreviousDues: prevAppliedTotal,
+      currentBillBalance: currentBillBal,
+      customerRemainingBalance: previousBillsSettled.reduce((s, pb) => s + pb.remainingBalance, 0) + currentBillBal
+    }
+
+    newBill.settlementBreakdown = settlementBreakdown
+
     // Dispatch bills updates
     billsToPay.forEach((b) => {
       if (b.id !== billId) {
@@ -1775,6 +1860,7 @@ export const AppProvider = ({ children }) => {
       type: 'ADD_BILL',
       payload: {
         ...newBill,
+        settlementBreakdown,
         amountPaid: billsToPay.find(b => b.id === billId).amountPaid,
         balance: billsToPay.find(b => b.id === billId).balance,
         status: billsToPay.find(b => b.id === billId).status,
