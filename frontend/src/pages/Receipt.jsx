@@ -5,9 +5,10 @@ import { useAppContext } from '../context/AppContext'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId } from '../utils/idFormatter'
+import { getBillPaymentBreakdown, computeSettlementBreakdown } from '../utils/settlementHelper'
 
 const Receipt = () => {
-  const { bills, customers, business, settings, showAlert, showToast } = useAppContext()
+  const { bills, customers, business, settings, showAlert, showToast, payments } = useAppContext()
   const [selectedBill, setSelectedBill] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -323,6 +324,94 @@ const Receipt = () => {
       y += 7
     }
 
+    // Account Settlement Breakdown (Multi-Bill & Advance)
+    const paymentInfo = getBillPaymentBreakdown(bill, payments)
+    const settlement = computeSettlementBreakdown(bill, bills, payments, customers)
+
+    if (settlement && (settlement.previousDueTotal > 0 || settlement.appliedToPreviousDues > 0 || settlement.excessAddedToAdvance > 0 || settlement.advanceUsed > 0)) {
+      checkNewPage(45)
+      doc.setFillColor(248, 250, 252)
+      doc.setDrawColor(203, 213, 225)
+      doc.rect(MARGIN, y, W - MARGIN * 2, 6.5, 'FD')
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(30, 41, 59)
+      txt('Account Settlement Breakdown', MARGIN + 3, y + 4.5)
+      y += 9.5
+
+      doc.setFontSize(7.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(60, 60, 60)
+
+      // Current Bill Amount
+      txt('Current Bill Amount:', MARGIN + 2, y)
+      txt(`Rs.${settlement.currentBillAmount.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Previous Due Amount
+      if (settlement.previousDueTotal > 0) {
+        let prevDetail = ''
+        if (settlement.previousBills?.length > 0) {
+          prevDetail = ` (${settlement.previousBills.map(pb => `${pb.billNumber || pb.billId}: Rs.${(pb.applied || pb.dueBefore || pb.remainingDue || 0).toFixed(2)}`).join(', ')})`
+        }
+        txt(`Previous Due Amount${prevDetail}:`, MARGIN + 2, y)
+        txt(`Rs.${settlement.previousDueTotal.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+
+        txt('Total Customer Owed:', MARGIN + 2, y)
+        txt(`Rs.${(settlement.currentBillAmount + settlement.previousDueTotal).toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Total Received
+      txt(`Total Received (Cash: Rs.${settlement.totalReceivedCash.toFixed(2)}, UPI: Rs.${settlement.totalReceivedUpi.toFixed(2)}):`, MARGIN + 2, y)
+      txt(`Rs.${settlement.totalReceived.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Applied to Current Bill
+      txt('  - Applied to Current Bill:', MARGIN + 4, y)
+      txt(`Rs.${settlement.appliedToCurrentBill.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Applied to Previous Dues
+      if (settlement.appliedToPreviousDues > 0) {
+        let appliedDetail = ''
+        if (settlement.previousBills?.length > 0) {
+          appliedDetail = ` (${settlement.previousBills.filter(pb => (pb.applied || 0) > 0).map(pb => `${pb.billNumber || pb.billId}: Rs.${pb.applied.toFixed(2)}`).join(', ')})`
+        }
+        txt(`  - Applied to Previous Dues${appliedDetail}:`, MARGIN + 4, y)
+        txt(`Rs.${settlement.appliedToPreviousDues.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Advance
+      if (settlement.advanceUsed > 0) {
+        txt('Advance Credit Used:', MARGIN + 2, y)
+        txt(`Rs.${settlement.advanceUsed.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+      if (settlement.excessAddedToAdvance > 0) {
+        txt('Overpayment Credited to Advance:', MARGIN + 2, y)
+        txt(`+Rs.${settlement.excessAddedToAdvance.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Outstanding customer balance
+      doc.setFont('helvetica', 'bold')
+      if (settlement.customerRemainingBalance > 0) {
+        doc.setTextColor(220, 38, 38)
+      } else {
+        doc.setTextColor(22, 163, 74)
+      }
+      txt('Customer Outstanding Balance:', MARGIN + 2, y)
+      txt(`Rs.${settlement.customerRemainingBalance.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 5
+      doc.setTextColor(50, 50, 50)
+      doc.setFont('helvetica', 'normal')
+      ln(MARGIN, y, W - MARGIN, y, 0.2)
+      y += 5
+    }
+
     // Payment breakdown & QR code
     const upiLink = getUpiLink(bill.balance)
     const qrBase64 = (settings.showUpiQrCode !== false && bill.balance > 0) 
@@ -341,10 +430,10 @@ const Receipt = () => {
       doc.setFont('helvetica', 'bold')
       txt('Payment Breakdown:', MARGIN, y); y += 4
       doc.setFont('helvetica', 'normal')
-      txt(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y); y += 4
-      txt(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, MARGIN, y); y += 4
-      if (bill.advanceUsed > 0) {
-        txt(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
+      txt(`Cash: Rs.${paymentInfo.cash.toFixed(2)}`, MARGIN, y); y += 4
+      txt(`UPI: Rs.${paymentInfo.upi.toFixed(2)}`, MARGIN, y); y += 4
+      if (paymentInfo.advanceUsed > 0) {
+        txt(`Advance Used: Rs.${paymentInfo.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
       }
       y = Math.max(y, y - 16 + qrSize + 6)
     } else {
@@ -353,11 +442,11 @@ const Receipt = () => {
       doc.setFont('helvetica', 'bold')
       txt('Payment Breakdown:', MARGIN, y); y += 5
       doc.setFont('helvetica', 'normal')
-      txt(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y)
-      txt(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, 70, y)
+      txt(`Cash: Rs.${paymentInfo.cash.toFixed(2)}`, MARGIN, y)
+      txt(`UPI: Rs.${paymentInfo.upi.toFixed(2)}`, 70, y)
       y += 5
-      if (bill.advanceUsed > 0) {
-        txt(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, 130, y - 5)
+      if (paymentInfo.advanceUsed > 0) {
+        txt(`Advance Used: Rs.${paymentInfo.advanceUsed.toFixed(2)}`, 130, y - 5)
       }
       y += 5
     }
@@ -434,6 +523,9 @@ const Receipt = () => {
     if (!selectedBill) return
     window.print()
   }
+
+  const visualPaymentInfo = selectedBill ? getBillPaymentBreakdown(selectedBill, payments) : { cash: 0, upi: 0, advanceUsed: 0 }
+  const visualSettlement = selectedBill ? computeSettlementBreakdown(selectedBill, bills, payments, customers) : null
 
   return (
     <div>
@@ -718,12 +810,130 @@ const Receipt = () => {
             )}
 
             {/* Payment breakdown */}
-            <div style={{ fontSize: '11px', marginBottom: '14px', color: '#555' }}>
+            <div style={{ fontSize: '11px', marginBottom: '12px', color: '#555' }}>
               <strong style={{ color: '#333' }}>Payment Method: </strong>
-              Cash ₹{(selectedBill.paymentMethod?.cash || 0).toFixed(2)} &nbsp;|&nbsp;
-              UPI ₹{(selectedBill.paymentMethod?.upi || 0).toFixed(2)}
-              {selectedBill.advanceUsed > 0 && ` | Advance Used ₹${selectedBill.advanceUsed.toFixed(2)}`}
+              Cash ₹{visualPaymentInfo.cash.toFixed(2)} &nbsp;|&nbsp;
+              UPI ₹{visualPaymentInfo.upi.toFixed(2)}
+              {visualPaymentInfo.advanceUsed > 0 && ` | Advance Used ₹${visualPaymentInfo.advanceUsed.toFixed(2)}`}
             </div>
+
+            {/* Account Settlement Breakdown Table */}
+            {visualSettlement && (visualSettlement.previousDueTotal > 0 || visualSettlement.appliedToPreviousDues > 0 || visualSettlement.excessAddedToAdvance > 0 || visualSettlement.advanceUsed > 0) && (
+              <div style={{
+                marginTop: '10px',
+                marginBottom: '16px',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                background: '#f8fafc',
+                fontSize: '11px'
+              }}>
+                <div style={{
+                  padding: '7px 12px',
+                  background: '#f1f5f9',
+                  borderBottom: '1px solid #cbd5e1',
+                  fontWeight: 'bold',
+                  color: '#1e293b',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>Account Settlement Breakdown</span>
+                  <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Multi-Bill &amp; Advance Allocation</span>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                  <tbody>
+                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '5px 12px', color: '#64748b' }}>Current Bill Amount:</td>
+                      <td style={{ padding: '5px 12px', textAlign: 'right', fontWeight: '600' }}>
+                        ₹{visualSettlement.currentBillAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                    {visualSettlement.previousDueTotal > 0 && (
+                      <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '5px 12px', color: '#64748b' }}>
+                          Previous Due Amount:
+                          {visualSettlement.previousBills?.length > 0 && (
+                            <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                              {visualSettlement.previousBills.map(pb => `${pb.billNumber || pb.billId}: ₹${(pb.applied || pb.dueBefore || pb.remainingDue || 0).toFixed(2)}`).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '5px 12px', textAlign: 'right', color: '#d97706', fontWeight: '600' }}>
+                          ₹{visualSettlement.previousDueTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {visualSettlement.previousDueTotal > 0 && (
+                      <tr style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: 'bold' }}>
+                        <td style={{ padding: '5px 12px' }}>Total Customer Owed:</td>
+                        <td style={{ padding: '5px 12px', textAlign: 'right' }}>
+                          ₹{(visualSettlement.currentBillAmount + visualSettlement.previousDueTotal).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '5px 12px', color: '#64748b' }}>
+                        Total Received at Checkout:
+                        <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                          Cash: ₹{visualSettlement.totalReceivedCash.toFixed(2)} &nbsp;|&nbsp; UPI: ₹{visualSettlement.totalReceivedUpi.toFixed(2)}
+                        </div>
+                      </td>
+                      <td style={{ padding: '5px 12px', textAlign: 'right', color: '#16a34a', fontWeight: '600' }}>
+                        ₹{visualSettlement.totalReceived.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '5px 12px', paddingLeft: '20px', color: '#334155' }}>
+                        ↳ Applied to Current Bill ({getDisplayBillId(selectedBill)}):
+                      </td>
+                      <td style={{ padding: '5px 12px', textAlign: 'right', fontWeight: '500' }}>
+                        ₹{visualSettlement.appliedToCurrentBill.toFixed(2)}
+                      </td>
+                    </tr>
+                    {visualSettlement.appliedToPreviousDues > 0 && (
+                      <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '5px 12px', paddingLeft: '20px', color: '#334155' }}>
+                          ↳ Applied to Previous Dues:
+                          {visualSettlement.previousBills?.length > 0 && (
+                            <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                              {visualSettlement.previousBills.filter(pb => (pb.applied || 0) > 0).map(pb => `${pb.billNumber || pb.billId}: ₹${(pb.applied || 0).toFixed(2)}`).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '5px 12px', textAlign: 'right', fontWeight: '500' }}>
+                          ₹{visualSettlement.appliedToPreviousDues.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {visualSettlement.advanceUsed > 0 && (
+                      <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '5px 12px', color: '#64748b' }}>Advance Credit Used:</td>
+                        <td style={{ padding: '5px 12px', textAlign: 'right', fontWeight: '500', color: '#2563eb' }}>
+                          ₹{visualSettlement.advanceUsed.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {visualSettlement.excessAddedToAdvance > 0 && (
+                      <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '5px 12px', color: '#64748b' }}>Overpayment Credited to Advance:</td>
+                        <td style={{ padding: '5px 12px', textAlign: 'right', fontWeight: '500', color: '#2563eb' }}>
+                          +₹{visualSettlement.excessAddedToAdvance.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td style={{ padding: '6px 12px', fontWeight: 'bold', color: visualSettlement.customerRemainingBalance > 0 ? '#dc2626' : '#16a34a' }}>
+                        Customer Outstanding Balance:
+                      </td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 'bold', color: visualSettlement.customerRemainingBalance > 0 ? '#dc2626' : '#16a34a' }}>
+                        ₹{visualSettlement.customerRemainingBalance.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {/* UPI QR Code */}
             {settings.showUpiQrCode !== false && selectedBill.balance > 0 && (

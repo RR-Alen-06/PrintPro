@@ -9,6 +9,7 @@ import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
 import BillSuccessScreen from '../components/common/BillSuccessScreen'
 import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
 import GroupBilling from './GroupBilling'
+import { getBillPaymentBreakdown, computeSettlementBreakdown } from '../utils/settlementHelper'
 
 
 const makeInitialRow = (inventory = []) => {
@@ -251,6 +252,16 @@ const Billing = () => {
     if (!liveBill) return []
     return payments.filter((p) => p.billId === liveBill.id)
   }, [payments, liveBill])
+
+  const livePaymentInfo = useMemo(() => {
+    if (!liveBill) return { cash: 0, upi: 0, advanceUsed: 0 }
+    return getBillPaymentBreakdown(liveBill, payments)
+  }, [liveBill, payments])
+
+  const liveSettlement = useMemo(() => {
+    if (!liveBill) return null
+    return computeSettlementBreakdown(liveBill, bills, payments, customers)
+  }, [liveBill, bills, payments, customers])
 
   const selectedCustomer = useMemo(() => {
     if (customerType === 'regular') return customers.find((c) => c.id === customerId)
@@ -1481,6 +1492,94 @@ const Billing = () => {
       y += 6
     }
 
+    // Account Settlement Breakdown (Multi-Bill & Advance)
+    const paymentInfo = getBillPaymentBreakdown(bill, payments)
+    const settlement = computeSettlementBreakdown(bill, bills, payments, customers)
+
+    if (settlement && (settlement.previousDueTotal > 0 || settlement.appliedToPreviousDues > 0 || settlement.excessAddedToAdvance > 0 || settlement.advanceUsed > 0)) {
+      checkNewPage(45)
+      doc.setFillColor(248, 250, 252)
+      doc.setDrawColor(203, 213, 225)
+      doc.rect(MARGIN, y, W - MARGIN * 2, 6.5, 'FD')
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(30, 41, 59)
+      text('Account Settlement Breakdown', MARGIN + 3, y + 4.5)
+      y += 9.5
+
+      doc.setFontSize(7.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(60, 60, 60)
+
+      // Current Bill Amount
+      text('Current Bill Amount:', MARGIN + 2, y)
+      text(`Rs.${settlement.currentBillAmount.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Previous Due Amount
+      if (settlement.previousDueTotal > 0) {
+        let prevDetail = ''
+        if (settlement.previousBills?.length > 0) {
+          prevDetail = ` (${settlement.previousBills.map(pb => `${pb.billNumber || pb.billId}: Rs.${(pb.applied || pb.dueBefore || pb.remainingDue || 0).toFixed(2)}`).join(', ')})`
+        }
+        text(`Previous Due Amount${prevDetail}:`, MARGIN + 2, y)
+        text(`Rs.${settlement.previousDueTotal.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+
+        text('Total Customer Owed:', MARGIN + 2, y)
+        text(`Rs.${(settlement.currentBillAmount + settlement.previousDueTotal).toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Total Received
+      text(`Total Received (Cash: Rs.${settlement.totalReceivedCash.toFixed(2)}, UPI: Rs.${settlement.totalReceivedUpi.toFixed(2)}):`, MARGIN + 2, y)
+      text(`Rs.${settlement.totalReceived.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Applied to Current Bill
+      text('  - Applied to Current Bill:', MARGIN + 4, y)
+      text(`Rs.${settlement.appliedToCurrentBill.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 4
+
+      // Applied to Previous Dues
+      if (settlement.appliedToPreviousDues > 0) {
+        let appliedDetail = ''
+        if (settlement.previousBills?.length > 0) {
+          appliedDetail = ` (${settlement.previousBills.filter(pb => (pb.applied || 0) > 0).map(pb => `${pb.billNumber || pb.billId}: Rs.${pb.applied.toFixed(2)}`).join(', ')})`
+        }
+        text(`  - Applied to Previous Dues${appliedDetail}:`, MARGIN + 4, y)
+        text(`Rs.${settlement.appliedToPreviousDues.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Advance
+      if (settlement.advanceUsed > 0) {
+        text('Advance Credit Used:', MARGIN + 2, y)
+        text(`Rs.${settlement.advanceUsed.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+      if (settlement.excessAddedToAdvance > 0) {
+        text('Overpayment Credited to Advance:', MARGIN + 2, y)
+        text(`+Rs.${settlement.excessAddedToAdvance.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+        y += 4
+      }
+
+      // Customer Remaining Balance
+      doc.setFont('helvetica', 'bold')
+      if (settlement.customerRemainingBalance > 0) {
+        doc.setTextColor(220, 38, 38)
+      } else {
+        doc.setTextColor(22, 163, 74)
+      }
+      text('Customer Outstanding Balance:', MARGIN + 2, y)
+      text(`Rs.${settlement.customerRemainingBalance.toFixed(2)}`, W - MARGIN - 2, y, { align: 'right' })
+      y += 5
+      doc.setTextColor(50, 50, 50)
+      doc.setFont('helvetica', 'normal')
+      line(MARGIN, y, W - MARGIN, y, 0.2)
+      y += 5
+    }
+
     // Payment breakdown & QR code
     const upiLink = getUpiLink(bill.balance)
     const qrBase64 = (settings.showUpiQrCode !== false && bill.balance > 0) 
@@ -1499,10 +1598,10 @@ const Billing = () => {
       doc.setFont('helvetica', 'bold')
       text('Payment Breakdown:', MARGIN, y); y += 4
       doc.setFont('helvetica', 'normal')
-      text(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y); y += 4
-      text(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, MARGIN, y); y += 4
-      if (bill.advanceUsed > 0) {
-        text(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
+      text(`Cash: Rs.${paymentInfo.cash.toFixed(2)}`, MARGIN, y); y += 4
+      text(`UPI: Rs.${paymentInfo.upi.toFixed(2)}`, MARGIN, y); y += 4
+      if (paymentInfo.advanceUsed > 0) {
+        text(`Advance Used: Rs.${paymentInfo.advanceUsed.toFixed(2)}`, MARGIN, y); y += 4
       }
       y = Math.max(y, y - 16 + qrSize + 6)
     } else {
@@ -1511,11 +1610,11 @@ const Billing = () => {
       doc.setFont('helvetica', 'bold')
       text('Payment Breakdown:', MARGIN, y); y += 5
       doc.setFont('helvetica', 'normal')
-      text(`Cash: Rs.${(bill.paymentMethod?.cash || 0).toFixed(2)}`, MARGIN, y)
-      text(`UPI: Rs.${(bill.paymentMethod?.upi || 0).toFixed(2)}`, 70, y)
+      text(`Cash: Rs.${paymentInfo.cash.toFixed(2)}`, MARGIN, y)
+      text(`UPI: Rs.${paymentInfo.upi.toFixed(2)}`, 70, y)
       y += 5
-      if (bill.advanceUsed > 0) {
-        text(`Advance Used: Rs.${bill.advanceUsed.toFixed(2)}`, 130, y - 5)
+      if (paymentInfo.advanceUsed > 0) {
+        text(`Advance Used: Rs.${paymentInfo.advanceUsed.toFixed(2)}`, 130, y - 5)
       }
       y += 5
     }
@@ -2631,19 +2730,89 @@ const Billing = () => {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Cash</label>
-                      <div className="stat-card-value">₹{(liveBill.paymentMethod?.cash || 0).toFixed(2)}</div>
+                      <div className="stat-card-value">₹{livePaymentInfo.cash.toFixed(2)}</div>
                     </div>
                     <div className="form-group">
                       <label className="form-label">UPI</label>
-                      <div className="stat-card-value">₹{(liveBill.paymentMethod?.upi || 0).toFixed(2)}</div>
+                      <div className="stat-card-value">₹{livePaymentInfo.upi.toFixed(2)}</div>
                     </div>
                   </div>
+                  {livePaymentInfo.advanceUsed > 0 && (
+                    <div className="form-group">
+                      <label className="form-label">Advance Used</label>
+                      <div className="stat-card-value" style={{ color: 'var(--primary)' }}>₹{livePaymentInfo.advanceUsed.toFixed(2)}</div>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Credit Used</label>
                     <div className="stat-card-value">₹{(liveBill.creditUsed || 0).toFixed(2)}</div>
                   </div>
                 </div>
               </div>
+
+              {/* Account Settlement Breakdown Card */}
+              {liveSettlement && (liveSettlement.previousDueTotal > 0 || liveSettlement.appliedToPreviousDues > 0 || liveSettlement.excessAddedToAdvance > 0 || liveSettlement.advanceUsed > 0) && (
+                <div className="card" style={{ marginTop: '20px', padding: '20px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h4 style={{ margin: 0 }}>Account Settlement Breakdown</h4>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Multi-Bill &amp; Advance Allocation</span>
+                  </div>
+                  <div className="form-row" style={{ marginBottom: '10px' }}>
+                    <div className="form-group">
+                      <label className="form-label">Current Bill Total</label>
+                      <div className="stat-card-value" style={{ fontSize: '1.1rem' }}>₹{liveSettlement.currentBillAmount.toFixed(2)}</div>
+                    </div>
+                    {liveSettlement.previousDueTotal > 0 && (
+                      <div className="form-group">
+                        <label className="form-label">Previous Due Amount</label>
+                        <div className="stat-card-value" style={{ fontSize: '1.1rem', color: 'var(--warning)' }}>₹{liveSettlement.previousDueTotal.toFixed(2)}</div>
+                        {liveSettlement.previousBills?.length > 0 && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                            {liveSettlement.previousBills.map(pb => `${pb.billNumber || pb.billId}: ₹${(pb.applied || pb.dueBefore || pb.remainingDue || 0).toFixed(2)}`).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="form-group">
+                      <label className="form-label">Total Received at Checkout</label>
+                      <div className="stat-card-value" style={{ fontSize: '1.1rem', color: 'var(--success)' }}>₹{liveSettlement.totalReceived.toFixed(2)}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Cash: ₹{liveSettlement.totalReceivedCash.toFixed(2)} | UPI: ₹{liveSettlement.totalReceivedUpi.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>↳ Applied to Current Bill:</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>₹{liveSettlement.appliedToCurrentBill.toFixed(2)}</strong>
+                    </div>
+                    {liveSettlement.appliedToPreviousDues > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>↳ Applied to Previous Dues:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>₹{liveSettlement.appliedToPreviousDues.toFixed(2)}</strong>
+                      </div>
+                    )}
+                    {liveSettlement.advanceUsed > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Advance Credit Used:</span>
+                        <strong style={{ color: 'var(--primary)' }}>₹{liveSettlement.advanceUsed.toFixed(2)}</strong>
+                      </div>
+                    )}
+                    {liveSettlement.excessAddedToAdvance > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Excess Added to Advance:</span>
+                        <strong style={{ color: 'var(--primary)' }}>+₹{liveSettlement.excessAddedToAdvance.toFixed(2)}</strong>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid var(--border-color)' }}>
+                      <strong>Customer Outstanding Balance:</strong>
+                      <strong style={{ color: liveSettlement.customerRemainingBalance > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                        ₹{liveSettlement.customerRemainingBalance.toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Payment History */}
               <div className="card" style={{ marginTop: '20px', padding: '20px' }}>
