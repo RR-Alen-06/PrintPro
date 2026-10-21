@@ -151,6 +151,7 @@ export const syncEntityToCloud = async (action, payload) => {
           balance: payload.balance || 0,
           status: payload.status || 'unpaid',
           notes: payload.notes || '',
+          advance_used: Number(payload.advanceUsed !== undefined ? payload.advanceUsed : (payload.advance_used !== undefined ? payload.advance_used : (payload.creditUsed || 0))),
         });
       }
       break;
@@ -183,14 +184,28 @@ export const syncEntityToCloud = async (action, payload) => {
 
     case 'ADD_PAYMENT':
       if (payload.billId || payload.customerId) {
+        if (payload.isRefund || payload.paymentType === 'refund' || Number(payload.totalPaid || 0) < 0) {
+          return await createRefund({
+            bill_id: payload.billId || payload.bill_id || null,
+            customer_id: payload.customerId || payload.customer_id,
+            refund_amount: Math.abs(payload.totalPaid || payload.amount || 0),
+            cash_amount: Math.abs(payload.cashAmount || 0),
+            upi_amount: Math.abs(payload.upiAmount || 0),
+            refund_method: Math.abs(payload.cashAmount || 0) > 0 ? 'cash' : (Math.abs(payload.upiAmount || 0) > 0 ? 'upi' : 'direct'),
+            notes: payload.notes || 'Refund payment',
+            advance_refund_amount: payload.advanceRefundAmount || 0,
+            pin_override: payload.pin_override || payload.pinOverride || false,
+            security_pin: payload.security_pin || payload.securityPin || '',
+          });
+        }
         return await createPayment({
           bill_id: payload.billId || payload.bill_id || null,
           customer_id: payload.customerId || payload.customer_id || null,
           cash_amount: payload.cashAmount !== undefined ? payload.cashAmount : (payload.cash_amount || 0),
           upi_amount: payload.upiAmount !== undefined ? payload.upiAmount : (payload.upi_amount || 0),
           total_paid: payload.totalPaid !== undefined ? payload.totalPaid : (payload.total_paid || 0),
-          payment_type: payload.paymentType || (payload.isRefund ? 'refund' : 'partial'),
-          is_refund: !!payload.isRefund,
+          payment_type: payload.paymentType || 'partial',
+          is_refund: false,
           notes: payload.notes || '',
         });
       }
@@ -207,6 +222,8 @@ export const syncEntityToCloud = async (action, payload) => {
           refund_method: payload.cashAmount !== 0 ? 'cash' : (payload.upiAmount !== 0 ? 'upi' : 'direct'),
           notes: payload.notes || 'Refund payment',
           advance_refund_amount: payload.advanceRefundAmount || 0,
+          pin_override: payload.pin_override || payload.pinOverride || false,
+          security_pin: payload.security_pin || payload.securityPin || '',
         });
       }
       break;

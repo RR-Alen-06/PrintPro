@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, Banknote, GitMerge } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, Banknote, GitMerge, Lock } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
@@ -18,6 +18,7 @@ const makeInitialRow = (inventory = []) => {
     id: `row-${Date.now()}`,
     itemId: first?.id || '',
     itemName: first?.name || '',
+    category: first?.item_type || 'paper',
     isCustom: !hasInv,
     printType: 'color',
     sides: 'single',
@@ -133,6 +134,11 @@ const Billing = () => {
     if (editId) {
       const billToEdit = bills.find((b) => b.id === editId)
       if (billToEdit) {
+        if (billToEdit.status === 'paid' || Number(billToEdit.balance || 0) <= 0) {
+          showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+          navigate('/billing', { replace: true })
+          return
+        }
         setIsEditing(true)
         setEditingBillId(billToEdit.id)
         setCustomerType(billToEdit.customerType || 'regular')
@@ -162,6 +168,7 @@ const Billing = () => {
             id: `row-${Date.now()}-${idx}-${Math.random()}`,
             itemId: item.itemId || '',
             itemName: item.itemName || item.name || (invItem?.name) || 'Custom Item',
+            category: item.category || (invItem?.item_type) || (item.itemId ? 'paper' : 'other'),
             isCustom: !item.itemId,
             printType: item.printType || 'color',
             sides: item.sides || 'single',
@@ -199,6 +206,7 @@ const Billing = () => {
             id: `row-${Date.now()}-${idx}-${Math.random()}`,
             itemId: item.itemId || '',
             itemName: item.itemName || item.name || (invItem?.name) || 'Custom Item',
+            category: item.category || (invItem?.item_type) || (item.itemId ? 'paper' : 'other'),
             isCustom: !item.itemId,
             printType: item.printType || 'color',
             sides: item.sides || 'single',
@@ -226,7 +234,7 @@ const Billing = () => {
         }
       }
     }
-  }, [location.search, bills, inventory, customers])
+  }, [location.search, bills, inventory, customers, navigate, showAlert])
 
   // ── Derived from live bills state so modal always reflects latest ──────────
   const liveBill = useMemo(() => {
@@ -249,6 +257,13 @@ const Billing = () => {
     if (customerType === 'random' && randomMode === 'existing') return customers.find((c) => c.id === randomCustomerId)
     return null
   }, [customers, customerId, customerType, randomMode, randomCustomerId])
+
+  const customerPendingDue = useMemo(() => {
+    if (!selectedCustomer?.id) return 0
+    return (bills || [])
+      .filter((b) => !b.deleted && !b.isGroupParent && String(b.customerId) === String(selectedCustomer.id) && b.id !== editingBillId && Number(b.balance || 0) > 0)
+      .reduce((sum, b) => sum + Number(b.balance || 0), 0)
+  }, [bills, selectedCustomer, editingBillId])
 
   const activeRegular = useMemo(() => customers.filter((c) => c.type === 'regular' && !c.deleted), [customers])
   const activeRandom = useMemo(() => customers.filter((c) => c.type === 'random' && !c.deleted), [customers])
@@ -792,11 +807,12 @@ const Billing = () => {
     setItemRows((current) => [
       ...current,
       {
-        id: `row-${Date.now()}`,
+        id: `row-${Date.now()}-${Math.random()}`,
         itemId: '',
         itemName: '',
+        category: 'other',
         isCustom: true,
-        printType: 'color',
+        printType: 'bw',
         sides: 'single',
         qty: 1,
         unitPrice: 0,
@@ -836,8 +852,10 @@ const Billing = () => {
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
   const appliedAdvance = Math.min(Number(advanceUsed || 0), customerAdvance, total)
-  const excessPaid = Math.max(amountPaid - Math.max(total - appliedAdvance, 0), 0)
-  const netBalance = Math.max(total - appliedAdvance - amountPaid, 0)
+  const netBillPayable = Math.max(total - appliedAdvance, 0)
+  const totalCustomerOwes = Number((netBillPayable + customerPendingDue).toFixed(2))
+  const excessPaid = Math.max(amountPaid - totalCustomerOwes, 0)
+  const netBalance = Math.max(netBillPayable - Math.min(amountPaid, netBillPayable), 0)
   const finalStatus =
     amountPaid + appliedAdvance >= total ? 'paid'
     : amountPaid + appliedAdvance > 0 ? 'partial'
@@ -864,6 +882,10 @@ const Billing = () => {
   }, [subtotal, appliedPromo])
 
   const handleEditBill = (bill) => {
+    if (bill.status === 'paid' || Number(bill.balance || 0) <= 0) {
+      showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+      return
+    }
     setIsEditing(true)
     setEditingBillId(bill.id)
     setCustomerType(bill.customerType || 'regular')
@@ -875,18 +897,22 @@ const Billing = () => {
     }
     setDate(bill.date)
     setDueDate(bill.dueDate || '')
-    setItemRows(bill.items.map((item) => ({
-      id: item.id || `row-${Date.now()}-${Math.random()}`,
-      itemId: item.itemId || '',
-      itemName: item.itemName || item.name,
-      isCustom: !item.itemId,
-      printType: item.printType,
-      sides: item.sides,
-      qty: item.qty,
-      unitPrice: item.unitPrice,
-      amount: item.amount,
-      gstRate: item.gstRate || 0,
-    })))
+    setItemRows(bill.items.map((item) => {
+      const invItem = inventory.find((i) => i.id === item.itemId)
+      return {
+        id: item.id || `row-${Date.now()}-${Math.random()}`,
+        itemId: item.itemId || '',
+        itemName: item.itemName || item.name,
+        category: item.category || (invItem?.item_type) || (item.itemId ? 'paper' : 'other'),
+        isCustom: !item.itemId,
+        printType: item.printType || 'color',
+        sides: item.sides || 'single',
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+        gstRate: item.gstRate || 0,
+      }
+    }))
     setDiscountType(bill.discountType || 'flat')
     setDiscountValue(bill.discountValue || 0)
     setCustomGst(bill.gstAmount !== undefined && bill.gstAmount !== null ? String(bill.gstAmount) : '')
@@ -1022,7 +1048,9 @@ const Billing = () => {
     })
 
     const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
-    const changeDue = Number((totalPaidNow - total).toFixed(2))
+    const netBillPayable = Math.max(total - appliedAdvance, 0)
+    const totalCustomerOwes = Number((netBillPayable + customerPendingDue).toFixed(2))
+    const changeDue = Number((totalPaidNow - totalCustomerOwes).toFixed(2))
 
     const billPayload = {
       customerId: customerIdToUse,
@@ -1207,6 +1235,10 @@ const Billing = () => {
   // ── Post-bill discount ────────────────────────────────────────────────────
   const handleApplyPostDiscount = () => {
     if (!liveBill) return
+    if (liveBill.status === 'paid' || Number(liveBill.balance || 0) <= 0) {
+      showAlert('Modifying Discount Locked', 'This bill is fully settled and paid. Modifying discount is not permitted.')
+      return
+    }
     const dVal = Number(discountModalValue || 0)
     applyPostDiscount(liveBill.id, discountModalType, dVal)
     setDiscountApplyMsg('Discount applied successfully!')
@@ -1785,13 +1817,34 @@ const Billing = () => {
                   <tr key={row.id}>
                     <td>
                       {row.isCustom ? (
-                        <input
-                          className="form-input"
-                          type="text"
-                          placeholder="Item name"
-                          value={row.itemName}
-                          onChange={(e) => updateRow(row.id, { itemName: e.target.value })}
-                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <select
+                            className="form-select"
+                            style={{
+                              fontSize: '0.78rem',
+                              padding: '2px 6px',
+                              height: '26px',
+                              borderRadius: '4px',
+                              background: 'var(--bg-elevated, var(--bg-card))',
+                              fontWeight: 600,
+                              color: 'var(--accent)'
+                            }}
+                            value={row.category || 'other'}
+                            onChange={(e) => updateRow(row.id, { category: e.target.value })}
+                          >
+                            <option value="paper">📄 Print &amp; Paper</option>
+                            <option value="product">📦 Stationery / Product</option>
+                            <option value="service">✂️ Service (Binding/Lamination)</option>
+                            <option value="other">🏷️ Other Category</option>
+                          </select>
+                          <input
+                            className="form-input"
+                            type="text"
+                            placeholder="Enter custom item name"
+                            value={row.itemName}
+                            onChange={(e) => updateRow(row.id, { itemName: e.target.value })}
+                          />
+                        </div>
                       ) : (
                         <select
                           className="form-select"
@@ -1802,6 +1855,7 @@ const Billing = () => {
                             handleComboChange(row.id, {
                               itemId,
                               itemName: selected?.name || row.itemName,
+                              category: selected?.item_type || 'paper',
                               unitPrice: getItemBasePrice(itemId, row.printType, row.sides),
                             })
                           }}
@@ -1814,7 +1868,9 @@ const Billing = () => {
                     </td>
                     {(() => {
                       const matchedItem = inventory.find(i => i.id === row.itemId)
-                      const isNonPaper = matchedItem && (matchedItem.item_type === 'service' || matchedItem.item_type === 'product' || matchedItem.item_type === 'stationery')
+                      const isNonPaper = row.isCustom
+                        ? (row.category && row.category !== 'paper')
+                        : (matchedItem && (matchedItem.item_type === 'service' || matchedItem.item_type === 'product' || matchedItem.item_type === 'stationery'))
                       return (
                         <>
                           <td>
@@ -2286,6 +2342,17 @@ const Billing = () => {
                 <div className="stat-card-value">₹{amountPaid.toFixed(2)}</div>
               </div>
             </div>
+            {customerPendingDue > 0 && (
+              <div className="form-group" style={{ padding: '8px 12px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ margin: 0, color: 'var(--warning)', fontWeight: 600 }}>Previous Due</label>
+                  <div className="stat-card-value font-mono tabular-nums" style={{ color: 'var(--warning)', fontSize: '1rem' }}>₹{customerPendingDue.toFixed(2)}</div>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Payable (Bill + Due): ₹{totalCustomerOwes.toFixed(2)}
+                </div>
+              </div>
+            )}
             {appliedAdvance > 0 && (
               <div className="form-group">
                 <label className="form-label">Advance Used</label>
@@ -2379,15 +2446,31 @@ const Billing = () => {
                     <button type="button" className="btn btn-sm btn-secondary" onClick={() => openBillModal(bill)}>
                       <ClipboardList size={14} /> View
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => handleEditBill(bill)}
-                      title="Edit Bill"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Pencil size={14} />
-                    </button>
+                    {(() => {
+                      const isSettled = bill.status === 'paid' || Number(bill.balance || 0) <= 0
+                      return (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => {
+                            if (isSettled) {
+                              showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+                              return
+                            }
+                            handleEditBill(bill)
+                          }}
+                          disabled={isSettled}
+                          title={isSettled ? "Fully settled bill - editing locked" : "Edit Bill"}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            opacity: isSettled ? 0.45 : 1,
+                            cursor: isSettled ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isSettled ? <Lock size={14} /> : <Pencil size={14} />}
+                        </button>
+                      )
+                    })()}
                     <button
                       type="button"
                       className="btn btn-sm btn-secondary"
@@ -2773,14 +2856,32 @@ const Billing = () => {
               <button type="button" className="btn btn-secondary" onClick={() => shareOnWhatsApp(liveBill)} style={{ color: '#25D366' }}>
                 <Share2 size={16} /> WhatsApp Share
               </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => { handleEditBill(liveBill); closeBillModal() }}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Pencil size={16} /> Edit Bill
-              </button>
+              {(() => {
+                const isSettled = liveBill.status === 'paid' || Number(liveBill.balance || 0) <= 0
+                return (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      if (isSettled) {
+                        showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+                        return
+                      }
+                      handleEditBill(liveBill)
+                      closeBillModal()
+                    }}
+                    disabled={isSettled}
+                    title={isSettled ? "Fully settled bill - editing locked" : "Edit Bill"}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      opacity: isSettled ? 0.5 : 1,
+                      cursor: isSettled ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isSettled ? <Lock size={16} /> : <Pencil size={16} />} {isSettled ? 'Locked' : 'Edit Bill'}
+                  </button>
+                )
+              })()}
               {/* UPI QR in modal */}
               {business?.upiId && liveBill.balance > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>

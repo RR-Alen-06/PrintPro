@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react'
-import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, ArrowLeftRight } from 'lucide-react'
+import { Users, Plus, Trash2, CheckCircle, AlertTriangle, Wallet, X, ChevronDown, Tag, ArrowLeftRight, Printer, Download, MessageCircle, FileText } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
+import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId, getDisplayCustomerId, getDisplayGroupId, getDisplayPaymentId } from '../utils/idFormatter'
 
 const makeItemRow = (inventory = []) => {
@@ -201,12 +203,25 @@ const ItemRowEditor = ({ rows, setRows, inventory }) => {
       {rows.map((row) => (
         <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 90px 90px 60px 90px 80px 1fr 32px', gap: '6px', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px' }}>
           {row.isCustom ? (
-            <input
-              className="form-input" style={{ fontSize: '13px', padding: '5px 8px' }}
-              placeholder="Item name"
-              value={row.itemName}
-              onChange={(e) => updateRow(row.id, { itemName: e.target.value })}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <select
+                className="form-input"
+                style={{ fontSize: '11px', padding: '2px 4px', height: '22px' }}
+                value={row.category || 'other'}
+                onChange={(e) => updateRow(row.id, { category: e.target.value })}
+              >
+                <option value="paper">📄 Paper &amp; Print</option>
+                <option value="product">📦 Stationery / Product</option>
+                <option value="service">✂️ Service</option>
+                <option value="other">🏷️ Other</option>
+              </select>
+              <input
+                className="form-input" style={{ fontSize: '13px', padding: '5px 8px' }}
+                placeholder="Item name"
+                value={row.itemName}
+                onChange={(e) => updateRow(row.id, { itemName: e.target.value })}
+              />
+            </div>
           ) : (
             <select className="form-input" style={{ fontSize: '13px', padding: '5px 8px' }}
               value={row.itemId}
@@ -552,6 +567,7 @@ const GroupBilling = () => {
   })
   const [notes, setNotes] = useState('')
   const [lastGroupId, setLastGroupId] = useState(null)
+  const [activeReceiptGroup, setActiveReceiptGroup] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // ── Shared/Addon mode state ─────────────────────────────────────────────────
@@ -566,12 +582,17 @@ const GroupBilling = () => {
   // ── Split mode state ────────────────────────────────────────────────────────
   const [splitRows, setSplitRows] = useState(() => [makeItemRow(inventory)])
   const [splitMembers, setSplitMembers] = useState([
-    { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0 },
-    { id: `sm-${Date.now()}-2`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0 },
+    { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0, cashPaid: '', upiPaid: '' },
+    { id: `sm-${Date.now()}-2`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, discountType: 'flat', discountValue: 0, cashPaid: '', upiPaid: '' },
   ])
   const [roundingMode, setRoundingMode] = useState('up') // 'up' | 'down'
   const [splitDiscountMode, setSplitDiscountMode] = useState('individual') // 'individual' | 'group'
   const [splitGroupDiscount, setSplitGroupDiscount] = useState({ type: 'flat', value: 0 })
+
+  // ── Split Settlement Preset state ───────────────────────────────────────────
+  const [settlementPreset, setSettlementPreset] = useState('equal') // 'equal' | 'single' | 'custom'
+  const [singlePayerCustId, setSinglePayerCustId] = useState('')
+  const [singlePayerMethod, setSinglePayerMethod] = useState('cash') // 'cash' | 'upi'
 
   const activeCustomers = useMemo(() => customers.filter((c) => !c.deleted), [customers])
 
@@ -691,6 +712,153 @@ const GroupBilling = () => {
     [splitMembers, splitAmount, splitTotalGst, splitCount, splitDiscountMode, splitGroupDiscount, settings]
   )
 
+  // ── Split Settlement & Allocation Logic ─────────────────────────────────────
+  const splitSettlementData = useMemo(() => {
+    const memberShares = splitMembers.map((m, idx) => {
+      const cust = activeCustomers.find(c => c.id === m.customerId)
+      const adv = Number(cust?.advanceBalance || cust?.creditBalance || 0)
+      const { total } = splitMemberTotals[idx] || { total: 0 }
+      const advUsed = m.useAdvance ? Math.min(adv, total) : 0
+      const netShare = Math.max(0, total - advUsed)
+      const cash = Number(m.cashPaid || 0)
+      const upi = Number(m.upiPaid || 0)
+      const directPaid = cash + upi
+
+      return {
+        member: m,
+        customer: cust,
+        customerName: cust?.name || `Member ${idx + 1}`,
+        total,
+        advUsed,
+        netShare,
+        cash,
+        upi,
+        directPaid
+      }
+    })
+
+    const totalGroupBill = memberShares.reduce((s, m) => s + m.total, 0)
+    const totalAdvUsed = memberShares.reduce((s, m) => s + m.advUsed, 0)
+    const totalNetShare = memberShares.reduce((s, m) => s + m.netShare, 0)
+    const totalDirectPaid = memberShares.reduce((s, m) => s + m.directPaid, 0)
+    const totalCash = memberShares.reduce((s, m) => s + m.cash, 0)
+    const totalUpi = memberShares.reduce((s, m) => s + m.upi, 0)
+
+    // Build deficits and excess
+    const deficits = memberShares.map((m, idx) => ({
+      idx,
+      customerId: m.member.customerId,
+      customerName: m.customerName,
+      amountNeeded: Math.max(0, m.netShare - m.directPaid),
+      sponsoredFrom: []
+    }))
+
+    const sponsors = memberShares.map((m, idx) => ({
+      idx,
+      customerId: m.member.customerId,
+      customerName: m.customerName,
+      availableExcess: Math.max(0, m.directPaid - m.netShare),
+      sponsoring: []
+    }))
+
+    // Match excess with deficits (cross-member sponsoring)
+    for (const sp of sponsors) {
+      if (sp.availableExcess <= 0) continue
+      for (const def of deficits) {
+        if (sp.availableExcess <= 0) break
+        if (def.idx === sp.idx) continue
+        if (def.amountNeeded <= 0) continue
+
+        const alloc = Math.min(sp.availableExcess, def.amountNeeded)
+        sp.availableExcess = Number((sp.availableExcess - alloc).toFixed(2))
+        def.amountNeeded = Number((def.amountNeeded - alloc).toFixed(2))
+
+        sp.sponsoring.push({
+          toMemberIdx: def.idx,
+          toCustomerId: def.customerId,
+          toCustomerName: def.customerName,
+          amount: Number(alloc.toFixed(2))
+        })
+
+        def.sponsoredFrom.push({
+          fromMemberIdx: sp.idx,
+          fromCustomerId: sp.customerId,
+          fromCustomerName: sp.customerName,
+          amount: Number(alloc.toFixed(2))
+        })
+      }
+    }
+
+    const computedMembers = memberShares.map((m, idx) => {
+      const def = deficits[idx]
+      const sp = sponsors[idx]
+      const sponsoredReceived = def.sponsoredFrom.reduce((s, x) => s + x.amount, 0)
+      const remainingDeficit = def.amountNeeded
+      const unusedExcess = sp.availableExcess
+      const finalBal = Math.max(0, m.total - (m.advUsed + m.directPaid + sponsoredReceived))
+      const status = finalBal <= 0 ? 'paid' : ((m.advUsed + m.directPaid + sponsoredReceived) > 0 ? 'partial' : 'unpaid')
+
+      return {
+        ...m,
+        sponsoring: sp.sponsoring,
+        sponsoredFrom: def.sponsoredFrom,
+        sponsoredReceived,
+        unusedExcess,
+        remainingDeficit,
+        finalBal,
+        status
+      }
+    })
+
+    const groupRemainingDue = Math.max(0, totalNetShare - totalDirectPaid)
+
+    return {
+      computedMembers,
+      totalGroupBill,
+      totalAdvUsed,
+      totalNetShare,
+      totalDirectPaid,
+      totalCash,
+      totalUpi,
+      groupRemainingDue
+    }
+  }, [splitMembers, splitMemberTotals, activeCustomers])
+
+  const applyPresetEqual = () => {
+    setSettlementPreset('equal')
+    setSplitMembers((cur) =>
+      cur.map((m, idx) => {
+        const cust = activeCustomers.find((c) => c.id === m.customerId)
+        const adv = Number(cust?.advanceBalance || cust?.creditBalance || 0)
+        const { total } = splitMemberTotals[idx] || { total: 0 }
+        const advUsed = m.useAdvance ? Math.min(adv, total) : 0
+        const needed = Math.max(0, total - advUsed)
+        return {
+          ...m,
+          cashPaid: needed > 0 ? String(needed) : '',
+          upiPaid: ''
+        }
+      })
+    )
+  }
+
+  const applyPresetSinglePayer = (payerCustId, method = singlePayerMethod) => {
+    setSettlementPreset('single')
+    const totalNeeded = splitSettlementData.totalNetShare
+    setSplitMembers((cur) =>
+      cur.map((m) => {
+        if (m.customerId === payerCustId) {
+          return {
+            ...m,
+            cashPaid: method === 'cash' ? String(totalNeeded) : '',
+            upiPaid: method === 'upi' ? String(totalNeeded) : ''
+          }
+        }
+        return { ...m, cashPaid: '', upiPaid: '' }
+      })
+    )
+  }
+
   // ── Member helpers (shared mode) ─────────────────────────────────────────────
   const addMember = () =>
     setMembers((cur) => [
@@ -716,7 +884,10 @@ const GroupBilling = () => {
 
   // ── Member helpers (split mode) ───────────────────────────────────────────────
   const addSplitMember = () =>
-    setSplitMembers((cur) => [...cur, { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0 }])
+    setSplitMembers((cur) => [
+      ...cur,
+      { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0, cashPaid: '', upiPaid: '' }
+    ])
 
   const removeSplitMember = (id) => setSplitMembers((cur) => cur.filter((m) => m.id !== id))
 
@@ -791,11 +962,14 @@ const GroupBilling = () => {
     setMembers([{ id: `m-${Date.now()}`, customerId: '', hasAddons: false, addonRows: [], discountType: 'flat', discountValue: 0, useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '' }])
     setSplitRows([makeItemRow(inventory)])
     setSplitMembers([
-      { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0 },
-      { id: `sm-${Date.now()}-2`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0 },
+      { id: `sm-${Date.now()}`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0, cashPaid: '', upiPaid: '' },
+      { id: `sm-${Date.now()}-2`, customerId: '', useAdvance: false, shouldRedeemPoints: false, loyaltyPointsRedeemed: 0, customGst: '', discountType: 'flat', discountValue: 0, cashPaid: '', upiPaid: '' },
     ])
     setNotes('')
     setRoundingMode('up')
+    setSettlementPreset('equal')
+    setSinglePayerCustId('')
+    setSinglePayerMethod('cash')
     setSharedDiscountMode('individual')
     setSharedGroupDiscount({ type: 'flat', value: 0 })
     setSharedCostDistribution('split')
@@ -923,18 +1097,28 @@ const GroupBilling = () => {
       const finalDiscType = hasBoth ? 'flat' : (m.appliedPromo ? m.appliedPromo.type : (splitDiscountMode === 'group' ? splitGroupDiscount.type : m.discountType))
       const finalDiscVal = hasBoth ? discountAmount : (m.appliedPromo ? m.appliedPromo.value : (splitDiscountMode === 'group' ? splitGroupDiscount.value : m.discountValue))
 
+      const computed = splitSettlementData.computedMembers[idx]
+
       return {
         customerId: m.customerId,
-        items: splitRows.map((r) => ({
-          itemId: r.itemId,
-          itemName: r.itemName,
-          printType: r.printType,
-          sides: r.sides,
-          qty: Number(r.qty),
-          unitPrice: Number(r.unitPrice),
-          amount: Number(r.amount),
-          gstRate: Number(r.gstRate || 0),
-        })),
+        items: splitRows.map((r) => {
+          const qty = Number(r.qty)
+          const baseUnitPrice = Number(r.unitPrice)
+          const baseAmount = Number(r.amount)
+          const unitPrice = splitCount > 1 ? Number((baseUnitPrice / splitCount).toFixed(2)) : baseUnitPrice
+          const amount = splitCount > 1 ? Number((baseAmount / splitCount).toFixed(2)) : baseAmount
+          const itemName = `${r.itemName} (Shared 1/${splitCount} Split)`
+          return {
+            itemId: r.itemId,
+            itemName,
+            printType: r.printType,
+            sides: r.sides,
+            qty,
+            unitPrice,
+            amount,
+            gstRate: Number(r.gstRate || 0),
+          }
+        }),
         subtotal,
         gstAmount,
         cgst,
@@ -950,6 +1134,11 @@ const GroupBilling = () => {
         rounding: 0,
         useAdvance: m.useAdvance,
         groupRole: 'split',
+        cashPaid: computed.cash,
+        upiPaid: computed.upi,
+        sponsoredAmount: computed.sponsoredReceived,
+        sponsoring: computed.sponsoring,
+        settledByGroupPayment: computed.sponsoredReceived > 0 && computed.directPaid < total,
       }
     })
 
@@ -964,6 +1153,19 @@ const GroupBilling = () => {
       })
       setLastGroupId(grpId)
       showToast(`Split group bill ${grpId} created — ₹${splitAmount} × ${splitCount} members!`, 'success')
+
+      // Open Split Receipt Modal for this group bill
+      setActiveReceiptGroup({
+        id: grpId,
+        type: 'split',
+        date,
+        dueDate,
+        notes,
+        splitCount,
+        roundingMode,
+        createdAt: new Date().toISOString()
+      })
+
       resetAll()
     } catch (err) {
       showAlert(`Failed to create split bill: ${err.message}`, 'error')
@@ -1579,6 +1781,225 @@ const GroupBilling = () => {
             })}
           </div>
 
+          {/* ── Settlement & Payment Matrix ── */}
+          <div className="card" style={{ marginBottom: '24px', background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Wallet size={16} className="text-accent" /> Payment & Settlement Allocation Matrix
+                </h3>
+                <span style={{ fontSize: '12px', color: '#71717a' }}>
+                  Choose a preset or enter flexible Cash/UPI payments. Overpayments automatically sponsor remaining members.
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${settlementPreset === 'equal' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '12px', padding: '4px 10px' }}
+                  onClick={applyPresetEqual}
+                >
+                  Equal Shares
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${settlementPreset === 'single' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '12px', padding: '4px 10px' }}
+                  onClick={() => {
+                    const firstCustId = splitMembers.find(m => m.customerId)?.customerId || ''
+                    setSinglePayerCustId(firstCustId)
+                    applyPresetSinglePayer(firstCustId, singlePayerMethod)
+                  }}
+                >
+                  Pay Full by 1 Member
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${settlementPreset === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '12px', padding: '4px 10px' }}
+                  onClick={() => setSettlementPreset('custom')}
+                >
+                  Custom / Sponsor
+                </button>
+              </div>
+            </div>
+
+            {/* If Single Payer Preset Active */}
+            {settlementPreset === 'single' && (
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '10px 14px', background: 'rgba(99,102,241,0.08)', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.3)', marginBottom: '16px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#818cf8' }}>Select Payer:</span>
+                <select
+                  className="form-input"
+                  style={{ fontSize: '12px', padding: '4px 8px', maxWidth: '220px' }}
+                  value={singlePayerCustId}
+                  onChange={(e) => {
+                    setSinglePayerCustId(e.target.value)
+                    applyPresetSinglePayer(e.target.value, singlePayerMethod)
+                  }}
+                >
+                  <option value="">— Select Customer —</option>
+                  {splitMembers.map((sm, i) => {
+                    const c = activeCustomers.find(x => x.id === sm.customerId)
+                    return (
+                      <option key={sm.id} value={sm.customerId}>
+                        {c?.name || `Member ${i + 1}`}
+                      </option>
+                    )
+                  })}
+                </select>
+                <span style={{ fontSize: '12px', color: '#a1a1aa' }}>via</span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${singlePayerMethod === 'cash' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                    onClick={() => {
+                      setSinglePayerMethod('cash')
+                      applyPresetSinglePayer(singlePayerCustId, 'cash')
+                    }}
+                  >
+                    Cash
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${singlePayerMethod === 'upi' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                    onClick={() => {
+                      setSinglePayerMethod('upi')
+                      applyPresetSinglePayer(singlePayerCustId, 'upi')
+                    }}
+                  >
+                    UPI
+                  </button>
+                </div>
+                <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#a3e635', fontWeight: 600 }}>
+                  Pays Full Group: ₹{splitSettlementData.totalNetShare.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* Matrix Table */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#71717a' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px' }}>Member</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Share</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Advance</th>
+                    <th style={{ textAlign: 'center', padding: '8px 6px', width: '100px' }}>Cash (₹)</th>
+                    <th style={{ textAlign: 'center', padding: '8px 6px', width: '100px' }}>UPI (₹)</th>
+                    <th style={{ textAlign: 'left', padding: '8px 10px' }}>Sponsorship / Cross-Payment</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Balance Due</th>
+                    <th style={{ textAlign: 'center', padding: '8px 6px' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {splitSettlementData.computedMembers.map((cm) => (
+                    <tr key={cm.member.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ padding: '8px 6px', fontWeight: 600 }}>
+                        <div>{cm.customerName}</div>
+                        {cm.customer?.phone && (
+                          <div style={{ fontSize: '11px', color: '#71717a' }}>{cm.customer.phone}</div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '8px 6px', color: '#a3e635', fontWeight: 600 }}>
+                        ₹{cm.total.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '8px 6px', color: cm.advUsed > 0 ? '#10b981' : '#71717a' }}>
+                        {cm.advUsed > 0 ? `₹${cm.advUsed.toFixed(2)}` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'center', padding: '8px 6px' }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="form-input"
+                          style={{ width: '90px', fontSize: '12px', padding: '4px 6px', textAlign: 'right' }}
+                          placeholder="0.00"
+                          value={cm.member.cashPaid ?? ''}
+                          onChange={(e) => {
+                            setSettlementPreset('custom')
+                            updateSplitMember(cm.member.id, { cashPaid: e.target.value })
+                          }}
+                        />
+                      </td>
+                      <td style={{ textAlign: 'center', padding: '8px 6px' }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="form-input"
+                          style={{ width: '90px', fontSize: '12px', padding: '4px 6px', textAlign: 'right' }}
+                          placeholder="0.00"
+                          value={cm.member.upiPaid ?? ''}
+                          onChange={(e) => {
+                            setSettlementPreset('custom')
+                            updateSplitMember(cm.member.id, { upiPaid: e.target.value })
+                          }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 10px', fontSize: '12px' }}>
+                        {cm.sponsoring && cm.sponsoring.length > 0 ? (
+                          <div style={{ color: '#818cf8', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {cm.sponsoring.map((s, si) => (
+                              <span key={si}>+ Sponsoring ₹{s.amount.toFixed(2)} for {s.toCustomerName}</span>
+                            ))}
+                          </div>
+                        ) : cm.sponsoredFrom && cm.sponsoredFrom.length > 0 ? (
+                          <div style={{ color: '#10b981', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {cm.sponsoredFrom.map((s, si) => (
+                              <span key={si}>✓ Covered ₹{s.amount.toFixed(2)} by {s.fromCustomerName}</span>
+                            ))}
+                          </div>
+                        ) : cm.directPaid >= cm.netShare && cm.netShare > 0 ? (
+                          <span style={{ color: '#71717a' }}>Own share settled</span>
+                        ) : (
+                          <span style={{ color: '#71717a' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 700, color: cm.finalBal > 0 ? '#f59e0b' : '#10b981' }}>
+                        ₹{cm.finalBal.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: 'center', padding: '8px 6px' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
+                          background: cm.status === 'paid' ? 'rgba(16,185,129,0.15)' : cm.status === 'partial' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                          color: cm.status === 'paid' ? '#10b981' : cm.status === 'partial' ? '#f59e0b' : '#ef4444',
+                        }}>
+                          {cm.status.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Summary Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ display: 'flex', gap: '18px', fontSize: '13px', flexWrap: 'wrap' }}>
+                <div><span style={{ color: '#71717a' }}>Group Total:</span> <strong style={{ color: '#fff' }}>₹{splitSettlementData.totalGroupBill.toFixed(2)}</strong></div>
+                <div><span style={{ color: '#71717a' }}>Cash Inflow:</span> <strong style={{ color: '#10b981' }}>₹{splitSettlementData.totalCash.toFixed(2)}</strong></div>
+                <div><span style={{ color: '#71717a' }}>UPI Inflow:</span> <strong style={{ color: '#3b82f6' }}>₹{splitSettlementData.totalUpi.toFixed(2)}</strong></div>
+                {splitSettlementData.totalAdvUsed > 0 && (
+                  <div><span style={{ color: '#71717a' }}>Advance Used:</span> <strong style={{ color: '#10b981' }}>₹{splitSettlementData.totalAdvUsed.toFixed(2)}</strong></div>
+                )}
+                <div><span style={{ color: '#71717a' }}>Balance Due:</span> <strong style={{ color: splitSettlementData.groupRemainingDue > 0 ? '#f59e0b' : '#10b981' }}>₹{splitSettlementData.groupRemainingDue.toFixed(2)}</strong></div>
+              </div>
+              <div>
+                {splitSettlementData.groupRemainingDue <= 0.01 ? (
+                  <span style={{ padding: '4px 12px', borderRadius: '16px', background: 'rgba(16,185,129,0.15)', color: '#10b981', fontSize: '12px', fontWeight: 600 }}>
+                    ✓ All member shares fully settled
+                  </span>
+                ) : (
+                  <span style={{ padding: '4px 12px', borderRadius: '16px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontSize: '12px', fontWeight: 600 }}>
+                    ₹{splitSettlementData.groupRemainingDue.toFixed(2)} balance remaining on bill creation
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
             className="btn btn-primary"
@@ -1593,7 +2014,7 @@ const GroupBilling = () => {
       {/* Group Bills history */}
       <div style={{ marginTop: '40px' }}>
         <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '14px' }}>Recent Group Bills</h3>
-        <GroupBillsHistory />
+        <GroupBillsHistory onOpenReceipt={(grp) => setActiveReceiptGroup(grp)} />
       </div>
 
       {/* Add New Customer Modal */}
@@ -1697,12 +2118,20 @@ const GroupBilling = () => {
           </div>
         </div>
       )}
+
+      {/* Split Receipt Modal */}
+      {activeReceiptGroup && (
+        <SplitReceiptModal
+          group={activeReceiptGroup}
+          onClose={() => setActiveReceiptGroup(null)}
+        />
+      )}
     </div>
   )
 }
 
 // ── Group Bills History List ───────────────────────────────────────────────────
-const GroupBillsHistory = () => {
+const GroupBillsHistory = ({ onOpenReceipt }) => {
   const { groupBills = [], bills, customers, recordSpecificBillPayment, recordSplitGroupPayment, payments = [] } = useAppContext()
   const [expanded, setExpanded] = useState(null)
   const [payModalBill, setPayModalBill] = useState(null)
@@ -1760,10 +2189,22 @@ const GroupBillsHistory = () => {
                 </span>
                 <span style={{ fontSize: '13px', color: '#a1a1aa' }}>{memberBills.length} members · {grp.date}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span style={{ fontSize: '14px', fontWeight: 700, color: '#a3e635' }}>₹{totalAmount.toFixed(2)}</span>
                 <span style={{ fontSize: '12px', color: '#10b981' }}>Paid: ₹{paidAmount.toFixed(2)}</span>
                 <span style={{ fontSize: '12px', color: balanceAmount > 0 ? '#f59e0b' : '#10b981' }}>Bal: ₹{balanceAmount.toFixed(2)}</span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', fontSize: '12px' }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenReceipt?.(grp)
+                  }}
+                  title="View / Print Group Split Receipt"
+                >
+                  <FileText size={13} /> Receipt
+                </button>
                 <ChevronDown size={16} style={{ color: '#71717a', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
               </div>
             </div>
@@ -1963,6 +2404,552 @@ const GroupBillsHistory = () => {
           </div>
         )
       })()}
+    </div>
+  )
+}
+
+// ── Split Receipt Modal (Master & Individual Member Views) ─────────────────────
+const SplitReceiptModal = ({ group, onClose }) => {
+  const { bills, customers, business, settings } = useAppContext()
+  const [viewMode, setViewMode] = useState('master') // 'master' | 'member'
+
+  const memberBills = useMemo(() => {
+    if (!group) return []
+    let list = (group.memberBillIds || [])
+      .map((id) => bills.find((b) => b.id === id && !b.deleted))
+      .filter(Boolean)
+    if (list.length === 0 && group.id) {
+      list = bills.filter((b) => b.groupBillId === group.id && !b.deleted)
+    }
+    return list
+  }, [group, bills])
+
+  const [selectedBillId, setSelectedBillId] = useState(() => memberBills[0]?.id || '')
+
+  const selectedBill = useMemo(() => {
+    return memberBills.find((b) => b.id === selectedBillId) || memberBills[0] || null
+  }, [memberBills, selectedBillId])
+
+  const totalAmount = memberBills.reduce((s, b) => s + Number(b.total || 0), 0)
+  const paidAmount = memberBills.reduce((s, b) => s + Number(b.amountPaid || 0), 0)
+  const balanceAmount = memberBills.reduce((s, b) => s + Number(b.balance || 0), 0)
+  const isSettled = balanceAmount <= 0.01
+
+  const sharedItems = memberBills[0]?.items || []
+
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const handleDownloadPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = doc.internal.pageSize.getWidth()
+      const MARGIN = 12
+      let y = 14
+
+      // Header
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.setTextColor(30, 41, 59)
+      doc.text(business?.shopName || 'PrintPro', W / 2, y, { align: 'center' })
+      y += 5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(100, 116, 139)
+      if (business?.address) {
+        doc.text(business.address, W / 2, y, { align: 'center' })
+        y += 4
+      }
+      const contacts = [business?.phone ? `Phone: ${business.phone}` : '', business?.gstin ? `GSTIN: ${business.gstin}` : ''].filter(Boolean).join(' | ')
+      if (contacts) {
+        doc.text(contacts, W / 2, y, { align: 'center' })
+        y += 4
+      }
+
+      doc.setDrawColor(203, 213, 225)
+      doc.setLineWidth(0.4)
+      doc.line(MARGIN, y, W - MARGIN, y)
+      y += 6
+
+      if (viewMode === 'master') {
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(12)
+        doc.setTextColor(79, 70, 229)
+        doc.text('GROUP SPLIT PURCHASE INVOICE & SETTLEMENT', W / 2, y, { align: 'center' })
+        y += 7
+
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        doc.text(`Group ID: ${getDisplayGroupId(group)}`, MARGIN, y)
+        doc.text(`Date: ${group.date || new Date().toISOString().slice(0, 10)}`, W - MARGIN, y, { align: 'right' })
+        y += 5
+        doc.text(`Split Members: ${memberBills.length}`, MARGIN, y)
+        doc.text(`Status: ${isSettled ? 'FULLY SETTLED' : 'PARTIALLY SETTLED'}`, W - MARGIN, y, { align: 'right' })
+        y += 7
+
+        // Items Table
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.text('Purchased Items (Shared)', MARGIN, y)
+        y += 3
+
+        doc.setFillColor(241, 245, 249)
+        doc.rect(MARGIN, y, W - 2 * MARGIN, 6, 'F')
+        doc.setTextColor(71, 85, 105)
+        doc.text('Item', MARGIN + 2, y + 4.2)
+        doc.text('Type', 85, y + 4.2)
+        doc.text('Sides', 110, y + 4.2)
+        doc.text('Qty', 135, y + 4.2)
+        doc.text('Amount (₹)', W - MARGIN - 2, y + 4.2, { align: 'right' })
+        y += 7
+
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        sharedItems.forEach((item) => {
+          const rawName = item.itemName || item.name || 'Item'
+          const itemName = rawName.replace(/ \(Shared 1\/\d+ Split\)/g, '')
+          doc.text(itemName.length > 36 ? itemName.slice(0, 34) + '…' : itemName, MARGIN + 2, y + 4)
+          doc.text(item.printType ? (item.printType === 'bw' ? 'B&W' : 'Color') : '—', 85, y + 4)
+          doc.text(item.sides ? (item.sides === 'double' ? '2-Sided' : '1-Sided') : '—', 110, y + 4)
+          doc.text(String(item.qty || 1), 135, y + 4)
+          const mult = group.splitCount || memberBills.length || 1
+          const amt = Number(item.amount || 0) * mult
+          doc.text(`₹${amt.toFixed(2)}`, W - MARGIN - 2, y + 4, { align: 'right' })
+          y += 6
+        })
+
+        y += 4
+        // Member Settlements
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.text('Member Settlements & Sponsorship Breakdown', MARGIN, y)
+        y += 3
+
+        doc.setFillColor(241, 245, 249)
+        doc.rect(MARGIN, y, W - 2 * MARGIN, 6, 'F')
+        doc.setTextColor(71, 85, 105)
+        doc.text('Member', MARGIN + 2, y + 4.2)
+        doc.text('Share (₹)', 80, y + 4.2)
+        doc.text('Paid (₹)', 110, y + 4.2)
+        doc.text('Balance (₹)', 140, y + 4.2)
+        doc.text('Status', W - MARGIN - 2, y + 4.2, { align: 'right' })
+        y += 7
+
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        memberBills.forEach((b) => {
+          doc.text(b.customerName || 'Customer', MARGIN + 2, y + 4)
+          doc.text(`₹${Number(b.total).toFixed(2)}`, 80, y + 4)
+          doc.text(`₹${Number(b.amountPaid || 0).toFixed(2)}`, 110, y + 4)
+          doc.text(`₹${Number(b.balance || 0).toFixed(2)}`, 140, y + 4)
+          const stat = b.settledByGroupPayment ? 'SETTLED' : (b.status || 'unpaid').toUpperCase()
+          doc.text(stat, W - MARGIN - 2, y + 4, { align: 'right' })
+          y += 6
+        })
+
+        y += 4
+        doc.setDrawColor(203, 213, 225)
+        doc.line(MARGIN, y, W - MARGIN, y)
+        y += 5
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9.5)
+        doc.text(`Group Total: ₹${totalAmount.toFixed(2)}`, MARGIN, y)
+        doc.text(`Total Paid: ₹${paidAmount.toFixed(2)}`, 95, y)
+        doc.text(`Balance Due: ₹${balanceAmount.toFixed(2)}`, W - MARGIN, y, { align: 'right' })
+
+      } else if (selectedBill) {
+        // Individual Member PDF
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(12)
+        doc.setTextColor(79, 70, 229)
+        doc.text('TAX INVOICE (SPLIT MEMBER SHARE)', W / 2, y, { align: 'center' })
+        y += 7
+
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        doc.text(`Bill ID: ${getDisplayBillId(selectedBill)}`, MARGIN, y)
+        doc.text(`Date: ${selectedBill.date}`, W - MARGIN, y, { align: 'right' })
+        y += 5
+        doc.text(`Customer: ${selectedBill.customerName}`, MARGIN, y)
+        doc.text(`Group Ref: ${getDisplayGroupId(group)}`, W - MARGIN, y, { align: 'right' })
+        y += 5
+        doc.text(`Status: ${selectedBill.settledByGroupPayment ? 'SETTLED (GROUP PAYMENT)' : selectedBill.status.toUpperCase()}`, MARGIN, y)
+        y += 7
+
+        doc.setFillColor(241, 245, 249)
+        doc.rect(MARGIN, y, W - 2 * MARGIN, 6, 'F')
+        doc.setTextColor(71, 85, 105)
+        doc.setFont('helvetica', 'bold')
+        doc.text('Item (Split Share)', MARGIN + 2, y + 4.2)
+        doc.text('Type', 90, y + 4.2)
+        doc.text('Sides', 115, y + 4.2)
+        doc.text('Qty', 135, y + 4.2)
+        doc.text('Share (₹)', W - MARGIN - 2, y + 4.2, { align: 'right' })
+        y += 7
+
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        selectedBill.items.forEach((item) => {
+          const rawName = item.itemName || item.name || 'Item'
+          const nameWithBadge = rawName.includes('Split') ? rawName : `${rawName} (Shared 1/${group.splitCount || memberBills.length || 'N'} Split)`
+          doc.text(nameWithBadge.length > 36 ? nameWithBadge.slice(0, 34) + '…' : nameWithBadge, MARGIN + 2, y + 4)
+          doc.text(item.printType ? (item.printType === 'bw' ? 'B&W' : 'Color') : '—', 90, y + 4)
+          doc.text(item.sides ? (item.sides === 'double' ? '2-Sided' : '1-Sided') : '—', 115, y + 4)
+          doc.text(String(item.qty || 1), 135, y + 4)
+          doc.text(`₹${Number(item.amount || 0).toFixed(2)}`, W - MARGIN - 2, y + 4, { align: 'right' })
+          y += 6
+        })
+
+        y += 4
+        doc.setDrawColor(203, 213, 225)
+        doc.line(MARGIN, y, W - MARGIN, y)
+        y += 5
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9.5)
+        doc.text(`Share Total: ₹${Number(selectedBill.total).toFixed(2)}`, MARGIN, y)
+        doc.text(`Paid: ₹${Number(selectedBill.amountPaid || 0).toFixed(2)}`, 95, y)
+        doc.text(`Balance Due: ₹${Number(selectedBill.balance || 0).toFixed(2)}`, W - MARGIN, y, { align: 'right' })
+      }
+
+      doc.save(`SplitReceipt_${group.id}_${viewMode}.pdf`)
+    } catch (err) {
+      console.error('Failed to generate PDF:', err)
+    }
+  }
+
+  const handleWhatsApp = () => {
+    if (viewMode === 'master') {
+      let text = `🧾 *${(business?.shopName || 'PRINTPRO').toUpperCase()} - GROUP SPLIT RECEIPT*\n`
+      text += `📄 Group ID: ${getDisplayGroupId(group)}\n`
+      text += `📅 Date: ${group.date || new Date().toISOString().slice(0, 10)}\n`
+      text += `💰 Total: ₹${totalAmount.toFixed(2)} | Paid: ₹${paidAmount.toFixed(2)} | Due: ₹${balanceAmount.toFixed(2)}\n`
+      text += `━━━━━━━━━━━━━━━━━━━━━━━\n`
+      text += `👥 *MEMBER BREAKDOWN:*\n`
+      memberBills.forEach((b, i) => {
+        text += `${i + 1}. *${b.customerName}*: Share ₹${Number(b.total).toFixed(2)} | Paid ₹${Number(b.amountPaid || 0).toFixed(2)} | Bal: ₹${Number(b.balance || 0).toFixed(2)} (${b.settledByGroupPayment ? 'SETTLED' : b.status.toUpperCase()})\n`
+      })
+      text += `━━━━━━━━━━━━━━━━━━━━━━━\nThank you for choosing ${business?.shopName || 'PrintPro'}!`
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank')
+    } else if (selectedBill) {
+      const cust = customers.find((c) => c.id === selectedBill.customerId)
+      const phone = cust?.phone ? cust.phone.replace(/[^0-9]/g, '') : ''
+      const text = formatWhatsAppReceipt(selectedBill, settings, business)
+      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank')
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div className="modal-header" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FileText size={18} className="text-accent" /> Split Purchase Receipt — {getDisplayGroupId(group)}
+            </h3>
+            <span style={{ fontSize: '12px', color: '#71717a' }}>
+              {memberBills.length} members · {group.date || new Date().toISOString().slice(0, 10)} · {isSettled ? 'Fully Settled' : 'Partially Paid'}
+            </span>
+          </div>
+          <button type="button" className="btn-close" onClick={onClose}>&times;</button>
+        </div>
+
+        {/* View Switcher & Action Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${viewMode === 'master' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ fontSize: '12px', padding: '4px 12px' }}
+              onClick={() => setViewMode('master')}
+            >
+              Master Group Receipt
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${viewMode === 'member' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ fontSize: '12px', padding: '4px 12px' }}
+              onClick={() => setViewMode('member')}
+            >
+              Individual Member Receipts
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={handlePrint} title="Print Receipt">
+              <Printer size={14} /> Print
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={handleDownloadPDF} title="Download PDF">
+              <Download size={14} /> PDF
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ color: '#10b981', borderColor: 'rgba(16,185,129,0.3)' }} onClick={handleWhatsApp} title="Share WhatsApp">
+              <MessageCircle size={14} /> WhatsApp
+            </button>
+          </div>
+        </div>
+
+        {/* Modal Body / Printable Area */}
+        <div className="modal-body" style={{ overflowY: 'auto', padding: '20px' }}>
+          {viewMode === 'member' && (
+            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.03)', padding: '8px 12px', borderRadius: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Select Member:</span>
+              <select
+                className="form-input"
+                style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
+                value={selectedBillId}
+                onChange={(e) => setSelectedBillId(e.target.value)}
+              >
+                {memberBills.map((b, i) => (
+                  <option key={b.id} value={b.id}>
+                    {i + 1}. {b.customerName} ({getDisplayBillId(b)}) — Share: ₹{Number(b.total).toFixed(2)} ({b.status.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Render Visual Receipt Paper */}
+          <div style={{
+            background: '#ffffff',
+            color: '#0f172a',
+            padding: '24px 28px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '12px',
+            lineHeight: '1.6'
+          }}>
+            {/* Business Header */}
+            <div style={{ textAlign: 'center', paddingBottom: '12px', borderBottom: '2px solid #334155', marginBottom: '14px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: 'bold', color: '#0f172a' }}>
+                {business?.shopName || 'PrintPro'}
+              </h2>
+              {business?.address && <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>{business.address}</p>}
+              <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#64748b' }}>
+                {[business?.phone ? `Phone: ${business.phone}` : '', business?.gstin ? `GSTIN: ${business.gstin}` : ''].filter(Boolean).join(' | ')}
+              </p>
+            </div>
+
+            {viewMode === 'master' ? (
+              /* MASTER RECEIPT VIEW */
+              <div>
+                <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '13px', letterSpacing: '0.5px', color: '#4f46e5' }}>
+                    GROUP SPLIT PURCHASE INVOICE & SETTLEMENT
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
+                  <span><strong>Group ID:</strong> {getDisplayGroupId(group)}</span>
+                  <span><strong>Date:</strong> {group.date || new Date().toISOString().slice(0, 10)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
+                  <span><strong>Split Members:</strong> {memberBills.length}</span>
+                  <span><strong>Status:</strong> <strong style={{ color: isSettled ? '#10b981' : '#f59e0b' }}>{isSettled ? 'FULLY SETTLED' : 'PARTIALLY SETTLED'}</strong></span>
+                </div>
+
+                <hr style={{ borderColor: '#cbd5e1', margin: '8px 0 12px' }} />
+
+                <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '6px', color: '#334155' }}>Purchased Items (Shared)</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #94a3b8', color: '#475569' }}>
+                      <th style={{ textAlign: 'left', padding: '4px 0' }}>Item</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Type</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Sides</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Qty</th>
+                      <th style={{ textAlign: 'right', padding: '4px 0' }}>Total (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sharedItems.map((item, idx) => {
+                      const rawName = item.itemName || item.name || 'Item'
+                      const cleanName = rawName.replace(/ \(Shared 1\/\d+ Split\)/g, '')
+                      const mult = group.splitCount || memberBills.length || 1
+                      const fullAmt = Number(item.amount || 0) * mult
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '4px 0' }}>{cleanName}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'bw' ? 'B&W' : 'Color'}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'double' ? '2-Sided' : '1-Sided'}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{fullAmt.toFixed(2)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+
+                <hr style={{ borderColor: '#cbd5e1', margin: '8px 0 12px' }} />
+
+                <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '6px', color: '#334155' }}>Member Settlement Breakdown</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #94a3b8', color: '#475569' }}>
+                      <th style={{ textAlign: 'left', padding: '4px 0' }}>Member</th>
+                      <th style={{ textAlign: 'right', padding: '4px 4px' }}>Share</th>
+                      <th style={{ textAlign: 'right', padding: '4px 4px' }}>Paid</th>
+                      <th style={{ textAlign: 'right', padding: '4px 4px' }}>Balance</th>
+                      <th style={{ textAlign: 'right', padding: '4px 0' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {memberBills.map((b) => (
+                      <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '4px 0' }}>
+                          <strong>{b.customerName}</strong>
+                          {b.settledByGroupPayment && (
+                            <span style={{ fontSize: '10px', color: '#4f46e5', display: 'block' }}>
+                              Covered via Group Payment
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(b.total).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 4px', color: '#10b981' }}>₹{Number(b.amountPaid || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 4px', color: Number(b.balance) > 0 ? '#f59e0b' : '#10b981' }}>
+                          ₹{Number(b.balance || 0).toFixed(2)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 0' }}>
+                          <span style={{
+                            padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold',
+                            background: b.settledByGroupPayment ? 'rgba(99,102,241,0.1)' : b.status === 'paid' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                            color: b.settledByGroupPayment ? '#4f46e5' : b.status === 'paid' ? '#059669' : '#dc2626'
+                          }}>
+                            {b.settledByGroupPayment ? 'SETTLED' : b.status.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Totals */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', fontSize: '12px', marginTop: '10px', borderTop: '2px solid #334155', paddingTop: '8px' }}>
+                  <div style={{ display: 'flex', gap: '24px' }}>
+                    <span>Total Group Amount:</span><strong>₹{totalAmount.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '24px', color: '#059669' }}>
+                    <span>Total Collected:</span><strong>₹{paidAmount.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '24px', color: balanceAmount > 0 ? '#d97706' : '#059669' }}>
+                    <span>Total Balance Due:</span><strong>₹{balanceAmount.toFixed(2)}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : selectedBill ? (
+              /* INDIVIDUAL MEMBER VIEW */
+              <div>
+                <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '13px', letterSpacing: '0.5px', color: '#4f46e5' }}>
+                    TAX INVOICE (SPLIT MEMBER SHARE)
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
+                  <span><strong>Bill ID:</strong> {getDisplayBillId(selectedBill)}</span>
+                  <span><strong>Date:</strong> {selectedBill.date}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
+                  <span><strong>Customer:</strong> {selectedBill.customerName}</span>
+                  <span><strong>Group Ref:</strong> {getDisplayGroupId(group)}</span>
+                </div>
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                  <strong>Status:</strong>{' '}
+                  <span style={{
+                    padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold',
+                    background: selectedBill.settledByGroupPayment ? 'rgba(99,102,241,0.1)' : selectedBill.status === 'paid' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: selectedBill.settledByGroupPayment ? '#4f46e5' : selectedBill.status === 'paid' ? '#059669' : '#dc2626'
+                  }}>
+                    {selectedBill.settledByGroupPayment ? 'SETTLED VIA GROUP PAYMENT' : selectedBill.status.toUpperCase()}
+                  </span>
+                </div>
+
+                <hr style={{ borderColor: '#cbd5e1', margin: '8px 0 12px' }} />
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #94a3b8', color: '#475569' }}>
+                      <th style={{ textAlign: 'left', padding: '4px 0' }}>Item</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Type</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Sides</th>
+                      <th style={{ textAlign: 'center', padding: '4px 4px' }}>Qty</th>
+                      <th style={{ textAlign: 'right', padding: '4px 4px' }}>Unit</th>
+                      <th style={{ textAlign: 'right', padding: '4px 0' }}>Share (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedBill.items.map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '4px 0' }}>
+                          <div>{item.itemName || item.name}</div>
+                          <span style={{
+                            display: 'inline-block',
+                            fontSize: '9.5px',
+                            fontWeight: 600,
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            background: 'rgba(99, 102, 241, 0.12)',
+                            color: '#4f46e5',
+                            marginTop: '2px'
+                          }}>
+                            (Shared 1/{group.splitCount || memberBills.length || 'N'} Split)
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.printType === 'bw' ? 'B&W' : 'Color'}</td>
+                        <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.sides === 'double' ? '2-Sided' : '1-Sided'}</td>
+                        <td style={{ textAlign: 'center', padding: '4px 4px' }}>{item.qty}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 4px' }}>₹{Number(item.unitPrice).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '4px 0' }}>₹{Number(item.amount).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Member Totals */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', fontSize: '12px', marginTop: '10px', borderTop: '2px solid #334155', paddingTop: '8px' }}>
+                  <div style={{ display: 'flex', gap: '24px' }}>
+                    <span>Share Subtotal:</span><strong>₹{Number(selectedBill.subtotal || 0).toFixed(2)}</strong>
+                  </div>
+                  {selectedBill.gstAmount > 0 && (
+                    <div style={{ display: 'flex', gap: '24px' }}>
+                      <span>GST:</span><span>₹{Number(selectedBill.gstAmount).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {Number(selectedBill.discountAmount || 0) > 0 && (
+                    <div style={{ display: 'flex', gap: '24px', color: '#059669' }}>
+                      <span>Discount:</span><span>-₹{Number(selectedBill.discountAmount).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '24px', fontWeight: 'bold' }}>
+                    <span>Member Total:</span><strong>₹{Number(selectedBill.total).toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '24px', color: '#059669' }}>
+                    <span>Amount Paid:</span><strong>₹{Number(selectedBill.amountPaid || 0).toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '24px', color: Number(selectedBill.balance) > 0 ? '#d97706' : '#059669' }}>
+                    <span>Balance Due:</span><strong>₹{Number(selectedBill.balance || 0).toFixed(2)}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Footer */}
+            <div style={{ textAlign: 'center', marginTop: '20px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1', fontSize: '10px', color: '#64748b' }}>
+              Thank you for choosing {business?.shopName || 'PrintPro'}!
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="modal-footer" style={{ padding: '12px 20px', display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   )
 }

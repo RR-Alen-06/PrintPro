@@ -1017,6 +1017,10 @@ const Customers = () => {
   const [editDueDate, setEditDueDate] = useState('')
 
   const openEditBill = (bill) => {
+    if (bill.status === 'paid' || Number(bill.balance || 0) <= 0) {
+      showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+      return
+    }
     setEditingBill(bill)
     setEditDate(bill.date || '')
     setEditDueDate(bill.dueDate || '')
@@ -2172,14 +2176,30 @@ const Customers = () => {
                                   </td>
                                   <td style={{ textAlign: 'right' }}>
                                     <div style={{ display: 'inline-flex', gap: '6px' }}>
-                                      <button
-                                        className="btn btn-ghost btn-sm"
-                                        title="Edit Bill Items & Pricing"
-                                        onClick={() => openEditBill(bill)}
-                                        style={{ padding: '4px 8px' }}
-                                      >
-                                        <Pencil size={14} />
-                                      </button>
+                                      {(() => {
+                                        const isSettled = bill.status === 'paid' || Number(bill.balance || 0) <= 0
+                                        return (
+                                          <button
+                                            className="btn btn-ghost btn-sm"
+                                            title={isSettled ? "Fully settled bill - editing locked" : "Edit Bill Items & Pricing"}
+                                            disabled={isSettled}
+                                            onClick={() => {
+                                              if (isSettled) {
+                                                showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
+                                                return
+                                              }
+                                              openEditBill(bill)
+                                            }}
+                                            style={{
+                                              padding: '4px 8px',
+                                              opacity: isSettled ? 0.4 : 1,
+                                              cursor: isSettled ? 'not-allowed' : 'pointer'
+                                            }}
+                                          >
+                                            {isSettled ? <Lock size={14} /> : <Pencil size={14} />}
+                                          </button>
+                                        )
+                                      })()}
                                       <button
                                         className="btn btn-ghost btn-sm"
                                         title="Duplicate to POS"
