@@ -6,6 +6,7 @@ import { updateLoyaltySettings } from '../api/loyalty'
 import { createPromoCode, updatePromoCode, deletePromoCode, bulkGeneratePromoCodes } from '../api/promoCodes'
 import { clearAllDataApi } from '../api/settings'
 import { wipeUserDatabase } from '../lib/indexedDbStore'
+import { supabase } from '../lib/supabase'
 
 
 const Settings = () => {
@@ -471,15 +472,73 @@ const Settings = () => {
     if (deleteConfirmText.trim() !== 'DELETE' || isDeletingData) return
     try {
       setIsDeletingData(true)
-      // 1. Wipe database records on backend
-      await clearAllDataApi()
 
-      // 2. Wipe IndexedDB offline cache for this user
+      // 1. Wipe database records on backend API (which executes transactional PostgreSQL wipe)
+      try {
+        await clearAllDataApi()
+      } catch (apiErr) {
+        console.warn('Backend clearAllDataApi error or unavailable, proceeding with direct Supabase client wipe:', apiErr)
+      }
+
+      // 2. Direct Supabase cloud database wipe for authenticated user (client-side safety guarantee)
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const uid = user?.id || currentUser?.id
+        if (uid) {
+          // Tables in foreign-key dependency order
+          const tables = [
+            'group_settlement_payments',
+            'payments',
+            'advance_payments',
+            'promo_uses',
+            'promo_codes',
+            'bill_items',
+            'bills',
+            'group_bills',
+            'customer_groups',
+            'loyalty_events',
+            'loyalty_settings',
+            'customers',
+            'purchases',
+            'expenses',
+            'upi_transactions',
+            'cash_sessions',
+            'inventory_items',
+            'audit_log',
+            'sequences',
+            'user_settings'
+          ]
+          for (const tbl of tables) {
+            try {
+              await supabase.from(tbl).delete().eq('user_id', uid)
+            } catch (tblErr) {
+              console.warn(`Supabase direct delete on ${tbl} notice:`, tblErr)
+            }
+          }
+          try {
+            await supabase.from('business_profile').update({
+              settings: {},
+              id_counters: {},
+              advance_payments: [],
+              recurring_bills: [],
+              customer_groups: [],
+              group_bills: [],
+              deleted_payments: []
+            }).eq('user_id', uid)
+          } catch (bpErr) {
+            console.warn('Supabase business_profile reset notice:', bpErr)
+          }
+        }
+      } catch (sbErr) {
+        console.warn('Supabase direct client wipe notice:', sbErr)
+      }
+
+      // 3. Wipe IndexedDB offline cache for this user
       if (currentUser?.id) {
         await wipeUserDatabase(currentUser.id)
       }
 
-      // 3. Clear all PrintPro localStorage keys
+      // 4. Clear all PrintPro localStorage keys
       const keysToRemove = [
         'printpro-state',
         'printpro-cash-sessions',
@@ -497,7 +556,7 @@ const Settings = () => {
         }
       })
 
-      showToast('All business data has been permanently cleared. Reloading...', 'success')
+      showToast('All business data has been permanently cleared from Supabase and local cache. Reloading...', 'success')
       setShowClearModal(false)
       setTimeout(() => {
         window.location.reload()

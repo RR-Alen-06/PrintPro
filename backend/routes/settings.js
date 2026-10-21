@@ -53,6 +53,7 @@ router.delete('/clear-all-data', async (req, res, next) => {
     logger.warn(`Initiating Factory Reset (Clear All Data) for user ${userId}`);
 
     // Ordered transactional deletion respecting foreign key constraints
+    await conn.query('DELETE FROM group_settlement_payments WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM payments WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM advance_payments WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM promo_uses WHERE user_id = ?', [userId]);
@@ -61,13 +62,29 @@ router.delete('/clear-all-data', async (req, res, next) => {
     await conn.query('DELETE FROM bills WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM group_bills WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM customer_groups WHERE user_id = ?', [userId]);
+    await conn.query('DELETE FROM loyalty_events WHERE user_id = ?', [userId]);
+    await conn.query('DELETE FROM loyalty_settings WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM customers WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM purchases WHERE user_id = ?', [userId]);
+    await conn.query('DELETE FROM expenses WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM upi_transactions WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM cash_sessions WHERE user_id = ?', [userId]);
-    await conn.query('DELETE FROM loyalty_events WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM inventory_items WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM audit_log WHERE user_id = ?', [userId]);
+    await conn.query('DELETE FROM sequences WHERE user_id = ?', [userId]);
+    await conn.query('DELETE FROM user_settings WHERE user_id = ?', [userId]);
+    await conn.query(
+      `UPDATE business_profile
+       SET settings = '{}',
+           id_counters = '{}',
+           advance_payments = '[]',
+           recurring_bills = '[]',
+           customer_groups = '[]',
+           group_bills = '[]',
+           deleted_payments = '[]'
+       WHERE user_id = ?`,
+      [userId]
+    );
 
     await conn.commit();
     logger.info(`Factory Reset completed successfully for user ${userId}`);
