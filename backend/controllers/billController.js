@@ -385,12 +385,28 @@ async function updateBill(req, res, next) {
     const actualBillId = oldBill.id;
 
     // Check if bill is fully settled (paid or balance <= 0)
-    if (oldBill.status === 'paid' || Number(oldBill.balance) <= 0) {
-      await conn.rollback();
-      return res.status(400).json({
-        success: false,
-        error: 'Bill is fully settled and paid. Editing is not permitted.'
-      });
+    const isSettled = oldBill.status === 'paid' || Number(oldBill.balance) <= 0;
+    if (isSettled) {
+      const isAuthorizedEdit = Boolean(
+        req.body.pin_override ||
+        req.body.pinOverride ||
+        req.body.refund_action ||
+        req.body.refundAction ||
+        req.body.is_refund
+      );
+
+      // Idempotent sync / payment confirmation (total and items unchanged, or confirming status='paid' / balance=0)
+      const hasItemChanges = Array.isArray(items) && items.length > 0;
+      const hasTotalChange = reqTotal !== undefined && Math.abs(parseFloat(reqTotal) - parseFloat(oldBill.total)) >= 0.01;
+      const isIdempotentSync = !hasItemChanges && !hasTotalChange;
+
+      if (!isAuthorizedEdit && !isIdempotentSync) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          error: 'Bill is fully settled and paid. Editing is not permitted.'
+        });
+      }
     }
 
     const [oldItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
