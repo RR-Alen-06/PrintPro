@@ -153,12 +153,12 @@ const validateBill = [
 
 const validateBillUpdate = [
   body('customer_id')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .notEmpty()
     .withMessage('Customer ID cannot be empty'),
   body('date')
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage('Bill date must be in YYYY-MM-DD format'),
   body('due_date')
@@ -166,46 +166,46 @@ const validateBillUpdate = [
     .isISO8601()
     .withMessage('Due date must be in YYYY-MM-DD format'),
   body('subtotal')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('Subtotal must be a positive number'),
   body('discount_type')
-    .optional()
+    .optional({ checkFalsy: true, nullable: true })
     .isIn(['percent', 'flat'])
     .withMessage('Discount type must be "percent" or "flat"'),
   body('discount_value')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('Discount value must be a positive number'),
   body('gst_percent')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0, max: 100 })
     .withMessage('GST percent must be between 0 and 100'),
   body('gst_amount')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('GST amount must be a positive number'),
   body('total')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('Total must be a positive number'),
   body('amount_paid')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('Amount paid must be a positive number'),
   body('balance')
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage('Balance must be a positive number'),
   body('status')
-    .optional()
+    .optional({ checkFalsy: true, nullable: true })
     .isIn(['unpaid', 'partial', 'paid'])
     .withMessage('Invalid bill status value'),
   body('notes')
-    .optional()
+    .optional({ nullable: true })
     .trim(),
   body('items')
-    .optional()
+    .optional({ nullable: true })
     .isArray()
     .withMessage('Items must be an array'),
   body('items.*')

@@ -19,19 +19,40 @@ router.post('/', async (req, res, next) => {
     const pool = getPool();
     const { id, group_id, title, date, total_amount, amount_paid, status, member_shares, notes } = req.body;
 
-    if (!group_id) {
-      return res.status(400).json({ success: false, error: 'Group ID is required' });
-    }
-
     const billId = id || `GB-${Date.now()}`;
+    const effectiveGroupId = group_id || 'GENERAL';
+
+    // Verify or ensure group exists to satisfy foreign key constraint
+    if (group_id) {
+      const [grpRows] = await pool.query('SELECT id FROM customer_groups WHERE id = ? AND user_id = ?', [group_id, req.user.id]);
+      if (grpRows.length === 0) {
+        await pool.query(
+          'INSERT INTO customer_groups (id, user_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT (id, user_id) DO NOTHING',
+          [group_id, req.user.id, title || `Group ${group_id}`, 'Auto-created group for group billing']
+        );
+      }
+    } else {
+      await pool.query(
+        'INSERT INTO customer_groups (id, user_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT (id, user_id) DO NOTHING',
+        ['GENERAL', req.user.id, 'General Group', 'Default container for ad-hoc group bills']
+      );
+    }
 
     await pool.query(
       `INSERT INTO group_bills (id, user_id, group_id, title, date, total_amount, amount_paid, status, member_shares, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id, user_id) DO UPDATE SET
+         title = EXCLUDED.title,
+         total_amount = EXCLUDED.total_amount,
+         amount_paid = EXCLUDED.amount_paid,
+         status = EXCLUDED.status,
+         member_shares = EXCLUDED.member_shares,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()`,
       [
         billId,
         req.user.id,
-        group_id,
+        effectiveGroupId,
         title || '',
         date || new Date().toISOString().slice(0, 10),
         total_amount || 0,
