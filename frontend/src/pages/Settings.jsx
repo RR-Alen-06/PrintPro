@@ -473,64 +473,79 @@ const Settings = () => {
     try {
       setIsDeletingData(true)
 
+      let backendSuccess = false
       // 1. Wipe database records on backend API (which executes transactional PostgreSQL wipe)
       try {
-        await clearAllDataApi()
+        const res = await clearAllDataApi()
+        if (res?.data?.success) {
+          backendSuccess = true
+        }
       } catch (apiErr) {
         console.warn('Backend clearAllDataApi error or unavailable, proceeding with direct Supabase client wipe:', apiErr)
       }
 
-      // 2. Direct Supabase cloud database wipe for authenticated user (client-side safety guarantee)
-      try {
+      // 2. Direct Supabase cloud database wipe for authenticated user (client-side safety guarantee or fallback)
+      if (!backendSuccess) {
         const { data: { user } } = await supabase.auth.getUser()
         const uid = user?.id || currentUser?.id
-        if (uid) {
-          // Tables in foreign-key dependency order
-          const tables = [
-            'group_settlement_payments',
-            'payments',
-            'advance_payments',
-            'promo_uses',
-            'promo_codes',
-            'bill_items',
-            'bills',
-            'group_bills',
-            'customer_groups',
-            'loyalty_events',
-            'loyalty_settings',
-            'customers',
-            'purchases',
-            'expenses',
-            'upi_transactions',
-            'cash_sessions',
-            'inventory_items',
-            'audit_log',
-            'sequences',
-            'user_settings'
-          ]
-          for (const tbl of tables) {
-            try {
-              await supabase.from(tbl).delete().eq('user_id', uid)
-            } catch (tblErr) {
-              console.warn(`Supabase direct delete on ${tbl} notice:`, tblErr)
+        if (!uid) {
+          throw new Error('User authentication required to clear cloud database data.')
+        }
+
+        // Tables in strict foreign-key dependency order
+        const tables = [
+          'group_settlement_payments',
+          'payments',
+          'advance_payments',
+          'promo_uses',
+          'promo_codes',
+          'bill_items',
+          'bills',
+          'group_bills',
+          'customer_groups',
+          'loyalty_events',
+          'loyalty_settings',
+          'customers',
+          'purchases',
+          'expenses',
+          'upi_transactions',
+          'cash_sessions',
+          'inventory_items',
+          'audit_log',
+          'sequences',
+          'user_settings'
+        ]
+
+        const failedTables = []
+        for (const tbl of tables) {
+          const { error: tblErr } = await supabase.from(tbl).delete().eq('user_id', uid)
+          if (tblErr) {
+            console.error(`Supabase direct delete on ${tbl} failed:`, tblErr)
+            // If the error is not merely "table does not exist" or permission, track it
+            if (tblErr.code !== '42P01') {
+              failedTables.push(`${tbl} (${tblErr.message || tblErr.code})`)
             }
           }
-          try {
-            await supabase.from('business_profile').update({
-              settings: {},
-              id_counters: {},
-              advance_payments: [],
-              recurring_bills: [],
-              customer_groups: [],
-              group_bills: [],
-              deleted_payments: []
-            }).eq('user_id', uid)
-          } catch (bpErr) {
-            console.warn('Supabase business_profile reset notice:', bpErr)
-          }
         }
-      } catch (sbErr) {
-        console.warn('Supabase direct client wipe notice:', sbErr)
+
+        // Reset business profile settings and embedded json arrays
+        const { error: bpErr } = await supabase.from('business_profile').update({
+          settings: {},
+          id_counters: {},
+          advance_payments: [],
+          recurring_bills: [],
+          customer_groups: [],
+          group_bills: [],
+          deleted_payments: []
+        }).eq('user_id', uid)
+
+        if (bpErr) {
+          console.error('Supabase business_profile reset failed:', bpErr)
+        }
+
+        if (failedTables.length > 0) {
+          throw new Error(`Failed to clear some tables from Supabase: ${failedTables.join(', ')}`)
+        }
       }
 
       // 3. Wipe IndexedDB offline cache for this user
