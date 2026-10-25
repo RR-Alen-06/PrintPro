@@ -106,10 +106,11 @@ app.use('/api/', limiter);
 
 app.use(requestLogger);
 
-// ── Static uploads ───────────────────────────────────────────────────────────
+// ── Static uploads (Restricted to receipts directory) ──────────────────────────
 const { UPLOAD_ROOT } = require('./config/uploadConfig');
-app.use('/uploads', express.static(UPLOAD_ROOT));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const staticUploadOpts = { dotfiles: 'ignore', index: false };
+app.use('/uploads/receipts', express.static(path.join(UPLOAD_ROOT, 'receipts'), staticUploadOpts));
+app.use('/uploads/receipts', express.static(path.join(__dirname, 'uploads', 'receipts'), staticUploadOpts));
 
 // ── Health check (public) ────────────────────────────────────────────────────
 const startedAt = new Date();
