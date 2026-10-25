@@ -1,5 +1,8 @@
 # PrintBillingApp - Print Shop Billing, Accounting & Syncing System
 
+> [!IMPORTANT]
+> **Existing Clones Notice (Oct 2026):** The Git history of this repository was rewritten to sanitize secrets. If you cloned this repository prior to October 25, 2026, **do not run `git pull`**. Please read the [Collaborator Sync Guide](COLLABORATOR_SYNC.md) for clean slate reset instructions.
+
 A comprehensive React-based billing, accounting, and syncing application designed for print shops. Features include itemized billing, payment handling, customer management, inventory tracking, and full real-time database synchronization.
 
 ## Features
