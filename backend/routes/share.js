@@ -1,12 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
-const { ensureUploadSubdir } = require('../config/uploadConfig');
 const { getPool } = require('../config/db');
 const { allowlist } = require('../middleware/allowlist');
 const { pdfExportLimiter } = require('../middleware/rateLimiters');
@@ -15,6 +11,24 @@ const schemas = require('../config/schemas');
 
 // Strict file size cap: 2 MB (2,097,152 bytes)
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
+// In-memory cache for fallback receipt serving when cloud object storage bucket is unavailable
+// Strictly limits size and expires old entries to avoid memory leaks or disk writes
+const fallbackReceiptCache = new Map();
+const MAX_CACHE_ENTRIES = 50;
+
+function pruneFallbackCache() {
+  const oneHourAgo = Date.now() - 3600 * 1000;
+  for (const [key, entry] of fallbackReceiptCache.entries()) {
+    if (entry.createdAt < oneHourAgo) {
+      fallbackReceiptCache.delete(key);
+    }
+  }
+  if (fallbackReceiptCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = fallbackReceiptCache.keys().next().value;
+    if (oldestKey) fallbackReceiptCache.delete(oldestKey);
+  }
+}
 
 // Memory storage keeps the upload in a Buffer until magic bytes and authorization are verified
 const upload = multer({
@@ -103,22 +117,19 @@ router.post('/upload-pdf', pdfExportLimiter, upload.single('pdf'), allowlist(['b
           }
         }
       } catch (cloudErr) {
-        console.warn('[Storage] Object storage upload fallback to isolated disk:', cloudErr.message);
+        console.warn('[Storage] Object storage upload fallback to isolated memory cache:', cloudErr.message);
       }
     }
 
     // Fallback if cloud object storage is not configured or bucket is unavailable:
-    // Store in isolated directory OUTSIDE application tree and serve with safe headers
+    // Store in-memory buffer with strict expiration and serve with safe headers (zero local disk writes)
     if (!fileUrl) {
-      const receiptDir = ensureUploadSubdir('receipts');
-      const safeRandom = path.basename(randomFilename);
-      const targetPath = path.resolve(receiptDir, safeRandom);
-      const baseDir = path.resolve(receiptDir);
-      if (!targetPath.startsWith(baseDir + path.sep)) {
-        throw new Error('Path traversal detected');
-      }
-      fs.writeFileSync(targetPath, req.file.buffer, { mode: 0o600 }); // strict non-executable file permissions
-      fileUrl = `${backendUrl}/api/share/receipt/${safeRandom}`;
+      pruneFallbackCache();
+      fallbackReceiptCache.set(randomFilename, {
+        buffer: req.file.buffer,
+        createdAt: Date.now()
+      });
+      fileUrl = `${backendUrl}/api/share/receipt/${randomFilename}`;
     }
 
     return res.json({
@@ -136,27 +147,18 @@ router.post('/upload-pdf', pdfExportLimiter, upload.single('pdf'), allowlist(['b
 router.get('/receipt/:filename', (req, res) => {
   const { filename } = req.params;
 
-  // Strict UUID format validation: prevents path traversal (../) and restricts to generated files
+  // Strict UUID format validation: prevents traversal and restricts to generated files
   const uuidPdfRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/i;
   if (!uuidPdfRegex.test(filename)) {
     return res.status(400).json({ success: false, error: 'Invalid file identifier.' });
   }
 
-  const receiptDir = ensureUploadSubdir('receipts');
-  const safeFilename = path.basename(filename);
-  const filePath = path.resolve(receiptDir, safeFilename);
-  const baseDir = path.resolve(receiptDir);
-
-  // Path containment check to satisfy static analysis and prevent traversal
-  if (!filePath.startsWith(baseDir + path.sep)) {
-    return res.status(403).json({ success: false, error: 'Access denied.' });
-  }
-
-  if (!fs.existsSync(filePath)) {
+  const cached = fallbackReceiptCache.get(filename);
+  if (!cached || !cached.buffer) {
     return res.status(404).json({ success: false, error: 'File not found.' });
   }
 
-  // Never serve files from a path where they could execute; enforce strict content headers
+  // Enforce strict content headers
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'inline; filename="receipt.pdf"');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -164,7 +166,7 @@ router.get('/receipt/:filename', (req, res) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Cache-Control', 'private, max-age=3600');
 
-  return fs.createReadStream(filePath).pipe(res);
+  return res.end(cached.buffer);
 });
 
 module.exports = router;
