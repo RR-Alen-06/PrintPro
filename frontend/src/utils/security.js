@@ -4,6 +4,8 @@
  * safe formatted HTML sanitization, and CSV formula injection neutralization.
  */
 
+import DOMPurify from 'dompurify';
+
 const HTML_ESCAPE_MAP = {
   '&': '&amp;',
   '<': '&lt;',
@@ -35,39 +37,23 @@ export function sanitizeUrl(url) {
   const trimmed = url.trim();
   // Allow only safe HTTP/HTTPS, Blob, or safe data image URIs
   if (/^(?:https?:\/\/|blob:|data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,)/i.test(trimmed)) {
-    return trimmed.replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+    return encodeURI(trimmed);
   }
   return '';
 }
 
 /**
- * Sanitizes formatted text against a strict allowlist of safe formatting tags.
+ * Sanitizes formatted text using DOMPurify against a strict allowlist of safe formatting tags.
  * Strips all script tags, attributes, and event handlers.
  * @param {string} str
  * @returns {string}
  */
 export function sanitizeFormattedText(str) {
   if (!str || typeof str !== 'string') return '';
-  
-  // 1. Remove dangerous script, style, iframe, object, embed tags entirely
-  let clean = str.replace(/<(?:script|style|iframe|object|embed|svg|link)[^>]*>.*?<\/(?:script|style|iframe|object|embed|svg|link)>/gis, '');
-  clean = clean.replace(/<(?:script|style|iframe|object|embed|svg|link)[^>]*\/?>(?!<\/)/gi, '');
-  
-  // 2. Allow only strict formatting tags: <b>, <i>, <strong>, <em>, <br>, <p>, <ul>, <ol>, <li>
-  // Replace all other tags with their escaped entities
-  clean = clean.replace(/<(\/?)([a-z0-9_-]+)([^>]*)>/gi, (match, slash, tagName, attrs) => {
-    const tag = tagName.toLowerCase();
-    const ALLOWED_TAGS = ['b', 'i', 'strong', 'em', 'br', 'p', 'ul', 'ol', 'li'];
-    if (ALLOWED_TAGS.includes(tag)) {
-      // Disallow any inline JavaScript event handlers or dangerous attributes
-      const cleanAttrs = attrs.replace(/\b(on\w+|style|id|class)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '').trim();
-      return `<${slash}${tag}${cleanAttrs ? ' ' + cleanAttrs : ''}>`;
-    }
-    // Escape disallowed tags
-    return escapeHtml(match);
+  return DOMPurify.sanitize(str, {
+    ALLOWED_TAGS: ['b', 'i', 'strong', 'em', 'br', 'p', 'ul', 'ol', 'li'],
+    ALLOWED_ATTR: []
   });
-
-  return clean;
 }
 
 /**
