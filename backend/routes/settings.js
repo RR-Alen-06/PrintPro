@@ -46,17 +46,8 @@ router.put('/', allowlist(['settings']), validateSchema(schemas.settingsUpdate),
       'role', 'roles', 'permission', 'permissions', 'credit', 'credits',
       'balance', 'credit_balance', 'status', 'id', 'user_id', 'admin', 'isAdmin'
     ]);
-    const cleanSettings = Object.create(null);
-    for (const [k, v] of Object.entries(rawSettings)) {
-      if (!FORBIDDEN_SETTINGS_KEYS.has(k) && Object.prototype.hasOwnProperty.call(rawSettings, k)) {
-        Object.defineProperty(cleanSettings, k, {
-          value: v,
-          writable: true,
-          enumerable: true,
-          configurable: true
-        });
-      }
-    }
+    const cleanEntries = Object.entries(rawSettings).filter(([k]) => !FORBIDDEN_SETTINGS_KEYS.has(k) && !k.includes('__proto__') && k !== 'prototype' && k !== 'constructor');
+    const cleanSettings = Object.fromEntries(cleanEntries);
     const settingsJson = JSON.stringify(cleanSettings);
 
     await pool.query(

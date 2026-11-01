@@ -6,8 +6,12 @@
 
 const FORMATS = {
   date: /^\d{4}-\d{2}-\d{2}$/,
-  // eslint-disable-next-line security/detect-unsafe-regex
-  datetime: /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?)?$/,
+  datetime: {
+    test: (val) => {
+      if (typeof val !== 'string' || val.length < 10 || val.length > 35) return false;
+      return !isNaN(Date.parse(val));
+    }
+  },
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   phone: /^[+]?[\d\s()-]{7,25}$/,
   uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,

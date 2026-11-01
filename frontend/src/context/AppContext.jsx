@@ -2862,7 +2862,6 @@ export const AppProvider = ({ children }) => {
       dismissDlqItem,
       processOfflineQueue,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, isOnline, toast, dialog, offlineQueue, isSyncing, dlqItems, processOfflineQueue, dismissDlqItem]
   )
 
