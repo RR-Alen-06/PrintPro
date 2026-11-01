@@ -1,6 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// Advance payment projection DTO: strips internal auth tenant ID (user_id)
+function toAdvancePaymentDto(a) {
+  if (!a) return null;
+  return {
+    id: a.id,
+    advance_number: a.advance_number || '',
+    customer_id: a.customer_id,
+    amount: parseFloat(a.amount) || 0,
+    payment_mode: a.payment_mode || 'cash',
+    type: a.type || 'deposit',
+    bill_id: a.bill_id || null,
+    notes: a.notes || '',
+    date: a.date,
+    created_at: a.created_at
+  };
+}
 
 // GET /api/advance-payments
 router.get('/', async (req, res, next) => {
@@ -17,14 +37,14 @@ router.get('/', async (req, res, next) => {
 
     sql += ' ORDER BY date DESC';
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toAdvancePaymentDto) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/advance-payments
-router.post('/', async (req, res, next) => {
+router.post('/', allowlist(['customer_id', 'amount', 'payment_mode', 'type', 'bill_id', 'notes', 'date']), validateSchema(schemas.advancePaymentCreate), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -63,7 +83,7 @@ router.post('/', async (req, res, next) => {
       balanceDelta = -numAmount;
     }
 
-    let advanceNumber = req.body.advance_number || req.body.id;
+    let advanceNumber = null;
     if (!advanceNumber) {
       const [maxRows] = await conn.query(
         `SELECT advance_number FROM advance_payments WHERE user_id = ? AND advance_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(advance_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
@@ -107,7 +127,7 @@ router.post('/', async (req, res, next) => {
     await conn.commit();
 
     const [created] = await pool.query('SELECT * FROM advance_payments WHERE id = ? AND user_id = ?', [newAdvanceId, req.user.id]);
-    res.status(201).json({ success: true, data: created[0] });
+    res.status(201).json({ success: true, data: toAdvancePaymentDto(created[0]) });
   } catch (err) {
     await conn.rollback();
     next(err);
@@ -117,7 +137,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // PUT /api/advance-payments/:id
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', allowlist(['amount', 'payment_mode', 'type', 'bill_id', 'notes', 'date']), validateSchema(schemas.advancePaymentUpdate), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -189,7 +209,7 @@ router.put('/:id', async (req, res, next) => {
     await conn.commit();
 
     const [updated] = await pool.query('SELECT * FROM advance_payments WHERE id = ? AND user_id = ?', [actualAdvanceId, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toAdvancePaymentDto(updated[0]) });
   } catch (err) {
     await conn.rollback();
     next(err);

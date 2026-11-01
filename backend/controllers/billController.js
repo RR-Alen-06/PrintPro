@@ -1,8 +1,66 @@
 const { getPool } = require('../config/db');
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function isUUID(str) {
-  return typeof str === 'string' && UUID_REGEX.test(str);
+
+
+// Bill projection DTOs: strips internal auth tenant ID (user_id) and redundant internal fields
+function toBillItemDto(item) {
+  if (!item) return null;
+  return {
+    id: item.id,
+    bill_id: item.bill_id,
+    item_name: item.item_name || '',
+    category: item.category || 'paper',
+    print_type: item.print_type || '',
+    sides: item.sides || '',
+    qty: parseFloat(item.qty) || 0,
+    unit_price: parseFloat(item.unit_price) || 0,
+    amount: parseFloat(item.amount) || 0
+  };
+}
+
+function toPaymentDto(p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    bill_id: p.bill_id,
+    customer_id: p.customer_id,
+    payment_number: p.payment_number || p.payment_code || '',
+    date: p.date,
+    cash_amount: parseFloat(p.cash_amount) || 0,
+    upi_amount: parseFloat(p.upi_amount) || 0,
+    total_paid: parseFloat(p.total_paid) || 0,
+    payment_type: p.payment_type || 'partial',
+    is_refund: !!p.is_refund,
+    notes: p.notes || ''
+  };
+}
+
+function toBillDto(b) {
+  if (!b) return null;
+  return {
+    id: b.id,
+    bill_number: b.bill_number || b.invoice_number || '',
+    invoice_number: b.invoice_number || b.bill_number || '',
+    customer_id: b.customer_id,
+    customer_name: b.customer_name || '',
+    customer_phone: b.customer_phone || '',
+    date: b.date,
+    due_date: b.due_date,
+    created_at: b.created_at,
+    subtotal: parseFloat(b.subtotal) || 0,
+    discount_type: b.discount_type || 'flat',
+    discount_value: parseFloat(b.discount_value) || 0,
+    gst_percent: parseFloat(b.gst_percent) || 0,
+    gst_amount: parseFloat(b.gst_amount) || 0,
+    total: parseFloat(b.total) || 0,
+    amount_paid: parseFloat(b.amount_paid) || 0,
+    balance: parseFloat(b.balance) || 0,
+    status: b.status || 'unpaid',
+    notes: b.notes || '',
+    advance_used: parseFloat(b.advance_used) || 0,
+    deleted_at: b.deleted_at || null,
+    items: Array.isArray(b.items) ? b.items.map(toBillItemDto) : []
+  };
 }
 
 // GET / - List bills
@@ -59,7 +117,7 @@ async function listBills(req, res, next) {
       });
     }
 
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toBillDto) });
   } catch (err) {
     next(err);
   }
@@ -92,7 +150,7 @@ async function listDeletedBills(req, res, next) {
       });
     }
 
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toBillDto) });
   } catch (err) {
     next(err);
   }
@@ -125,9 +183,8 @@ async function getBill(req, res, next) {
     res.json({
       success: true,
       data: {
-        ...bill,
-        items,
-        payments
+        ...toBillDto({ ...bill, items }),
+        payments: payments.map(toPaymentDto)
       }
     });
   } catch (err) {
@@ -162,15 +219,8 @@ async function createBill(req, res, next) {
     const customer = custRows[0];
     const resolvedCustomerId = customer.id;
 
-    let billId = req.body.id;
+    const billId = require('crypto').randomUUID();
     let billNumber = req.body.bill_number || req.body.invoice_number || null;
-
-    if (!isUUID(billId)) {
-      if (billId && !billNumber) {
-        billNumber = billId;
-      }
-      billId = require('crypto').randomUUID();
-    }
 
     if (!billNumber) {
       const [maxBill] = await conn.query(
@@ -348,7 +398,7 @@ async function createBill(req, res, next) {
 
     res.status(201).json({
       success: true,
-      data: { ...newBill[0], items: newItems, credit_applied: creditUsed }
+      data: { ...toBillDto({ ...newBill[0], items: newItems }), credit_applied: creditUsed }
     });
   } catch (err) {
     await conn.rollback();
@@ -368,8 +418,7 @@ async function updateBill(req, res, next) {
     const { id } = req.params;
     const {
       customer_id, date, due_date, items,
-      discount_type, discount_value, gst_percent, notes,
-      status: reqStatus, balance: reqBalance, amount_paid: reqAmountPaid, total: reqTotal, subtotal: reqSubtotal
+      discount_type, discount_value, gst_percent, notes
     } = req.body;
 
     const [existing] = await conn.query(
@@ -395,10 +444,9 @@ async function updateBill(req, res, next) {
         req.body.is_refund
       );
 
-      // Idempotent sync / payment confirmation (total and items unchanged, or confirming status='paid' / balance=0)
+      // Idempotent sync / payment confirmation (items unchanged, or confirming status='paid' / balance=0)
       const hasItemChanges = Array.isArray(items) && items.length > 0;
-      const hasTotalChange = reqTotal !== undefined && Math.abs(parseFloat(reqTotal) - parseFloat(oldBill.total)) >= 0.01;
-      const isIdempotentSync = !hasItemChanges && !hasTotalChange;
+      const isIdempotentSync = !hasItemChanges;
 
       if (!isAuthorizedEdit && !isIdempotentSync) {
         await conn.rollback();
@@ -427,15 +475,15 @@ async function updateBill(req, res, next) {
     const updatedDueDate = due_date !== undefined ? (due_date || null) : oldBill.due_date;
     const updatedNotes = notes !== undefined ? notes : oldBill.notes;
 
-    let subtotal = reqSubtotal !== undefined ? parseFloat(reqSubtotal) : parseFloat(oldBill.subtotal);
+    let subtotal = parseFloat(oldBill.subtotal);
     const discType = discount_type || oldBill.discount_type;
     const discVal = discount_value !== undefined ? parseFloat(discount_value) : parseFloat(oldBill.discount_value);
     const gstPct = gst_percent !== undefined ? parseFloat(gst_percent) : parseFloat(oldBill.gst_percent);
-    let amountPaid = reqAmountPaid !== undefined ? parseFloat(reqAmountPaid) : parseFloat(oldBill.amount_paid);
+    const amountPaid = parseFloat(oldBill.amount_paid);
 
-    let total = reqTotal !== undefined ? parseFloat(reqTotal) : parseFloat(oldBill.total);
-    let balance = reqBalance !== undefined ? parseFloat(reqBalance) : parseFloat(oldBill.balance);
-    let status = reqStatus || oldBill.status;
+    let total = parseFloat(oldBill.total);
+    let balance = parseFloat(oldBill.balance);
+    let status = oldBill.status;
     let gstAmount = parseFloat(oldBill.gst_amount || 0);
 
     // If items are provided, recalculate
@@ -486,21 +534,8 @@ async function updateBill(req, res, next) {
       const afterDiscount = parseFloat((subtotal - discountAmount).toFixed(2));
       gstAmount = parseFloat(((afterDiscount * gstPct) / 100).toFixed(2));
       total = parseFloat((afterDiscount + gstAmount).toFixed(2));
-      balance = parseFloat((total - amountPaid).toFixed(2));
-
-      if (reqStatus) {
-        status = reqStatus;
-      } else if (balance <= 0) {
-        status = 'paid';
-      } else if (amountPaid > 0) {
-        status = 'partial';
-      } else {
-        status = 'unpaid';
-      }
-    } else if (!reqStatus && reqBalance !== undefined) {
-      if (balance <= 0) status = 'paid';
-      else if (amountPaid > 0) status = 'partial';
-      else status = 'unpaid';
+      balance = parseFloat(Math.max(0, total - amountPaid).toFixed(2));
+      status = balance <= 0 ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid');
     }
 
     await conn.query(
@@ -525,7 +560,7 @@ async function updateBill(req, res, next) {
     );
     const [updatedItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
-    res.json({ success: true, data: { ...updatedBill[0], items: updatedItems } });
+    res.json({ success: true, data: toBillDto({ ...updatedBill[0], items: updatedItems }) });
   } catch (err) {
     await conn.rollback();
     next(err);
@@ -586,8 +621,9 @@ async function restoreBill(req, res, next) {
       [req.user.id, 'RESTORE', 'bill', actualBillId, JSON.stringify({ restored: true })]
     );
 
-    const [restored] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
-    res.json({ success: true, data: restored[0] });
+    const [restored] = await pool.query('SELECT b.*, c.name AS customer_name FROM bills b LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id WHERE b.id = ? AND b.user_id = ?', [actualBillId, req.user.id]);
+    const [restoredItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
+    res.json({ success: true, data: toBillDto({ ...restored[0], items: restoredItems }) });
   } catch (err) {
     next(err);
   }
@@ -653,8 +689,9 @@ async function applyDiscount(req, res, next) {
       ]
     );
 
-    const [updated] = await pool.query('SELECT * FROM bills WHERE id = ? AND user_id = ?', [actualBillId, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query('SELECT b.*, c.name AS customer_name FROM bills b LEFT JOIN customers c ON b.customer_id = c.id AND b.user_id = c.user_id WHERE b.id = ? AND b.user_id = ?', [actualBillId, req.user.id]);
+    const [updatedItems] = await pool.query('SELECT * FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
+    res.json({ success: true, data: toBillDto({ ...updated[0], items: updatedItems }) });
   } catch (err) {
     next(err);
   }

@@ -3,6 +3,7 @@ require('dotenv').config();
 const express   = require('express');
 const cors      = require('cors');
 const path      = require('path');
+const crypto    = require('crypto');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 
@@ -40,40 +41,58 @@ const PORT = parseInt(process.env.PORT, 10) || 5000;
 const ENV  = process.env.NODE_ENV || 'development';
 
 app.set('trust proxy', 1); // so req.ip works behind reverse proxies
+app.disable('x-powered-by'); // Prevent technology disclosure
 
 // ── Global middleware ────────────────────────────────────────────────────────
 app.use(helmet());
 
-// Configure CORS with explicit allowed development origins, production domains, and environment variables
+// ── Explicit CORS Configuration ──────────────────────────────────────────────
+// Prohibits wildcard origins (*) and wildcard regex patterns (*.vercel.app).
+// Ensures credentials (Authorization header, cookies) can only ever be sent by
+// explicitly verified domains.
+const explicitStaticOrigins = [
+  'https://printpro-in.vercel.app', // Production Web Application on Vercel
+  'http://localhost:5173',          // Local Development (Vite standard port)
+  'http://127.0.0.1:5173',          // Local Development (Vite loopback IP)
+  'http://localhost:3000',          // Local Development (Fallback dev port)
+  'http://127.0.0.1:3000',          // Local Development (Fallback loopback IP)
+  'http://localhost:3001',          // Local Development (Secondary local port)
+  'http://localhost:3002',          // Local Development (Tertiary local port)
+];
+
+// Parse environment-specified origins, strictly rejecting any wildcard '*' entries
 const envOrigins = [
   ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
   ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : []),
-].map((o) => o.trim()).filter(Boolean);
+]
+  .map((o) => o.trim())
+  .filter((o) => Boolean(o) && o !== '*' && !o.includes('*'));
 
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'http://localhost:5173',
-  'https://printpro-in.vercel.app',
-  ...envOrigins,
-];
+// Construct immutable Set for exact O(1) origin matching
+const allowedOriginsSet = new Set([
+  ...explicitStaticOrigins,
+  ...envOrigins
+]);
 
 const corsOptions = {
   origin: (origin, callback) => {
+    // Allow non-browser / same-origin requests without Origin header (e.g., server-side health checks, mobile apps, curl)
     if (!origin) {
       return callback(null, true);
     }
-    if (allowedOrigins.includes(origin)) {
+
+    // Strictly match against explicit allowlist (no wildcards or dynamic regex permitted)
+    if (allowedOriginsSet.has(origin)) {
       return callback(null, true);
     }
-    // Allow any Vercel production or preview deployment URL
-    if (/^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin)) {
-      return callback(null, true);
-    }
+
+    // Reject all other origins
     callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
+  credentials: true, // Strictly restricted to explicit allowedOriginsSet matches
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400, // 24-hour preflight cache
   optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
@@ -97,20 +116,37 @@ const limiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 500,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    error: 'Too many requests from this IP, please try again later'
+  statusCode: 429,
+  handler: (req, res, _next, options) => {
+    const retryAfterSeconds = Math.ceil(options.windowMs / 1000);
+    res.setHeader('Retry-After', retryAfterSeconds);
+    res.status(429).json({
+      success: false,
+      code: 'RATE_LIMIT_EXCEEDED',
+      error: 'Too many requests from this IP, please try again later',
+      retryAfter: retryAfterSeconds,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 app.use('/api/', limiter);
 
 app.use(requestLogger);
 
-// ── Static uploads (Restricted to receipts directory) ──────────────────────────
+// ── Static uploads (Restricted to receipts directory with non-executable headers) ──
 const { UPLOAD_ROOT } = require('./config/uploadConfig');
-const staticUploadOpts = { dotfiles: 'ignore', index: false };
+const staticUploadOpts = {
+  dotfiles: 'ignore',
+  index: false,
+  setHeaders: (res) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="receipt.pdf"');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('X-Frame-Options', 'DENY');
+  }
+};
 app.use('/uploads/receipts', express.static(path.join(UPLOAD_ROOT, 'receipts'), staticUploadOpts));
-app.use('/uploads/receipts', express.static(path.join(__dirname, 'uploads', 'receipts'), staticUploadOpts));
 
 // ── Health check (public) ────────────────────────────────────────────────────
 const startedAt = new Date();
@@ -121,27 +157,79 @@ app.get('/api/health', async (req, res) => {
 
   let dbStatus = 'ok';
   let dbError = null;
+  let dbRef = null;
   try {
     const pool = getPool();
     await pool.query('SELECT 1');
   } catch (err) {
     dbStatus = 'error';
-    dbError = err.message;
+    dbRef = 'ERR-DB-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+    logger.error(`[${dbRef}] Database probe failure during health check: ${err.message}`, {
+      stack: err.stack,
+      code: err.code
+    });
+    // Never leak raw database error messages, credentials or hostnames to clients
+    dbError = ENV === 'production' ? 'Database service temporarily unavailable' : err.message;
   }
 
-  res.json({
-    status:    dbStatus === 'ok' ? 'ok' : 'error',
-    service:   'printpro-api',
-    version:   process.env.npm_package_version || '1.0.0',
-    env:       ENV,
+  const payload = {
+    status: dbStatus === 'ok' ? 'ok' : 'error',
+    service: 'printpro-api',
+    env: ENV,
     timestamp: new Date().toISOString(),
-    started:   startedAt.toISOString(),
-    uptime:    uptimeStr,
+    uptime: uptimeStr,
     database: {
       status: dbStatus,
-      error: dbError
+      ...(dbError ? { error: dbError } : {}),
+      ...(dbRef ? { reference: dbRef } : {})
     }
-  });
+  };
+
+  // Only expose library/package version in non-production environments to avoid version disclosure
+  if (ENV !== 'production') {
+    payload.version = process.env.npm_package_version || '1.0.0';
+    payload.started = startedAt.toISOString();
+  }
+
+  res.status(dbStatus === 'ok' ? 200 : 503).json(payload);
+});
+
+// ── Safe error testing endpoint (verify production error shielding) ──────────
+// Allows safely verifying that stack traces, file paths, library versions,
+// and raw database errors are masked with a clean message and reference code.
+app.get('/api/test-error', (req, res, next) => {
+  const { type = 'server' } = req.query;
+
+  if (type === 'database') {
+    const dbErr = new Error('relation "secret_vault_metadata" does not exist at character 19');
+    dbErr.code = '42P01';
+    dbErr.query = 'SELECT master_key, token FROM secret_vault_metadata WHERE user_id = 1;';
+    dbErr.statusCode = 500;
+    return next(dbErr);
+  }
+
+  if (type === 'filepath') {
+    const pathErr = new Error('Cannot load native module C:\\Dev\\Print-Service\\backend\\node_modules\\pg\\build\\Release\\binding.node');
+    pathErr.statusCode = 500;
+    return next(pathErr);
+  }
+
+  if (type === 'version') {
+    const verErr = new Error('Incompatible runtime dependency express@4.18.2 with node v20.10.0');
+    verErr.statusCode = 500;
+    return next(verErr);
+  }
+
+  if (type === 'client') {
+    const clientErr = new Error('Requested resource does not exist or has been removed');
+    clientErr.statusCode = 404;
+    return next(clientErr);
+  }
+
+  // Default: unhandled server exception with simulated stack trace
+  const err = new Error('Simulated production server failure in /api/test-error');
+  err.statusCode = 500;
+  return next(err);
 });
 
 // ── Authenticated API routes ─────────────────────────────────────────────────
@@ -172,9 +260,10 @@ app.use('/api/ledger',           ledgerRoutes);
 // ── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req, res) => {
   logger.warn(`404 Not Found — ${req.method} ${req.originalUrl}`);
+  const safeUrl = String(req.originalUrl).replace(/[&<>"'/]/g, '');
   res.status(404).json({
     success: false,
-    error:   `Cannot ${req.method} ${req.originalUrl}`,
+    error:   `Cannot ${req.method} ${safeUrl}`,
   });
 });
 

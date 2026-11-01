@@ -31,18 +31,31 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const status = error.response?.status
-    const errorData = error.response?.data
-    const message = errorData?.error || errorData?.message || error.message || 'Something went wrong'
+    const status = error.response?.status;
+    const errorData = error.response?.data;
+    let message = errorData?.error || errorData?.message || error.message || 'Something went wrong';
+
+    // If backend provided a tracking reference code, append it to the client message
+    if (errorData?.reference) {
+      const refSuffix = ` (Ref: ${errorData.reference})`;
+      if (!message.includes(errorData.reference)) {
+        message = `${message}${refSuffix}`;
+      }
+      if (errorData.error && !errorData.error.includes(errorData.reference)) {
+        errorData.error = `${errorData.error}${refSuffix}`;
+      }
+    }
+
     console.error('API Error:', {
       url: error.config?.url,
       method: error.config?.method?.toUpperCase(),
       status,
       message,
+      reference: errorData?.reference || undefined,
       data: errorData
-    })
-    return Promise.reject(error)
+    });
+    return Promise.reject(error);
   }
-)
+);
 
 export default api

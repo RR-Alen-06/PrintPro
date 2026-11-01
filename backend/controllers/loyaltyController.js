@@ -16,6 +16,41 @@ async function recalculateCustomerPoints(connOrPool, customerId, userId) {
   return total;
 }
 
+// Loyalty projection DTOs: strips internal auth tenant ID (user_id) and DB internal fields
+function toLoyaltySettingsDto(row) {
+  if (!row) return {};
+  let tiers = row.tier_config || [];
+  if (typeof tiers === 'string') {
+    try { tiers = JSON.parse(tiers); } catch (_e) { tiers = []; }
+  }
+  let options = row.redeem_options || [];
+  if (typeof options === 'string') {
+    try { options = JSON.parse(options); } catch (_e) { options = []; }
+  }
+  return {
+    is_enabled: row.is_enabled !== undefined ? Boolean(row.is_enabled) : true,
+    points_per_rupee: parseFloat(row.points_per_rupee) || 1.0,
+    rupee_per_point: parseFloat(row.rupee_per_point) || 0.1,
+    min_points_redeem: parseInt(row.min_points_redeem, 10) || 100,
+    tier_config: tiers,
+    redeem_options: options
+  };
+}
+
+function toLoyaltyEventDto(ev) {
+  if (!ev) return null;
+  return {
+    id: ev.id,
+    customer_id: ev.customer_id,
+    customer_name: ev.customer_name || '',
+    bill_id: ev.bill_id || null,
+    event_type: ev.event_type,
+    points: parseInt(ev.points, 10) || 0,
+    notes: ev.notes || '',
+    created_at: ev.created_at
+  };
+}
+
 // GET /api/loyalty/settings
 async function getSettings(req, res, next) {
   try {
@@ -24,9 +59,9 @@ async function getSettings(req, res, next) {
     if (rows.length === 0) {
       await pool.query('INSERT INTO loyalty_settings (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING', [req.user.id]);
       const [newRows] = await pool.query('SELECT * FROM loyalty_settings WHERE user_id = ?', [req.user.id]);
-      return res.json({ success: true, data: newRows[0] || {} });
+      return res.json({ success: true, data: toLoyaltySettingsDto(newRows[0]) });
     }
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: toLoyaltySettingsDto(rows[0]) });
   } catch (err) {
     next(err);
   }
@@ -61,7 +96,7 @@ async function updateSettings(req, res, next) {
     );
 
     const [updated] = await pool.query('SELECT * FROM loyalty_settings WHERE user_id = ?', [req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toLoyaltySettingsDto(updated[0]) });
   } catch (err) {
     next(err);
   }
@@ -95,7 +130,7 @@ async function getCustomerLoyalty(req, res, next) {
         customerId,
         customerName: customer[0].name,
         balance,
-        events,
+        events: events.map(toLoyaltyEventDto),
       },
     });
   } catch (err) {
@@ -209,16 +244,41 @@ async function earnPoints(req, res, next) {
 
     const pts = Math.abs(parseInt(points, 10) || 0);
     if (!customer_id || pts <= 0) {
+      await conn.rollback();
       return res.status(400).json({ success: false, error: 'customer_id and positive points are required' });
+    }
+
+    // Verify customer exists and belongs to logged-in user
+    const [custRows] = await conn.query(
+      'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customer_id, customer_id, req.user.id]
+    );
+    if (custRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+    const resolvedCustomerId = custRows[0].id;
+
+    let resolvedBillId = null;
+    if (bill_id) {
+      const [billRows] = await conn.query(
+        'SELECT id FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ?',
+        [bill_id, bill_id, bill_id, req.user.id]
+      );
+      if (billRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Bill not found' });
+      }
+      resolvedBillId = billRows[0].id;
     }
 
     const [resInsert] = await conn.query(
       `INSERT INTO loyalty_events (user_id, customer_id, bill_id, event_type, points, notes, created_at)
        VALUES (?, ?, ?, 'earn', ?, ?, NOW())`,
-      [req.user.id, customer_id, bill_id || null, pts, notes || (bill_id ? `Earned from bill #${bill_id}` : 'Points earned')]
+      [req.user.id, resolvedCustomerId, resolvedBillId, pts, notes || (resolvedBillId ? `Earned from bill #${resolvedBillId}` : 'Points earned')]
     );
 
-    const newBalance = await recalculateCustomerPoints(conn, customer_id, req.user.id);
+    const newBalance = await recalculateCustomerPoints(conn, resolvedCustomerId, req.user.id);
 
     await conn.commit();
 
@@ -248,16 +308,41 @@ async function redeemPoints(req, res, next) {
 
     const pts = Math.abs(parseInt(points, 10) || 0);
     if (!customer_id || pts <= 0) {
+      await conn.rollback();
       return res.status(400).json({ success: false, error: 'customer_id and positive points to redeem are required' });
+    }
+
+    // Verify customer exists and belongs to logged-in user
+    const [custRows] = await conn.query(
+      'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      [customer_id, customer_id, req.user.id]
+    );
+    if (custRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+    const resolvedCustomerId = custRows[0].id;
+
+    let resolvedBillId = null;
+    if (bill_id) {
+      const [billRows] = await conn.query(
+        'SELECT id FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ?',
+        [bill_id, bill_id, bill_id, req.user.id]
+      );
+      if (billRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Bill not found' });
+      }
+      resolvedBillId = billRows[0].id;
     }
 
     const [resInsert] = await conn.query(
       `INSERT INTO loyalty_events (user_id, customer_id, bill_id, event_type, points, notes, created_at)
        VALUES (?, ?, ?, 'redeem', ?, ?, NOW())`,
-      [req.user.id, customer_id, bill_id || null, -pts, notes || (bill_id ? `Redeemed on bill #${bill_id}` : 'Points redeemed')]
+      [req.user.id, resolvedCustomerId, resolvedBillId, -pts, notes || (resolvedBillId ? `Redeemed on bill #${resolvedBillId}` : 'Points redeemed')]
     );
 
-    const newBalance = await recalculateCustomerPoints(conn, customer_id, req.user.id);
+    const newBalance = await recalculateCustomerPoints(conn, resolvedCustomerId, req.user.id);
 
     await conn.commit();
 
@@ -297,7 +382,7 @@ async function listEvents(req, res, next) {
 
     sql += ' ORDER BY le.created_at DESC';
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toLoyaltyEventDto) });
   } catch (err) {
     next(err);
   }

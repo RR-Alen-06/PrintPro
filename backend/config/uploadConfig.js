@@ -5,9 +5,10 @@ const fs = require('fs');
 // In serverless environments (like AWS Lambda / Vercel), the filesystem outside /tmp is read-only.
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
 
-const UPLOAD_ROOT = isServerless
+// Store uploads strictly OUTSIDE the application directory tree to prevent script execution, path traversal, and repo pollution
+const UPLOAD_ROOT = process.env.STORAGE_PATH || (isServerless
   ? path.join(os.tmpdir(), 'uploads')
-  : path.resolve(__dirname, '../uploads');
+  : path.resolve(os.tmpdir(), 'printpro-isolated-storage'));
 
 /**
  * Ensures a subfolder within UPLOAD_ROOT exists safely without throwing unhandled exceptions.

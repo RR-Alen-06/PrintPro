@@ -1046,7 +1046,7 @@ export const AppProvider = ({ children }) => {
       if (session) {
         console.log('Auth state changed:', session.user.email)
         const userId = session.user.id
-        dispatch({
+        rawDispatch({
           type: 'SET_CURRENT_USER',
           payload: {
             id: session.user.id,
@@ -1070,8 +1070,8 @@ export const AppProvider = ({ children }) => {
           .catch((err) => console.warn('Failed loading cached user state from IndexedDB:', err))
       } else {
         console.log('Auth state changed: signed out')
-        dispatch({ type: 'SET_CURRENT_USER', payload: null });
-        dispatch({ type: 'RESET_STATE', payload: null });
+        rawDispatch({ type: 'SET_CURRENT_USER', payload: null });
+        rawDispatch({ type: 'RESET_STATE', payload: null });
         refreshQueues(null)
       }
     }
@@ -1087,8 +1087,7 @@ export const AppProvider = ({ children }) => {
     return () => {
       subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshQueues]);
 
   // Fetch all business manager data from database when user is authenticated, and keep it in sync periodically
   useEffect(() => {

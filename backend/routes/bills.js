@@ -26,18 +26,31 @@ router.get('/:id', getBill);
 
 // POST /api/bills
 const { validateBill, validateBillUpdate } = require('../middleware/validate');
-router.post('/', validateBill, createBill);
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+router.post(
+  '/',
+  validateSchema(schemas.billCreate),
+  validateBill,
+  createBill
+);
 
 // PUT /api/bills/:id
-router.put('/:id', validateBillUpdate, updateBill);
+router.put(
+  '/:id',
+  validateSchema(schemas.billUpdate),
+  validateBillUpdate,
+  updateBill
+);
 
 // DELETE /api/bills/:id (soft delete)
 router.delete('/:id', deleteBill);
 
 // POST /api/bills/:id/restore
-router.post('/:id/restore', restoreBill);
+router.post('/:id/restore', validateSchema(schemas.billRestore, { allowEmptyBody: true }), restoreBill);
 
 // POST /api/bills/:id/discount
-router.post('/:id/discount', applyDiscount);
+router.post('/:id/discount', validateSchema(schemas.billDiscount), applyDiscount);
 
 module.exports = router;

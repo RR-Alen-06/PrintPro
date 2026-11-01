@@ -4,6 +4,53 @@ const path = require('path');
 const { getPool } = require('../config/db');
 const { generateEodPdf } = require('../utils/eodPdfGenerator');
 const logger = require('../utils/logger');
+const { allowlist } = require('../middleware/allowlist');
+const { pdfExportLimiter } = require('../middleware/rateLimiters');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// DTO projections: Return only fields needed by UI and strip internal user_id
+function toReportBillDto(b) {
+  if (!b) return null;
+  return {
+    id: b.id,
+    bill_number: b.bill_number || null,
+    invoice_number: b.invoice_number || null,
+    customer_id: b.customer_id || null,
+    customer_name: b.customer_name || null,
+    date: b.date,
+    total: parseFloat(b.total) || 0,
+    amount_paid: parseFloat(b.amount_paid) || 0,
+    balance: parseFloat(b.balance) || 0,
+    status: b.status
+  };
+}
+
+function toReportPaymentDto(p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    date: p.date,
+    customer_name: p.customer_name || null,
+    bill_id: p.bill_id || null,
+    cash_amount: parseFloat(p.cash_amount) || 0,
+    upi_amount: parseFloat(p.upi_amount) || 0,
+    total_paid: parseFloat(p.total_paid) || 0,
+    payment_type: p.payment_type || 'payment'
+  };
+}
+
+function toReportExpenseDto(e) {
+  if (!e) return null;
+  return {
+    id: e.id,
+    date: e.date,
+    category: e.category || 'General',
+    description: e.description || '',
+    total: parseFloat(e.total) || 0,
+    payment_mode: e.payment_mode || 'cash'
+  };
+}
 
 /**
  * Helper to build comprehensive End-of-Day (EOD) report data.
@@ -144,9 +191,9 @@ async function buildEodReportData(pool, userId, targetDate) {
       bill_count: bills.length,
       payment_count: payments.length,
     },
-    bills,
-    payments,
-    expenses_list: expensesList,
+    bills: bills.map(toReportBillDto),
+    payments: payments.map(toReportPaymentDto),
+    expenses_list: expensesList.map(toReportExpenseDto),
   };
 }
 
@@ -163,7 +210,7 @@ router.get('/eod', async (req, res, next) => {
 });
 
 // POST /api/reports/eod/pdf
-router.post('/eod/pdf', async (req, res, next) => {
+router.post('/eod/pdf', pdfExportLimiter, allowlist(['date']), validateSchema(schemas.reportsEodPdf), async (req, res, next) => {
   try {
     const pool = getPool();
     const date = req.body.date || req.query.date || new Date().toISOString().slice(0, 10);
@@ -229,7 +276,8 @@ router.get('/daily', async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        date, bills,
+        date,
+        bills: bills.map(toReportBillDto),
         summary: {
           total_billed:  totalBilled,
           total_paid:    totalPaid,
@@ -279,7 +327,9 @@ router.get('/monthly', async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        year, month, bills,
+        year,
+        month,
+        bills: bills.map(toReportBillDto),
         summary: {
           total_billed:  totalBilled,
           total_paid:    totalPaid,
@@ -362,13 +412,14 @@ router.get('/receivables', async (req, res, next) => {
 router.get('/top-customers', async (req, res, next) => {
   try {
     const pool = getPool();
-    const period = req.query.period || 'all';
+    const ALLOWED_PERIODS = new Set(['all', 'monthly', 'yearly']);
+    const period = ALLOWED_PERIODS.has(req.query.period) ? req.query.period : 'all';
     let dateFilter = '';
 
     if (period === 'monthly') {
-      dateFilter = `AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM NOW()) AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())`;
+      dateFilter = ' AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM NOW()) AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())';
     } else if (period === 'yearly') {
-      dateFilter = `AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())`;
+      dateFilter = ' AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())';
     }
 
     const [rows] = await pool.query(
@@ -389,13 +440,14 @@ router.get('/top-customers', async (req, res, next) => {
 router.get('/best-items', async (req, res, next) => {
   try {
     const pool = getPool();
-    const period = req.query.period || 'all';
+    const ALLOWED_PERIODS = new Set(['all', 'monthly', 'yearly']);
+    const period = ALLOWED_PERIODS.has(req.query.period) ? req.query.period : 'all';
     let dateFilter = '';
 
     if (period === 'monthly') {
-      dateFilter = `AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM NOW()) AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())`;
+      dateFilter = ' AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM NOW()) AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())';
     } else if (period === 'yearly') {
-      dateFilter = `AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())`;
+      dateFilter = ' AND EXTRACT(YEAR FROM b.date) = EXTRACT(YEAR FROM NOW())';
     }
 
     const [rows] = await pool.query(

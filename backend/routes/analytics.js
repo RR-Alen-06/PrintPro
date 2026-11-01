@@ -3,15 +3,18 @@ const router = express.Router();
 const { getPool } = require('../config/db');
 
 // Helper to construct PostgreSQL date filter clauses
+const ALLOWED_DATE_COLUMNS = new Set(['b.date', 'date', 'p.date', 'pu.used_at', 'u.date']);
+
 function buildDateClause(startDate, endDate, colName = 'b.date') {
+  const safeCol = ALLOWED_DATE_COLUMNS.has(colName) ? colName : 'b.date';
   let clause = '';
   const params = [];
   if (startDate) {
-    clause += ` AND ${colName} >= ?`;
+    clause += ` AND ${safeCol} >= ?`;
     params.push(startDate);
   }
   if (endDate) {
-    clause += ` AND ${colName} <= ?`;
+    clause += ` AND ${safeCol} <= ?`;
     params.push(endDate);
   }
   return { clause, params };
@@ -115,14 +118,14 @@ router.get('/products/trends', async (req, res, next) => {
       params.push(endDate);
     }
 
-    let dateTruncField = `TO_CHAR(b.date, 'YYYY-MM')`;
-    if (period === 'daily') {
-      dateTruncField = `TO_CHAR(b.date, 'YYYY-MM-DD')`;
-    } else if (period === 'weekly') {
-      dateTruncField = `TO_CHAR(DATE_TRUNC('week', b.date), 'YYYY-MM-DD')`;
-    } else if (period === 'yearly') {
-      dateTruncField = `TO_CHAR(b.date, 'YYYY')`;
-    }
+    const PERIOD_TRUNC_MAP = Object.freeze({
+      daily: "TO_CHAR(b.date, 'YYYY-MM-DD')",
+      weekly: "TO_CHAR(DATE_TRUNC('week', b.date), 'YYYY-MM-DD')",
+      monthly: "TO_CHAR(b.date, 'YYYY-MM')",
+      yearly: "TO_CHAR(b.date, 'YYYY')",
+    });
+    const safePeriod = Object.prototype.hasOwnProperty.call(PERIOD_TRUNC_MAP, period) ? period : 'monthly';
+    const dateTruncField = PERIOD_TRUNC_MAP[safePeriod];
 
     const [rows] = await pool.query(
       `SELECT

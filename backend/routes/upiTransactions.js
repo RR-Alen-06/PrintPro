@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
 
 // Helper to auto-create a UPI transaction row when a payment has upi_amount > 0
 async function createUpiTransaction(connOrPool, { userId, paymentId, billId, customerId, amount, upiRef, upiId, date, status = 'pending', metadata = {} }) {
@@ -23,6 +26,26 @@ async function createUpiTransaction(connOrPool, { userId, paymentId, billId, cus
     ]
   );
   return result.insertId;
+}
+
+// DTO projection: Return only fields needed by UI and strip internal user_id & metadata
+function toUpiTransactionDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    payment_id: row.payment_id,
+    bill_id: row.bill_id,
+    customer_id: row.customer_id,
+    upi_id: row.upi_id || '',
+    upi_ref: row.upi_ref || '',
+    amount: parseFloat(row.amount) || 0,
+    status: row.status || 'pending',
+    date: row.date,
+    customer_name: row.customer_name || null,
+    customer_phone: row.customer_phone || null,
+    bill_total: row.bill_total !== undefined ? (parseFloat(row.bill_total) || 0) : undefined,
+    bill_status: row.bill_status || undefined
+  };
 }
 
 // GET /api/upi-transactions - List transactions with filters
@@ -66,7 +89,7 @@ router.get('/', async (req, res, next) => {
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toUpiTransactionDto) });
   } catch (err) {
     next(err);
   }
@@ -184,7 +207,7 @@ router.get('/daily-settlement', async (req, res, next) => {
           failed_total: parseFloat(failedTotal.toFixed(2)),
           failed_count: failedList.length,
         },
-        transactions: rows
+        transactions: rows.map(toUpiTransactionDto)
       }
     });
   } catch (err) {
@@ -193,37 +216,73 @@ router.get('/daily-settlement', async (req, res, next) => {
 });
 
 // POST /api/upi-transactions - Manual entry
-router.post('/', async (req, res, next) => {
+router.post('/', allowlist(['payment_id', 'bill_id', 'customer_id', 'amount', 'upi_ref', 'upi_id', 'date', 'metadata']), validateSchema(schemas.upiTransactionCreate), async (req, res, next) => {
   try {
     const pool = getPool();
-    const { payment_id, bill_id, customer_id, amount, upi_ref, upi_id, date, status = 'pending', metadata } = req.body;
+    const { payment_id, bill_id, customer_id, amount, upi_ref, upi_id, date, metadata } = req.body;
 
     if (!amount || parseFloat(amount) <= 0) {
       return res.status(400).json({ success: false, error: 'Amount is required and must be greater than 0' });
     }
 
+    let resolvedCustomerId = null;
+    if (customer_id) {
+      const [custRows] = await pool.query(
+        'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+        [customer_id, customer_id, req.user.id]
+      );
+      if (custRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Customer not found' });
+      }
+      resolvedCustomerId = custRows[0].id;
+    }
+
+    let resolvedBillId = null;
+    if (bill_id) {
+      const [billRows] = await pool.query(
+        'SELECT id FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ?',
+        [bill_id, bill_id, bill_id, req.user.id]
+      );
+      if (billRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Bill not found' });
+      }
+      resolvedBillId = billRows[0].id;
+    }
+
+    let resolvedPaymentId = null;
+    if (payment_id) {
+      const [payRows] = await pool.query(
+        'SELECT id FROM payments WHERE id = ? AND user_id = ?',
+        [payment_id, req.user.id]
+      );
+      if (payRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Payment record not found' });
+      }
+      resolvedPaymentId = payRows[0].id;
+    }
+
     const insertId = await createUpiTransaction(pool, {
       userId: req.user.id,
-      paymentId: payment_id,
-      billId: bill_id,
-      customerId: customer_id,
+      paymentId: resolvedPaymentId,
+      billId: resolvedBillId,
+      customerId: resolvedCustomerId,
       amount,
       upiRef: upi_ref,
       upiId: upi_id,
       date,
-      status,
+      status: 'pending',
       metadata
     });
 
     const [created] = await pool.query('SELECT * FROM upi_transactions WHERE id = ? AND user_id = ?', [insertId, req.user.id]);
-    res.status(201).json({ success: true, data: created[0] });
+    res.status(201).json({ success: true, data: toUpiTransactionDto(created[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // PUT /api/upi-transactions/:id - Update UTR reference, status, or metadata
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', allowlist(['upi_ref', 'status', 'upi_id', 'metadata']), validateSchema(schemas.upiTransactionUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
@@ -234,6 +293,9 @@ router.put('/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'UPI transaction not found' });
     }
 
+    const validStatuses = ['pending', 'confirmed', 'failed'];
+    const validatedStatus = status && validStatuses.includes(status) ? status : null;
+
     await pool.query(
       `UPDATE upi_transactions SET
          upi_ref = COALESCE(?, upi_ref),
@@ -243,7 +305,7 @@ router.put('/:id', async (req, res, next) => {
        WHERE id = ? AND user_id = ?`,
       [
         upi_ref !== undefined ? upi_ref : null,
-        status !== undefined ? status : null,
+        validatedStatus,
         upi_id !== undefined ? upi_id : null,
         metadata ? JSON.stringify(metadata) : null,
         id,
@@ -252,36 +314,44 @@ router.put('/:id', async (req, res, next) => {
     );
 
     const [updated] = await pool.query('SELECT * FROM upi_transactions WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toUpiTransactionDto(updated[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/upi-transactions/bulk-confirm - Bulk confirm multiple transactions
-router.post('/bulk-confirm', async (req, res, next) => {
+router.post('/bulk-confirm', allowlist(['ids', 'status']), validateSchema(schemas.upiTransactionBulkConfirm), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const { ids, status = 'confirmed' } = req.body;
 
+    const ALLOWED_STATUSES = new Set(['pending', 'confirmed', 'failed']);
+    const safeStatus = ALLOWED_STATUSES.has(status) ? status : 'confirmed';
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, error: 'Array of transaction IDs is required' });
     }
 
-    const placeholders = ids.map(() => '?').join(', ');
+    const safeIds = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id) && id > 0);
+    if (safeIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Array must contain valid numeric transaction IDs' });
+    }
+
+    const placeholders = safeIds.map(() => '?').join(', ');
     const [result] = await conn.query(
       `UPDATE upi_transactions SET status = ?
        WHERE id IN (${placeholders}) AND user_id = ?`,
-      [status, ...ids, req.user.id]
+      [safeStatus, ...safeIds, req.user.id]
     );
 
     await conn.commit();
     res.json({
       success: true,
-      message: `Successfully marked ${result.affectedRows || ids.length} UPI transactions as ${status}`,
-      updatedCount: result.affectedRows || ids.length
+      message: `Successfully marked ${result.affectedRows || safeIds.length} UPI transactions as ${safeStatus}`,
+      updatedCount: result.affectedRows || safeIds.length
     });
   } catch (err) {
     await conn.rollback();

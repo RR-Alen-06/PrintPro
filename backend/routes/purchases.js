@@ -1,13 +1,34 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// Purchase projection DTO: strips internal auth tenant ID (user_id)
+function toPurchaseDto(p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    date: p.date,
+    item_name: p.item_name || '',
+    category: p.category || 'General',
+    vendor_name: p.vendor_name || '',
+    payment_method: p.payment_method || 'cash',
+    upi_ref: p.upi_ref || '',
+    qty: parseInt(p.qty, 10) || 0,
+    unit_cost: parseFloat(p.unit_cost) || 0,
+    total: parseFloat(p.total) || 0,
+    notes: p.notes || ''
+  };
+}
 
 // GET /api/purchases?startDate=&endDate=&category=
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
     const { startDate, endDate, category } = req.query;
-    let sql = 'SELECT * FROM purchases WHERE user_id = ?';
+    let sql = 'SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE user_id = ?';
     const params = [req.user.id];
 
     if (startDate) { sql += ' AND date >= ?'; params.push(startDate); }
@@ -16,7 +37,7 @@ router.get('/', async (req, res, next) => {
 
     sql += ' ORDER BY date DESC';
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toPurchaseDto) });
   } catch (err) { next(err); }
 });
 
@@ -37,15 +58,15 @@ router.get('/summary', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const [rows] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (rows.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: toPurchaseDto(rows[0]) });
   } catch (err) { next(err); }
 });
 
 // POST /api/purchases
 const { validatePurchase } = require('../middleware/validate');
-router.post('/', validatePurchase, async (req, res, next) => {
+router.post('/', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost', 'notes', 'vendor_name', 'payment_method', 'upi_ref', 'session_id']), validateSchema(schemas.purchaseCreate), validatePurchase, async (req, res, next) => {
   try {
     const pool = getPool();
     const { date, item_name, category, qty, unit_cost, notes, vendor_name = '', payment_method = 'cash', upi_ref = '', session_id } = req.body;
@@ -72,13 +93,13 @@ router.post('/', validatePurchase, async (req, res, next) => {
       [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '', vendor_name || '', payment_method || 'cash', upi_ref || '', activeSessionId]
     );
 
-    const [newRow] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
-    res.status(201).json({ success: true, data: newRow[0] });
+    const [newRow] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
+    res.status(201).json({ success: true, data: toPurchaseDto(newRow[0]) });
   } catch (err) { next(err); }
 });
 
 // PUT /api/purchases/:id
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost', 'notes', 'vendor_name', 'payment_method', 'upi_ref']), validateSchema(schemas.purchaseUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
@@ -103,15 +124,19 @@ router.put('/:id', async (req, res, next) => {
       updates.total = parseFloat((q * c).toFixed(2));
     }
 
-    if (Object.keys(updates).length === 0) {
+    const ALLOWED_PURCHASE_COLUMNS = ['date', 'item_name', 'category', 'qty', 'unit_cost', 'total', 'notes', 'vendor_name', 'payment_method', 'upi_ref'];
+    const validKeys = Object.keys(updates).filter((k) => ALLOWED_PURCHASE_COLUMNS.includes(k));
+
+    if (validKeys.length === 0) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ? AND user_id = ?`, [...Object.values(updates), id, req.user.id]);
+    const setClauses = validKeys.map((k) => `"${k}" = ?`).join(', ');
+    const values = validKeys.map((k) => updates[k]);
+    await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ? AND user_id = ?`, [...values, id, req.user.id]);
 
-    const [updated] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    res.json({ success: true, data: toPurchaseDto(updated[0]) });
   } catch (err) { next(err); }
 });
 

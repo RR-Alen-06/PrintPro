@@ -28,9 +28,12 @@ const downloadFile = (blob, filename) => {
 
 const escapeCSVCell = (value) => {
   if (value === null || value === undefined) return ''
-  const str = String(value)
+  let str = String(value)
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`
+  }
   // Always quote strings that contain commas, quotes, newlines, or ₹
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes('₹')) {
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes('₹') || str.startsWith("'")) {
     return `"${str.replace(/"/g, '""')}"`
   }
   return str

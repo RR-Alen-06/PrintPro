@@ -1,20 +1,53 @@
-// Trigger build after root directory settings change on Vercel
 const xss = require('xss');
 
 /**
- * Recursively sanitizes string values in an object/array using xss.
+ * Strict XSS Options:
+ * By default, NO raw HTML tags are permitted.
+ * All HTML tags are escaped (&lt;...&gt;) and dangerous executable tags are safely stripped.
  */
-function sanitizeObject(obj) {
+const strictEscapeOptions = {
+  whiteList: {}, // Zero HTML tags allowed by default
+  stripIgnoreTag: false, // Escape instead of silent stripping
+  stripIgnoreTagBody: ['script', 'style', 'iframe', 'object', 'embed']
+};
+
+/**
+ * Strict allowlist for fields that explicitly allow basic text formatting.
+ * Only basic typography and structure tags are permitted; no attributes or script handlers.
+ */
+const FORMATTED_FIELDS = new Set(['notes', 'description', 'headerNotes', 'footerNotes']);
+const formattedOptions = {
+  whiteList: {
+    b: [],
+    i: [],
+    strong: [],
+    em: [],
+    p: [],
+    br: [],
+    ul: [],
+    ol: [],
+    li: []
+  },
+  stripIgnoreTag: false,
+  stripIgnoreTagBody: ['script', 'style', 'iframe', 'object', 'embed']
+};
+
+/**
+ * Recursively sanitizes string values in an object/array.
+ * Everything is escaped by default. If a field allows formatting (e.g. notes),
+ * it is sanitized against a strict allowlist of formatting tags instead.
+ */
+function sanitizeObject(obj, parentKey = '') {
   if (!obj || typeof obj !== 'object') return obj;
 
   if (Array.isArray(obj)) {
     for (let i = 0; i < obj.length; i++) {
       const val = obj[i];
       if (typeof val === 'string') {
-        // lgtm[js/remote-property-injection]
-        obj[i] = xss(val.trim());
+        const opts = FORMATTED_FIELDS.has(parentKey) ? formattedOptions : strictEscapeOptions;
+        obj[i] = xss(val.trim(), opts);
       } else if (typeof val === 'object' && val !== null) {
-        sanitizeObject(val);
+        sanitizeObject(val, parentKey);
       }
     }
   } else {
@@ -29,15 +62,15 @@ function sanitizeObject(obj) {
       }
       const val = obj[key];
       if (typeof val === 'string') {
-        // lgtm[js/remote-property-injection]
+        const opts = FORMATTED_FIELDS.has(key) ? formattedOptions : strictEscapeOptions;
         Object.defineProperty(obj, key, {
-          value: xss(val.trim()),
+          value: xss(val.trim(), opts),
           writable: true,
           enumerable: true,
           configurable: true
         });
       } else if (typeof val === 'object' && val !== null) {
-        sanitizeObject(val);
+        sanitizeObject(val, key);
       }
     }
   }

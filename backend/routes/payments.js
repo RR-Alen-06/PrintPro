@@ -13,10 +13,22 @@ const {
 
 // POST /api/payments
 const { validatePayment } = require('../middleware/validate');
-router.post('/', validatePayment, recordPayment);
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+router.post(
+  '/',
+  validateSchema(schemas.paymentCreate),
+  validatePayment,
+  recordPayment
+);
 
 // POST /api/payments/refund
-router.post('/refund', recordRefund);
+router.post(
+  '/refund',
+  validateSchema(schemas.paymentRefund),
+  recordRefund
+);
 
 // GET /api/payments/deleted
 router.get('/deleted', listDeletedPayments);

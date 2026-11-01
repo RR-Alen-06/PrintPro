@@ -36,8 +36,8 @@
     "qs": "^6.16.0",
     "braces": "^3.0.3",
     "brace-expansion": "^2.0.1",
-    "ip-address": "^10.7.3",
-    "body-parser": "^1.20.6",
+    "ip-address": "^10.7.4",
+    "body-parser": "^1.20.9",
     "proxy-addr": "^2.0.8"
   }
 }

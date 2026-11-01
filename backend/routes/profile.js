@@ -1,19 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// Explicit profile DTO helper: strips internal IDs, credentials, audit metadata, and embedded JSON arrays
+function toProfileDto(row) {
+  if (!row) return {};
+  return {
+    shop_name: row.shop_name || '',
+    owner_name: row.owner_name || '',
+    phone: row.phone || '',
+    address: row.address || '',
+    gstin: row.gstin || '',
+    upi_id: row.upi_id || ''
+  };
+}
 
 // GET /api/profile
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
-    res.json({ success: true, data: rows[0] || {} });
+    const [rows] = await pool.query('SELECT shop_name, owner_name, phone, address, gstin, upi_id FROM business_profile WHERE user_id = ?', [req.user.id]);
+    res.json({ success: true, data: toProfileDto(rows[0]) });
   } catch (err) { next(err); }
 });
 
 // PUT /api/profile
 const { validateProfile } = require('../middleware/validate');
-router.put('/', validateProfile, async (req, res, next) => {
+router.put('/', allowlist(['shop_name', 'shopName', 'owner_name', 'ownerName', 'phone', 'address', 'gstin', 'upi_id', 'upiId']), validateSchema(schemas.profileUpdate), validateProfile, async (req, res, next) => {
   try {
     const pool = getPool();
     const shop_name = req.body.shop_name !== undefined ? req.body.shop_name : req.body.shopName;
@@ -53,12 +69,15 @@ router.put('/', validateProfile, async (req, res, next) => {
         ]
       );
     } else {
-      const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-      await pool.query(`UPDATE business_profile SET ${setClauses} WHERE user_id = ?`, [...Object.values(updates), req.user.id]);
+      const ALLOWED_PROFILE_COLUMNS = ['shop_name', 'owner_name', 'phone', 'address', 'gstin', 'upi_id'];
+      const validKeys = Object.keys(updates).filter((k) => ALLOWED_PROFILE_COLUMNS.includes(k));
+      const setClauses = validKeys.map((k) => `"${k}" = ?`).join(', ');
+      const values = validKeys.map((k) => updates[k]);
+      await pool.query(`UPDATE business_profile SET ${setClauses} WHERE user_id = ?`, [...values, req.user.id]);
     }
 
-    const [updated] = await pool.query('SELECT * FROM business_profile WHERE user_id = ?', [req.user.id]);
-    res.json({ success: true, data: updated[0] || {} });
+    const [updated] = await pool.query('SELECT shop_name, owner_name, phone, address, gstin, upi_id FROM business_profile WHERE user_id = ?', [req.user.id]);
+    res.json({ success: true, data: toProfileDto(updated[0]) });
   } catch (err) { next(err); }
 });
 

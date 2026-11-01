@@ -17,13 +17,16 @@ router.get('/low-stock', getLowStock);
 
 // POST /api/inventory
 const { validateInventoryItem } = require('../middleware/validate');
-router.post('/', validateInventoryItem, addItem);
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+router.post('/', validateSchema(schemas.inventoryCreate), validateInventoryItem, addItem);
 
 // PUT /api/inventory/:id
-router.put('/:id', validateInventoryItem, updateItem);
+router.put('/:id', validateSchema(schemas.inventoryUpdate), validateInventoryItem, updateItem);
 
 // PUT /api/inventory/:id/stock
-router.put('/:id/stock', validateInventoryItem, updateStock);
+router.put('/:id/stock', validateSchema(schemas.inventoryStock), validateInventoryItem, updateStock);
 
 // DELETE /api/inventory/:id
 router.delete('/:id', deleteItem);

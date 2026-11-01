@@ -1,11 +1,30 @@
 const { getPool } = require('../config/db');
 
+// Customer projection DTO: strips internal auth tenant ID (user_id) and raw DB columns
+function toCustomerDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type || 'regular',
+    customer_code: row.customer_code || '',
+    name: row.name || '',
+    phone: row.phone || '',
+    email: row.email || '',
+    address: row.address || '',
+    credit_balance: parseFloat(row.credit_balance) || 0,
+    advance_balance: parseFloat(row.advance_balance) || 0,
+    credit_limit: parseFloat(row.credit_limit) || 0,
+    loyalty_points: parseInt(row.loyalty_points, 10) || 0,
+    created_at: row.created_at
+  };
+}
+
 // GET / - List all customers
 async function listCustomers(req, res, next) {
   try {
     const pool = getPool();
     const { type, search } = req.query;
-    let sql = 'SELECT * FROM customers WHERE user_id = ?';
+    let sql = 'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE user_id = ?';
     const params = [req.user.id];
 
     if (type) {
@@ -21,7 +40,7 @@ async function listCustomers(req, res, next) {
     sql += ' ORDER BY created_at DESC';
 
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toCustomerDto) });
   } catch (err) {
     next(err);
   }
@@ -34,7 +53,7 @@ async function getCustomer(req, res, next) {
     const { id } = req.params;
 
     const [customers] = await pool.query(
-      'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
       [id, id, req.user.id]
     );
     if (customers.length === 0) {
@@ -60,7 +79,7 @@ async function getCustomer(req, res, next) {
     res.json({
       success: true,
       data: {
-        ...customer,
+        ...toCustomerDto(customer),
         bills_summary: billsSummary[0]
       }
     });
@@ -79,17 +98,8 @@ async function createCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
-
-    let customerId = req.body.id;
+    let customerId = require('crypto').randomUUID();
     let customerCode = customer_code || req.body.customerCode;
-
-    if (!isUuid(customerId)) {
-      if (customerId && !customerCode) {
-        customerCode = customerId;
-      }
-      customerId = require('crypto').randomUUID();
-    }
 
     if (!customerCode) {
       const prefix = type === 'regular' ? 'RC' : 'RND';
@@ -110,15 +120,15 @@ async function createCustomer(req, res, next) {
 
     // Idempotent check for offline sync retry
     const [existing] = await pool.query(
-      'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
-      [customerId, customerCode, req.user.id]
+      'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE customer_code = ? AND user_id = ?',
+      [customerCode, req.user.id]
     );
     if (existing.length > 0) {
-      return res.status(200).json({ success: true, data: existing[0] });
+      return res.status(200).json({ success: true, data: toCustomerDto(existing[0]) });
     }
 
-    const creditBalance = parseFloat(req.body.credit_balance || req.body.creditBalance || 0);
-    const advanceBalance = parseFloat(req.body.advance_balance || req.body.advanceBalance || creditBalance);
+    const creditBalance = 0;
+    const advanceBalance = 0;
 
     await pool.query(
       `INSERT INTO customers (id, user_id, type, name, phone, email, address, credit_limit, customer_code, credit_balance, advance_balance)
@@ -132,15 +142,18 @@ async function createCustomer(req, res, next) {
       [req.user.id, 'CREATE', 'customer', customerId, JSON.stringify({ type, name, phone, email, address, customer_code: customerCode })]
     );
 
-    const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
-    res.status(201).json({ success: true, data: newCustomer[0] });
+    const [newCustomer] = await pool.query(
+      'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE id = ? AND user_id = ?',
+      [customerId, req.user.id]
+    );
+    res.status(201).json({ success: true, data: toCustomerDto(newCustomer[0]) });
   } catch (err) {
     next(err);
   }
 }
 
-// PUT /:id - Update customer
-const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'type', 'credit_limit', 'credit_balance', 'advance_balance', 'loyalty_points', 'customer_code'];
+// PUT /:id - Update customer (credits and IDs cannot be set by user)
+const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'type', 'credit_limit', 'customer_code'];
 
 
 async function updateCustomer(req, res, next) {
@@ -175,8 +188,9 @@ async function updateCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = Object.values(updates);
+    const validKeys = Object.keys(updates).filter(key => ALLOWED_CUSTOMER_COLUMNS.includes(key));
+    const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
+    const values = validKeys.map(key => updates[key]);
     values.push(customerId, req.user.id);
 
     await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
@@ -187,8 +201,11 @@ async function updateCustomer(req, res, next) {
       [req.user.id, 'UPDATE', 'customer', customerId, JSON.stringify(oldValue), JSON.stringify(updates)]
     );
 
-    const [updated] = await pool.query('SELECT * FROM customers WHERE id = ? AND user_id = ?', [customerId, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query(
+      'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE id = ? AND user_id = ?',
+      [customerId, req.user.id]
+    );
+    res.json({ success: true, data: toCustomerDto(updated[0]) });
   } catch (err) {
     next(err);
   }
@@ -252,7 +269,7 @@ async function getCustomerBills(req, res, next) {
     }
 
     const [bills] = await pool.query(
-      'SELECT * FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date DESC',
+      'SELECT id, bill_number, invoice_number, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, created_at FROM bills WHERE customer_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date DESC',
       [customer[0].id, req.user.id]
     );
 
@@ -277,9 +294,9 @@ async function getCustomerPayments(req, res, next) {
     }
 
     const [payments] = await pool.query(
-      `SELECT p.*, b.total AS bill_total
+      `SELECT p.id, p.bill_id, p.customer_id, p.payment_number, p.date, p.cash_amount, p.upi_amount, p.total_paid, p.payment_type, p.is_refund, p.notes, b.total AS bill_total
        FROM payments p
-       LEFT JOIN bills b ON p.bill_id::text = b.id::text AND p.user_id = b.user_id
+       LEFT JOIN bills b ON (p.bill_id::text = b.id::text OR p.bill_id = b.bill_number OR p.bill_id = b.invoice_number) AND p.user_id = b.user_id
        WHERE p.customer_id = ? AND p.user_id = ?
        ORDER BY p.date DESC`,
       [customer[0].id, req.user.id]
@@ -298,7 +315,7 @@ async function getCustomerStatement(req, res, next) {
     const { id } = req.params;
 
     const [customer] = await pool.query(
-      'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+      'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
       [id, id, req.user.id]
     );
     if (customer.length === 0) {
@@ -333,7 +350,7 @@ async function getCustomerStatement(req, res, next) {
     res.json({
       success: true,
       data: {
-        customer: customer[0],
+        customer: toCustomerDto(customer[0]),
         statement: timeline
       }
     });

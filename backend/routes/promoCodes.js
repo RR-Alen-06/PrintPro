@@ -1,30 +1,52 @@
 const express = require('express');
 const router = express.Router();
-const rateLimit = require('express-rate-limit');
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { createRateLimiter } = require('../middleware/rateLimiters');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
 
 // Dedicated rate limiter for validate endpoint to prevent brute-force promo discovery (30 req / 15 min)
-const validateLimiter = rateLimit({
+const validateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: 'Too many promo validation attempts. Please try again later.' },
+  serviceName: 'promos:validate',
+  message: 'Too many promo validation attempts. Please wait 15 minutes before attempting to validate more discount codes.'
 });
+
+// Promo code projection DTO: strips internal auth tenant ID (user_id)
+function toPromoCodeDto(p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    code: p.code,
+    discount_type: p.discount_type || 'flat',
+    discount_value: parseFloat(p.discount_value) || 0,
+    min_bill_amount: parseFloat(p.min_bill_amount || p.min_order_amount) || 0,
+    max_discount: p.max_discount !== null && p.max_discount !== undefined ? parseFloat(p.max_discount) : null,
+    usage_limit: p.usage_limit !== null && p.usage_limit !== undefined ? parseInt(p.usage_limit, 10) : null,
+    max_uses_per_customer: p.max_uses_per_customer !== null && p.max_uses_per_customer !== undefined ? parseInt(p.max_uses_per_customer, 10) : 1,
+    used_count: parseInt(p.used_count, 10) || 0,
+    is_active: p.is_active !== undefined ? Boolean(p.is_active) : true,
+    start_date: p.start_date || p.valid_from || null,
+    end_date: p.end_date || p.valid_to || p.valid_until || null,
+    created_at: p.created_at
+  };
+}
 
 // GET /api/promo-codes - List all promo codes for the merchant
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
     const [rows] = await pool.query('SELECT * FROM promo_codes WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toPromoCodeDto) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/promo-codes/validate - Server-authoritative promo validation & discount calculation
-router.post('/validate', validateLimiter, async (req, res, next) => {
+router.post('/validate', validateLimiter, allowlist(['code', 'customer_id', 'bill_amount']), validateSchema(schemas.promoValidate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { code, customer_id, bill_amount } = req.body;
@@ -138,7 +160,7 @@ router.post('/validate', validateLimiter, async (req, res, next) => {
 });
 
 // POST /api/promo-codes/use - Track application of promo code to a bill
-router.post('/use', async (req, res, next) => {
+router.post('/use', allowlist(['promo_code_id', 'code', 'bill_id', 'customer_id', 'discount_applied']), validateSchema(schemas.promoUse), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -146,29 +168,63 @@ router.post('/use', async (req, res, next) => {
 
     const { promo_code_id, code, bill_id, customer_id, discount_applied } = req.body;
 
-    let promoId = promo_code_id;
-    if (!promoId && code) {
-      const [rows] = await conn.query('SELECT id FROM promo_codes WHERE code = ? AND user_id = ?', [code.toUpperCase(), req.user.id]);
-      if (rows.length > 0) {
-        promoId = rows[0].id;
+    let resolvedPromoId = null;
+    if (promo_code_id) {
+      const [rows] = await conn.query('SELECT id FROM promo_codes WHERE id = ? AND user_id = ?', [promo_code_id, req.user.id]);
+      if (rows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Promo code not found' });
       }
+      resolvedPromoId = rows[0].id;
+    } else if (code) {
+      const [rows] = await conn.query('SELECT id FROM promo_codes WHERE code = ? AND user_id = ?', [code.toUpperCase(), req.user.id]);
+      if (rows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Promo code not found' });
+      }
+      resolvedPromoId = rows[0].id;
+    } else {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'promo_code_id or valid code is required' });
     }
 
-    if (!promoId) {
-      return res.status(400).json({ success: false, error: 'promo_code_id or valid code is required' });
+    let resolvedBillId = null;
+    if (bill_id) {
+      const [billRows] = await conn.query(
+        'SELECT id FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ?',
+        [bill_id, bill_id, bill_id, req.user.id]
+      );
+      if (billRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Bill not found' });
+      }
+      resolvedBillId = billRows[0].id;
+    }
+
+    let resolvedCustomerId = null;
+    if (customer_id) {
+      const [custRows] = await conn.query(
+        'SELECT id FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
+        [customer_id, customer_id, req.user.id]
+      );
+      if (custRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Customer not found' });
+      }
+      resolvedCustomerId = custRows[0].id;
     }
 
     // Insert promo usage row
     await conn.query(
       `INSERT INTO promo_uses (user_id, promo_code_id, bill_id, customer_id, discount_applied, used_at)
        VALUES (?, ?, ?, ?, ?, NOW())`,
-      [req.user.id, promoId, bill_id || null, customer_id ? String(customer_id) : null, parseFloat(discount_applied) || 0]
+      [req.user.id, resolvedPromoId, resolvedBillId, resolvedCustomerId, parseFloat(discount_applied) || 0]
     );
 
     // Increment used_count and times_used on promo_codes table
     await conn.query(
       'UPDATE promo_codes SET used_count = COALESCE(used_count, 0) + 1, times_used = COALESCE(times_used, 0) + 1 WHERE id = ? AND user_id = ?',
-      [promoId, req.user.id]
+      [resolvedPromoId, req.user.id]
     );
 
     await conn.commit();
@@ -182,7 +238,7 @@ router.post('/use', async (req, res, next) => {
 });
 
 // POST /api/promo-codes/bulk-generate - Generate N unique promo codes with shared config
-router.post('/bulk-generate', async (req, res, next) => {
+router.post('/bulk-generate', allowlist(['count', 'prefix', 'discount_type', 'discount_value', 'min_bill_amount', 'max_discount', 'usage_limit', 'max_uses_per_customer', 'valid_from', 'valid_until', 'is_active']), validateSchema(schemas.promoBulkGenerate), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -257,7 +313,7 @@ router.post('/bulk-generate', async (req, res, next) => {
 });
 
 // POST /api/promo-codes - Create single promo code
-router.post('/', async (req, res, next) => {
+router.post('/', allowlist(['code', 'discount_type', 'discount_value', 'min_bill_amount', 'max_discount', 'usage_limit', 'max_uses_per_customer', 'valid_from', 'valid_until', 'is_active']), validateSchema(schemas.promoCreate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { code, discount_type, discount_value, min_bill_amount, max_discount, usage_limit, max_uses_per_customer, valid_from, valid_until, is_active } = req.body;
@@ -285,14 +341,14 @@ router.post('/', async (req, res, next) => {
     );
 
     const [created] = await pool.query('SELECT * FROM promo_codes WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
-    res.status(201).json({ success: true, data: created[0] });
+    res.status(201).json({ success: true, data: toPromoCodeDto(created[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // PUT /api/promo-codes/:id - Update promo code
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', allowlist(['code', 'discount_type', 'discount_value', 'min_bill_amount', 'max_discount', 'usage_limit', 'max_uses_per_customer', 'valid_from', 'valid_until', 'is_active']), validateSchema(schemas.promoUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
@@ -333,7 +389,7 @@ router.put('/:id', async (req, res, next) => {
     );
 
     const [updated] = await pool.query('SELECT * FROM promo_codes WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toPromoCodeDto(updated[0]) });
   } catch (err) {
     next(err);
   }

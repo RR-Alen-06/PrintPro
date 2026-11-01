@@ -10,7 +10,10 @@ export const exportToCSV = (filename, rows, headers) => {
   for (const row of rows) {
     const values = Array.isArray(row) ? row : Object.values(row)
     csvRows.push(values.map(val => {
-      const sanitized = val === null || val === undefined ? '' : String(val)
+      let sanitized = val === null || val === undefined ? '' : String(val)
+      if (/^[=+\-@\t\r]/.test(sanitized)) {
+        sanitized = `'${sanitized}`
+      }
       return `"${sanitized.replace(/"/g, '""')}"`
     }).join(','))
   }

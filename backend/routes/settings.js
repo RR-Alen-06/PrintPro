@@ -2,28 +2,53 @@ const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
 const logger = require('../utils/logger');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// Helper to project only settings DTO, stripping internal IDs, tenant IDs, and DB timestamps
+function toSettingsDto(row) {
+  if (!row) return { settings: {} };
+  let parsed = row.settings || {};
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (_e) {
+      parsed = {};
+    }
+  }
+  return { settings: parsed };
+}
 
 // GET /api/settings
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM user_settings WHERE user_id = ?', [req.user.id]);
+    const [rows] = await pool.query('SELECT settings FROM user_settings WHERE user_id = ?', [req.user.id]);
     if (rows.length === 0) {
       await pool.query('INSERT INTO user_settings (user_id, settings) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING', [req.user.id, '{}']);
       return res.json({ success: true, data: { settings: {} } });
     }
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: toSettingsDto(rows[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // PUT /api/settings
-router.put('/', async (req, res, next) => {
+router.put('/', allowlist(['settings']), validateSchema(schemas.settingsUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { settings } = req.body;
-    const settingsJson = typeof settings === 'object' ? JSON.stringify(settings) : (settings || '{}');
+    const rawSettings = typeof settings === 'object' && settings !== null ? settings : {};
+    const FORBIDDEN_SETTINGS_KEYS = ['role', 'roles', 'permission', 'permissions', 'credit', 'credits', 'balance', 'credit_balance', 'status', 'id', 'user_id', 'admin', 'isAdmin'];
+    const cleanSettings = {};
+    for (const [k, v] of Object.entries(rawSettings)) {
+      if (!FORBIDDEN_SETTINGS_KEYS.includes(k)) {
+        cleanSettings[k] = v;
+      }
+    }
+    const settingsJson = JSON.stringify(cleanSettings);
 
     await pool.query(
       `INSERT INTO user_settings (user_id, settings, updated_at)
@@ -34,8 +59,8 @@ router.put('/', async (req, res, next) => {
       [req.user.id, settingsJson]
     );
 
-    const [updated] = await pool.query('SELECT * FROM user_settings WHERE user_id = ?', [req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query('SELECT settings FROM user_settings WHERE user_id = ?', [req.user.id]);
+    res.json({ success: true, data: toSettingsDto(updated[0]) });
   } catch (err) {
     next(err);
   }

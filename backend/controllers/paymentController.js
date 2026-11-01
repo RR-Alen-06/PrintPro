@@ -1,6 +1,29 @@
 const { getPool } = require('../config/db');
 const logger = require('../utils/logger');
 
+// Payment projection DTO: strips internal auth tenant ID (user_id)
+function toPaymentDto(p) {
+  if (!p) return null;
+  const dto = {
+    id: p.id,
+    bill_id: p.bill_id,
+    customer_id: p.customer_id,
+    payment_number: p.payment_number || p.payment_code || '',
+    date: p.date,
+    cash_amount: parseFloat(p.cash_amount) || 0,
+    upi_amount: parseFloat(p.upi_amount) || 0,
+    total_paid: parseFloat(p.total_paid) || 0,
+    payment_type: p.payment_type || 'partial',
+    is_refund: !!p.is_refund,
+    notes: p.notes || ''
+  };
+  if (p.customer_name) dto.customer_name = p.customer_name;
+  if (p.bill_total !== undefined) dto.bill_total = parseFloat(p.bill_total) || 0;
+  if (p.bill_status !== undefined) dto.bill_status = p.bill_status;
+  if (p.deleted_at !== undefined) dto.deleted_at = p.deleted_at;
+  return dto;
+}
+
 // GET /bill/:billId - Get payments for a specific bill
 async function getPaymentsForBill(req, res, next) {
   try {
@@ -21,7 +44,7 @@ async function getPaymentsForBill(req, res, next) {
       [String(bill.id), bill.bill_number || '', bill.invoice_number || '', req.user.id]
     );
 
-    res.json({ success: true, data: payments });
+    res.json({ success: true, data: payments.map(toPaymentDto) });
   } catch (err) {
     next(err);
   }
@@ -550,7 +573,7 @@ async function listRefundPayments(req, res, next) {
     sql += ' ORDER BY p.date DESC';
 
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toPaymentDto) });
   } catch (err) {
     next(err);
   }
@@ -580,7 +603,7 @@ async function getPaymentsByCustomer(req, res, next) {
       [resolvedCustomerId, req.user.id]
     );
 
-    res.json({ success: true, data: payments });
+    res.json({ success: true, data: payments.map(toPaymentDto) });
   } catch (err) {
     next(err);
   }
@@ -594,7 +617,7 @@ async function listAllPayments(req, res, next) {
       'SELECT * FROM payments WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC',
       [req.user.id]
     );
-    res.json({ success: true, data: payments });
+    res.json({ success: true, data: payments.map(toPaymentDto) });
   } catch (err) {
     next(err);
   }

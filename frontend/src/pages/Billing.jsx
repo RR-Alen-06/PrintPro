@@ -10,6 +10,7 @@ import BillSuccessScreen from '../components/common/BillSuccessScreen'
 import { validatePromoCode, trackPromoUse } from '../api/promoCodes'
 import GroupBilling from './GroupBilling'
 import { getBillPaymentBreakdown, computeSettlementBreakdown } from '../utils/settlementHelper'
+import { escapeHtml, sanitizeUrl, sanitizeFormattedText } from '../utils/security'
 
 
 const makeInitialRow = (inventory = []) => {
@@ -532,15 +533,20 @@ const Billing = () => {
   // ── Thermal POS printer popup receipt ──────────────────────────────────────
   const printPOSReceipt = (bill) => {
     const upiLink = getUpiLink(bill.balance)
-    const qrCodeUrl = (settings.showUpiQrCode !== false && bill.balance > 0 && upiLink)
+    const rawQrUrl = (settings.showUpiQrCode !== false && bill.balance > 0 && upiLink)
       ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiLink)}`
       : ''
-    
+    const qrCodeUrl = sanitizeUrl(rawQrUrl)
+    const safeLogoUrl = sanitizeUrl(settings.logoUrl)
+    const safePrimaryColor = /^(?:#[0-9a-f]{3,8}|rgba?\([0-9, ]+\))$/i.test(settings.primaryColor || '') ? settings.primaryColor : '#000'
+
     const popup = window.open('', '_blank', 'width=350,height=600')
+    if (!popup) return
+
     popup.document.write(`
       <html>
         <head>
-          <title>POS Receipt #${getDisplayBillId(bill)}</title>
+          <title>POS Receipt #${escapeHtml(getDisplayBillId(bill))}</title>
           <style>
             @media print {
               body { margin: 0; padding: 10px; }
@@ -555,7 +561,7 @@ const Billing = () => {
               box-sizing: border-box;
             }
             .header { text-align: center; margin-bottom: 15px; }
-            .shop-name { font-size: 16px; font-weight: bold; color: ${settings.primaryColor || '#000'}; margin: 0; }
+            .shop-name { font-size: 16px; font-weight: bold; color: ${safePrimaryColor}; margin: 0; }
             .divider { border-top: 1px dashed #000; margin: 10px 0; }
             .details-table { width: 100%; border-collapse: collapse; }
             .details-table td { padding: 2px 0; }
@@ -574,19 +580,19 @@ const Billing = () => {
         </head>
         <body>
           <div class="header">
-            ${settings.logoUrl ? `<img class="logo-img" src="${settings.logoUrl}" alt="logo" />` : ''}
-            <p class="shop-name">${business?.shopName || 'PrintPro'}</p>
-            <p style="margin: 3px 0;">${business?.address || ''}</p>
-            <p style="margin: 3px 0;">Ph: ${business?.phone || ''}</p>
-            ${business?.gstin ? `<p style="margin: 3px 0;">GSTIN: ${business.gstin}</p>` : ''}
-            ${settings.headerNotes ? `<p class="custom-note">${settings.headerNotes}</p>` : ''}
+            ${safeLogoUrl ? `<img class="logo-img" src="${safeLogoUrl}" alt="logo" />` : ''}
+            <p class="shop-name">${escapeHtml(business?.shopName || 'PrintPro')}</p>
+            <p style="margin: 3px 0;">${escapeHtml(business?.address || '')}</p>
+            <p style="margin: 3px 0;">Ph: ${escapeHtml(business?.phone || '')}</p>
+            ${business?.gstin ? `<p style="margin: 3px 0;">GSTIN: ${escapeHtml(business.gstin)}</p>` : ''}
+            ${settings.headerNotes ? `<p class="custom-note">${sanitizeFormattedText(settings.headerNotes)}</p>` : ''}
           </div>
           <div class="divider"></div>
           <table class="details-table">
-            <tr><td>Bill ID:</td><td class="right">${getDisplayBillId(bill)}</td></tr>
-            <tr><td>Date:</td><td class="right">${bill.date}</td></tr>
-            <tr><td>Customer:</td><td class="right">${bill.customerName}</td></tr>
-            <tr><td>Status:</td><td class="right" style="text-transform: uppercase;">${bill.status}</td></tr>
+            <tr><td>Bill ID:</td><td class="right">${escapeHtml(getDisplayBillId(bill))}</td></tr>
+            <tr><td>Date:</td><td class="right">${escapeHtml(bill.date)}</td></tr>
+            <tr><td>Customer:</td><td class="right">${escapeHtml(bill.customerName || '')}</td></tr>
+            <tr><td>Status:</td><td class="right" style="text-transform: uppercase;">${escapeHtml(bill.status || '')}</td></tr>
           </table>
           <div class="divider"></div>
           <table class="items-table">
@@ -598,51 +604,51 @@ const Billing = () => {
               </tr>
             </thead>
             <tbody>
-              ${bill.items.map(item => `
+              ${(bill.items || []).map(item => `
                 <tr>
-                  <td>${item.itemName || item.name}</td>
-                  <td class="right">${item.qty}</td>
-                  <td class="right">₹${Number(item.amount).toFixed(2)}</td>
+                  <td>${escapeHtml(item.itemName || item.name || '')}</td>
+                  <td class="right">${escapeHtml(item.qty)}</td>
+                  <td class="right">₹${Number(item.amount || 0).toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
           <div class="divider"></div>
           <div class="totals">
-            <div class="totals-row"><span>Subtotal:</span><span>₹${bill.subtotal.toFixed(2)}</span></div>
-            ${settings.showGstBreakdown !== false && bill.gstAmount > 0 ? `
-              <div class="totals-row"><span>CGST:</span><span>₹${(bill.gstAmount / 2).toFixed(2)}</span></div>
-              <div class="totals-row"><span>SGST:</span><span>₹${(bill.gstAmount / 2).toFixed(2)}</span></div>
+            <div class="totals-row"><span>Subtotal:</span><span>₹${Number(bill.subtotal || 0).toFixed(2)}</span></div>
+            ${settings.showGstBreakdown !== false && Number(bill.gstAmount) > 0 ? `
+              <div class="totals-row"><span>CGST:</span><span>₹${(Number(bill.gstAmount) / 2).toFixed(2)}</span></div>
+              <div class="totals-row"><span>SGST:</span><span>₹${(Number(bill.gstAmount) / 2).toFixed(2)}</span></div>
             ` : ''}
             ${bill.promoCode ? `
-               <div class="totals-row"><span>Promo Code (${bill.promoCode}):</span><span>-₹${(bill.promoDiscount || bill.discountAmount || 0).toFixed(2)}</span></div>
-             ` : (bill.discountAmount > 0 ? `<div class="totals-row"><span>Discount:</span><span>-₹${bill.discountAmount.toFixed(2)}</span></div>` : '')}
+               <div class="totals-row"><span>Promo Code (${escapeHtml(bill.promoCode)}):</span><span>-₹${(bill.promoDiscount || bill.discountAmount || 0).toFixed(2)}</span></div>
+             ` : (bill.discountAmount > 0 ? `<div class="totals-row"><span>Discount:</span><span>-₹${Number(bill.discountAmount).toFixed(2)}</span></div>` : '')}
              ${Number(bill.loyaltyPointsRedeemed) > 0 ? `
-               <div class="totals-row"><span>Loyalty Discount (${bill.loyaltyPointsRedeemed} pts):</span><span>-₹${(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))).toFixed(2)}</span></div>
+               <div class="totals-row"><span>Loyalty Discount (${escapeHtml(bill.loyaltyPointsRedeemed)} pts):</span><span>-₹${(bill.loyaltyDiscount || (bill.loyaltyPointsRedeemed * (settings.loyaltyRedeemRatioRupees || 5) / (settings.loyaltyRedeemRatioPoints || 150))).toFixed(2)}</span></div>
              ` : ''}
-            <div class="totals-row" style="font-weight: bold; color: ${settings.primaryColor || '#000'};"><span>Total:</span><span>₹${bill.total.toFixed(2)}</span></div>
-            <div class="totals-row"><span>Paid:</span><span>₹${bill.amountPaid.toFixed(2)}</span></div>
-            ${bill.balance > 0 ? `
-              <div class="totals-row" style="color: red; font-weight: bold;"><span>Balance Due:</span><span>₹${bill.balance.toFixed(2)}</span></div>
+            <div class="totals-row" style="font-weight: bold; color: ${safePrimaryColor};"><span>Total:</span><span>₹${Number(bill.total || 0).toFixed(2)}</span></div>
+            <div class="totals-row"><span>Paid:</span><span>₹${Number(bill.amountPaid || 0).toFixed(2)}</span></div>
+            ${Number(bill.balance) > 0 ? `
+              <div class="totals-row" style="color: red; font-weight: bold;"><span>Balance Due:</span><span>₹${Number(bill.balance).toFixed(2)}</span></div>
             ` : ''}
           </div>
           
           ${settings.loyaltyEnabled !== false ? `
             <div class="divider"></div>
             <div style="font-size: 10px; font-weight: bold;">
-              <div class="totals-row"><span>Points Added:</span><span>+${bill.loyaltyPointsEarned || 0}</span></div>
-              <div class="totals-row"><span>Total Balance:</span><span>${bill.customerTotalLoyaltyPoints || 0} pts</span></div>
+              <div class="totals-row"><span>Points Added:</span><span>+${escapeHtml(bill.loyaltyPointsEarned || 0)}</span></div>
+              <div class="totals-row"><span>Total Balance:</span><span>${escapeHtml(bill.customerTotalLoyaltyPoints || 0)} pts</span></div>
             </div>
           ` : ''}
 
-          ${bill.balance > 0 && qrCodeUrl ? `
+          ${Number(bill.balance) > 0 && qrCodeUrl ? `
             <div class="qr-container">
               <p style="margin: 0 0 5px 0; font-size: 10px;">Scan QR to Pay Balance</p>
               <img class="qr-code" src="${qrCodeUrl}" alt="UPI QR" />
             </div>
           ` : ''}
           <div class="divider"></div>
-          ${settings.footerNotes ? `<p class="custom-note" style="text-align: center; margin-bottom: 8px;">${settings.footerNotes}</p>` : ''}
+          ${settings.footerNotes ? `<p class="custom-note" style="text-align: center; margin-bottom: 8px;">${sanitizeFormattedText(settings.footerNotes)}</p>` : ''}
           <div class="footer">
             <p style="font-weight: bold;">Thank You for visiting!</p>
             <p style="margin-top: 5px; font-size: 9px;">Powered by PrintPro</p>

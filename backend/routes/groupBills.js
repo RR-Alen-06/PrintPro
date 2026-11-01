@@ -1,25 +1,48 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
+
+// Group Bill projection DTO: strips internal auth tenant ID (user_id)
+function toGroupBillDto(gb) {
+  if (!gb) return null;
+  let shares = gb.member_shares || [];
+  if (typeof shares === 'string') {
+    try { shares = JSON.parse(shares); } catch (_e) { shares = []; }
+  }
+  return {
+    id: gb.id,
+    group_id: gb.group_id,
+    title: gb.title || '',
+    date: gb.date,
+    total_amount: parseFloat(gb.total_amount) || 0,
+    amount_paid: parseFloat(gb.amount_paid) || 0,
+    status: gb.status || 'unpaid',
+    member_shares: shares,
+    notes: gb.notes || ''
+  };
+}
 
 // GET /api/group-bills
 router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
     const [rows] = await pool.query('SELECT * FROM group_bills WHERE user_id = ? ORDER BY date DESC', [req.user.id]);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toGroupBillDto) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/group-bills
-router.post('/', async (req, res, next) => {
+router.post('/', allowlist(['group_id', 'title', 'date', 'total_amount', 'member_shares', 'notes']), validateSchema(schemas.groupBillCreate), async (req, res, next) => {
   try {
     const pool = getPool();
-    const { id, group_id, title, date, total_amount, amount_paid, status, member_shares, notes } = req.body;
+    const { group_id, title, date, total_amount, member_shares, notes } = req.body;
 
-    const billId = id || `GB-${Date.now()}`;
+    const billId = `GB-${Date.now()}`;
     const effectiveGroupId = group_id || 'GENERAL';
 
     // Verify or ensure group exists to satisfy foreign key constraint
@@ -40,12 +63,10 @@ router.post('/', async (req, res, next) => {
 
     await pool.query(
       `INSERT INTO group_bills (id, user_id, group_id, title, date, total_amount, amount_paid, status, member_shares, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 'unpaid', ?, ?)
        ON CONFLICT (id, user_id) DO UPDATE SET
          title = EXCLUDED.title,
          total_amount = EXCLUDED.total_amount,
-         amount_paid = EXCLUDED.amount_paid,
-         status = EXCLUDED.status,
          member_shares = EXCLUDED.member_shares,
          notes = EXCLUDED.notes,
          updated_at = NOW()`,
@@ -55,27 +76,25 @@ router.post('/', async (req, res, next) => {
         effectiveGroupId,
         title || '',
         date || new Date().toISOString().slice(0, 10),
-        total_amount || 0,
-        amount_paid || 0,
-        status || 'unpaid',
+        parseFloat(total_amount) || 0,
         JSON.stringify(member_shares || []),
         notes || ''
       ]
     );
 
     const [created] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [billId, req.user.id]);
-    res.status(201).json({ success: true, data: created[0] });
+    res.status(201).json({ success: true, data: toGroupBillDto(created[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // PUT /api/group-bills/:id
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', allowlist(['title', 'date', 'total_amount', 'member_shares', 'notes']), validateSchema(schemas.groupBillUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { title, date, total_amount, amount_paid, status, member_shares, notes } = req.body;
+    const { title, date, total_amount, member_shares, notes } = req.body;
 
     const [existing] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
@@ -87,8 +106,6 @@ router.put('/:id', async (req, res, next) => {
          title = COALESCE(?, title),
          date = COALESCE(?, date),
          total_amount = COALESCE(?, total_amount),
-         amount_paid = COALESCE(?, amount_paid),
-         status = COALESCE(?, status),
          member_shares = COALESCE(?, member_shares),
          notes = COALESCE(?, notes),
          updated_at = NOW()
@@ -96,9 +113,7 @@ router.put('/:id', async (req, res, next) => {
       [
         title,
         date,
-        total_amount,
-        amount_paid,
-        status,
+        total_amount !== undefined ? parseFloat(total_amount) : null,
         member_shares ? JSON.stringify(member_shares) : null,
         notes,
         id,
@@ -107,14 +122,14 @@ router.put('/:id', async (req, res, next) => {
     );
 
     const [updated] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toGroupBillDto(updated[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/group-bills/:id/pay-member - Record payment for a specific member in a group bill
-router.post('/:id/pay-member', async (req, res, next) => {
+router.post('/:id/pay-member', allowlist(['memberId', 'customerId', 'paymentAmount', 'paymentMethod', 'notes', 'upi_ref']), validateSchema(schemas.groupBillPayMember), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -206,7 +221,7 @@ router.post('/:id/pay-member', async (req, res, next) => {
     await conn.commit();
 
     const [updated] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toGroupBillDto(updated[0]) });
   } catch (err) {
     await conn.rollback();
     next(err);

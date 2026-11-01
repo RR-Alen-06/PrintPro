@@ -1,11 +1,29 @@
 const { getPool } = require('../config/db');
 
+// Inventory projection DTO: returns only fields used by billing, catalog, and inventory screens
+function toInventoryDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name || '',
+    item_type: row.item_type || 'paper',
+    unit_price: parseFloat(row.unit_price) || 0,
+    unit: row.unit || 'pcs',
+    color_single: parseFloat(row.color_single) || 0,
+    color_double: parseFloat(row.color_double) || 0,
+    bw_single: parseFloat(row.bw_single) || 0,
+    bw_double: parseFloat(row.bw_double) || 0,
+    stock: parseFloat(row.stock) || 0,
+    low_stock_alert: parseFloat(row.low_stock_alert) || 50
+  };
+}
+
 // GET / - List all inventory items
 async function listItems(req, res, next) {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM inventory_items WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
-    res.json({ success: true, data: rows });
+    const [rows] = await pool.query('SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
+    res.json({ success: true, data: rows.map(toInventoryDto) });
   } catch (err) {
     next(err);
   }
@@ -33,8 +51,8 @@ async function addItem(req, res, next) {
       [req.user.id, 'CREATE', 'inventory', String(result.insertId), JSON.stringify({ name, stock, item_type })]
     );
 
-    const [newItem] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
-    res.status(201).json({ success: true, data: newItem[0] });
+    const [newItem] = await pool.query('SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
+    res.status(201).json({ success: true, data: toInventoryDto(newItem[0]) });
   } catch (err) {
     next(err);
   }
@@ -70,8 +88,9 @@ async function updateItem(req, res, next) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    const setClauses = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = [...Object.values(updates), id, req.user.id];
+    const validKeys = Object.keys(updates).filter(key => ALLOWED_INVENTORY_COLUMNS.includes(key));
+    const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
+    const values = [...validKeys.map(key => updates[key]), id, req.user.id];
 
     await pool.query(`UPDATE inventory_items SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
 
@@ -81,8 +100,8 @@ async function updateItem(req, res, next) {
       [req.user.id, 'UPDATE', 'inventory', String(id), JSON.stringify(oldItem), JSON.stringify(updates)]
     );
 
-    const [updated] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query('SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    res.json({ success: true, data: toInventoryDto(updated[0]) });
   } catch (err) {
     next(err);
   }
@@ -140,8 +159,8 @@ async function updateStock(req, res, next) {
       ]
     );
 
-    const [updated] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
-    res.json({ success: true, data: updated[0] });
+    const [updated] = await pool.query('SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    res.json({ success: true, data: toInventoryDto(updated[0]) });
   } catch (err) {
     next(err);
   }
@@ -152,10 +171,10 @@ async function getLowStock(req, res, next) {
   try {
     const pool = getPool();
     const [rows] = await pool.query(
-      'SELECT * FROM inventory_items WHERE user_id = ? AND stock <= low_stock_alert ORDER BY stock ASC',
+      'SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE user_id = ? AND stock <= low_stock_alert ORDER BY stock ASC',
       [req.user.id]
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toInventoryDto) });
   } catch (err) {
     next(err);
   }

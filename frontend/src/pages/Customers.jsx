@@ -1802,12 +1802,12 @@ const Customers = () => {
                         {getDisplayCustomerId(selectedCustomer)}
                       </span>
                       {selectedCustomer.phone && (
-                        <a href={`tel:${selectedCustomer.phone}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                        <a href={`tel:${String(selectedCustomer.phone).replace(/[^0-9+]/g, '')}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', textDecoration: 'none' }}>
                           <Phone size={13} /> {selectedCustomer.phone}
                         </a>
                       )}
                       {selectedCustomer.email && (
-                        <a href={`mailto:${selectedCustomer.email}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                        <a href={`mailto:${encodeURIComponent(selectedCustomer.email).replace(/%40/g, '@')}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', textDecoration: 'none' }}>
                           <Mail size={13} /> {selectedCustomer.email}
                         </a>
                       )}

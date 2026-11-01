@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
 const logger = require('../utils/logger');
+const { allowlist } = require('../middleware/allowlist');
+const { validateSchema } = require('../middleware/schemaValidator');
+const schemas = require('../config/schemas');
 
 // Helper to get active session ID
 async function getActiveSessionId(poolOrConn, userId) {
@@ -12,6 +15,32 @@ async function getActiveSessionId(poolOrConn, userId) {
   return rows.length > 0 ? rows[0].id : null;
 }
 
+// Cash Session projection DTO: strips internal auth tenant ID (user_id)
+function toCashSessionDto(s) {
+  if (!s) return null;
+  return {
+    id: s.id,
+    session_number: s.session_number || '',
+    opened_at: s.opened_at,
+    closed_at: s.closed_at || null,
+    status: s.status || 'open',
+    opening_cash: parseFloat(s.opening_cash) || 0,
+    opening_float: parseFloat(s.opening_float !== undefined ? s.opening_float : s.opening_cash) || 0,
+    closing_cash: s.closing_cash !== null && s.closing_cash !== undefined ? parseFloat(s.closing_cash) : null,
+    closing_float: s.closing_float !== null && s.closing_float !== undefined ? parseFloat(s.closing_float) : null,
+    expected_cash: s.expected_cash !== null && s.expected_cash !== undefined ? parseFloat(s.expected_cash) : null,
+    counted_cash: s.counted_cash !== null && s.counted_cash !== undefined ? parseFloat(s.counted_cash) : null,
+    variance: s.discrepancy !== null && s.discrepancy !== undefined ? parseFloat(s.discrepancy) : (s.variance !== null && s.variance !== undefined ? parseFloat(s.variance) : null),
+    discrepancy: s.discrepancy !== null && s.discrepancy !== undefined ? parseFloat(s.discrepancy) : (s.variance !== null && s.variance !== undefined ? parseFloat(s.variance) : null),
+    notes: s.notes || '',
+    cash_in: s.cash_in !== undefined ? parseFloat(s.cash_in) : undefined,
+    cash_refunds: s.cash_refunds !== undefined ? parseFloat(s.cash_refunds) : undefined,
+    upi_in: s.upi_in !== undefined ? parseFloat(s.upi_in) : undefined,
+    cash_expenses: s.cash_expenses !== undefined ? parseFloat(s.cash_expenses) : undefined,
+    current_expected_cash: s.current_expected_cash !== undefined ? parseFloat(s.current_expected_cash) : undefined
+  };
+}
+
 // GET /api/cash-sessions - List all sessions
 router.get('/', async (req, res, next) => {
   try {
@@ -20,7 +49,7 @@ router.get('/', async (req, res, next) => {
       `SELECT * FROM cash_sessions WHERE user_id = ? ORDER BY opened_at DESC`,
       [req.user.id]
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toCashSessionDto) });
   } catch (err) {
     next(err);
   }
@@ -73,14 +102,14 @@ router.get('/active', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
+      data: toCashSessionDto({
         ...session,
         cash_in: cashIn,
         cash_refunds: cashRefunds,
         upi_in: upiIn,
         cash_expenses: cashExpenses,
         current_expected_cash: currentExpectedCash
-      }
+      })
     });
   } catch (err) {
     next(err);
@@ -88,7 +117,7 @@ router.get('/active', async (req, res, next) => {
 });
 
 // POST /api/cash-sessions/open - Open a new register session
-router.post('/open', async (req, res, next) => {
+router.post('/open', allowlist(['opening_cash', 'opening_float', 'notes']), validateSchema(schemas.cashSessionOpen), async (req, res, next) => {
   const pool = getPool();
   try {
     const { opening_cash = 0, opening_float, notes } = req.body;
@@ -116,14 +145,14 @@ router.post('/open', async (req, res, next) => {
     const [created] = await pool.query('SELECT * FROM cash_sessions WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
     logger.info(`Cash session #${result.insertId} opened with float ₹${floatVal}`);
 
-    res.status(201).json({ success: true, data: created[0] });
+    res.status(201).json({ success: true, data: toCashSessionDto(created[0]) });
   } catch (err) {
     next(err);
   }
 });
 
 // POST /api/cash-sessions/:id/close - Close a cash session with physical count
-router.post('/:id/close', async (req, res, next) => {
+router.post('/:id/close', allowlist(['closing_cash', 'physical_count', 'notes']), validateSchema(schemas.cashSessionClose), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
@@ -206,7 +235,7 @@ router.post('/:id/close', async (req, res, next) => {
     const [updated] = await pool.query('SELECT * FROM cash_sessions WHERE id = ? AND user_id = ?', [id, req.user.id]);
     logger.info(`Cash session #${id} closed. Count: ₹${countVal}, Expected: ₹${expectedCash}, Variance: ₹${discrepancy}`);
 
-    res.json({ success: true, data: updated[0] });
+    res.json({ success: true, data: toCashSessionDto(updated[0]) });
   } catch (err) {
     await conn.rollback();
     next(err);
