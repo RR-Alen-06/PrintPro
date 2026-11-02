@@ -353,9 +353,9 @@ async function createBill(req, res, next) {
 
     // Insert bill
     await conn.query(
-      `INSERT INTO bills (id, user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, bill_number, invoice_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [billId, req.user.id, resolvedCustomerId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', billNumber, billNumber]
+      `INSERT INTO bills (id, user_id, customer_id, date, due_date, subtotal, discount_type, discount_value, gst_percent, gst_amount, total, amount_paid, balance, status, notes, bill_number, invoice_number, advance_used)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [billId, req.user.id, resolvedCustomerId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', billNumber, billNumber, creditUsed]
     );
 
     // Insert bill items in a single batch

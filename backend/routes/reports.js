@@ -256,22 +256,32 @@ router.get('/daily', async (req, res, next) => {
       [req.user.id, date]
     );
 
+    // Compute actual collections for the day from the payments table (Cash Accounting for Collections)
+    const [payRows] = await pool.query(
+      `SELECT COALESCE(SUM(total_paid), 0) AS total_collected,
+              COALESCE(SUM(cash_amount), 0) AS cash_collected,
+              COALESCE(SUM(upi_amount), 0) AS upi_collected
+       FROM payments
+       WHERE user_id = ? AND DATE(date) = ? AND is_refund = false AND payment_type != 'refund' AND deleted_at IS NULL`,
+      [req.user.id, date]
+    );
+
     // Compute refund totals for the day from the payments table
     const [refundRows] = await pool.query(
       `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
               COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
               COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
        FROM payments
-       WHERE user_id = ? AND DATE(date) = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0)`,
+       WHERE user_id = ? AND DATE(date) = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0) AND deleted_at IS NULL`,
       [req.user.id, date]
     );
 
     const totalBilled   = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
-    const totalPaid     = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
+    const totalPaid     = parseFloat(payRows[0]?.total_collected || 0);
     const totalDue      = bills.reduce((s, b) => s + parseFloat(b.balance || 0), 0);
     const totalRefunds  = parseFloat(refundRows[0]?.total_refunds || 0);
-    const netSales      = totalBilled; // bill.total already net after refund edit
-    const netPaid       = totalPaid;   // bill.amount_paid already net after ADD_PAYMENT fix
+    const netSales      = totalBilled;
+    const netPaid       = Math.max(0, totalPaid - totalRefunds);
 
     res.json({
       success: true,
@@ -310,18 +320,28 @@ router.get('/monthly', async (req, res, next) => {
       [req.user.id, `${year}-${pad}`]
     );
 
+    // Compute actual collections for the month from payments table (Cash Accounting for Collections)
+    const [payRows] = await pool.query(
+      `SELECT COALESCE(SUM(total_paid), 0) AS total_collected,
+              COALESCE(SUM(cash_amount), 0) AS cash_collected,
+              COALESCE(SUM(upi_amount), 0) AS upi_collected
+       FROM payments
+       WHERE user_id = ? AND TO_CHAR(date, 'YYYY-MM') = ? AND is_refund = false AND payment_type != 'refund' AND deleted_at IS NULL`,
+      [req.user.id, `${year}-${pad}`]
+    );
+
     // Compute refund totals for the month
     const [refundRows] = await pool.query(
       `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
               COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
               COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
        FROM payments
-       WHERE user_id = ? AND TO_CHAR(date, 'YYYY-MM') = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0)`,
+       WHERE user_id = ? AND TO_CHAR(date, 'YYYY-MM') = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0) AND deleted_at IS NULL`,
       [req.user.id, `${year}-${pad}`]
     );
 
     const totalBilled  = bills.reduce((s, b) => s + parseFloat(b.total || 0), 0);
-    const totalPaid    = bills.reduce((s, b) => s + parseFloat(b.amount_paid || 0), 0);
+    const totalPaid    = parseFloat(payRows[0]?.total_collected || 0);
     const totalRefunds = parseFloat(refundRows[0]?.total_refunds || 0);
 
     res.json({
@@ -367,22 +387,32 @@ router.get('/yearly', async (req, res, next) => {
       [req.user.id, year]
     );
 
+    // Compute actual collections for the year from payments table (Cash Accounting for Collections)
+    const [payRows] = await pool.query(
+      `SELECT COALESCE(SUM(total_paid), 0) AS total_collected
+       FROM payments
+       WHERE user_id = ? AND EXTRACT(YEAR FROM date) = ? AND is_refund = false AND payment_type != 'refund' AND deleted_at IS NULL`,
+      [req.user.id, year]
+    );
+
     // Compute refund totals for the year from payments table
     const [refundRows] = await pool.query(
       `SELECT COALESCE(SUM(ABS(total_paid)), 0) AS total_refunds,
               COALESCE(SUM(ABS(cash_amount)), 0) AS cash_refunded,
               COALESCE(SUM(ABS(upi_amount)), 0) AS upi_refunded
        FROM payments
-       WHERE user_id = ? AND EXTRACT(YEAR FROM date) = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0)`,
+       WHERE user_id = ? AND EXTRACT(YEAR FROM date) = ? AND (is_refund = true OR payment_type = 'refund' OR total_paid < 0) AND deleted_at IS NULL`,
       [req.user.id, year]
     );
 
     const totalRefunds = parseFloat(refundRows[0]?.total_refunds || 0);
+    const totalCollected = parseFloat(payRows[0]?.total_collected || 0);
     const summary = {
       ...totals[0],
+      total_paid:    totalCollected,
       total_refunds: totalRefunds,
-      net_sales:     parseFloat(totals[0]?.total_billed || 0),  // already net after refund-edit
-      net_paid:      parseFloat(totals[0]?.total_paid || 0),    // already net after ADD_PAYMENT fix
+      net_sales:     parseFloat(totals[0]?.total_billed || 0),
+      net_paid:      Math.max(0, totalCollected - totalRefunds),
       cash_refunded: parseFloat(refundRows[0]?.cash_refunded || 0),
       upi_refunded:  parseFloat(refundRows[0]?.upi_refunded || 0),
     };

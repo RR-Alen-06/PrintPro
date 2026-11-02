@@ -1,4 +1,4 @@
-import { getDisplayBillId, getDisplayCustomerId, getDisplayAdvanceId } from './idFormatter';
+import { getDisplayBillId, getDisplayCustomerId, getDisplayAdvanceId } from './idFormatter.js';
 
 /**
  * ── FinancialCalculationService ──────────────────────────────────────────────
@@ -209,7 +209,16 @@ export const LedgerService = {
   calculateLedger: ({ customerId, bills = [], payments = [], advancePayments = [], _period = 'all', _settings = {} }) => {
     const entries = [];
     const selectedBills = bills.filter(b => b.customerId === customerId && !b.deleted);
-    const selectedPayments = payments.filter(p => p.customerId === customerId && !p.notes?.includes('advance deposit'));
+    const selectedPayments = payments.filter(p => {
+      if (p.customerId !== customerId) return false;
+      const n = (p.notes || '').toLowerCase();
+      const cash = Number(p.cashAmount || p.cash_amount || 0);
+      const upi = Number(p.upiAmount || p.upi_amount || 0);
+      if (cash === 0 && upi === 0 && (n.includes('credit balance') || n.includes('advance deposit') || n.includes('advance balance'))) {
+        return false;
+      }
+      return true;
+    });
     const selectedAdvances = (advancePayments || []).filter(a => a.customerId === customerId);
 
     // Initial pass of bills
@@ -245,9 +254,8 @@ export const LedgerService = {
 
     // Initial pass of payments
     selectedPayments.forEach((payment) => {
-      const excess = Number(payment.excessCredit || 0);
       const isRefund = Number(payment.totalPaid || 0) < 0 || payment.paymentType === 'refund' || payment.isRefund;
-      let creditAmt = Number(payment.totalPaid || 0) + excess;
+      let creditAmt = Number(payment.totalPaid || 0);
 
       // In ERP group settlement logic, the payer's customer ledger should only be credited
       // for their own invoice share, not the entire group payment.
@@ -301,10 +309,10 @@ export const LedgerService = {
     // Chronological Sort
     entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Calculate rolling balances
+    // Calculate rolling balances (Debit Positive standard: > 0 means Customer Owes Shop / Due, < 0 means Shop holds Advance Credit)
     let rolling = 0;
     const finalEntries = entries.map((entry) => {
-      rolling = Number((rolling + entry.credit - entry.debit).toFixed(2));
+      rolling = Number((rolling + entry.debit - entry.credit).toFixed(2));
       return { ...entry, balance: rolling };
     });
 

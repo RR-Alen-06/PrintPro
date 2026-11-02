@@ -91,25 +91,12 @@ router.delete('/clear-all-data', async (req, res, next) => {
     await conn.query('DELETE FROM loyalty_settings WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM customers WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM purchases WHERE user_id = ?', [userId]);
-    await conn.query('DELETE FROM expenses WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM upi_transactions WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM cash_sessions WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM inventory_items WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM audit_log WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM sequences WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM user_settings WHERE user_id = ?', [userId]);
-    await conn.query(
-      `UPDATE business_profile
-       SET settings = '{}',
-           id_counters = '{}',
-           advance_payments = '[]',
-           recurring_bills = '[]',
-           customer_groups = '[]',
-           group_bills = '[]',
-           deleted_payments = '[]'
-       WHERE user_id = ?`,
-      [userId]
-    );
 
     await conn.commit();
     logger.info(`Factory Reset completed successfully for user ${userId}`);

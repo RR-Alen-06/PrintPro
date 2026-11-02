@@ -101,7 +101,7 @@ const CustomerLedger = () => {
   // Separate gross payments and refund payments for clear display
   const nonRefundPayments = customerPayments.filter(p => !p.isRefund && p.paymentType !== 'refund' && Number(p.totalPaid || 0) >= 0)
   const refundPaymentsList = customerPayments.filter(p => p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0)
-  const totalGrossPaid = nonRefundPayments.reduce((s, p) => s + Number(p.totalPaid || 0) + Number(p.excessCredit || 0), 0)
+  const totalGrossPaid = nonRefundPayments.reduce((s, p) => s + Number(p.totalPaid || 0), 0)
   const totalRefunded = refundPaymentsList.reduce((s, p) => s + Math.abs(Number(p.totalPaid || 0)), 0)
   const totalPaid = totalGrossPaid - totalRefunded // net paid after refunds
   const totalAdvanceIn = useMemo(() => customerAdvances.filter(a => (a.amount > 0 || !a.isReturn) && !a.isRefundCredit).reduce((s, a) => s + Number(a.amount || 0), 0), [customerAdvances])
@@ -380,17 +380,33 @@ const CustomerLedger = () => {
                 { label: 'Total Refunded', value: totalRefunded, color: 'var(--warning)' },
                 { label: 'Group Bills Settled', value: totalGroupSettled, color: 'var(--info)' },
                 { label: 'Net Paid (After Refunds)', value: totalPaid, color: 'var(--info)' },
-                { label: 'Total Ledger Balance', value: finalBalance, color: finalBalance < 0 ? 'var(--error)' : 'var(--success)' },
+                {
+                  label: finalBalance > 0 ? 'Total Due (Customer Owes)' : finalBalance < 0 ? 'Advance Credit (Shop Holds)' : 'Total Ledger Balance',
+                  value: finalBalance,
+                  color: finalBalance > 0 ? 'var(--error)' : finalBalance < 0 ? 'var(--success)' : 'var(--text-secondary)',
+                  tag: finalBalance > 0 ? 'DUE' : finalBalance < 0 ? 'ADVANCE' : 'SETTLED'
+                },
                 { label: 'Unpaid Bills Only (Without Advances)', value: outstanding, color: 'var(--error)' },
                 { label: 'Total GST Charged', value: totalGstBilled, color: '#818cf8' },
                 { label: 'Total Discounts Given', value: totalDiscount, color: 'var(--accent)' },
                 { label: 'Advance Deposited', value: totalAdvanceIn, color: 'var(--info)' },
                 { label: 'Advance/Change Returned', value: periodAdvanceReturned, color: 'var(--warning)' },
                 { label: 'Advance Used in Bills', value: totalAdvanceUsed, color: 'var(--info)' },
-              ].map(({ label, value, color }) => (
+              ].map(({ label, value, color, tag }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{label}</span>
-                  <strong className="font-mono" style={{ color }}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {tag && (
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px',
+                        background: tag === 'DUE' ? 'rgba(239,68,68,0.15)' : tag === 'ADVANCE' ? 'rgba(16,185,129,0.15)' : 'var(--bg-card)',
+                        color, border: `1px solid ${color}44`
+                      }}>
+                        {tag}
+                      </span>
+                    )}
+                    <strong className="font-mono" style={{ color }}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</strong>
+                  </div>
                 </div>
               ))}
             </div>
@@ -633,8 +649,8 @@ const CustomerLedger = () => {
                       <td style={{ textAlign: 'right', color: (entry.credit > 0 || entry.advanceIn > 0) ? 'var(--success)' : entry.advanceReturn > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>
                         {entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : entry.advanceIn > 0 ? `₹${entry.advanceIn.toFixed(2)}` : entry.advanceReturn > 0 ? `-₹${entry.advanceReturn.toFixed(2)}` : '—'}
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: entry.balance >= 0 ? 'var(--success)' : 'var(--error)' }}>
-                        {entry.balance < 0 ? `-₹${Math.abs(entry.balance).toFixed(2)}` : entry.balance > 0 ? `+₹${entry.balance.toFixed(2)}` : `₹${entry.balance.toFixed(2)}`}
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: entry.balance > 0 ? 'var(--error)' : entry.balance < 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                        {entry.balance > 0 ? `+₹${entry.balance.toFixed(2)} DUE` : entry.balance < 0 ? `-₹${Math.abs(entry.balance).toFixed(2)} ADV` : '₹0.00'}
                       </td>
                     </tr>
                   ))}
