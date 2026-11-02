@@ -79,6 +79,14 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
+      - name: Sync backend secrets to Vercel
+        run: |
+          printf "%s" "${{ secrets.SUPABASE_URL }}" | vercel env add SUPABASE_URL production --token=${{ secrets.VERCEL_TOKEN }} --force || true
+          printf "%s" "${{ secrets.SUPABASE_ANON_KEY }}" | vercel env add SUPABASE_ANON_KEY production --token=${{ secrets.VERCEL_TOKEN }} --force || true
+          printf "%s" "${{ secrets.SUPABASE_SECRET_KEY }}" | vercel env add SUPABASE_SECRET_KEY production --token=${{ secrets.VERCEL_TOKEN }} --force || true
+          printf "%s" "${{ secrets.SUPABASE_DB_PASSWORD }}" | vercel env add SUPABASE_DB_PASSWORD production --token=${{ secrets.VERCEL_TOKEN }} --force || true
+          printf "%s" "${{ secrets.DATABASE_URL }}" | vercel env add DATABASE_URL production --token=${{ secrets.VERCEL_TOKEN }} --force || true
+
       - name: Pull Vercel environment (production)
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
@@ -90,6 +98,11 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || vars.VITE_API_BASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Deploy to Vercel (production)
         id: deploy
