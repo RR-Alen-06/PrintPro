@@ -1,6 +1,11 @@
 const { getPool } = require('../config/db');
 const { getNextSequence } = require('../utils/sequenceGenerator');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(val) {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
 
 
 // Bill projection DTOs: strips internal auth tenant ID (user_id) and redundant internal fields
@@ -228,8 +233,9 @@ async function createBill(req, res, next) {
     const customer = custRows[0];
     const resolvedCustomerId = customer.id;
 
-    const billId = req.body.id || require('crypto').randomUUID();
-    let billNumber = req.body.bill_number || req.body.invoice_number || null;
+    const incomingId = req.body.id;
+    const billId = (incomingId && isUuid(incomingId)) ? incomingId : require('crypto').randomUUID();
+    let billNumber = req.body.bill_number || req.body.invoice_number || (incomingId && !isUuid(incomingId) ? incomingId : null);
 
     if (!billNumber) {
       billNumber = await getNextSequence(conn, req.user.id, 'bill');

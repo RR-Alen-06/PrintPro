@@ -1,6 +1,11 @@
 const { getPool } = require('../config/db');
 const { getNextSequence } = require('../utils/sequenceGenerator');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(val) {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
 // Customer projection DTO: strips internal auth tenant ID (user_id) and raw DB columns
 function toCustomerDto(row) {
   if (!row) return null;
@@ -99,8 +104,9 @@ async function createCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    let customerId = req.body.id || require('crypto').randomUUID();
-    let customerCode = customer_code || req.body.customerCode;
+    const incomingId = req.body.id;
+    const customerId = (incomingId && isUuid(incomingId)) ? incomingId : require('crypto').randomUUID();
+    let customerCode = customer_code || req.body.customerCode || (incomingId && !isUuid(incomingId) ? incomingId : null);
 
     if (!customerCode) {
       const seqType = type === 'regular' ? 'customer_regular' : 'customer_walkin';
