@@ -1,14 +1,20 @@
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize the Supabase client on backend using server-side environment variables
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY;
+let supabase = null;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Supabase URL or Server Key is missing from backend environment configuration.');
+function getSupabaseClient() {
+  if (!supabase) {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://latjtnhjvmbmnrhznpfx.supabase.co';
+    const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase URL or Server Key is missing from backend environment configuration.');
+    }
+
+    supabase = createClient(supabaseUrl, supabaseKey);
+  }
+  return supabase;
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Express middleware to authenticate API requests using Supabase JWT.
@@ -27,7 +33,8 @@ const auth = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     
     // Call Supabase API to retrieve user metadata (validates JWT)
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const client = getSupabaseClient();
+    const { data: { user }, error } = await client.auth.getUser(token);
 
     if (error || !user) {
       return res.status(401).json({

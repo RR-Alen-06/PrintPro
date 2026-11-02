@@ -1,43 +1,40 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
 
-// Validate PostgreSQL credentials in environment
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY;
-if (!supabaseUrl) {
-  throw new Error('Database configuration error: Required environment variable "SUPABASE_URL" is missing.');
-}
-if (!supabaseKey) {
-  throw new Error('Database configuration error: Required environment variable "SUPABASE_SECRET_KEY" or "SUPABASE_ANON_KEY" is missing.');
+let pgPool = null;
+let wrapperPool = null;
+
+function getSupabaseConfig() {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://latjtnhjvmbmnrhznpfx.supabase.co';
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+  const projectRef = supabaseUrl.includes('//') ? supabaseUrl.split('//')[1]?.split('.')[0] : supabaseUrl.split('.')[0];
+  const region = process.env.SUPABASE_REGION || 'ap-south-1';
+
+  let connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!connectionString) {
+    const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD || process.env.POSTGRES_PASSWORD;
+    if (dbPassword && projectRef) {
+      const encodedPassword = encodeURIComponent(dbPassword);
+      connectionString = `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+    }
+  }
+
+  return { supabaseUrl, supabaseKey, projectRef, region, connectionString };
 }
 
-// Parse project reference from Supabase URL (e.g., https://latjtnhjvmbmnrhznpfx.supabase.co -> latjtnhjvmbmnrhznpfx)
-const projectRef = supabaseUrl.split('//')[1]?.split('.')[0];
-if (!projectRef) {
-  throw new Error('Database configuration error: Invalid SUPABASE_URL format.');
-}
-
-// Region is ap-south-1 (Mumbai) as returned by Supabase list_projects
-const region = 'ap-south-1';
-
-// Build the IPv4-compatible Supabase Connection Pooler URL (Transaction Mode - Port 6543)
-// Username format is: postgres.[project-ref]
-let connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  const dbPassword = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
-  if (!dbPassword) {
+function createPool() {
+  const { connectionString, projectRef } = getSupabaseConfig();
+  if (!connectionString) {
     throw new Error('Database configuration error: Required environment variable "SUPABASE_DB_PASSWORD" or "DATABASE_URL" is missing.');
   }
-  const encodedPassword = encodeURIComponent(dbPassword);
-  connectionString = `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-${region}.pooler.supabase.com:6543/postgres`;
+
+  logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
+  return new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false } // Required for Supabase PostgreSQL connections
+  });
 }
-
-logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
-
-const pgPool = new Pool({
-  connectionString,
-  ssl: { rejectUnauthorized: false } // Required for Supabase PostgreSQL connections
-});
 
 class PgConnectionWrapper {
   constructor(client) {
@@ -147,23 +144,25 @@ class PgPoolWrapper {
   }
 }
 
-const wrapperPool = new PgPoolWrapper(pgPool);
-
-async function initializeDatabase() {
-  try {
-    // Quick probe query to confirm successful connection
-    const client = await pgPool.connect();
-    logger.info('Successfully connected to Supabase PostgreSQL database.');
-    client.release();
-  } catch (err) {
-    logger.error(`Failed to connect to Supabase PostgreSQL database: ${err.message}`);
-    throw err;
+function getPool() {
+  if (!wrapperPool) {
+    pgPool = createPool();
+    wrapperPool = new PgPoolWrapper(pgPool);
   }
   return wrapperPool;
 }
 
-function getPool() {
-  return wrapperPool;
+async function initializeDatabase() {
+  try {
+    const pool = getPool();
+    const client = await pgPool.connect();
+    logger.info('Successfully connected to Supabase PostgreSQL database.');
+    client.release();
+    return pool;
+  } catch (err) {
+    logger.error(`Failed to connect to Supabase PostgreSQL database: ${err.message}`);
+    throw err;
+  }
 }
 
-module.exports = { initializeDatabase, getPool };
+module.exports = { initializeDatabase, getPool, getSupabaseConfig };

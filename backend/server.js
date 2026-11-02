@@ -1,8 +1,10 @@
+const path = require('path');
 require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../backend/.env') });
 
 const express   = require('express');
 const cors      = require('cors');
-const path      = require('path');
 const crypto    = require('crypto');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -304,18 +306,18 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-process.on('uncaughtException', (err) => {
-  logger.error(`Uncaught exception: ${err.message}`);
-  if (err.stack) logger.error(err.stack);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  logger.error(`Unhandled promise rejection: ${reason}`);
-  process.exit(1);
-});
-
 if (require.main === module) {
+  process.on('uncaughtException', (err) => {
+    logger.error(`Uncaught exception: ${err.message}`);
+    if (err.stack) logger.error(err.stack);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled promise rejection: ${reason}`);
+    process.exit(1);
+  });
+
   start();
 } else {
   // Export for serverless environments (e.g., Vercel)
