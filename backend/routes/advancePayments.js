@@ -137,13 +137,15 @@ router.post('/', allowlist(['customer_id', 'customerId', 'amount', 'payment_mode
 });
 
 // PUT /api/advance-payments/:id
-router.put('/:id', allowlist(['amount', 'payment_mode', 'type', 'bill_id', 'notes', 'date']), validateSchema(schemas.advancePaymentUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['amount', 'payment_mode', 'paymentMode', 'paymentMethod', 'type', 'bill_id', 'billId', 'notes', 'date', 'id']), validateSchema(schemas.advancePaymentUpdate), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const { id } = req.params;
-    const { amount, payment_mode, type, bill_id, notes, date } = req.body;
+    const payment_mode = req.body.payment_mode || req.body.paymentMode || req.body.paymentMethod;
+    const bill_id = req.body.bill_id !== undefined ? req.body.bill_id : req.body.billId;
+    const { amount, type, notes, date } = req.body;
 
     const [existing] = await conn.query(
       'SELECT * FROM advance_payments WHERE (id::text = ? OR advance_number = ?) AND user_id = ?',

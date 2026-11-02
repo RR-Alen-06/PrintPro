@@ -99,14 +99,20 @@ router.post('/', allowlist(['date', 'item_name', 'itemName', 'name', 'category',
 });
 
 // PUT /api/purchases/:id
-router.put('/:id', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost', 'notes', 'vendor_name', 'payment_method', 'upi_ref']), validateSchema(schemas.purchaseUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['date', 'item_name', 'itemName', 'name', 'category', 'qty', 'unit_cost', 'unitCost', 'amount', 'total', 'notes', 'vendor_name', 'vendorName', 'payment_method', 'paymentMethod', 'upi_ref', 'upiRef']), validateSchema(schemas.purchaseUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
     const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
-    const { date, item_name, category, qty, unit_cost, notes, vendor_name, payment_method, upi_ref } = req.body;
+    const item_name = req.body.item_name || req.body.itemName || req.body.name;
+    const unit_cost = req.body.unit_cost !== undefined ? req.body.unit_cost : req.body.unitCost;
+    const vendor_name = req.body.vendor_name !== undefined ? req.body.vendor_name : req.body.vendorName;
+    const payment_method = req.body.payment_method !== undefined ? req.body.payment_method : req.body.paymentMethod;
+    const upi_ref = req.body.upi_ref !== undefined ? req.body.upi_ref : req.body.upiRef;
+    const { date, category, qty, notes } = req.body;
+
     const updates = {};
     if (date !== undefined)           updates.date = date;
     if (item_name !== undefined)      updates.item_name = item_name;

@@ -51,10 +51,11 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/customer-groups
-router.post('/', allowlist(['name', 'description', 'member_ids']), validateSchema(schemas.customerGroupCreate), async (req, res, next) => {
+router.post('/', allowlist(['name', 'description', 'member_ids', 'memberIds', 'members', 'id']), validateSchema(schemas.customerGroupCreate), async (req, res, next) => {
   try {
     const pool = getPool();
-    const { name, description, member_ids } = req.body;
+    const { name, description } = req.body;
+    const member_ids = req.body.member_ids || req.body.memberIds || req.body.members || [];
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'Group name is required' });
@@ -91,11 +92,12 @@ router.post('/', allowlist(['name', 'description', 'member_ids']), validateSchem
 });
 
 // PUT /api/customer-groups/:id
-router.put('/:id', allowlist(['name', 'description', 'member_ids']), validateSchema(schemas.customerGroupUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['name', 'description', 'member_ids', 'memberIds', 'members', 'id']), validateSchema(schemas.customerGroupUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { name, description, member_ids } = req.body;
+    const { name, description } = req.body;
+    const member_ids = req.body.member_ids !== undefined ? req.body.member_ids : (req.body.memberIds !== undefined ? req.body.memberIds : req.body.members);
 
     const [existing] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
@@ -112,7 +114,7 @@ router.put('/:id', allowlist(['name', 'description', 'member_ids']), validateSch
       [
         name,
         description,
-        member_ids ? JSON.stringify(member_ids) : null,
+        member_ids !== undefined ? JSON.stringify(member_ids) : null,
         id,
         req.user.id
       ]

@@ -90,11 +90,13 @@ router.post('/', allowlist(['id', 'group_id', 'groupId', 'title', 'date', 'total
 });
 
 // PUT /api/group-bills/:id
-router.put('/:id', allowlist(['title', 'date', 'total_amount', 'member_shares', 'notes']), validateSchema(schemas.groupBillUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['title', 'date', 'total_amount', 'totalAmount', 'member_shares', 'memberShares', 'notes', 'id']), validateSchema(schemas.groupBillUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { title, date, total_amount, member_shares, notes } = req.body;
+    const { title, date, notes } = req.body;
+    const total_amount = req.body.total_amount !== undefined ? req.body.total_amount : req.body.totalAmount;
+    const member_shares = req.body.member_shares !== undefined ? req.body.member_shares : req.body.memberShares;
 
     const [existing] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
