@@ -1,4 +1,5 @@
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 
 // Customer projection DTO: strips internal auth tenant ID (user_id) and raw DB columns
 function toCustomerDto(row) {
@@ -98,24 +99,13 @@ async function createCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    let customerId = require('crypto').randomUUID();
+    let customerId = req.body.id || require('crypto').randomUUID();
     let customerCode = customer_code || req.body.customerCode;
 
     if (!customerCode) {
+      const seqType = type === 'regular' ? 'customer_regular' : 'customer_walkin';
       const prefix = type === 'regular' ? 'RC' : 'RND';
-      const [maxRows] = await pool.query(
-        `SELECT customer_code FROM customers WHERE type = ? AND user_id = ? AND customer_code IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(customer_code, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [type, req.user.id]
-      );
-
-      let nextNum = 1;
-      if (maxRows.length > 0 && maxRows[0]?.customer_code) {
-        const lastCode = maxRows[0].customer_code;
-        const numPart = lastCode.replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-
-      customerCode = `${prefix}-${String(nextNum).padStart(4, '0')}`;
+      customerCode = await getNextSequence(pool, req.user.id, seqType, prefix);
     }
 
     // Idempotent check for offline sync retry

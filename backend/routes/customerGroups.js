@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 const { allowlist } = require('../middleware/allowlist');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
@@ -61,16 +62,7 @@ router.post('/', allowlist(['name', 'description', 'member_ids', 'memberIds', 'm
       return res.status(400).json({ success: false, error: 'Group name is required' });
     }
 
-    const [maxRows] = await pool.query(
-      `SELECT id FROM customer_groups WHERE user_id = ? ORDER BY CAST(NULLIF(regexp_replace(id, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-      [req.user.id]
-    );
-    let nextNum = 1;
-    if (maxRows.length > 0 && maxRows[0].id) {
-      const numPart = String(maxRows[0].id).replace(/[^0-9]/g, '');
-      nextNum = parseInt(numPart || '0', 10) + 1;
-    }
-    const groupId = `GRP${String(nextNum).padStart(3, '0')}`;
+    const groupId = req.body.id || await getNextSequence(pool, req.user.id, 'group', 'GRP');
 
     await pool.query(
       `INSERT INTO customer_groups (id, user_id, name, description, member_ids)

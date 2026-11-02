@@ -269,6 +269,8 @@ const schemas = {
   // ── 5. Purchases ─────────────────────────────────────────────────────────────
   purchaseCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    expense_number: { type: 'string', required: false, maxLength: 50 },
+    expenseNumber: { type: 'string', required: false, maxLength: 50 },
     date: { type: 'string', required: true, format: 'date' },
     item_name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
@@ -291,6 +293,8 @@ const schemas = {
 
   purchaseUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    expense_number: { type: 'string', required: false, maxLength: 50 },
+    expenseNumber: { type: 'string', required: false, maxLength: 50 },
     date: { type: 'string', required: false, format: 'date' },
     item_name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
@@ -310,6 +314,8 @@ const schemas = {
   // ── 6. Advance Payments ──────────────────────────────────────────────────────
   advancePaymentCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    advance_number: { type: 'string', required: false, maxLength: 50 },
+    advanceNumber: { type: 'string', required: false, maxLength: 50 },
     customer_id: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     customerId: { type: 'string', required: false, maxLength: 100 },
     amount: { type: 'number', required: true, min: 0.01 },
@@ -324,6 +330,8 @@ const schemas = {
 
   advancePaymentUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    advance_number: { type: 'string', required: false, maxLength: 50 },
+    advanceNumber: { type: 'string', required: false, maxLength: 50 },
     amount: { type: 'number', required: false, min: 0.01 },
     payment_mode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
     paymentMode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
@@ -337,6 +345,8 @@ const schemas = {
   // ── 7. Customer Groups & Group Bills ─────────────────────────────────────────
   customerGroupCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    group_code: { type: 'string', required: false, maxLength: 50 },
+    groupCode: { type: 'string', required: false, maxLength: 50 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
     member_ids: { type: 'array', required: false, maxItems: 100 },
@@ -346,6 +356,8 @@ const schemas = {
 
   customerGroupUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    group_code: { type: 'string', required: false, maxLength: 50 },
+    groupCode: { type: 'string', required: false, maxLength: 50 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
     member_ids: { type: 'array', required: false, maxItems: 100 },

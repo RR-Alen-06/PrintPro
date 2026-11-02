@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 const { allowlist } = require('../middleware/allowlist');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
@@ -83,18 +84,9 @@ router.post('/', allowlist(['customer_id', 'customerId', 'amount', 'payment_mode
       balanceDelta = -numAmount;
     }
 
-    let advanceNumber = null;
+    let advanceNumber = req.body.advance_number || req.body.advanceNumber || null;
     if (!advanceNumber) {
-      const [maxRows] = await conn.query(
-        `SELECT advance_number FROM advance_payments WHERE user_id = ? AND advance_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(advance_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [req.user.id]
-      );
-      let nextNum = 1;
-      if (maxRows.length > 0 && maxRows[0]?.advance_number) {
-        const numPart = String(maxRows[0].advance_number).replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-      advanceNumber = `ADV-${String(nextNum).padStart(4, '0')}`;
+      advanceNumber = await getNextSequence(conn, req.user.id, 'advance');
     }
 
     const [insertResult] = await conn.query(
