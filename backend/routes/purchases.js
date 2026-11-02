@@ -66,7 +66,7 @@ router.get('/:id', async (req, res, next) => {
 
 // POST /api/purchases
 const { validatePurchase } = require('../middleware/validate');
-router.post('/', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost', 'notes', 'vendor_name', 'payment_method', 'upi_ref', 'session_id']), validateSchema(schemas.purchaseCreate), validatePurchase, async (req, res, next) => {
+router.post('/', allowlist(['date', 'item_name', 'itemName', 'name', 'category', 'qty', 'unit_cost', 'unitCost', 'amount', 'total', 'notes', 'vendor_name', 'vendorName', 'payment_method', 'paymentMethod', 'upi_ref', 'upiRef', 'session_id']), validateSchema(schemas.purchaseCreate), validatePurchase, async (req, res, next) => {
   try {
     const pool = getPool();
     const { date, item_name, category, qty, unit_cost, notes, vendor_name = '', payment_method = 'cash', upi_ref = '', session_id } = req.body;

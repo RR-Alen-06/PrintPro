@@ -37,7 +37,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/group-bills
-router.post('/', allowlist(['group_id', 'title', 'date', 'total_amount', 'member_shares', 'notes']), validateSchema(schemas.groupBillCreate), async (req, res, next) => {
+router.post('/', allowlist(['id', 'group_id', 'groupId', 'title', 'date', 'total_amount', 'totalAmount', 'amount_paid', 'amountPaid', 'status', 'member_shares', 'memberShares', 'notes']), validateSchema(schemas.groupBillCreate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { group_id, title, date, total_amount, member_shares, notes } = req.body;

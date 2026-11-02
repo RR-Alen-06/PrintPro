@@ -24,13 +24,14 @@ const validateCustomer = [
     .isLength({ max: 100 })
     .withMessage('Customer name must be under 100 characters'),
   body('type')
+    .optional()
     .isIn(['regular', 'random'])
     .withMessage('Customer type must be either "regular" or "random"'),
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
-    .isLength({ max: 15 })
-    .withMessage('Phone number must be under 15 characters'),
+    .isLength({ max: 25 })
+    .withMessage('Phone number must be under 25 characters'),
   body('email')
     .optional({ checkFalsy: true })
     .trim()
@@ -68,12 +69,13 @@ const validateBill = [
     .isISO8601()
     .withMessage('Due date must be in YYYY-MM-DD format'),
   body('subtotal')
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Subtotal must be a positive number'),
   body('discount_type')
     .optional()
-    .isIn(['percent', 'flat'])
-    .withMessage('Discount type must be "percent" or "flat"'),
+    .isIn(['percent', 'flat', 'percentage'])
+    .withMessage('Discount type must be "percent", "percentage" or "flat"'),
   body('discount_value')
     .optional()
     .isFloat({ min: 0 })
@@ -87,6 +89,7 @@ const validateBill = [
     .isFloat({ min: 0 })
     .withMessage('GST amount must be a positive number'),
   body('total')
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Total must be a positive number'),
   body('amount_paid')
@@ -278,7 +281,7 @@ const validatePayment = [
     .optional()
     .trim(),
   body().custom((value, { req }) => {
-    if (!req.body.bill_id && !req.body.customer_id) {
+    if (!req.body.bill_id && !req.body.billId && !req.body.customer_id && !req.body.customerId) {
       throw new Error('Either bill_id or customer_id is required');
     }
     return true;
