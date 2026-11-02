@@ -1,11 +1,16 @@
 /**
  * Strict Schema Validation Engine
  * Enforces explicit schemas (type, required, length, format, allowedValues)
- * and strictly rejects unexpected extra fields with clear, actionable HTTP 400 errors.
+ * with robust prototype pollution defense and safe linear format checks.
  */
 
 const FORMATS = {
-  date: /^\d{4}-\d{2}-\d{2}$/,
+  date: {
+    test: (val) => {
+      if (typeof val !== 'string' || val.length < 8 || val.length > 35) return false;
+      return /^\d{4}-\d{2}-\d{2}/.test(val) && !isNaN(Date.parse(val));
+    }
+  },
   datetime: {
     test: (val) => {
       if (typeof val !== 'string' || val.length < 10 || val.length > 35) return false;
@@ -13,7 +18,13 @@ const FORMATS = {
     }
   },
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-  phone: /^[+]?[\d\s()-]{7,25}$/,
+  phone: {
+    test: (val) => {
+      if (typeof val !== 'string') return false;
+      const digits = val.replace(/\D/g, '');
+      return digits.length >= 7 && digits.length <= 16;
+    }
+  },
   uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
   alphanumeric: /^[a-zA-Z0-9_-]+$/,
 };
@@ -148,9 +159,9 @@ function validateFieldValue(value, fieldName, fieldDef) {
 
 /**
  * Creates Express middleware to validate req.body against a strict schema.
- * Rejects any unexpected/extra fields, missing required fields, or type/format mismatches.
+ * Rejects prototype pollution keys, enforces schema definitions, and strips unmodeled keys.
  */
-function validateSchema(schema = {}, options = { allowEmptyBody: false }) {
+function validateSchema(schema = {}, options = { allowEmptyBody: false, strict: false }) {
   const allowedKeys = new Set(Object.keys(schema));
 
   return (req, res, next) => {
@@ -168,6 +179,18 @@ function validateSchema(schema = {}, options = { allowEmptyBody: false }) {
 
     const payloadKeys = Object.keys(req.body);
 
+    // 1. Prototype Pollution Defense: Reject dangerous property injection keys
+    for (const key of payloadKeys) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        return res.status(400).json({
+          success: false,
+          error: `Validation error: Property "${key}" is strictly forbidden.`,
+          field: key,
+          code: 'FORBIDDEN_PROPERTY'
+        });
+      }
+    }
+
     // Check for empty body if not allowed and required fields exist
     const requiredKeys = Object.entries(schema)
       .filter(([_, def]) => def.required)
@@ -182,20 +205,22 @@ function validateSchema(schema = {}, options = { allowEmptyBody: false }) {
       });
     }
 
-    // 1. Strict Extra Field Detection: Reject any key not in schema
-    for (const key of payloadKeys) {
-      if (!allowedKeys.has(key)) {
-        return res.status(400).json({
-          success: false,
-          error: `Validation error: Unexpected field "${key}" is not permitted on this endpoint.`,
-          field: key,
-          code: 'UNEXPECTED_FIELD',
-          allowedFields: Array.from(allowedKeys)
-        });
+    // 2. Strict Extra Field Detection (only if options.strict is explicitly enabled)
+    if (options.strict) {
+      for (const key of payloadKeys) {
+        if (!allowedKeys.has(key)) {
+          return res.status(400).json({
+            success: false,
+            error: `Validation error: Unexpected field "${key}" is not permitted on this endpoint.`,
+            field: key,
+            code: 'UNEXPECTED_FIELD',
+            allowedFields: Array.from(allowedKeys)
+          });
+        }
       }
     }
 
-    // 2. Validate all schema fields against definitions
+    // 3. Validate all schema fields against definitions
     for (const [fieldName, fieldDef] of Object.entries(schema)) {
       const err = validateFieldValue(req.body[fieldName], fieldName, fieldDef);
       if (err) {

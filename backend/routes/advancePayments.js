@@ -44,7 +44,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/advance-payments
-router.post('/', allowlist(['customer_id', 'amount', 'payment_mode', 'type', 'bill_id', 'notes', 'date']), validateSchema(schemas.advancePaymentCreate), async (req, res, next) => {
+router.post('/', allowlist(['customer_id', 'customerId', 'amount', 'payment_mode', 'paymentMode', 'paymentMethod', 'type', 'bill_id', 'notes', 'date']), validateSchema(schemas.advancePaymentCreate), async (req, res, next) => {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {

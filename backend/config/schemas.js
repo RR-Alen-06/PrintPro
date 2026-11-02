@@ -1,32 +1,46 @@
 /**
  * Centralized Explicit Schemas for All Data-Accepting Endpoints.
  * Defines exact types, required status, length limits, formats, and allowed values.
- * Used with validateSchema middleware to reject non-matching payloads and extra fields.
+ * Used with validateSchema middleware to validate payloads and protect endpoints.
  */
 
 const schemas = {
   // ── 1. Customers ─────────────────────────────────────────────────────────────
   customerCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     type: { type: 'string', required: false, allowedValues: ['regular', 'random'] },
-    phone: { type: 'string', required: false, minLength: 7, maxLength: 25, format: 'phone' },
+    phone: { type: 'string', required: false, maxLength: 25, format: 'phone' },
     email: { type: 'string', required: false, maxLength: 100, format: 'email' },
     address: { type: 'string', required: false, maxLength: 300 },
     gstin: { type: 'string', required: false, maxLength: 20 },
     credit_limit: { type: 'number', required: false, min: 0 },
+    credit_balance: { type: 'number', required: false },
+    advance_balance: { type: 'number', required: false },
+    openingBalance: { type: 'number', required: false },
+    creditBalance: { type: 'number', required: false },
+    advanceBalance: { type: 'number', required: false },
+    openingCash: { type: 'number', required: false },
+    openingUpi: { type: 'number', required: false },
     customer_code: { type: 'string', required: false, maxLength: 50 },
     customerCode: { type: 'string', required: false, maxLength: 50 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
   customerUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     type: { type: 'string', required: false, allowedValues: ['regular', 'random'] },
-    phone: { type: 'string', required: false, minLength: 7, maxLength: 25, format: 'phone' },
+    phone: { type: 'string', required: false, maxLength: 25, format: 'phone' },
     email: { type: 'string', required: false, maxLength: 100, format: 'email' },
     address: { type: 'string', required: false, maxLength: 300 },
     gstin: { type: 'string', required: false, maxLength: 20 },
     credit_limit: { type: 'number', required: false, min: 0 },
+    credit_balance: { type: 'number', required: false },
+    advance_balance: { type: 'number', required: false },
+    openingBalance: { type: 'number', required: false },
+    creditBalance: { type: 'number', required: false },
+    advanceBalance: { type: 'number', required: false },
     customer_code: { type: 'string', required: false, maxLength: 50 },
     customerCode: { type: 'string', required: false, maxLength: 50 },
     notes: { type: 'string', required: false, maxLength: 500 }
@@ -34,6 +48,9 @@ const schemas = {
 
   // ── 2. Bills ─────────────────────────────────────────────────────────────────
   billCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
+    bill_number: { type: 'string', required: false, maxLength: 50 },
+    invoice_number: { type: 'string', required: false, maxLength: 50 },
     customer_id: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     date: { type: 'string', required: true, format: 'date' },
     due_date: { type: 'string', required: false, format: 'date' },
@@ -45,25 +62,46 @@ const schemas = {
       items: {
         type: 'object',
         properties: {
+          id: { type: 'string', required: false, maxLength: 100 },
           name: { type: 'string', required: false, minLength: 1, maxLength: 150 },
           item_name: { type: 'string', required: false, minLength: 1, maxLength: 150 },
+          itemName: { type: 'string', required: false, minLength: 1, maxLength: 150 },
+          category: { type: 'string', required: false, maxLength: 50 },
+          item_type: { type: 'string', required: false, maxLength: 50 },
+          print_type: { type: 'string', required: false, maxLength: 50 },
+          printType: { type: 'string', required: false, maxLength: 50 },
+          sides: { type: 'string', required: false, maxLength: 50 },
           qty: { type: 'number', required: true, min: 0.01 },
-          unit_price: { type: 'number', required: true, min: 0 }
+          unit_price: { type: 'number', required: false, min: 0 },
+          unitPrice: { type: 'number', required: false, min: 0 },
+          rate: { type: 'number', required: false, min: 0 },
+          amount: { type: 'number', required: false, min: 0 },
+          unit: { type: 'string', required: false, maxLength: 30 }
         }
       }
     },
-    gst_percent: { type: 'number', required: false, min: 0, max: 100 },
+    subtotal: { type: 'number', required: false, min: 0 },
     discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage', 'percent'] },
     discount_value: { type: 'number', required: false, min: 0 },
+    gst_percent: { type: 'number', required: false, min: 0, max: 100 },
+    gst_amount: { type: 'number', required: false, min: 0 },
+    total: { type: 'number', required: false, min: 0 },
+    amount_paid: { type: 'number', required: false, min: 0 },
+    balance: { type: 'number', required: false, min: 0 },
+    status: { type: 'string', required: false, allowedValues: ['unpaid', 'partial', 'paid'] },
     payment_method: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'mixed', 'split', 'credit', 'pending'] },
     notes: { type: 'string', required: false, maxLength: 1000 },
     apply_advance: { type: 'boolean', required: false },
     advance_used: { type: 'number', required: false, min: 0 },
     advanceUsed: { type: 'number', required: false, min: 0 },
+    creditUsed: { type: 'number', required: false, min: 0 },
     upi_ref: { type: 'string', required: false, maxLength: 100 }
   },
 
   billUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
+    bill_number: { type: 'string', required: false, maxLength: 50 },
+    invoice_number: { type: 'string', required: false, maxLength: 50 },
     customer_id: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     date: { type: 'string', required: false, format: 'date' },
     due_date: { type: 'string', required: false, format: 'date' },
@@ -75,19 +113,39 @@ const schemas = {
       items: {
         type: 'object',
         properties: {
+          id: { type: 'string', required: false, maxLength: 100 },
           name: { type: 'string', required: false, minLength: 1, maxLength: 150 },
           item_name: { type: 'string', required: false, minLength: 1, maxLength: 150 },
-          qty: { type: 'number', required: true, min: 0.01 },
-          unit_price: { type: 'number', required: true, min: 0 }
+          itemName: { type: 'string', required: false, minLength: 1, maxLength: 150 },
+          category: { type: 'string', required: false, maxLength: 50 },
+          item_type: { type: 'string', required: false, maxLength: 50 },
+          print_type: { type: 'string', required: false, maxLength: 50 },
+          printType: { type: 'string', required: false, maxLength: 50 },
+          sides: { type: 'string', required: false, maxLength: 50 },
+          qty: { type: 'number', required: false, min: 0.01 },
+          unit_price: { type: 'number', required: false, min: 0 },
+          unitPrice: { type: 'number', required: false, min: 0 },
+          rate: { type: 'number', required: false, min: 0 },
+          amount: { type: 'number', required: false, min: 0 },
+          unit: { type: 'string', required: false, maxLength: 30 }
         }
       }
     },
+    subtotal: { type: 'number', required: false, min: 0 },
     discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage', 'percent'] },
     discount_value: { type: 'number', required: false, min: 0 },
     gst_percent: { type: 'number', required: false, min: 0, max: 100 },
+    gst_amount: { type: 'number', required: false, min: 0 },
+    total: { type: 'number', required: false, min: 0 },
+    amount_paid: { type: 'number', required: false, min: 0 },
+    balance: { type: 'number', required: false, min: 0 },
+    status: { type: 'string', required: false, allowedValues: ['unpaid', 'partial', 'paid'] },
+    advance_used: { type: 'number', required: false, min: 0 },
+    advanceUsed: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 1000 },
-    pin_override: { type: 'string', required: false, maxLength: 50 },
-    pinOverride: { type: 'string', required: false, maxLength: 50 },
+    pin_override: { type: 'boolean', required: false },
+    pinOverride: { type: 'boolean', required: false },
+    security_pin: { type: 'string', required: false, maxLength: 50 },
     refund_action: { type: 'string', required: false, maxLength: 50 },
     refundAction: { type: 'string', required: false, maxLength: 50 },
     is_refund: { type: 'boolean', required: false }
@@ -106,10 +164,15 @@ const schemas = {
 
   // ── 3. Payments ──────────────────────────────────────────────────────────────
   paymentCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     bill_id: { type: 'string', required: false, maxLength: 100 },
     customer_id: { type: 'string', required: false, maxLength: 100 },
     cash_amount: { type: 'number', required: false, min: 0 },
     upi_amount: { type: 'number', required: false, min: 0 },
+    total_paid: { type: 'number', required: false, min: 0 },
+    payment_type: { type: 'string', required: false, allowedValues: ['full', 'partial', 'refund'] },
+    is_refund: { type: 'boolean', required: false },
+    amount: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 500 },
     upi_ref: { type: 'string', required: false, maxLength: 100 },
     session_id: { type: 'number', required: false, min: 0 },
@@ -125,46 +188,67 @@ const schemas = {
     cash_amount: { type: 'number', required: false, min: 0 },
     upi_amount: { type: 'number', required: false, min: 0 },
     advance_refund_amount: { type: 'number', required: false, min: 0 },
-    refund_method: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'credit', 'original'] },
+    refund_method: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'credit', 'original', 'direct'] },
     reason: { type: 'string', required: false, maxLength: 500 },
     notes: { type: 'string', required: false, maxLength: 500 },
     session_id: { type: 'number', required: false, min: 0 },
-    pin_override: { type: 'string', required: false, maxLength: 50 },
+    pin_override: { type: 'boolean', required: false },
+    pinOverride: { type: 'boolean', required: false },
     security_pin: { type: 'string', required: false, maxLength: 50 }
   },
 
   // ── 4. Inventory ─────────────────────────────────────────────────────────────
   inventoryCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     category: { type: 'string', required: false, maxLength: 50 },
     unit: { type: 'string', required: false, maxLength: 30 },
     unit_cost: { type: 'number', required: false, min: 0 },
+    unitCost: { type: 'number', required: false, min: 0 },
     selling_price: { type: 'number', required: false, min: 0 },
+    sellingPrice: { type: 'number', required: false, min: 0 },
     color_single: { type: 'number', required: false, min: 0 },
+    colorSingle: { type: 'number', required: false, min: 0 },
     color_double: { type: 'number', required: false, min: 0 },
+    colorDouble: { type: 'number', required: false, min: 0 },
     bw_single: { type: 'number', required: false, min: 0 },
+    bwSingle: { type: 'number', required: false, min: 0 },
     bw_double: { type: 'number', required: false, min: 0 },
+    bwDouble: { type: 'number', required: false, min: 0 },
     stock: { type: 'number', required: false, min: 0 },
     low_stock_alert: { type: 'number', required: false, min: 0 },
+    lowStockAlert: { type: 'number', required: false, min: 0 },
     item_type: { type: 'string', required: false, maxLength: 50 },
+    itemType: { type: 'string', required: false, maxLength: 50 },
     unit_price: { type: 'number', required: false, min: 0 },
+    unitPrice: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
   inventoryUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     category: { type: 'string', required: false, maxLength: 50 },
     unit: { type: 'string', required: false, maxLength: 30 },
     unit_cost: { type: 'number', required: false, min: 0 },
+    unitCost: { type: 'number', required: false, min: 0 },
     selling_price: { type: 'number', required: false, min: 0 },
+    sellingPrice: { type: 'number', required: false, min: 0 },
     color_single: { type: 'number', required: false, min: 0 },
+    colorSingle: { type: 'number', required: false, min: 0 },
     color_double: { type: 'number', required: false, min: 0 },
+    colorDouble: { type: 'number', required: false, min: 0 },
     bw_single: { type: 'number', required: false, min: 0 },
+    bwSingle: { type: 'number', required: false, min: 0 },
     bw_double: { type: 'number', required: false, min: 0 },
+    bwDouble: { type: 'number', required: false, min: 0 },
     stock: { type: 'number', required: false, min: 0 },
     low_stock_alert: { type: 'number', required: false, min: 0 },
+    lowStockAlert: { type: 'number', required: false, min: 0 },
     item_type: { type: 'string', required: false, maxLength: 50 },
+    itemType: { type: 'string', required: false, maxLength: 50 },
     unit_price: { type: 'number', required: false, min: 0 },
+    unitPrice: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
@@ -174,35 +258,54 @@ const schemas = {
 
   // ── 5. Purchases ─────────────────────────────────────────────────────────────
   purchaseCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     date: { type: 'string', required: true, format: 'date' },
     item_name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
+    itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
+    name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     category: { type: 'string', required: true, minLength: 1, maxLength: 50 },
     qty: { type: 'number', required: false, min: 1 },
     unit_cost: { type: 'number', required: false, min: 0 },
+    unitCost: { type: 'number', required: false, min: 0 },
+    amount: { type: 'number', required: false, min: 0 },
+    total: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 500 },
     vendor_name: { type: 'string', required: false, maxLength: 100 },
+    vendorName: { type: 'string', required: false, maxLength: 100 },
     payment_method: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'credit'] },
+    paymentMethod: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'credit'] },
     upi_ref: { type: 'string', required: false, maxLength: 100 },
+    upiRef: { type: 'string', required: false, maxLength: 100 },
     session_id: { type: 'number', required: false, min: 0 }
   },
 
   purchaseUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     date: { type: 'string', required: false, format: 'date' },
     item_name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
+    itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     category: { type: 'string', required: false, minLength: 1, maxLength: 50 },
     qty: { type: 'number', required: false, min: 1 },
     unit_cost: { type: 'number', required: false, min: 0 },
+    unitCost: { type: 'number', required: false, min: 0 },
+    total: { type: 'number', required: false, min: 0 },
     notes: { type: 'string', required: false, maxLength: 500 },
     vendor_name: { type: 'string', required: false, maxLength: 100 },
+    vendorName: { type: 'string', required: false, maxLength: 100 },
     payment_method: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'credit'] },
+    paymentMethod: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'credit'] },
     upi_ref: { type: 'string', required: false, maxLength: 100 }
   },
 
   // ── 6. Advance Payments ──────────────────────────────────────────────────────
   advancePaymentCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     customer_id: { type: 'string', required: true, minLength: 1, maxLength: 100 },
+    customerId: { type: 'string', required: false, maxLength: 100 },
     amount: { type: 'number', required: true, min: 0.01 },
     payment_mode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
+    paymentMode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
+    paymentMethod: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
     type: { type: 'string', required: false, allowedValues: ['deposit', 'applied', 'refund', 'return'] },
     bill_id: { type: 'string', required: false, maxLength: 100 },
     notes: { type: 'string', required: false, maxLength: 500 },
@@ -210,8 +313,11 @@ const schemas = {
   },
 
   advancePaymentUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     amount: { type: 'number', required: false, min: 0.01 },
     payment_mode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
+    paymentMode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
+    paymentMethod: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
     type: { type: 'string', required: false, allowedValues: ['deposit', 'applied', 'refund', 'return'] },
     bill_id: { type: 'string', required: false, maxLength: 100 },
     notes: { type: 'string', required: false, maxLength: 500 },
@@ -220,39 +326,64 @@ const schemas = {
 
   // ── 7. Customer Groups & Group Bills ─────────────────────────────────────────
   customerGroupCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
-    member_ids: { type: 'array', required: false, maxItems: 100 }
+    member_ids: { type: 'array', required: false, maxItems: 100 },
+    memberIds: { type: 'array', required: false, maxItems: 100 },
+    members: { type: 'array', required: false, maxItems: 100 }
   },
 
   customerGroupUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
-    member_ids: { type: 'array', required: false, maxItems: 100 }
+    member_ids: { type: 'array', required: false, maxItems: 100 },
+    memberIds: { type: 'array', required: false, maxItems: 100 },
+    members: { type: 'array', required: false, maxItems: 100 }
   },
 
   customerGroupBill: {
+    id: { type: 'string', required: false, maxLength: 100 },
     title: { type: 'string', required: false, maxLength: 150 },
     date: { type: 'string', required: false, format: 'date' },
     total_amount: { type: 'number', required: false, min: 0 },
+    totalAmount: { type: 'number', required: false, min: 0 },
+    amount_paid: { type: 'number', required: false, min: 0 },
+    amountPaid: { type: 'number', required: false, min: 0 },
+    status: { type: 'string', required: false, allowedValues: ['unpaid', 'partial', 'paid'] },
     member_shares: { type: 'array', required: false, maxItems: 100 },
+    memberShares: { type: 'array', required: false, maxItems: 100 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
   groupBillCreate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     group_id: { type: 'string', required: false, maxLength: 100 },
+    groupId: { type: 'string', required: false, maxLength: 100 },
     title: { type: 'string', required: false, maxLength: 150 },
     date: { type: 'string', required: false, format: 'date' },
     total_amount: { type: 'number', required: false, min: 0 },
+    totalAmount: { type: 'number', required: false, min: 0 },
+    amount_paid: { type: 'number', required: false, min: 0 },
+    amountPaid: { type: 'number', required: false, min: 0 },
+    status: { type: 'string', required: false, allowedValues: ['unpaid', 'partial', 'paid'] },
     member_shares: { type: 'array', required: false, maxItems: 100 },
+    memberShares: { type: 'array', required: false, maxItems: 100 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
   groupBillUpdate: {
+    id: { type: 'string', required: false, maxLength: 100 },
     title: { type: 'string', required: false, maxLength: 150 },
     date: { type: 'string', required: false, format: 'date' },
     total_amount: { type: 'number', required: false, min: 0 },
+    totalAmount: { type: 'number', required: false, min: 0 },
+    amount_paid: { type: 'number', required: false, min: 0 },
+    amountPaid: { type: 'number', required: false, min: 0 },
+    status: { type: 'string', required: false, allowedValues: ['unpaid', 'partial', 'paid'] },
     member_shares: { type: 'array', required: false, maxItems: 100 },
+    memberShares: { type: 'array', required: false, maxItems: 100 },
     notes: { type: 'string', required: false, maxLength: 500 }
   },
 
@@ -296,7 +427,7 @@ const schemas = {
   promoBulkGenerate: {
     count: { type: 'number', required: false, min: 1, max: 100 },
     prefix: { type: 'string', required: false, minLength: 1, maxLength: 20 },
-    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage'] },
+    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage', 'percent'] },
     discount_value: { type: 'number', required: false, min: 0 },
     min_bill_amount: { type: 'number', required: false, min: 0 },
     max_discount: { type: 'number', required: false, min: 0 },
@@ -309,7 +440,7 @@ const schemas = {
 
   promoCreate: {
     code: { type: 'string', required: true, minLength: 1, maxLength: 50 },
-    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage'] },
+    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage', 'percent'] },
     discount_value: { type: 'number', required: false, min: 0 },
     min_bill_amount: { type: 'number', required: false, min: 0 },
     max_discount: { type: 'number', required: false, min: 0 },
@@ -322,7 +453,7 @@ const schemas = {
 
   promoUpdate: {
     code: { type: 'string', required: false, minLength: 1, maxLength: 50 },
-    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage'] },
+    discount_type: { type: 'string', required: false, allowedValues: ['flat', 'percentage', 'percent'] },
     discount_value: { type: 'number', required: false, min: 0 },
     min_bill_amount: { type: 'number', required: false, min: 0 },
     max_discount: { type: 'number', required: false, min: 0 },
@@ -370,7 +501,7 @@ const schemas = {
     shopName: { type: 'string', required: false, maxLength: 100 },
     owner_name: { type: 'string', required: false, maxLength: 100 },
     ownerName: { type: 'string', required: false, maxLength: 100 },
-    phone: { type: 'string', required: false, minLength: 7, maxLength: 25, format: 'phone' },
+    phone: { type: 'string', required: false, maxLength: 25, format: 'phone' },
     address: { type: 'string', required: false, maxLength: 300 },
     gstin: { type: 'string', required: false, maxLength: 20 },
     upi_id: { type: 'string', required: false, maxLength: 100 },
