@@ -10,7 +10,7 @@ const getPageTitle = (pathname, search) => {
     const params = new URLSearchParams(search)
     return params.get('mode') === 'group' ? 'Group / Split POS' : 'Billing / POS'
   }
-  if (pathname === '/payments') return 'Payment Received Hub'
+  if (pathname === '/payments') return 'Payments & Settlements'
   if (pathname.startsWith('/customers')) return 'Customer 360 Workspace'
   if (pathname === '/cash-register') return 'Daily Register & Settlement'
   if (pathname === '/accounting') return 'Accounting Book'

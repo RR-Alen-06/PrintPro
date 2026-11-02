@@ -27,7 +27,7 @@ const navGroups = [
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: Home, permKey: undefined },
       { label: 'Billing / POS', path: '/billing', icon: FileText, permKey: 'billing' },
-      { label: 'Payment Received', path: '/payments', icon: Wallet, permKey: 'billing' },
+      { label: 'Payments', path: '/payments', icon: Wallet, permKey: 'billing' },
       { label: 'Register & UPI Desk', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
       { label: 'Receipt Preview', path: '/receipt', icon: Receipt, permKey: 'receipt' },
     ]

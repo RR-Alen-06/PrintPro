@@ -1750,9 +1750,9 @@ export const AppProvider = ({ children }) => {
       bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
     }
 
-    // Excess to credit balance or change returned
+    // Excess is always automatically credited to customer advance balance
     const overpaid = R_cash + R_upi
-    const creditToAdvance = (billData.excessToAdvance === true || billData.changeHandling === 'advance') && overpaid > 0
+    const creditToAdvance = overpaid > 0
 
     if (updatedCustomer) {
       const advanceDeducted = Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance
@@ -1942,11 +1942,40 @@ export const AppProvider = ({ children }) => {
       .filter((b) => b.customerId === paymentData.customerId && !b.deleted && b.status !== 'paid')
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
+    let R_adv = Number(paymentData.advanceUsed || 0)
+    let totalAdvApplied = 0
     let R_cash = Number(paymentData.cashAmount || 0)
     let R_upi = Number(paymentData.upiAmount || 0)
 
     const paymentRecords = []
     const updatedBills = unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } }))
+
+    // First apply customer advance if specified
+    if (R_adv > 0) {
+      for (const bill of updatedBills) {
+        let remaining = bill.total - bill.amountPaid
+        if (remaining <= 0) continue
+
+        const applyAdv = Math.min(R_adv, remaining)
+        bill.advanceUsed = (bill.advanceUsed || 0) + applyAdv
+        bill.amountPaid += applyAdv
+        totalAdvApplied += applyAdv
+        R_adv -= applyAdv
+
+        if (R_adv <= 0) break
+      }
+
+      if (totalAdvApplied > 0) {
+        const cust = state.customers.find(c => c.id === paymentData.customerId)
+        if (cust) {
+          const newBal = Math.max(0, Number(cust.creditBalance || cust.advanceBalance || 0) - totalAdvApplied)
+          dispatch({
+            type: 'UPDATE_CUSTOMER',
+            payload: { id: paymentData.customerId, creditBalance: newBal, advanceBalance: newBal }
+          })
+        }
+      }
+    }
 
     for (const bill of updatedBills) {
       let remaining = bill.total - bill.amountPaid
@@ -1985,7 +2014,7 @@ export const AppProvider = ({ children }) => {
           totalPaid: applyTotal,
           paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
           excessCredit: 0,
-          notes: paymentData.notes || 'Follow-up FIFO payment',
+          notes: paymentData.notes || 'FIFO bill payment',
         })
       }
     }
@@ -2017,23 +2046,38 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
 
-    if (excess > 0 && paymentData.returnChangeUpi > 0) {
-      const retAmt = Math.min(excess, paymentData.returnChangeUpi)
+    // Excess is always automatically credited to customer advance balance
+    if (excess > 0) {
       const nextCount = (state.idCounters?.ADV || 0) + 1
       dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
-      const advId = `ADV${String(nextCount).padStart(3, '0')}`
+      const advId = `ADV${String(nextCount).padStart(4, '0')}`
+      const cust = state.customers.find(c => c.id === paymentData.customerId)
       dispatch({
-        type: 'RETURN_ADVANCE_PAYMENT',
+        type: 'ADD_ADVANCE_PAYMENT',
         payload: {
           id: advId,
           customerId: paymentData.customerId,
-          amount: -retAmt,
+          customerName: cust?.name || 'Customer',
+          amount: excess,
           date: new Date().toISOString(),
-          paymentMethod: 'upi',
-          notes: 'Returned change via UPI',
-          isReturn: true,
+          paymentMethod: R_upi > 0 ? (R_cash > 0 ? 'split' : 'upi') : 'cash',
+          cashAmount: R_cash,
+          upiAmount: R_upi,
+          notes: 'Excess payment auto-credited to advance balance',
+          isExcessCredit: true,
         }
       })
+      if (cust) {
+        const newBal = Number(cust.creditBalance || cust.advanceBalance || 0) + excess
+        dispatch({
+          type: 'UPDATE_CUSTOMER',
+          payload: {
+            id: paymentData.customerId,
+            creditBalance: newBal,
+            advanceBalance: newBal,
+          }
+        })
+      }
     }
 
     updatedBills.forEach((b) => {
@@ -2043,25 +2087,42 @@ export const AppProvider = ({ children }) => {
 
   // ── Targeted payment for a specific bill (no FIFO) ─────────────────────────
   const recordSpecificBillPayment = (paymentData) => {
-    const { billId, customerId, cashAmount: rawCash, upiAmount: rawUpi } = paymentData
+    const { billId, customerId, cashAmount: rawCash, upiAmount: rawUpi, advanceUsed: rawAdv } = paymentData
     const bill = state.bills.find((b) => b.id === billId)
     if (!bill) return
 
     const cash = Number(rawCash || 0)
     const upi = Number(rawUpi || 0)
-    const totalPaying = cash + upi
+    const advUsed = Number(rawAdv || 0)
+    const totalPaying = cash + upi + advUsed
     if (totalPaying <= 0) return
 
     const billRemaining = Math.max(bill.total - bill.amountPaid, 0)
-    const applyAmt = Math.min(totalPaying, billRemaining)
-    const excessAmt = totalPaying - applyAmt
 
-    // Proportional split
-    const total = cash + upi
-    const applyCash = total > 0 ? Number((applyAmt * (cash / total)).toFixed(2)) : 0
+    // First apply customer advance if specified
+    let actualAdvApplied = 0
+    if (advUsed > 0 && billRemaining > 0) {
+      actualAdvApplied = Math.min(advUsed, billRemaining)
+      const cust = state.customers.find(c => c.id === customerId)
+      if (cust) {
+        const newBal = Math.max(0, Number(cust.creditBalance || cust.advanceBalance || 0) - actualAdvApplied)
+        dispatch({
+          type: 'UPDATE_CUSTOMER',
+          payload: { id: customerId, creditBalance: newBal, advanceBalance: newBal }
+        })
+      }
+    }
+
+    const remainingAfterAdv = Math.max(0, billRemaining - actualAdvApplied)
+    const directPaying = cash + upi
+    const applyAmt = Math.min(directPaying, remainingAfterAdv)
+    const excessAmt = Math.max(0, directPaying - remainingAfterAdv)
+
+    // Proportional split for cash and upi
+    const applyCash = directPaying > 0 ? Number((applyAmt * (cash / directPaying)).toFixed(2)) : 0
     const applyUpi = Number((applyAmt - applyCash).toFixed(2))
 
-    const newAmountPaid = bill.amountPaid + applyAmt
+    const newAmountPaid = bill.amountPaid + actualAdvApplied + applyAmt
     const newBalance = Math.max(bill.total - newAmountPaid, 0)
     const newStatus = newAmountPaid >= bill.total ? 'paid' : 'partial'
 
@@ -2073,6 +2134,7 @@ export const AppProvider = ({ children }) => {
           amountPaid: newAmountPaid,
           balance: newBalance,
           status: newStatus,
+          advanceUsed: Number(bill.advanceUsed || 0) + actualAdvApplied,
           paymentMethod: {
             cash: Number(bill.paymentMethod?.cash || 0) + applyCash,
             upi: Number(bill.paymentMethod?.upi || 0) + applyUpi,
@@ -2082,23 +2144,60 @@ export const AppProvider = ({ children }) => {
       },
     })
 
-    const _specPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
-    dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
-    dispatch({
-      type: 'ADD_PAYMENT',
-      payload: {
-        id: _specPayId,
-        billId,
-        customerId,
-        date: new Date().toISOString(),
-        cashAmount: applyCash,
-        upiAmount: applyUpi,
-        totalPaid: applyAmt,
-        paymentType: newStatus === 'paid' ? 'full' : 'partial',
-        excessCredit: excessAmt > 0 ? excessAmt : 0,
-        notes: paymentData.notes || `Targeted payment for bill ${billId}`,
-      },
-    })
+    if (applyAmt > 0) {
+      const _specPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+      dispatch({
+        type: 'ADD_PAYMENT',
+        payload: {
+          id: _specPayId,
+          billId,
+          customerId,
+          date: new Date().toISOString(),
+          cashAmount: applyCash,
+          upiAmount: applyUpi,
+          totalPaid: applyAmt,
+          paymentType: newStatus === 'paid' ? 'full' : 'partial',
+          excessCredit: excessAmt > 0 ? excessAmt : 0,
+          notes: paymentData.notes || `Targeted payment for bill ${billId}`,
+        },
+      })
+    }
+
+    // Automatically credit any excess payment to customer advance balance
+    if (excessAmt > 0) {
+      const nextCount = (state.idCounters?.ADV || 0) + 1
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+      const advId = `ADV${String(nextCount).padStart(4, '0')}`
+      const cust = state.customers.find(c => c.id === customerId)
+      dispatch({
+        type: 'ADD_ADVANCE_PAYMENT',
+        payload: {
+          id: advId,
+          customerId,
+          customerName: cust?.name || 'Customer',
+          amount: excessAmt,
+          date: new Date().toISOString(),
+          paymentMethod: upi > 0 ? (cash > 0 ? 'split' : 'upi') : 'cash',
+          cashAmount: directPaying > 0 ? Math.round(excessAmt * (cash / directPaying) * 100) / 100 : excessAmt,
+          upiAmount: directPaying > 0 ? Math.round(excessAmt * (upi / directPaying) * 100) / 100 : 0,
+          notes: `Excess payment from Bill ${billId} auto-credited to advance`,
+          isExcessCredit: true,
+          billId: billId,
+        }
+      })
+      if (cust) {
+        const newBal = Number(cust.creditBalance || cust.advanceBalance || 0) + excessAmt
+        dispatch({
+          type: 'UPDATE_CUSTOMER',
+          payload: {
+            id: customerId,
+            creditBalance: newBal,
+            advanceBalance: newBal,
+          }
+        })
+      }
+    }
   }
 
   // ── Add Group Bill (creates individual bills + a group record) ──────────────
