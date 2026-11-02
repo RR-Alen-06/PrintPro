@@ -1,4 +1,5 @@
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 
 
 
@@ -102,9 +103,13 @@ async function listBills(req, res, next) {
 
     const [rows] = await pool.query(sql, params);
     
-    // Fetch and map associated bill items
+    // Fetch and map associated bill items for matched bills only
     if (rows.length > 0) {
-      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = ?', [req.user.id]);
+      const billIds = rows.map(b => String(b.id));
+      const [allItems] = await pool.query(
+        'SELECT * FROM bill_items WHERE user_id = ? AND bill_id::text = ANY(?::text[])',
+        [req.user.id, billIds]
+      );
       const itemsMap = {};
       allItems.forEach(item => {
         if (!itemsMap[item.bill_id]) {
@@ -135,9 +140,13 @@ async function listDeletedBills(req, res, next) {
       [req.user.id]
     );
 
-    // Fetch and map associated bill items
+    // Fetch and map associated bill items for matched bills only
     if (rows.length > 0) {
-      const [allItems] = await pool.query('SELECT * FROM bill_items WHERE user_id = ?', [req.user.id]);
+      const billIds = rows.map(b => String(b.id));
+      const [allItems] = await pool.query(
+        'SELECT * FROM bill_items WHERE user_id = ? AND bill_id::text = ANY(?::text[])',
+        [req.user.id, billIds]
+      );
       const itemsMap = {};
       allItems.forEach(item => {
         if (!itemsMap[item.bill_id]) {
@@ -219,21 +228,11 @@ async function createBill(req, res, next) {
     const customer = custRows[0];
     const resolvedCustomerId = customer.id;
 
-    const billId = require('crypto').randomUUID();
+    const billId = req.body.id || require('crypto').randomUUID();
     let billNumber = req.body.bill_number || req.body.invoice_number || null;
 
     if (!billNumber) {
-      const [maxBill] = await conn.query(
-        `SELECT bill_number FROM bills WHERE user_id = ? AND bill_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(bill_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [req.user.id]
-      );
-      let nextNum = 1;
-      if (maxBill.length > 0 && maxBill[0]?.bill_number) {
-        const lastCode = maxBill[0].bill_number;
-        const numPart = lastCode.replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-      billNumber = `BILL-${String(nextNum).padStart(4, '0')}`;
+      billNumber = await getNextSequence(conn, req.user.id, 'bill');
     }
 
     // Calculate subtotal from items
@@ -317,17 +316,7 @@ async function createBill(req, res, next) {
       }
 
       // Bill number collision: generate a fresh unique bill_number
-      const [maxBill] = await conn.query(
-        `SELECT bill_number FROM bills WHERE user_id = ? AND bill_number IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(bill_number, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [req.user.id]
-      );
-      let nextNum = 1;
-      if (maxBill.length > 0 && maxBill[0]?.bill_number) {
-        const lastCode = maxBill[0].bill_number;
-        const numPart = lastCode.replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-      billNumber = `BILL${String(nextNum).padStart(4, '0')}`;
+      billNumber = await getNextSequence(conn, req.user.id, 'bill');
     }
 
     let balance = total;
@@ -363,12 +352,28 @@ async function createBill(req, res, next) {
       [billId, req.user.id, resolvedCustomerId, date, due_date || null, subtotal, discType, discVal, gstPct, gstAmount, total, amountPaid, balance, billStatus, notes || '', billNumber, billNumber]
     );
 
-    // Insert bill items
-    for (const item of billItems) {
+    // Insert bill items in a single batch
+    if (billItems.length > 0) {
+      const valueClauses = [];
+      const itemParams = [];
+      for (const item of billItems) {
+        valueClauses.push('(?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        itemParams.push(
+          req.user.id,
+          item.bill_id,
+          item.item_name,
+          item.print_type,
+          item.sides,
+          item.qty,
+          item.unit_price,
+          item.amount,
+          item.category || 'paper'
+        );
+      }
       await conn.query(
         `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount, category)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, item.bill_id, item.item_name, item.print_type, item.sides, item.qty, item.unit_price, item.amount, item.category || 'paper']
+         VALUES ${valueClauses.join(', ')}`,
+        itemParams
       );
     }
 
@@ -492,6 +497,7 @@ async function updateBill(req, res, next) {
       await conn.query('DELETE FROM bill_items WHERE bill_id = ? AND user_id = ?', [actualBillId, req.user.id]);
 
       subtotal = 0;
+      const updatedBillItems = [];
       for (const item of items) {
         const qty = parseInt(item.qty, 10) || 1;
         const unitPrice = parseFloat(item.unit_price !== undefined ? item.unit_price : (item.unitPrice || item.rate || 0)) || 0;
@@ -515,10 +521,28 @@ async function updateBill(req, res, next) {
         const itemName = (item.name || item.item_name || item.itemName || 'Print Item').trim();
         const category = item.category || (item.item_type || 'paper');
 
+        updatedBillItems.push({
+          item_name: itemName,
+          print_type: printType,
+          sides,
+          qty,
+          unit_price: unitPrice,
+          amount,
+          category
+        });
+      }
+
+      if (updatedBillItems.length > 0) {
+        const valueClauses = [];
+        const itemParams = [];
+        for (const it of updatedBillItems) {
+          valueClauses.push('(?, ?, ?, ?, ?, ?, ?, ?, ?)');
+          itemParams.push(req.user.id, actualBillId, it.item_name, it.print_type, it.sides, it.qty, it.unit_price, it.amount, it.category);
+        }
         await conn.query(
           `INSERT INTO bill_items (user_id, bill_id, item_name, print_type, sides, qty, unit_price, amount, category)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, actualBillId, itemName, printType, sides, qty, unitPrice, amount, category]
+           VALUES ${valueClauses.join(', ')}`,
+          itemParams
         );
       }
       subtotal = parseFloat(subtotal.toFixed(2));

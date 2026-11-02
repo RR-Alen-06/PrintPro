@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 const { allowlist } = require('../middleware/allowlist');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
@@ -11,6 +12,7 @@ function toPurchaseDto(p) {
   return {
     id: p.id,
     date: p.date,
+    expense_number: p.expense_number || '',
     item_name: p.item_name || '',
     category: p.category || 'General',
     vendor_name: p.vendor_name || '',
@@ -28,7 +30,7 @@ router.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
     const { startDate, endDate, category } = req.query;
-    let sql = 'SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE user_id = ?';
+    let sql = 'SELECT id, expense_number, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE user_id = ?';
     const params = [req.user.id];
 
     if (startDate) { sql += ' AND date >= ?'; params.push(startDate); }
@@ -58,7 +60,7 @@ router.get('/summary', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const [rows] = await pool.query('SELECT id, expense_number, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (rows.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
     res.json({ success: true, data: toPurchaseDto(rows[0]) });
   } catch (err) { next(err); }
@@ -88,25 +90,33 @@ router.post('/', allowlist(['date', 'item_name', 'itemName', 'name', 'category',
     const cost = parseFloat(unit_cost) || 0;
     const total = parseFloat((qtyNum * cost).toFixed(2));
 
+    const expenseNumber = await getNextSequence(pool, req.user.id, 'expense');
+
     const [result] = await pool.query(
-      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes, vendor_name, payment_method, upi_ref, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '', vendor_name || '', payment_method || 'cash', upi_ref || '', activeSessionId]
+      `INSERT INTO purchases (user_id, date, item_name, category, qty, unit_cost, total, notes, vendor_name, payment_method, upi_ref, session_id, expense_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, date, item_name, category, qtyNum, cost, total, notes || '', vendor_name || '', payment_method || 'cash', upi_ref || '', activeSessionId, expenseNumber]
     );
 
-    const [newRow] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
+    const [newRow] = await pool.query('SELECT id, expense_number, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);
     res.status(201).json({ success: true, data: toPurchaseDto(newRow[0]) });
   } catch (err) { next(err); }
 });
 
 // PUT /api/purchases/:id
-router.put('/:id', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost', 'notes', 'vendor_name', 'payment_method', 'upi_ref']), validateSchema(schemas.purchaseUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['date', 'item_name', 'itemName', 'name', 'category', 'qty', 'unit_cost', 'unitCost', 'amount', 'total', 'notes', 'vendor_name', 'vendorName', 'payment_method', 'paymentMethod', 'upi_ref', 'upiRef']), validateSchema(schemas.purchaseUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
     const [existing] = await pool.query('SELECT * FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) return res.status(404).json({ success: false, error: 'Purchase not found' });
 
-    const { date, item_name, category, qty, unit_cost, notes, vendor_name, payment_method, upi_ref } = req.body;
+    const item_name = req.body.item_name || req.body.itemName || req.body.name;
+    const unit_cost = req.body.unit_cost !== undefined ? req.body.unit_cost : req.body.unitCost;
+    const vendor_name = req.body.vendor_name !== undefined ? req.body.vendor_name : req.body.vendorName;
+    const payment_method = req.body.payment_method !== undefined ? req.body.payment_method : req.body.paymentMethod;
+    const upi_ref = req.body.upi_ref !== undefined ? req.body.upi_ref : req.body.upiRef;
+    const { date, category, qty, notes } = req.body;
+
     const updates = {};
     if (date !== undefined)           updates.date = date;
     if (item_name !== undefined)      updates.item_name = item_name;
@@ -135,7 +145,7 @@ router.put('/:id', allowlist(['date', 'item_name', 'category', 'qty', 'unit_cost
     const values = validKeys.map((k) => updates[k]);
     await pool.query(`UPDATE purchases SET ${setClauses} WHERE id = ? AND user_id = ?`, [...values, id, req.user.id]);
 
-    const [updated] = await pool.query('SELECT id, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [updated] = await pool.query('SELECT id, expense_number, date, item_name, category, vendor_name, payment_method, upi_ref, qty, unit_cost, total, notes FROM purchases WHERE id = ? AND user_id = ?', [id, req.user.id]);
     res.json({ success: true, data: toPurchaseDto(updated[0]) });
   } catch (err) { next(err); }
 });

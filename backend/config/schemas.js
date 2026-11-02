@@ -9,12 +9,13 @@ const schemas = {
   customerCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
-    type: { type: 'string', required: false, allowedValues: ['regular', 'random'] },
+    type: { type: 'string', required: false, allowedValues: ['regular', 'random', 'walkin', 'wholesale'] },
     phone: { type: 'string', required: false, maxLength: 25, format: 'phone' },
     email: { type: 'string', required: false, maxLength: 100, format: 'email' },
     address: { type: 'string', required: false, maxLength: 300 },
     gstin: { type: 'string', required: false, maxLength: 20 },
     credit_limit: { type: 'number', required: false, min: 0 },
+    creditLimit: { type: 'number', required: false, min: 0 },
     credit_balance: { type: 'number', required: false },
     advance_balance: { type: 'number', required: false },
     openingBalance: { type: 'number', required: false },
@@ -22,6 +23,10 @@ const schemas = {
     advanceBalance: { type: 'number', required: false },
     openingCash: { type: 'number', required: false },
     openingUpi: { type: 'number', required: false },
+    loyalty_points: { type: 'number', required: false },
+    loyaltyPoints: { type: 'number', required: false },
+    groupId: { type: 'string', required: false, maxLength: 100 },
+    group_id: { type: 'string', required: false, maxLength: 100 },
     customer_code: { type: 'string', required: false, maxLength: 50 },
     customerCode: { type: 'string', required: false, maxLength: 50 },
     notes: { type: 'string', required: false, maxLength: 500 }
@@ -30,17 +35,22 @@ const schemas = {
   customerUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
-    type: { type: 'string', required: false, allowedValues: ['regular', 'random'] },
+    type: { type: 'string', required: false, allowedValues: ['regular', 'random', 'walkin', 'wholesale'] },
     phone: { type: 'string', required: false, maxLength: 25, format: 'phone' },
     email: { type: 'string', required: false, maxLength: 100, format: 'email' },
     address: { type: 'string', required: false, maxLength: 300 },
     gstin: { type: 'string', required: false, maxLength: 20 },
     credit_limit: { type: 'number', required: false, min: 0 },
+    creditLimit: { type: 'number', required: false, min: 0 },
     credit_balance: { type: 'number', required: false },
     advance_balance: { type: 'number', required: false },
     openingBalance: { type: 'number', required: false },
     creditBalance: { type: 'number', required: false },
     advanceBalance: { type: 'number', required: false },
+    loyalty_points: { type: 'number', required: false },
+    loyaltyPoints: { type: 'number', required: false },
+    groupId: { type: 'string', required: false, maxLength: 100 },
+    group_id: { type: 'string', required: false, maxLength: 100 },
     customer_code: { type: 'string', required: false, maxLength: 50 },
     customerCode: { type: 'string', required: false, maxLength: 50 },
     notes: { type: 'string', required: false, maxLength: 500 }
@@ -259,6 +269,8 @@ const schemas = {
   // ── 5. Purchases ─────────────────────────────────────────────────────────────
   purchaseCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    expense_number: { type: 'string', required: false, maxLength: 50 },
+    expenseNumber: { type: 'string', required: false, maxLength: 50 },
     date: { type: 'string', required: true, format: 'date' },
     item_name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
@@ -281,6 +293,8 @@ const schemas = {
 
   purchaseUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    expense_number: { type: 'string', required: false, maxLength: 50 },
+    expenseNumber: { type: 'string', required: false, maxLength: 50 },
     date: { type: 'string', required: false, format: 'date' },
     item_name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     itemName: { type: 'string', required: false, minLength: 1, maxLength: 100 },
@@ -300,6 +314,8 @@ const schemas = {
   // ── 6. Advance Payments ──────────────────────────────────────────────────────
   advancePaymentCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    advance_number: { type: 'string', required: false, maxLength: 50 },
+    advanceNumber: { type: 'string', required: false, maxLength: 50 },
     customer_id: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     customerId: { type: 'string', required: false, maxLength: 100 },
     amount: { type: 'number', required: true, min: 0.01 },
@@ -314,6 +330,8 @@ const schemas = {
 
   advancePaymentUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    advance_number: { type: 'string', required: false, maxLength: 50 },
+    advanceNumber: { type: 'string', required: false, maxLength: 50 },
     amount: { type: 'number', required: false, min: 0.01 },
     payment_mode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
     paymentMode: { type: 'string', required: false, allowedValues: ['cash', 'upi', 'card', 'bank_transfer', 'cheque'] },
@@ -327,6 +345,8 @@ const schemas = {
   // ── 7. Customer Groups & Group Bills ─────────────────────────────────────────
   customerGroupCreate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    group_code: { type: 'string', required: false, maxLength: 50 },
+    groupCode: { type: 'string', required: false, maxLength: 50 },
     name: { type: 'string', required: true, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
     member_ids: { type: 'array', required: false, maxItems: 100 },
@@ -336,6 +356,8 @@ const schemas = {
 
   customerGroupUpdate: {
     id: { type: 'string', required: false, maxLength: 100 },
+    group_code: { type: 'string', required: false, maxLength: 50 },
+    groupCode: { type: 'string', required: false, maxLength: 50 },
     name: { type: 'string', required: false, minLength: 1, maxLength: 100 },
     description: { type: 'string', required: false, maxLength: 500 },
     member_ids: { type: 'array', required: false, maxItems: 100 },

@@ -59,17 +59,35 @@ async function addItem(req, res, next) {
 }
 
 // PUT /:id - Update item
-const ALLOWED_INVENTORY_COLUMNS = ['name', 'color_single', 'color_double', 'bw_single', 'bw_double', 'stock', 'low_stock_alert', 'item_type', 'unit_price', 'unit'];
+const ALLOWED_INVENTORY_COLUMNS = [
+  'name', 'color_single', 'color_double', 'bw_single', 'bw_double',
+  'stock', 'low_stock_alert', 'item_type', 'unit_price', 'unit'
+];
+
+const INVENTORY_COLUMN_MAP = {
+  name: 'name',
+  item_type: 'item_type',
+  itemType: 'item_type',
+  unit_price: 'unit_price',
+  unitPrice: 'unit_price',
+  unit: 'unit',
+  color_single: 'color_single',
+  colorSingle: 'color_single',
+  color_double: 'color_double',
+  colorDouble: 'color_double',
+  bw_single: 'bw_single',
+  bwSingle: 'bw_single',
+  bw_double: 'bw_double',
+  bwDouble: 'bw_double',
+  stock: 'stock',
+  low_stock_alert: 'low_stock_alert',
+  lowStockAlert: 'low_stock_alert'
+};
 
 async function updateItem(req, res, next) {
   try {
     const pool = getPool();
     const { id } = req.params;
-
-    const invalidKeys = Object.keys(req.body).filter(k => !ALLOWED_INVENTORY_COLUMNS.includes(k));
-    if (invalidKeys.length > 0) {
-      return res.status(400).json({ success: false, error: `Invalid column(s): ${invalidKeys.join(', ')}` });
-    }
 
     const [existing] = await pool.query('SELECT * FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (existing.length === 0) {
@@ -78,27 +96,31 @@ async function updateItem(req, res, next) {
 
     const oldItem = existing[0];
     const updates = {};
-    for (const key of ALLOWED_INVENTORY_COLUMNS) {
+    for (const [key, dbCol] of Object.entries(INVENTORY_COLUMN_MAP)) {
       if (req.body[key] !== undefined) {
-        updates[key] = req.body[key];
+        if (['color_single', 'color_double', 'bw_single', 'bw_double', 'unit_price'].includes(dbCol)) {
+          updates[dbCol] = parseFloat(req.body[key]) || 0;
+        } else if (['stock', 'low_stock_alert'].includes(dbCol)) {
+          updates[dbCol] = parseInt(req.body[key], 10) || 0;
+        } else {
+          updates[dbCol] = req.body[key];
+        }
       }
     }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ success: false, error: 'No fields to update' });
+    if (Object.keys(updates).length > 0) {
+      const validKeys = Object.keys(updates).filter(key => ALLOWED_INVENTORY_COLUMNS.includes(key));
+      const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
+      const values = [...validKeys.map(key => updates[key]), id, req.user.id];
+
+      await pool.query(`UPDATE inventory_items SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
+
+      // Audit log
+      await pool.query(
+        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+        [req.user.id, 'UPDATE', 'inventory', String(id), JSON.stringify(oldItem), JSON.stringify(updates)]
+      );
     }
-
-    const validKeys = Object.keys(updates).filter(key => ALLOWED_INVENTORY_COLUMNS.includes(key));
-    const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
-    const values = [...validKeys.map(key => updates[key]), id, req.user.id];
-
-    await pool.query(`UPDATE inventory_items SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, 'UPDATE', 'inventory', String(id), JSON.stringify(oldItem), JSON.stringify(updates)]
-    );
 
     const [updated] = await pool.query('SELECT id, name, color_single, color_double, bw_single, bw_double, stock, low_stock_alert, item_type, unit_price, unit FROM inventory_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
     res.json({ success: true, data: toInventoryDto(updated[0]) });

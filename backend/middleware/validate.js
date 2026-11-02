@@ -25,8 +25,8 @@ const validateCustomer = [
     .withMessage('Customer name must be under 100 characters'),
   body('type')
     .optional()
-    .isIn(['regular', 'random'])
-    .withMessage('Customer type must be either "regular" or "random"'),
+    .isIn(['regular', 'random', 'walkin', 'wholesale'])
+    .withMessage('Customer type must be either "regular", "random", "walkin", or "wholesale"'),
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
@@ -46,11 +46,106 @@ const validateCustomer = [
     .optional()
     .isFloat()
     .withMessage('Credit balance must be a number'),
+  body('creditBalance')
+    .optional()
+    .isFloat()
+    .withMessage('Credit balance must be a number'),
+  body('advance_balance')
+    .optional()
+    .isFloat()
+    .withMessage('Advance balance must be a number'),
+  body('advanceBalance')
+    .optional()
+    .isFloat()
+    .withMessage('Advance balance must be a number'),
   body('credit_limit')
     .optional()
     .isFloat()
     .withMessage('Credit limit must be a number'),
+  body('creditLimit')
+    .optional()
+    .isFloat()
+    .withMessage('Credit limit must be a number'),
+  body('loyalty_points')
+    .optional()
+    .isInt()
+    .withMessage('Loyalty points must be an integer'),
+  body('loyaltyPoints')
+    .optional()
+    .isInt()
+    .withMessage('Loyalty points must be an integer'),
   body('customer_code')
+    .optional()
+    .trim(),
+  body('customerCode')
+    .optional()
+    .trim(),
+  handleValidationErrors,
+];
+
+const validateCustomerUpdate = [
+  body('name')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Customer name cannot be empty')
+    .isLength({ max: 100 })
+    .withMessage('Customer name must be under 100 characters'),
+  body('type')
+    .optional()
+    .isIn(['regular', 'random', 'walkin', 'wholesale'])
+    .withMessage('Customer type is invalid'),
+  body('phone')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 25 })
+    .withMessage('Phone number must be under 25 characters'),
+  body('email')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage('Invalid email format')
+    .isLength({ max: 100 })
+    .withMessage('Email must be under 100 characters'),
+  body('address')
+    .optional()
+    .trim(),
+  body('credit_balance')
+    .optional()
+    .isFloat()
+    .withMessage('Credit balance must be a number'),
+  body('creditBalance')
+    .optional()
+    .isFloat()
+    .withMessage('Credit balance must be a number'),
+  body('advance_balance')
+    .optional()
+    .isFloat()
+    .withMessage('Advance balance must be a number'),
+  body('advanceBalance')
+    .optional()
+    .isFloat()
+    .withMessage('Advance balance must be a number'),
+  body('credit_limit')
+    .optional()
+    .isFloat()
+    .withMessage('Credit limit must be a number'),
+  body('creditLimit')
+    .optional()
+    .isFloat()
+    .withMessage('Credit limit must be a number'),
+  body('loyalty_points')
+    .optional()
+    .isInt()
+    .withMessage('Loyalty points must be an integer'),
+  body('loyaltyPoints')
+    .optional()
+    .isInt()
+    .withMessage('Loyalty points must be an integer'),
+  body('customer_code')
+    .optional()
+    .trim(),
+  body('customerCode')
     .optional()
     .trim(),
   handleValidationErrors,
@@ -312,6 +407,10 @@ const validateInventoryItem = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Price must be a positive number'),
+  body('unit_price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Unit price must be a positive number'),
   body('stock')
     .optional()
     .isInt({ min: 0 })
@@ -320,6 +419,78 @@ const validateInventoryItem = [
     .optional()
     .isInt({ min: 0 })
     .withMessage('Low stock alert must be a non-negative integer'),
+  handleValidationErrors,
+];
+
+const validateInventoryUpdate = [
+  body('name')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Item name cannot be empty')
+    .isLength({ max: 50 })
+    .withMessage('Item name must be under 50 characters'),
+  body('color_single')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('colorSingle')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('color_double')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('colorDouble')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('bw_single')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('bwSingle')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('bw_double')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('bwDouble')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('unit_price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Unit price must be a positive number'),
+  body('unitPrice')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Unit price must be a positive number'),
+  body('stock')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Stock must be a non-negative integer'),
+  body('low_stock_alert')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Low stock alert must be a non-negative integer'),
+  body('lowStockAlert')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Low stock alert must be a non-negative integer'),
+  handleValidationErrors,
+];
+
+const validateInventoryStock = [
+  body('stock')
+    .notEmpty()
+    .withMessage('Stock is required')
+    .isInt({ min: 0 })
+    .withMessage('Stock must be a non-negative integer'),
   handleValidationErrors,
 ];
 
@@ -418,10 +589,13 @@ const validateProfile = [
 
 module.exports = {
   validateCustomer,
+  validateCustomerUpdate,
   validateBill,
   validateBillUpdate,
   validatePayment,
   validateInventoryItem,
+  validateInventoryUpdate,
+  validateInventoryStock,
   validatePurchase,
   validateProfile,
 };

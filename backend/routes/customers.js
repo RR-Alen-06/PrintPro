@@ -18,14 +18,14 @@ router.get('/', listCustomers);
 router.get('/:id', getCustomer);
 
 // POST /api/customers
-const { validateCustomer } = require('../middleware/validate');
+const { validateCustomer, validateCustomerUpdate } = require('../middleware/validate');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
 
 router.post('/', validateSchema(schemas.customerCreate), validateCustomer, createCustomer);
 
 // PUT /api/customers/:id
-router.put('/:id', validateSchema(schemas.customerUpdate), validateCustomer, updateCustomer);
+router.put('/:id', validateSchema(schemas.customerUpdate), validateCustomerUpdate, updateCustomer);
 
 // DELETE /api/customers/:id
 router.delete('/:id', deleteCustomer);

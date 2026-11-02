@@ -1,4 +1,5 @@
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 
 // Customer projection DTO: strips internal auth tenant ID (user_id) and raw DB columns
 function toCustomerDto(row) {
@@ -98,24 +99,13 @@ async function createCustomer(req, res, next) {
       return res.status(400).json({ success: false, error: 'Type and name are required' });
     }
 
-    let customerId = require('crypto').randomUUID();
+    let customerId = req.body.id || require('crypto').randomUUID();
     let customerCode = customer_code || req.body.customerCode;
 
     if (!customerCode) {
+      const seqType = type === 'regular' ? 'customer_regular' : 'customer_walkin';
       const prefix = type === 'regular' ? 'RC' : 'RND';
-      const [maxRows] = await pool.query(
-        `SELECT customer_code FROM customers WHERE type = ? AND user_id = ? AND customer_code IS NOT NULL ORDER BY CAST(NULLIF(regexp_replace(customer_code, '[^0-9]', '', 'g'), '') AS INTEGER) DESC LIMIT 1`,
-        [type, req.user.id]
-      );
-
-      let nextNum = 1;
-      if (maxRows.length > 0 && maxRows[0]?.customer_code) {
-        const lastCode = maxRows[0].customer_code;
-        const numPart = lastCode.replace(/[^0-9]/g, '');
-        nextNum = parseInt(numPart || '0', 10) + 1;
-      }
-
-      customerCode = `${prefix}-${String(nextNum).padStart(4, '0')}`;
+      customerCode = await getNextSequence(pool, req.user.id, seqType, prefix);
     }
 
     // Idempotent check for offline sync retry
@@ -152,19 +142,34 @@ async function createCustomer(req, res, next) {
   }
 }
 
-// PUT /:id - Update customer (credits and IDs cannot be set by user)
-const ALLOWED_CUSTOMER_COLUMNS = ['name', 'phone', 'email', 'address', 'type', 'credit_limit', 'customer_code'];
+// PUT /:id - Update customer
+const ALLOWED_CUSTOMER_COLUMNS = [
+  'name', 'phone', 'email', 'address', 'type', 'credit_limit',
+  'customer_code', 'credit_balance', 'advance_balance', 'loyalty_points'
+];
 
+const CUSTOMER_COLUMN_MAP = {
+  name: 'name',
+  phone: 'phone',
+  email: 'email',
+  address: 'address',
+  type: 'type',
+  credit_limit: 'credit_limit',
+  creditLimit: 'credit_limit',
+  customer_code: 'customer_code',
+  customerCode: 'customer_code',
+  credit_balance: 'credit_balance',
+  creditBalance: 'credit_balance',
+  advance_balance: 'advance_balance',
+  advanceBalance: 'advance_balance',
+  loyalty_points: 'loyalty_points',
+  loyaltyPoints: 'loyalty_points'
+};
 
 async function updateCustomer(req, res, next) {
   try {
     const pool = getPool();
     const { id } = req.params;
-
-    const invalidKeys = Object.keys(req.body).filter(k => !ALLOWED_CUSTOMER_COLUMNS.includes(k));
-    if (invalidKeys.length > 0) {
-      return res.status(400).json({ success: false, error: `Invalid column(s): ${invalidKeys.join(', ')}` });
-    }
 
     const [existing] = await pool.query(
       'SELECT * FROM customers WHERE (id::text = ? OR customer_code = ?) AND user_id = ?',
@@ -178,28 +183,37 @@ async function updateCustomer(req, res, next) {
     const customerId = oldValue.id;
 
     const updates = {};
-    for (const key of ALLOWED_CUSTOMER_COLUMNS) {
+    for (const [key, dbCol] of Object.entries(CUSTOMER_COLUMN_MAP)) {
       if (req.body[key] !== undefined) {
-        updates[key] = req.body[key];
+        if (dbCol === 'type') {
+          let t = req.body[key];
+          if (t === 'walkin') t = 'random';
+          if (t !== 'regular' && t !== 'random') t = 'random';
+          updates[dbCol] = t;
+        } else if (dbCol === 'credit_balance' || dbCol === 'advance_balance' || dbCol === 'credit_limit') {
+          updates[dbCol] = parseFloat(req.body[key]) || 0;
+        } else if (dbCol === 'loyalty_points') {
+          updates[dbCol] = parseInt(req.body[key], 10) || 0;
+        } else {
+          updates[dbCol] = req.body[key];
+        }
       }
     }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ success: false, error: 'No fields to update' });
+    if (Object.keys(updates).length > 0) {
+      const validKeys = Object.keys(updates).filter(key => ALLOWED_CUSTOMER_COLUMNS.includes(key));
+      const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
+      const values = validKeys.map(key => updates[key]);
+      values.push(customerId, req.user.id);
+
+      await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
+
+      // Audit log
+      await pool.query(
+        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+        [req.user.id, 'UPDATE', 'customer', customerId, JSON.stringify(oldValue), JSON.stringify(updates)]
+      );
     }
-
-    const validKeys = Object.keys(updates).filter(key => ALLOWED_CUSTOMER_COLUMNS.includes(key));
-    const setClauses = validKeys.map(key => `"${key}" = ?`).join(', ');
-    const values = validKeys.map(key => updates[key]);
-    values.push(customerId, req.user.id);
-
-    await pool.query(`UPDATE customers SET ${setClauses} WHERE id = ? AND user_id = ?`, values);
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, 'UPDATE', 'customer', customerId, JSON.stringify(oldValue), JSON.stringify(updates)]
-    );
 
     const [updated] = await pool.query(
       'SELECT id, type, customer_code, name, phone, email, address, credit_balance, advance_balance, credit_limit, loyalty_points, created_at FROM customers WHERE id = ? AND user_id = ?',

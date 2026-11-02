@@ -1,3 +1,8 @@
+const path = require('path');
+require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../backend/.env') });
+
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
 
@@ -32,13 +37,17 @@ function createPool() {
   logger.info(`Database config initialized using pooler host for project "${projectRef}"`);
   return new Pool({
     connectionString,
-    ssl: { rejectUnauthorized: false } // Required for Supabase PostgreSQL connections
+    ssl: { rejectUnauthorized: false }, // Required for Supabase PostgreSQL connections
+    max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
+    idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT, 10) || 30000,
+    connectionTimeoutMillis: parseInt(process.env.DB_CONN_TIMEOUT, 10) || 10000,
   });
 }
 
 class PgConnectionWrapper {
   constructor(client) {
     this.client = client;
+    this.inTransaction = false;
   }
 
   translateQuery(sql) {
@@ -79,7 +88,8 @@ class PgConnectionWrapper {
     if (result.command === 'INSERT' || result.command === 'UPDATE' || result.command === 'DELETE') {
       const affectedRows = result.rowCount;
       const insertId = result.rows[0]?.id || null;
-      return [{ insertId, affectedRows, warningStatus: 0 }, null];
+      const header = Object.assign({}, result.rows[0] || {}, { insertId, affectedRows, warningStatus: 0 });
+      return [header, null];
     }
 
     return [rows, null];
@@ -87,17 +97,33 @@ class PgConnectionWrapper {
 
   async beginTransaction() {
     await this.client.query('BEGIN');
+    this.inTransaction = true;
   }
 
   async commit() {
     await this.client.query('COMMIT');
+    this.inTransaction = false;
   }
 
   async rollback() {
-    await this.client.query('ROLLBACK');
+    try {
+      await this.client.query('ROLLBACK');
+    } finally {
+      this.inTransaction = false;
+    }
   }
 
   release() {
+    if (this.inTransaction) {
+      this.inTransaction = false;
+      logger.warn('Connection released while transaction was active; issuing safety ROLLBACK.');
+      this.client.query('ROLLBACK').catch(err => {
+        logger.error(`Error during safety transaction rollback on release: ${err.message}`);
+      }).finally(() => {
+        this.client.release();
+      });
+      return;
+    }
     this.client.release();
   }
 }
@@ -132,7 +158,8 @@ class PgPoolWrapper {
     if (result.command === 'INSERT' || result.command === 'UPDATE' || result.command === 'DELETE') {
       const affectedRows = result.rowCount;
       const insertId = result.rows[0]?.id || null;
-      return [{ insertId, affectedRows, warningStatus: 0 }, null];
+      const header = Object.assign({}, result.rows[0] || {}, { insertId, affectedRows, warningStatus: 0 });
+      return [header, null];
     }
 
     return [rows, null];
