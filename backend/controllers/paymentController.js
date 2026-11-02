@@ -249,25 +249,30 @@ async function recordPayment(req, res, next) {
     const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
     if (excess > 0) {
       await conn.query(
-        'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND user_id = ?',
-        [excess, resolvedCustomerId, req.user.id]
+        `UPDATE customers SET
+           credit_balance = COALESCE(credit_balance, 0) + ?,
+           advance_balance = COALESCE(advance_balance, 0) + ?
+         WHERE id = ? AND user_id = ?`,
+        [excess, excess, resolvedCustomerId, req.user.id]
       );
 
-      // Record excess as a payment entry
       const targetBillId = resolvedBill ? resolvedBill.id : null;
-      const [pr] = await conn.query(
-        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'full', ?, ?)`,
-        [req.user.id, targetBillId, resolvedCustomerId, remainingCash, remainingUpi, excess, 'Advance/overpayment credit', activeSessionId]
+      const advSeq = await getNextSequence(conn, req.user.id, 'advance');
+      const payMode = remainingUpi > 0 ? (remainingCash > 0 ? 'split' : 'upi') : 'cash';
+      await conn.query(
+        `INSERT INTO advance_payments (user_id, customer_id, amount, payment_mode, type, bill_id, notes, advance_number, date)
+         VALUES (?, ?, ?, ?, 'deposit', ?, ?, ?, NOW())`,
+        [req.user.id, resolvedCustomerId, excess, payMode, targetBillId, 'Excess payment credited to advance', advSeq]
       );
+
       if (remainingUpi > 0) {
         await conn.query(
-          `INSERT INTO upi_transactions (user_id, payment_id, bill_id, customer_id, upi_ref, amount, status, date)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW())`,
-          [req.user.id, pr.insertId, targetBillId, resolvedCustomerId, req.body.upi_ref || '', remainingUpi]
+          `INSERT INTO upi_transactions (user_id, bill_id, customer_id, upi_ref, amount, status, date)
+           VALUES (?, ?, ?, ?, ?, 'pending', NOW())`,
+          [req.user.id, targetBillId, resolvedCustomerId, req.body.upi_ref || '', remainingUpi]
         );
       }
-      paymentRecords.push({ paymentId: pr.insertId, billId: targetBillId, applied: excess, excess });
+      paymentRecords.push({ billId: targetBillId, applied: excess, excess, isAdvance: true });
 
       logger.info(`FIFO: Excess credit added to customer balance`, { customerId: resolvedCustomerId, excess: excess.toFixed(2) });
     }

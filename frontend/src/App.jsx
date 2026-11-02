@@ -19,7 +19,7 @@ import Search from './pages/Search'
 import Receipt from './pages/Receipt'
 import Auth from './pages/Auth'
 import Analytics from './pages/Analytics'
-import PaymentReceived from './pages/PaymentReceived'
+import Payments from './pages/Payments'
 import AuthCallback from './pages/AuthCallback'
 import Refunds from './pages/Refunds'
 import CashRegister from './pages/CashRegister'
@@ -78,7 +78,8 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/billing" element={<Billing />} />
-            <Route path="/payments" element={<PaymentReceived />} />
+            <Route path="/payments" element={<Payments />} />
+            <Route path="/payment-received" element={<Navigate to="/payments" replace />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/accounting" element={<Accounting />} />
             <Route path="/inventory" element={<Inventory />} />
