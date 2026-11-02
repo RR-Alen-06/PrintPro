@@ -845,10 +845,6 @@ const Billing = () => {
 
   // ── Totals ─────────────────────────────────────────────────────────────────
   const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
-  const autoGst = itemRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-  const totalGst = customGst !== '' ? Number(customGst) : autoGst
-  const cgst = totalGst / 2
-  const sgst = totalGst / 2
   const discountAmount =
     discountType === 'percent'
       ? (subtotal * Number(discountValue || 0)) / 100
@@ -865,9 +861,19 @@ const Billing = () => {
   const selectedRedeemOpt = redeemOptions.find(o => Number(o.points) === pointsRedeemed)
   const loyaltyDiscount = loyaltyEnabled && selectedRedeemOpt ? Number(selectedRedeemOpt.rupees) : 0
 
-  const total = Math.max(subtotal + totalGst - discountAmount - loyaltyDiscount, 0)
+  const totalDiscounts = discountAmount + loyaltyDiscount
+  const taxableSubtotal = Math.max(subtotal - totalDiscounts, 0)
+
+  const autoGst = itemRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+  // Calculate GST on net taxable subtotal (Indian GST standard)
+  const netAutoGst = subtotal > 0 ? (taxableSubtotal * (autoGst / subtotal)) : 0
+  const totalGst = customGst !== '' ? Number(customGst) : Number(netAutoGst.toFixed(2))
+  const cgst = totalGst / 2
+  const sgst = totalGst / 2
+
+  const total = Math.max(taxableSubtotal + totalGst, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
-  const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
+  const customerAdvance = Number(selectedCustomer?.creditBalance || selectedCustomer?.credit_balance || selectedCustomer?.advanceBalance || selectedCustomer?.advance_balance || 0)
   const appliedAdvance = Math.min(Number(advanceUsed || 0), customerAdvance, total)
   const netBillPayable = Math.max(total - appliedAdvance, 0)
   const totalCustomerOwes = Number((netBillPayable + customerPendingDue).toFixed(2))
@@ -881,7 +887,8 @@ const Billing = () => {
   // Auto-detect and apply available advance payments
   React.useEffect(() => {
     if (selectedCustomer) {
-      const maxAdv = Math.min(Number(selectedCustomer.advanceBalance || 0), total)
+      const custBal = Number(selectedCustomer?.creditBalance || selectedCustomer?.credit_balance || selectedCustomer?.advanceBalance || selectedCustomer?.advance_balance || 0)
+      const maxAdv = Math.min(custBal, total)
       setAdvanceUsed(Number(maxAdv.toFixed(2)))
     } else {
       setAdvanceUsed(0)

@@ -266,10 +266,10 @@ router.get('/summary', async (req, res, next) => {
     );
 
     const totalRev = parseFloat(billSummary[0]?.total_revenue || 0);
-    const totalColl = parseFloat(billSummary[0]?.total_collected || 0);
     const totalDue = parseFloat(billSummary[0]?.total_due || 0);
     const cashColl = parseFloat(paySummary[0]?.cash_collected || 0);
     const upiColl = parseFloat(paySummary[0]?.upi_collected || 0);
+    const totalColl = parseFloat((cashColl + upiColl).toFixed(2));
     const totalRef = parseFloat(paySummary[0]?.total_refunds || 0);
     const totalExp = parseFloat(expSummary[0]?.total_expenses || 0);
     const billCnt = parseInt(billSummary[0]?.bill_count || 0, 10);

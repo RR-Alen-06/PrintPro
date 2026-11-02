@@ -148,7 +148,7 @@ const Dashboard = () => {
     const fyExpenses = (expenses || []).filter(e => inFY(e.date))
     const fyAdvances = (advancePayments || []).filter(ap => inFY(ap.date))
 
-    const revenue = fyBills.reduce((sum, b) => sum + Number(b.paid || 0), 0)
+    const revenue = fyBills.reduce((sum, b) => sum + Number(b.amountPaid || b.amount_paid || 0), 0)
     const refunds = fyPayments
       .filter((p) => p.isRefund || p.paymentType === 'refund' || p.totalPaid < 0)
       .reduce((sum, p) => sum + Math.abs(Number(p.totalPaid || 0)), 0)

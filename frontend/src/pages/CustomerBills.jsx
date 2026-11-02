@@ -265,18 +265,20 @@ const CustomerBills = () => {
 
   // ── Totals Math ──
   const subtotal = itemRows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
-  const autoGst = itemRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
-  const totalGst = customGst !== '' ? Number(customGst) : autoGst
-  const cgst = totalGst / 2
-  const sgst = totalGst / 2
   const discountAmount =
     discountType === 'percent'
       ? (subtotal * Number(discountValue || 0)) / 100
       : Number(discountValue || 0)
-  const total = Math.max(subtotal + totalGst - discountAmount, 0)
+  const taxableSubtotal = Math.max(subtotal - discountAmount, 0)
+  const autoGst = itemRows.reduce((sum, r) => sum + (Number(r.amount || 0) * (Number(r.gstRate || 0) / 100)), 0)
+  const netAutoGst = subtotal > 0 ? (taxableSubtotal * (autoGst / subtotal)) : 0
+  const totalGst = customGst !== '' ? Number(customGst) : Number(netAutoGst.toFixed(2))
+  const cgst = totalGst / 2
+  const sgst = totalGst / 2
+  const total = Math.max(taxableSubtotal + totalGst, 0)
   const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   
-  const customerAdvance = Number(selectedCustomer?.advanceBalance || 0)
+  const customerAdvance = Number(selectedCustomer?.creditBalance || selectedCustomer?.credit_balance || selectedCustomer?.advanceBalance || selectedCustomer?.advance_balance || 0)
   const currentBillAdvanceUsed = editingBill ? Number(editingBill.advanceUsed || 0) : 0
   const totalAvailableAdvance = customerAdvance + currentBillAdvanceUsed
   const appliedAdvance = Math.min(Number(advanceUsed || 0), totalAvailableAdvance, total)

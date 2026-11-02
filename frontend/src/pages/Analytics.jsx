@@ -194,7 +194,6 @@ const Analytics = () => {
       if (!summary && bills && bills.length > 0) {
         const nonDeletedBills = bills.filter(b => !b.deleted)
         const totalRev = nonDeletedBills.reduce((s, b) => s + (Number(b.total) || 0), 0)
-        const totalPaid = nonDeletedBills.reduce((s, b) => s + (Number(b.amountPaid) || 0), 0)
         const totalDue = nonDeletedBills.reduce((s, b) => s + (Number(b.balanceDue) || 0), 0)
         const uniqueCusts = new Set(nonDeletedBills.map(b => b.customerId || b.customerName).filter(Boolean)).size
 
@@ -204,7 +203,7 @@ const Analytics = () => {
 
         summary = {
           total_revenue: totalRev,
-          total_collected: totalPaid,
+          total_collected: cashRev + upiRev,
           total_due: totalDue,
           cash_revenue: cashRev,
           upi_revenue: upiRev,

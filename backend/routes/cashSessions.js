@@ -88,7 +88,7 @@ router.get('/active', async (req, res, next) => {
       `SELECT
          COALESCE(SUM(total), 0) AS cash_expenses
        FROM purchases
-       WHERE user_id = ? AND (session_id = ? OR (session_id IS NULL AND date >= ?))`,
+       WHERE user_id = ? AND (payment_method = 'cash' OR payment_method IS NULL) AND (session_id = ? OR (session_id IS NULL AND date >= ?))`,
       [req.user.id, sessionId, openedAt]
     );
 
@@ -206,7 +206,7 @@ router.post('/:id/close', allowlist(['closing_cash', 'physical_count', 'notes'])
       `SELECT
          COALESCE(SUM(total), 0) AS cash_expenses
        FROM purchases
-       WHERE user_id = ? AND session_id = ?`,
+       WHERE user_id = ? AND (payment_method = 'cash' OR payment_method IS NULL) AND session_id = ?`,
       [req.user.id, id]
     );
 
@@ -286,7 +286,9 @@ router.get('/:id/report', async (req, res, next) => {
     const totalCashIn = normalPayments.reduce((s, p) => s + (parseFloat(p.cash_amount) || 0), 0);
     const totalUpiIn = normalPayments.reduce((s, p) => s + (parseFloat(p.upi_amount) || 0), 0);
     const totalCashRefunds = refundPayments.reduce((s, p) => s + Math.abs(parseFloat(p.cash_amount) || 0), 0);
-    const totalCashExpenses = expenses.reduce((s, e) => s + (parseFloat(e.total) || 0), 0);
+    const totalCashExpenses = expenses
+      .filter(e => (e.payment_method || 'cash').toLowerCase() === 'cash')
+      .reduce((s, e) => s + (parseFloat(e.total) || 0), 0);
 
     const openingCash = parseFloat(session.opening_cash) || 0;
     const closingCash = session.closing_cash !== null ? parseFloat(session.closing_cash) : null;

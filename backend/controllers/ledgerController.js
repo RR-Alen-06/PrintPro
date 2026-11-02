@@ -150,6 +150,17 @@ async function buildLedgerStatement(pool, userId, customerId, startDateStr, endD
 
   // Map Payments
   for (const p of payments) {
+    const cashAmt = parseFloat(p.cash_amount) || 0;
+    const upiAmt = parseFloat(p.upi_amount) || 0;
+    const notesLower = (p.notes || '').toLowerCase();
+    const isSyntheticAdvancePayment = (cashAmt === 0 && upiAmt === 0) &&
+      (notesLower.includes('credit balance') || notesLower.includes('advance deposit') || notesLower.includes('advance balance'));
+
+    // Skip synthetic advance settlement payments so advance deposits are not credited twice in customer ledger
+    if (isSyntheticAdvancePayment) {
+      continue;
+    }
+
     const totalPaid = parseFloat(p.total_paid) || 0;
     const isRefund = p.is_refund || p.payment_type === 'refund' || totalPaid < 0;
     const date = p.date || p.payment_date || p.created_at;

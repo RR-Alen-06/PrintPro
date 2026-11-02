@@ -86,9 +86,20 @@ router.post('/', allowlist(['date', 'item_name', 'itemName', 'name', 'category',
       if (sessRows.length > 0) activeSessionId = sessRows[0].id;
     }
 
-    const qtyNum = parseInt(qty, 10) || 0;
-    const cost = parseFloat(unit_cost) || 0;
-    const total = parseFloat((qtyNum * cost).toFixed(2));
+    const reqTotal = parseFloat(req.body.total !== undefined ? req.body.total : req.body.amount);
+    let qtyNum = parseInt(qty, 10);
+    let cost = parseFloat(unit_cost);
+    let total = 0;
+
+    if (!isNaN(reqTotal) && reqTotal > 0 && (isNaN(qtyNum) || isNaN(cost) || (qtyNum * cost === 0))) {
+      total = parseFloat(reqTotal.toFixed(2));
+      qtyNum = isNaN(qtyNum) || qtyNum === 0 ? 1 : qtyNum;
+      cost = isNaN(cost) || cost === 0 ? total : cost;
+    } else {
+      qtyNum = isNaN(qtyNum) ? 1 : qtyNum;
+      cost = isNaN(cost) ? 0 : cost;
+      total = parseFloat((qtyNum * cost).toFixed(2));
+    }
 
     const expenseNumber = await getNextSequence(pool, req.user.id, 'expense');
 
@@ -128,7 +139,10 @@ router.put('/:id', allowlist(['date', 'item_name', 'itemName', 'name', 'category
     if (payment_method !== undefined) updates.payment_method = payment_method;
     if (upi_ref !== undefined)        updates.upi_ref = upi_ref;
 
-    if (updates.qty !== undefined || updates.unit_cost !== undefined) {
+    const explicitTotal = req.body.total !== undefined ? req.body.total : req.body.amount;
+    if (explicitTotal !== undefined) {
+      updates.total = parseFloat(parseFloat(explicitTotal).toFixed(2));
+    } else if (updates.qty !== undefined || updates.unit_cost !== undefined) {
       const q = updates.qty !== undefined ? updates.qty : existing[0].qty;
       const c = updates.unit_cost !== undefined ? updates.unit_cost : parseFloat(existing[0].unit_cost);
       updates.total = parseFloat((q * c).toFixed(2));
