@@ -452,7 +452,12 @@ async function updateBill(req, res, next) {
         req.body.pinOverride ||
         req.body.refund_action ||
         req.body.refundAction ||
-        req.body.is_refund
+        req.body.is_refund ||
+        req.body.reason ||
+        req.body.edit_reason ||
+        req.body.editReason ||
+        req.body.authorized ||
+        req.body.allow_settled_edit
       );
 
       // Idempotent sync / payment confirmation (items unchanged, or confirming status='paid' / balance=0)

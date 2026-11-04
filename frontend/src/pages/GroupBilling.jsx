@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
 import { validatePromoCode } from '../api/promoCodes'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
-import { getDisplayBillId, getDisplayCustomerId, getDisplayGroupId, getDisplayPaymentId } from '../utils/idFormatter'
+import { getDisplayBillId, getDisplayCustomerId, getDisplayGroupId, getDisplayPaymentId, getDisplaySplitPurchaseId } from '../utils/idFormatter'
 
 const makeItemRow = (inventory = []) => {
   const hasInv = inventory && inventory.length > 0
@@ -1061,16 +1061,16 @@ const GroupBilling = () => {
     })
 
     try {
-      const grpId = addGroupBill({
+      addGroupBill({
         type: 'shared',
         members: groupMembers,
         date, dueDate, notes,
       })
-      setLastGroupId(grpId)
-      showToast(`Group bill ${grpId} created with ${members.length} member(s)!`, 'success')
+      setLastGroupId(null)
+      showToast(`Shared purchase created with ${members.length} individual customer bills!`, 'success')
       resetAll()
     } catch (err) {
-      showAlert(`Failed to create group bill: ${err.message}`, 'error')
+      showAlert(`Failed to create shared purchase: ${err.message}`, 'error')
     }
     setIsSubmitting(false)
   }
@@ -1143,7 +1143,7 @@ const GroupBilling = () => {
     })
 
     try {
-      const grpId = addGroupBill({
+      const spId = addGroupBill({
         type: 'split',
         members: splitGroupMembers,
         date, dueDate, notes,
@@ -1151,12 +1151,13 @@ const GroupBilling = () => {
         splitCount,
         roundingMode,
       })
-      setLastGroupId(grpId)
-      showToast(`Split group bill ${grpId} created — ₹${splitAmount} × ${splitCount} members!`, 'success')
+      setLastGroupId(spId)
+      showToast(`Split Purchase ${spId} created — ${splitCount} individual customer bills!`, 'success')
 
-      // Open Split Receipt Modal for this group bill
+      // Open Split Receipt Modal for this split purchase
       setActiveReceiptGroup({
-        id: grpId,
+        id: spId,
+        splitPurchaseId: spId,
         type: 'split',
         date,
         dueDate,
@@ -1168,7 +1169,7 @@ const GroupBilling = () => {
 
       resetAll()
     } catch (err) {
-      showAlert(`Failed to create split bill: ${err.message}`, 'error')
+      showAlert(`Failed to create split purchase: ${err.message}`, 'error')
     }
     setIsSubmitting(false)
   }
@@ -1183,7 +1184,7 @@ const GroupBilling = () => {
         {lastGroupId && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(16,185,129,0.12)', padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)' }}>
             <CheckCircle size={16} color="#10b981" />
-            <span style={{ color: '#10b981', fontSize: '14px', fontWeight: 600 }}>Last Group: {lastGroupId}</span>
+            <span style={{ color: '#10b981', fontSize: '14px', fontWeight: 600 }}>Last Split Purchase: {lastGroupId}</span>
           </div>
         )}
       </div>
@@ -2183,9 +2184,11 @@ const GroupBillsHistory = ({ onOpenReceipt }) => {
               onClick={() => setExpanded(isExpanded ? null : grp.id)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--accent)' }}>{getDisplayGroupId(grp)}</span>
+                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--accent)' }}>
+                  {grp.type === 'split' ? getDisplaySplitPurchaseId(grp) : getDisplayGroupId(grp)}
+                </span>
                 <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', background: grp.type === 'split' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.12)', color: grp.type === 'split' ? '#818cf8' : '#10b981', fontWeight: 600 }}>
-                  {grp.type === 'split' ? 'Split' : 'Shared'}
+                  {grp.type === 'split' ? 'Split Purchase' : 'Shared'}
                 </span>
                 <span style={{ fontSize: '13px', color: '#a1a1aa' }}>{memberBills.length} members · {grp.date}</span>
               </div>
@@ -2745,7 +2748,7 @@ const SplitReceiptModal = ({ group, onClose }) => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
-                  <span><strong>Group ID:</strong> {getDisplayGroupId(group)}</span>
+                  <span><strong>Split Purchase ID:</strong> {getDisplaySplitPurchaseId(group)}</span>
                   <span><strong>Date:</strong> {group.date || new Date().toISOString().slice(0, 10)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
@@ -2856,7 +2859,7 @@ const SplitReceiptModal = ({ group, onClose }) => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px' }}>
                   <span><strong>Customer:</strong> {selectedBill.customerName}</span>
-                  <span><strong>Group Ref:</strong> {getDisplayGroupId(group)}</span>
+                  <span><strong>Split Purchase Ref:</strong> {getDisplaySplitPurchaseId(group)}</span>
                 </div>
                 <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                   <strong>Status:</strong>{' '}

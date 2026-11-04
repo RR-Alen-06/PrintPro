@@ -1,5 +1,6 @@
 const { getPool } = require('../config/db');
 const logger = require('../utils/logger');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 
 // Payment projection DTO: strips internal auth tenant ID (user_id)
 function toPaymentDto(p) {
@@ -21,6 +22,13 @@ function toPaymentDto(p) {
   if (p.bill_total !== undefined) dto.bill_total = parseFloat(p.bill_total) || 0;
   if (p.bill_status !== undefined) dto.bill_status = p.bill_status;
   if (p.deleted_at !== undefined) dto.deleted_at = p.deleted_at;
+  if (p.is_reversal !== undefined) dto.is_reversal = !!p.is_reversal;
+  if (p.reversal_of !== undefined) dto.reversal_of = p.reversal_of;
+  if (p.reversed_amount !== undefined) dto.reversed_amount = parseFloat(p.reversed_amount) || 0;
+  if (p.status !== undefined) dto.status = p.status;
+  if (p.reversal_reason !== undefined) dto.reversal_reason = p.reversal_reason;
+  if (p.authorized_by !== undefined) dto.authorized_by = p.authorized_by;
+  if (p.excess_credit !== undefined) dto.excess_credit = parseFloat(p.excess_credit) || 0;
   return dto;
 }
 
@@ -197,11 +205,14 @@ async function recordPayment(req, res, next) {
       const newStatus = newAmountPaid >= parseFloat(bill.total) ? 'paid' : 'partial';
       const paymentType = newStatus === 'paid' ? 'full' : 'partial';
 
+      // Generate sequence number for standard payment (PAY-0001)
+      const paySeq = await getNextSequence(conn, req.user.id, 'payment');
+
       // Insert payment record for this bill
       const [payResult] = await conn.query(
-        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, bill.id, resolvedCustomerId, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment', activeSessionId]
+        `INSERT INTO payments (user_id, bill_id, customer_id, payment_number, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.id, bill.id, resolvedCustomerId, paySeq, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment', activeSessionId]
       );
 
       // Auto-create UPI transaction if upi_amount > 0
@@ -240,7 +251,7 @@ async function recordPayment(req, res, next) {
         ]
       );
 
-      paymentRecords.push({ paymentId: payResult.insertId, billId: bill.id, applied: applyTotal, newBalance, newStatus });
+      paymentRecords.push({ paymentId: payResult.insertId, paymentNumber: paySeq, billId: bill.id, applied: applyTotal, newBalance, newStatus });
 
       if (remainingCash <= 0 && remainingUpi <= 0 && remainingAdvance <= 0) break;
     }
@@ -394,14 +405,16 @@ async function recordRefund(req, res, next) {
       const isCash = refund_method === 'cash' || (cashRefund > 0 && upiRefund === 0);
       const finalCash = isCash ? -totalRefund : -cashRefund;
       const finalUpi = isCash ? 0 : (upiRefund > 0 ? -upiRefund : -totalRefund);
+      const refSeq = await getNextSequence(conn, req.user.id, 'refund');
 
       const [resInsert] = await conn.query(
-        `INSERT INTO payments (user_id, bill_id, customer_id, cash_amount, upi_amount, total_paid, payment_type, is_refund, notes, date, session_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'refund', true, ?, NOW(), ?)`,
+        `INSERT INTO payments (user_id, bill_id, customer_id, payment_number, cash_amount, upi_amount, total_paid, payment_type, is_refund, notes, date, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'refund', true, ?, NOW(), ?)`,
         [
           req.user.id,
           bill ? bill.id : null,
           resolvedCustomerId,
+          refSeq,
           finalCash,
           finalUpi,
           -totalRefund,
@@ -628,10 +641,184 @@ async function listAllPayments(req, res, next) {
   }
 }
 
+// POST /:id/reverse - Full or partial reversal of a recorded payment with audit trail
+async function reversePayment(req, res, next) {
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { id } = req.params;
+    const { amount, reason, authorized_by } = req.body;
+
+    if (!reason || !String(reason).trim()) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'A reason for payment reversal is mandatory' });
+    }
+
+    const [payRows] = await conn.query(
+      'SELECT * FROM payments WHERE (id::text = ? OR payment_number = ?) AND user_id = ? AND deleted_at IS NULL',
+      [id, id, req.user.id]
+    );
+
+    if (payRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Payment record not found or already deleted' });
+    }
+
+    const payment = payRows[0];
+    const originalPaid = Math.abs(parseFloat(payment.total_paid) || 0);
+    const alreadyReversed = parseFloat(payment.reversed_amount) || 0;
+    const remainingReversible = parseFloat(Math.max(0, originalPaid - alreadyReversed).toFixed(2));
+
+    if (remainingReversible <= 0 || payment.status === 'reversed') {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'This payment has already been fully reversed' });
+    }
+
+    let reverseAmount = amount !== undefined && amount !== null && amount !== '' ? parseFloat(amount) : remainingReversible;
+    reverseAmount = parseFloat(reverseAmount.toFixed(2));
+
+    if (isNaN(reverseAmount) || reverseAmount <= 0) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'Reversal amount must be greater than zero' });
+    }
+
+    if (reverseAmount > remainingReversible) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `Cannot reverse ₹${reverseAmount.toFixed(2)}. Remaining reversible amount is ₹${remainingReversible.toFixed(2)}`
+      });
+    }
+
+    // Proportionally apportion reversal between cash and upi
+    const originalCash = parseFloat(payment.cash_amount) || 0;
+    const originalUpi = parseFloat(payment.upi_amount) || 0;
+    let revCash = 0;
+    let revUpi = 0;
+
+    if (originalPaid > 0) {
+      if (originalCash > 0 && originalUpi <= 0) {
+        revCash = reverseAmount;
+        revUpi = 0;
+      } else if (originalUpi > 0 && originalCash <= 0) {
+        revCash = 0;
+        revUpi = reverseAmount;
+      } else {
+        revCash = parseFloat((reverseAmount * (originalCash / originalPaid)).toFixed(2));
+        revUpi = parseFloat((reverseAmount - revCash).toFixed(2));
+      }
+    }
+
+    const newReversedTotal = parseFloat((alreadyReversed + reverseAmount).toFixed(2));
+    const isFullyReversed = newReversedTotal >= originalPaid;
+    const newStatus = isFullyReversed ? 'reversed' : 'partially_reversed';
+
+    // 1. Update original payment
+    await conn.query(
+      `UPDATE payments 
+       SET reversed_amount = ?, status = ?, is_reversed = ? 
+       WHERE id = ? AND user_id = ?`,
+      [newReversedTotal, newStatus, isFullyReversed, payment.id, req.user.id]
+    );
+
+    // 2. Generate sequence number for reversal transaction (REV-0001)
+    let revPaymentNumber = '';
+    try {
+      revPaymentNumber = await getNextSequence(conn, req.user.id, 'payment_reversal');
+    } catch {
+      revPaymentNumber = `REV-${Date.now().toString().slice(-4)}`;
+    }
+
+    // 3. Insert linked reversal transaction
+    const [revResult] = await conn.query(
+      `INSERT INTO payments (
+         user_id, bill_id, customer_id, payment_number, cash_amount, upi_amount, 
+         total_paid, payment_type, is_refund, notes, date, session_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'reversal', false, ?, NOW(), ?)`,
+      [
+        req.user.id,
+        payment.bill_id || null,
+        payment.customer_id,
+        revPaymentNumber,
+        -revCash,
+        -revUpi,
+        -reverseAmount,
+        `Reversal of payment #${payment.payment_number || payment.id}: ${reason}`,
+        payment.session_id || null
+      ]
+    );
+
+    // 4. Update bill amount_paid & balance if attached to a bill
+    let updatedBill = null;
+    if (payment.bill_id) {
+      const [billRows] = await conn.query(
+        'SELECT * FROM bills WHERE (id::text = ? OR bill_number = ? OR invoice_number = ?) AND user_id = ? AND deleted_at IS NULL',
+        [payment.bill_id, payment.bill_id, payment.bill_id, req.user.id]
+      );
+
+      if (billRows.length > 0) {
+        const bill = billRows[0];
+        const newAmountPaid = Math.max(0, parseFloat((parseFloat(bill.amount_paid) - reverseAmount).toFixed(2)));
+        const newBalance = Math.min(parseFloat(bill.total), parseFloat((parseFloat(bill.total) - newAmountPaid).toFixed(2)));
+        const billStatus = newAmountPaid >= parseFloat(bill.total) ? 'paid' : (newAmountPaid > 0 ? 'partial' : 'unpaid');
+
+        await conn.query(
+          'UPDATE bills SET amount_paid = ?, balance = ?, status = ? WHERE id = ? AND user_id = ?',
+          [newAmountPaid, newBalance, billStatus, bill.id, req.user.id]
+        );
+        updatedBill = { ...bill, amount_paid: newAmountPaid, balance: newBalance, status: billStatus };
+      }
+    }
+
+    // 5. Reverse excess credit on customer if original payment created customer credit
+    if (payment.customer_id && payment.excess_credit && parseFloat(payment.excess_credit) > 0) {
+      const excessDeduct = Math.min(reverseAmount, parseFloat(payment.excess_credit));
+      await conn.query(
+        'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - ?), advance_balance = GREATEST(0, advance_balance - ?) WHERE id = ? AND user_id = ?',
+        [excessDeduct, excessDeduct, payment.customer_id, req.user.id]
+      );
+    }
+
+    // 6. Record Audit Log
+    await conn.query(
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.id,
+        'REVERSE_PAYMENT',
+        'payment',
+        String(payment.id),
+        JSON.stringify({ originalPaid, alreadyReversed, paymentStatus: payment.status }),
+        JSON.stringify({ reverseAmount, newReversedTotal, newStatus, reason, authorized_by: authorized_by || 'Admin' })
+      ]
+    );
+
+    await conn.commit();
+    res.json({
+      success: true,
+      message: `Payment ${isFullyReversed ? 'fully' : 'partially'} reversed successfully`,
+      data: {
+        originalPaymentId: payment.id,
+        reversalTransactionId: revResult.insertId,
+        reversedAmount: reverseAmount,
+        remainingReversible: parseFloat(Math.max(0, remainingReversible - reverseAmount).toFixed(2)),
+        status: newStatus,
+        bill: updatedBill
+      }
+    });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+}
+
 module.exports = {
   getPaymentsForBill,
   recordPayment,
   recordRefund,
+  reversePayment,
   deletePayment,
   listDeletedPayments,
   listRefundPayments,

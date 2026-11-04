@@ -51,6 +51,7 @@ export const getDisplayCustomerId = (customer) => {
 
 /**
  * Format a Payment for display.
+ * Handles standard payments (PAY-0001), reversals (REV-0001), and refunds (REF-0001).
  */
 export const getDisplayPaymentId = (payment) => {
   if (!payment) return 'PAY-0000';
@@ -60,12 +61,17 @@ export const getDisplayPaymentId = (payment) => {
   }
   if (payment.payment_number) return payment.payment_number;
   if (payment.paymentNumber) return payment.paymentNumber;
+
+  const isRev = payment.is_reversal || payment.payment_type === 'reversal';
+  const isRef = payment.is_refund || payment.payment_type === 'refund';
+  const prefix = isRev ? 'REV' : (isRef ? 'REF' : 'PAY');
+
   if (payment.id && !isUuid(String(payment.id))) {
     const s = String(payment.id);
-    return s.startsWith('PAY') ? s : `PAY-${s.padStart(4, '0')}`;
+    return s.startsWith(prefix) ? s : `${prefix}-${s.padStart(4, '0')}`;
   }
-  if (payment.id) return `PAY-${String(payment.id).slice(0, 4).toUpperCase()}`;
-  return 'PAY-0001';
+  if (payment.id) return `${prefix}-${String(payment.id).slice(0, 4).toUpperCase()}`;
+  return `${prefix}-0001`;
 };
 
 /**
@@ -104,7 +110,7 @@ export const getDisplayExpenseId = (expense) => {
 };
 
 /**
- * Format a Customer Group for display.
+ * Format a Customer Group / Split Purchase for display.
  */
 export const getDisplayGroupId = (group) => {
   if (!group) return 'GRP-0000';
@@ -112,11 +118,48 @@ export const getDisplayGroupId = (group) => {
     if (!isUuid(group)) return group;
     return `GRP-${group.slice(0, 4).toUpperCase()}`;
   }
+  if (group.split_purchase_id) return group.split_purchase_id;
+  if (group.splitPurchaseId) return group.splitPurchaseId;
   if (group.group_code) return group.group_code;
   if (group.groupCode) return group.groupCode;
   if (group.id && !isUuid(String(group.id))) return String(group.id);
   if (group.id) return `GRP-${String(group.id).slice(0, 4).toUpperCase()}`;
   return 'GRP-0001';
+};
+
+/**
+ * Format a Split Purchase ID for display.
+ */
+export const getDisplaySplitPurchaseId = (groupOrId) => {
+  if (!groupOrId) return 'SP-0001';
+  if (typeof groupOrId === 'string') {
+    if (groupOrId.startsWith('SP')) return groupOrId;
+    if (!isUuid(groupOrId)) return groupOrId;
+    return `SP-${groupOrId.slice(0, 4).toUpperCase()}`;
+  }
+  if (groupOrId.split_purchase_id) return groupOrId.split_purchase_id;
+  if (groupOrId.splitPurchaseId) return groupOrId.splitPurchaseId;
+  if (groupOrId.id && typeof groupOrId.id === 'string' && groupOrId.id.startsWith('SP')) return groupOrId.id;
+  return getDisplayGroupId(groupOrId);
+};
+
+/**
+ * Format a Cash Session ID for display.
+ */
+export const getDisplaySessionId = (session) => {
+  if (!session) return 'SESS-0000';
+  if (typeof session === 'string') {
+    if (!isUuid(session)) return session;
+    return `SESS-${session.slice(0, 4).toUpperCase()}`;
+  }
+  if (session.session_number) return session.session_number;
+  if (session.sessionNumber) return session.sessionNumber;
+  if (session.id && !isUuid(String(session.id))) {
+    const s = String(session.id);
+    return s.startsWith('SESS') ? s : `SESS-${s.padStart(4, '0')}`;
+  }
+  if (session.id) return `SESS-${String(session.id).slice(0, 4).toUpperCase()}`;
+  return 'SESS-0001';
 };
 
 /**
@@ -130,6 +173,9 @@ export const formatDisplayId = (item, entityType = 'generic') => {
     case 'customer':
       return getDisplayCustomerId(item);
     case 'payment':
+    case 'payment_reversal':
+    case 'reversal':
+    case 'refund':
       return getDisplayPaymentId(item);
     case 'advance':
       return getDisplayAdvanceId(item);
@@ -138,6 +184,11 @@ export const formatDisplayId = (item, entityType = 'generic') => {
       return getDisplayExpenseId(item);
     case 'group':
       return getDisplayGroupId(item);
+    case 'split_purchase':
+      return getDisplaySplitPurchaseId(item);
+    case 'cash_session':
+    case 'session':
+      return getDisplaySessionId(item);
     default: {
       const raw = typeof item === 'object' ? (item.id || '') : String(item);
       if (!isUuid(raw)) return raw;

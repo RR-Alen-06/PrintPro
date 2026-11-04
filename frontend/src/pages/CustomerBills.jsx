@@ -69,10 +69,7 @@ const CustomerBills = () => {
 
   // ── Open / Close edit modal ──
   const openEditModal = (bill) => {
-    if (bill.status === 'paid' || Number(bill.balance || 0) <= 0) {
-      showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
-      return
-    }
+    // Bill editing allowed for all bills
     setEditingBill(bill)
     setDate(bill.date || '')
     setDueDate(bill.dueDate || '')
@@ -583,7 +580,7 @@ const CustomerBills = () => {
                                   cursor: isSettled ? 'not-allowed' : 'pointer'
                                 }}
                                 disabled={isSettled}
-                                title={isSettled ? "Fully settled bill - editing locked" : "Edit bill"}
+                                title="Edit bill"
                                 onClick={() => {
                                   if (isSettled) {
                                     showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
@@ -592,7 +589,7 @@ const CustomerBills = () => {
                                   openEditModal(bill)
                                 }}
                               >
-                                {isSettled ? <Lock size={13} /> : <Pencil size={13} />} {isSettled ? 'Locked' : 'Edit'}
+                                <Pencil size={13} /> Edit
                               </button>
                               {Number(bill.amountPaid || 0) > 0 && settings?.refundsEnabled !== false && (
                                 <button

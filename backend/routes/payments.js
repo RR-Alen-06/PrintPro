@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   recordPayment,
   recordRefund,
+  reversePayment,
   deletePayment,
   listDeletedPayments,
   listRefundPayments,
@@ -44,6 +45,9 @@ router.get('/bill/:billId', getPaymentsForBill);
 
 // GET /api/payments/customer/:customerId
 router.get('/customer/:customerId', getPaymentsByCustomer);
+
+// POST /api/payments/:id/reverse
+router.post('/:id/reverse', reversePayment);
 
 // DELETE /api/payments/:id
 router.delete('/:id', deletePayment);

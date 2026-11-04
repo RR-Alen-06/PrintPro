@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../config/db');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 const { allowlist } = require('../middleware/allowlist');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
@@ -42,7 +43,10 @@ router.post('/', allowlist(['id', 'group_id', 'groupId', 'title', 'date', 'total
     const pool = getPool();
     const { group_id, title, date, total_amount, member_shares, notes } = req.body;
 
-    const billId = `GB-${Date.now()}`;
+    let billId = req.body.id;
+    if (!billId) {
+      billId = await getNextSequence(pool, req.user.id, 'split_purchase');
+    }
     const effectiveGroupId = group_id || 'GENERAL';
 
     // Verify or ensure group exists to satisfy foreign key constraint

@@ -117,7 +117,7 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
 
   // Account Settlement Section
   let settlementText = ''
-  if (bill.settlementBreakdown && (bill.settlementBreakdown.previousDueTotal > 0 || bill.settlementBreakdown.appliedToPreviousDues > 0 || bill.settlementBreakdown.advanceUsed > 0)) {
+  if (bill.settlementBreakdown && (bill.settlementBreakdown.previousDueTotal > 0 || bill.settlementBreakdown.appliedToPreviousDues > 0 || bill.settlementBreakdown.advanceUsed > 0 || bill.settlementBreakdown.excessAddedToAdvance > 0 || bill.settlementBreakdown.excessRefundedUpi > 0)) {
     const sb = bill.settlementBreakdown
     settlementText = `📊 *ACCOUNT SETTLEMENT*\n` +
       `• Previous Due: ₹${sb.previousDueTotal.toFixed(2)}\n` +
@@ -125,6 +125,8 @@ export const formatWhatsAppReceipt = (bill, settings = {}, business = {}, pdfUrl
       `• Applied to This Bill: ₹${sb.appliedToCurrentBill.toFixed(2)}\n` +
       (sb.appliedToPreviousDues > 0 ? `• Applied to Previous Dues: ₹${sb.appliedToPreviousDues.toFixed(2)}\n` : '') +
       (sb.advanceUsed > 0 ? `• Advance Credit Used: ₹${sb.advanceUsed.toFixed(2)}\n` : '') +
+      (sb.excessAddedToAdvance > 0 ? `• Advance Credit Added: +₹${sb.excessAddedToAdvance.toFixed(2)}\n` : '') +
+      (sb.excessRefundedUpi > 0 ? `• Excess Returned via UPI: ₹${sb.excessRefundedUpi.toFixed(2)}\n` : '') +
       `• Outstanding Balance: ₹${sb.customerRemainingBalance.toFixed(2)}\n\n`
   }
 

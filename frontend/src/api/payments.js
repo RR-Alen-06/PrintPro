@@ -15,3 +15,6 @@ export const getCustomerPayments = (customerId) => api.get(`/customers/${encodeU
 export const getPayments = () => api.get('/payments')
 
 export const deletePayment = (id) => api.delete(`/payments/${encodeURIComponent(id)}`)
+
+export const reversePayment = (id, data) => api.post(`/payments/${encodeURIComponent(id)}/reverse`, data)
+
