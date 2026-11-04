@@ -1,8 +1,19 @@
 /**
  * Atomic Concurrency-Safe Sequence Number Generator
  *
- * Provides thread-safe, monotonic, formatted sequence IDs for multi-tenant entities
- * (e.g., BILL-0001, RC-0001, WI-0001, PAY-0001, ADV-0001, EXP-0001, GRP-0001).
+ * Provides thread-safe, monotonic, formatted sequence IDs for multi-tenant entities:
+ * - Regular Customers: RC-0001
+ * - Walk-in Customers: WI-0001
+ * - Bills & Invoices: BILL-0001
+ * - Standard Payments: PAY-0001
+ * - Payment Reversals: REV-0001
+ * - Refunds: REF-0001
+ * - Customer Advances: ADV-0001
+ * - Expenses / Purchases: EXP-0001
+ * - Customer Groups: GRP-0001
+ * - Split Purchases: SP-0001
+ * - Cash Drawer Sessions: SESS-0001
+ *
  * Uses the database 'sequences' table with atomic UPSERT and row-level locking.
  */
 
@@ -12,10 +23,76 @@ const ENTITY_CONFIG = {
   bill: { prefix: 'BILL', padding: 4, table: 'bills', col: 'bill_number' },
   customer_regular: { prefix: 'RC', padding: 4, table: 'customers', col: 'customer_code', filter: "type = 'regular'" },
   customer_walkin: { prefix: 'WI', padding: 4, table: 'customers', col: 'customer_code', filter: "type != 'regular'" },
-  payment: { prefix: 'PAY', padding: 4, table: 'payments', col: 'payment_number' },
+  payment: { prefix: 'PAY', padding: 4, table: 'payments', col: 'payment_number', filter: "(is_refund = false OR is_refund IS NULL) AND (payment_type IS NULL OR payment_type NOT IN ('reversal', 'refund'))" },
+  payment_reversal: { prefix: 'REV', padding: 4, table: 'payments', col: 'payment_number', filter: "payment_type = 'reversal'" },
+  refund: { prefix: 'REF', padding: 4, table: 'payments', col: 'payment_number', filter: "(is_refund = true OR payment_type = 'refund') AND payment_type != 'reversal'" },
   advance: { prefix: 'ADV', padding: 4, table: 'advance_payments', col: 'advance_number' },
   expense: { prefix: 'EXP', padding: 4, table: 'purchases', col: 'expense_number' },
-  group: { prefix: 'GRP', padding: 3, table: 'customer_groups', col: 'id' }
+  group: { prefix: 'GRP', padding: 4, table: 'customer_groups', col: 'group_code' },
+  split_purchase: { prefix: 'SP', padding: 4, table: 'group_bills', col: 'id' },
+  cash_session: { prefix: 'SESS', padding: 4, table: 'cash_sessions', col: 'session_number' }
+};
+
+const ENTITY_ALIASES = {
+  bill: 'bill',
+  bills: 'bill',
+  BILL: 'bill',
+
+  customer_regular: 'customer_regular',
+  regular_customer: 'customer_regular',
+  rc: 'customer_regular',
+  RC: 'customer_regular',
+
+  customer_walkin: 'customer_walkin',
+  walkin: 'customer_walkin',
+  walk_in: 'customer_walkin',
+  wi: 'customer_walkin',
+  WI: 'customer_walkin',
+
+  payment: 'payment',
+  payments: 'payment',
+  PAY: 'payment',
+  pay: 'payment',
+
+  payment_reversal: 'payment_reversal',
+  reversal: 'payment_reversal',
+  REV: 'payment_reversal',
+  rev: 'payment_reversal',
+
+  refund: 'refund',
+  refunds: 'refund',
+  REF: 'refund',
+  ref: 'refund',
+
+  advance: 'advance',
+  advance_payment: 'advance',
+  advances: 'advance',
+  ADV: 'advance',
+  adv: 'advance',
+
+  expense: 'expense',
+  expenses: 'expense',
+  purchase: 'expense',
+  purchases: 'expense',
+  EXP: 'expense',
+  exp: 'expense',
+
+  group: 'group',
+  customer_group: 'group',
+  customer_groups: 'group',
+  GRP: 'group',
+  grp: 'group',
+
+  split_purchase: 'split_purchase',
+  split_bill: 'split_purchase',
+  SP: 'split_purchase',
+  sp: 'split_purchase',
+
+  cash_session: 'cash_session',
+  session: 'cash_session',
+  cash_sessions: 'cash_session',
+  SESS: 'cash_session',
+  sess: 'cash_session'
 };
 
 /**
@@ -23,11 +100,12 @@ const ENTITY_CONFIG = {
  *
  * @param {object} connOrPool Database connection or pool with query()
  * @param {string} userId Tenant / Auth User ID (UUID)
- * @param {string} entityType One of 'bill', 'customer_regular', 'customer_walkin', 'payment', 'advance', 'expense', 'group'
+ * @param {string} rawEntityType One of canonical types or alias (e.g. 'bill', 'payment', 'REV', 'SESS', etc.)
  * @param {string} [customPrefix] Optional override prefix
  * @returns {Promise<string>} e.g. "BILL-0007"
  */
-async function getNextSequence(connOrPool, userId, entityType, customPrefix = null) {
+async function getNextSequence(connOrPool, userId, rawEntityType, customPrefix = null) {
+  const entityType = ENTITY_ALIASES[rawEntityType] || rawEntityType;
   const config = ENTITY_CONFIG[entityType] || { prefix: customPrefix || 'SEQ', padding: 4 };
   const prefix = customPrefix || config.prefix;
   const padding = config.padding || 4;
@@ -97,7 +175,26 @@ async function getNextSequence(connOrPool, userId, entityType, customPrefix = nu
   }
 }
 
+/**
+ * Reset all sequences for a user (called during Clear All Data / Factory Reset).
+ *
+ * @param {object} connOrPool Database connection or pool
+ * @param {string} userId Tenant UUID
+ */
+async function resetAllSequences(connOrPool, userId) {
+  try {
+    await connOrPool.query('DELETE FROM sequences WHERE user_id = ?', [userId]);
+    logger.info(`All sequences reset successfully for user ${userId}`);
+    return true;
+  } catch (err) {
+    logger.error(`Error resetting sequences for user ${userId}: ${err.message}`);
+    throw err;
+  }
+}
+
 module.exports = {
   getNextSequence,
-  ENTITY_CONFIG
+  resetAllSequences,
+  ENTITY_CONFIG,
+  ENTITY_ALIASES
 };

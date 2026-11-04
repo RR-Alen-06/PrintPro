@@ -89,3 +89,6 @@ backend/uploads/
 .netlify/
 .vercel
 .env*
+
+# ------ Documentation ---------------------------------------
+documentation/

@@ -110,7 +110,7 @@ async function createCustomer(req, res, next) {
 
     if (!customerCode) {
       const seqType = type === 'regular' ? 'customer_regular' : 'customer_walkin';
-      const prefix = type === 'regular' ? 'RC' : 'RND';
+      const prefix = type === 'regular' ? 'RC' : 'WI';
       customerCode = await getNextSequence(pool, req.user.id, seqType, prefix);
     }
 

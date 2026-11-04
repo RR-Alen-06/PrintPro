@@ -510,7 +510,6 @@ const Settings = () => {
           'expenses',
           'upi_transactions',
           'cash_sessions',
-          'inventory_items',
           'audit_log',
           'sequences',
           'user_settings'

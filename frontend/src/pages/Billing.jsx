@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { useAppContext } from '../context/AppContext'
-import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, GitMerge, Lock } from 'lucide-react'
+import { Copy, FilePlus, Link2, Plus, Trash2, ClipboardList, FileText, X, CheckCircle, AlertTriangle, Wallet, UserPlus, Tag, Percent, Pencil, Printer, Share2, GitMerge, Lock, Smartphone, QrCode, ArrowLeft } from 'lucide-react'
 import { uploadPDFReceipt } from '../api/share'
 import { formatWhatsAppReceipt } from '../utils/receiptFormatter'
 import { getDisplayBillId, getDisplayCustomerId } from '../utils/idFormatter'
@@ -33,7 +33,7 @@ const makeInitialRow = (inventory = []) => {
 
 
 const Billing = () => {
-  const { business, customers, settings, inventory, bills, payments, addBill, addCustomer, deleteBill, recordPayment, editBill, applyPostDiscount, showAlert, showToast, recordAuditLog } = useAppContext()
+  const { business, customers, settings, inventory, bills, payments, addBill, addCustomer, deleteBill, recordPayment, editBill, applyPostDiscount, showAlert, showConfirm, showToast, recordAuditLog } = useAppContext()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -106,6 +106,14 @@ const Billing = () => {
   const [showRoundingModal, setShowRoundingModal] = useState(false)
   const [pendingBillPayload, setPendingBillPayload] = useState(null)
 
+  // Excess payment received state
+  const [showExcessModal, setShowExcessModal] = useState(false)
+  const [pendingExcessInfo, setPendingExcessInfo] = useState(null)
+  const [excessStep, setExcessStep] = useState('choice') // 'choice' | 'upi_details'
+  const [excessRefundUpiId, setExcessRefundUpiId] = useState('')
+  const [excessRefundUtr, setExcessRefundUtr] = useState('')
+  const [excessQrGenerated, setExcessQrGenerated] = useState(false)
+
 
   // Refund Modal state
   const [showRefundModal, setShowRefundModal] = useState(false)
@@ -132,11 +140,6 @@ const Billing = () => {
     if (editId) {
       const billToEdit = bills.find((b) => b.id === editId)
       if (billToEdit) {
-        if (billToEdit.status === 'paid' || Number(billToEdit.balance || 0) <= 0) {
-          showAlert('Bill Editing Locked', 'This bill is fully settled and paid. Editing is not permitted.')
-          navigate('/billing', { replace: true })
-          return
-        }
         setIsEditing(true)
         setEditingBillId(billToEdit.id)
         setCustomerType(billToEdit.customerType || 'regular')
@@ -836,6 +839,32 @@ const Billing = () => {
   }
 
   const removeRow = (rowId) => {
+    const rowToDelete = itemRows.find((r) => r.id === rowId)
+    if (isEditing && rowToDelete) {
+      const isLastItem = itemRows.length <= 1
+      showConfirm({
+        title: isLastItem ? 'Cancel Bill / Delete Last Item?' : 'Delete Bill Item?',
+        message: isLastItem
+          ? `Removing "${rowToDelete.itemName}" (Qty: ${rowToDelete.qty}, ₹${Number(rowToDelete.amount || 0).toFixed(2)}) is the last item on this bill. Removing it will cancel the entire bill. Do you want to proceed?`
+          : `Are you sure you want to delete item "${rowToDelete.itemName}" (Qty: ${rowToDelete.qty}, ₹${Number(rowToDelete.amount || 0).toFixed(2)}) from this bill?`,
+        confirmText: isLastItem ? 'Cancel Bill' : 'Delete Item',
+        danger: true,
+        onConfirm: () => {
+          if (isLastItem) {
+            deleteBill(editingBillId)
+            showToast?.('Bill has been cancelled because all items were removed.', 'info')
+            setIsEditing(false)
+            setEditingBillId(null)
+            resetForm()
+            navigate('/billing')
+          } else {
+            setItemRows((current) => current.filter((r) => r.id !== rowId))
+            showToast?.(`Removed item "${rowToDelete.itemName}".`, 'info')
+          }
+        }
+      })
+      return
+    }
     setItemRows((current) => current.filter((r) => r.id !== rowId))
   }
 
@@ -1113,12 +1142,89 @@ const Billing = () => {
     }
 
     if (changeDue > 0) {
-      billPayload.excessToAdvance = true
-      billPayload.excessAmount = changeDue
-      billPayload.amountPaid = totalPaidNow
+      const isRegular = customerType === 'regular'
+      let defaultUpi = ''
+      if (isRegular && selectedCustomer) {
+        defaultUpi = selectedCustomer.phone ? `${selectedCustomer.phone}@upi` : ''
+      } else if (customerPhone) {
+        defaultUpi = `${customerPhone.trim()}@upi`
+      }
+
+      setPendingExcessInfo({
+        billPayload,
+        changeDue,
+        totalPaidNow,
+        total,
+        customerIdToUse,
+        customerNameToUse,
+        isEditing,
+        editingBillId,
+        isRegularCustomer: isRegular,
+      })
+      setExcessStep('choice')
+      setExcessRefundUpiId(defaultUpi)
+      setExcessRefundUtr('')
+      setExcessQrGenerated(false)
+      setShowExcessModal(true)
+      return
     }
 
     finalizeBillSave(billPayload, isEditing, editingBillId)
+  }
+
+  const handleExcessChoice = (choice) => {
+    if (!pendingExcessInfo) return
+    const { billPayload, changeDue, totalPaidNow, isRegularCustomer, isEditing: isEdit, editingBillId: editId } = pendingExcessInfo
+
+    if (choice === 'advance') {
+      if (!isRegularCustomer) {
+        showAlert('Advance credit can only be added to a registered regular customer account. Please select "Return Excess via UPI" or register this customer.', 'warning')
+        return
+      }
+      const updatedPayload = {
+        ...billPayload,
+        excessToAdvance: true,
+        excessAmount: changeDue,
+        amountPaid: totalPaidNow,
+        changeHandling: 'advance',
+      }
+      setShowExcessModal(false)
+      setPendingExcessInfo(null)
+      finalizeBillSave(updatedPayload, isEdit, editId)
+    } else if (choice === 'upi_refund') {
+      setExcessStep('upi_details')
+    }
+  }
+
+  const handleConfirmUpiRefund = () => {
+    if (!pendingExcessInfo) return
+    const { billPayload, changeDue, total, isEditing: isEdit, editingBillId: editId } = pendingExcessInfo
+
+    const updatedPayload = {
+      ...billPayload,
+      excessToAdvance: false,
+      excessAmount: 0,
+      returnChangeUpi: changeDue,
+      refundUpiId: excessRefundUpiId.trim(),
+      refundUtr: excessRefundUtr.trim(),
+      refundStatus: excessRefundUtr.trim() ? 'completed' : 'manual_pending',
+      amountPaid: total,
+      changeHandling: 'upi_refund',
+    }
+
+    setShowExcessModal(false)
+    setPendingExcessInfo(null)
+    setExcessStep('choice')
+    finalizeBillSave(updatedPayload, isEdit, editId)
+  }
+
+  const closeExcessModal = () => {
+    setShowExcessModal(false)
+    setPendingExcessInfo(null)
+    setExcessStep('choice')
+    setExcessRefundUpiId('')
+    setExcessRefundUtr('')
+    setExcessQrGenerated(false)
   }
 
   const finalizeBillSave = (payload, isEdit, editId) => {
@@ -1148,6 +1254,8 @@ const Billing = () => {
       resetForm()
       if (payload.excessToAdvance && payload.excessAmount > 0) {
         showToast?.(`Bill created! ₹${payload.excessAmount.toFixed(2)} added to customer advance balance.`, 'success')
+      } else if (payload.returnChangeUpi > 0) {
+        showToast?.(`Bill created! ₹${payload.returnChangeUpi.toFixed(2)} excess change returned via UPI.`, 'success')
       } else {
         showToast?.('Bill created successfully!', 'success')
       }
@@ -1155,6 +1263,12 @@ const Billing = () => {
   }
 
   const resetForm = () => {
+    setShowExcessModal(false)
+    setPendingExcessInfo(null)
+    setExcessStep('choice')
+    setExcessRefundUpiId('')
+    setExcessRefundUtr('')
+    setExcessQrGenerated(false)
     setIsEditing(false)
     setEditingBillId(null)
     setCustomerType('regular')
@@ -2403,7 +2517,7 @@ const Billing = () => {
                 fontSize: '0.875rem',
                 fontWeight: 600
               }}>
-                <Wallet size={16} /> ₹{excessPaid.toFixed(2)} excess will be added to customer's Advance Credit
+                <Wallet size={16} /> ₹{excessPaid.toFixed(2)} excess payment received (choice prompt on submit)
               </div>
             )}
           </div>
@@ -3045,6 +3159,332 @@ const Billing = () => {
                 Keep exact amount ₹{pendingBillPayload.total.toFixed(2)}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Excess Payment Received Modal ────────────────────────────────── */}
+      {showExcessModal && pendingExcessInfo && (
+        <div className="modal-overlay" onClick={closeExcessModal} style={{ zIndex: 1100 }}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '440px',
+              width: '92%',
+              background: '#0f172a',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.6)',
+              animation: 'scaleIn 0.2s ease-out',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Wallet size={22} style={{ color: '#10b981' }} />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '-0.01em' }}>
+                  Excess Payment Received
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeExcessModal}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '6px',
+                }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {excessStep === 'choice' ? (
+              <>
+                {/* Summary Box */}
+                <div
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '12px',
+                    padding: '16px 18px',
+                    marginBottom: '18px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem' }}>
+                    <span style={{ color: '#94a3b8' }}>Customer:</span>
+                    <strong style={{ color: '#f8fafc', fontWeight: 600 }}>
+                      {pendingExcessInfo.customerNameToUse || 'Walk-in Customer'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem' }}>
+                    <span style={{ color: '#94a3b8' }}>Bill Total:</span>
+                    <strong style={{ color: '#f8fafc', fontWeight: 600 }}>
+                      ₹{pendingExcessInfo.total.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem' }}>
+                    <span style={{ color: '#94a3b8' }}>Amount Handed:</span>
+                    <strong style={{ color: '#f8fafc', fontWeight: 600 }}>
+                      ₹{pendingExcessInfo.totalPaidNow.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingTop: '10px',
+                      marginTop: '4px',
+                      borderTop: '1px dashed rgba(255, 255, 255, 0.12)',
+                    }}
+                  >
+                    <span style={{ color: '#10b981', fontSize: '1.05rem', fontWeight: 700 }}>
+                      Excess Change:
+                    </span>
+                    <strong style={{ color: '#10b981', fontSize: '1.25rem', fontWeight: 700 }}>
+                      ₹{pendingExcessInfo.changeDue.toFixed(2)}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Subtext */}
+                <p style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '18px', lineHeight: 1.4 }}>
+                  How would you like to handle the{' '}
+                  <strong style={{ color: '#f8fafc' }}>₹{pendingExcessInfo.changeDue.toFixed(2)}</strong> excess amount?
+                </p>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Option A: Add to Customer Advance */}
+                  <button
+                    type="button"
+                    onClick={() => handleExcessChoice('advance')}
+                    style={{
+                      background: '#3b82f6',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '28px',
+                      padding: '12px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s ease',
+                      opacity: pendingExcessInfo.isRegularCustomer ? 1 : 0.75,
+                    }}
+                    title={!pendingExcessInfo.isRegularCustomer ? 'Requires registered customer account' : ''}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Wallet size={18} /> Add to Customer Advance
+                    </span>
+                    <span
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.25)',
+                        padding: '3px 10px',
+                        borderRadius: '14px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      +₹{pendingExcessInfo.changeDue.toFixed(2)}
+                    </span>
+                  </button>
+
+                  {!pendingExcessInfo.isRegularCustomer && (
+                    <div style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '-6px', paddingLeft: '8px' }}>
+                      ℹ️ Advance credit requires a registered regular customer account.
+                    </div>
+                  )}
+
+                  {/* Option B: Return Excess via UPI */}
+                  <button
+                    type="button"
+                    onClick={() => handleExcessChoice('upi_refund')}
+                    style={{
+                      background: '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '28px',
+                      padding: '12px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s ease',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Smartphone size={18} /> Return Excess via UPI
+                    </span>
+                    <span
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        padding: '3px 10px',
+                        borderRadius: '14px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ₹{pendingExcessInfo.changeDue.toFixed(2)}
+                    </span>
+                  </button>
+
+                  {/* Cancel / Adjust Amount */}
+                  <button
+                    type="button"
+                    onClick={closeExcessModal}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#94a3b8',
+                      fontSize: '0.875rem',
+                      fontWeight: 500,
+                      padding: '10px',
+                      cursor: 'pointer',
+                      marginTop: '4px',
+                      textAlign: 'center',
+                      transition: 'color 0.15s ease',
+                    }}
+                  >
+                    Cancel / Adjust Amount
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Step 2: UPI Refund Sub-workflow */
+              <div>
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                    Returning Excess Change of{' '}
+                    <strong style={{ color: '#10b981' }}>₹{pendingExcessInfo.changeDue.toFixed(2)}</strong> via UPI to{' '}
+                    <strong style={{ color: '#f8fafc' }}>{pendingExcessInfo.customerNameToUse}</strong>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '14px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
+                    Customer UPI ID / VPA
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 9876543210@upi or customer@okhdfcbank"
+                    value={excessRefundUpiId}
+                    onChange={(e) => {
+                      setExcessRefundUpiId(e.target.value)
+                      setExcessQrGenerated(false)
+                    }}
+                    style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)', color: '#f8fafc' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={!excessRefundUpiId.trim()}
+                    onClick={() => setExcessQrGenerated(true)}
+                    style={{ flex: 1, padding: '8px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <QrCode size={15} /> Generate QR
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={!excessRefundUpiId.trim()}
+                    onClick={() => {
+                      const link = `upi://pay?pa=${encodeURIComponent(excessRefundUpiId.trim())}&pn=${encodeURIComponent(pendingExcessInfo.customerNameToUse || 'Customer')}&am=${pendingExcessInfo.changeDue.toFixed(2)}&cu=INR&tn=Excess+Payment+Refund`
+                      copyUpiLink(link)
+                      showToast?.('UPI Refund link copied to clipboard!', 'info')
+                    }}
+                    style={{ flex: 1, padding: '8px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <Copy size={15} /> Copy UPI Link
+                  </button>
+                </div>
+
+                {excessQrGenerated && excessRefundUpiId.trim() && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                        `upi://pay?pa=${excessRefundUpiId.trim()}&pn=${encodeURIComponent(
+                          pendingExcessInfo.customerNameToUse || 'Customer'
+                        )}&am=${pendingExcessInfo.changeDue.toFixed(2)}&cu=INR&tn=Excess+Payment+Refund`
+                      )}`}
+                      alt="Refund QR Code"
+                      style={{ borderRadius: '8px', border: '3px solid #3b82f6', background: '#ffffff', padding: '4px' }}
+                      width={120}
+                      height={120}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '6px' }}>
+                      Scan with GPay, PhonePe, Paytm to send ₹{pendingExcessInfo.changeDue.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="form-group" style={{ marginBottom: '18px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
+                    Bank UTR / Transaction Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 12-digit UTR from banking app"
+                    value={excessRefundUtr}
+                    onChange={(e) => setExcessRefundUtr(e.target.value)}
+                    style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)', color: '#f8fafc' }}
+                  />
+                  <div style={{ marginTop: '6px', fontSize: '0.75rem', color: excessRefundUtr.trim() ? '#10b981' : '#f59e0b' }}>
+                    {excessRefundUtr.trim()
+                      ? '✓ Status: Completed with UTR reference'
+                      : 'ℹ️ Status: Manual Pending (will record refund as pending verification)'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setExcessStep('choice')}
+                    className="btn btn-secondary"
+                    style={{ flex: 1, borderRadius: '24px', padding: '10px' }}
+                  >
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmUpiRefund}
+                    className="btn btn-primary"
+                    style={{ flex: 2, borderRadius: '24px', padding: '10px', background: '#3b82f6' }}
+                  >
+                    Confirm Refund & Finalize
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

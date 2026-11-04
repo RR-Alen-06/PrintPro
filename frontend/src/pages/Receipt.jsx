@@ -794,6 +794,16 @@ const Receipt = () => {
                   <span>Balance Due:</span><span>₹{selectedBill.balance.toFixed(2)}</span>
                 </div>
               )}
+              {selectedBill.editHistory && selectedBill.editHistory.length > 0 && (
+                <div style={{ fontSize: '11px', color: '#666', borderTop: '1px dashed #ccc', paddingTop: '4px', marginTop: '4px' }}>
+                  Revisions: Edited {selectedBill.editHistory.length} time(s) · Last on {new Date(selectedBill.editHistory[selectedBill.editHistory.length - 1].timestamp).toLocaleDateString()}
+                </div>
+              )}
+              {selectedBill.reversalHistory && selectedBill.reversalHistory.length > 0 && (
+                <div style={{ fontSize: '11px', color: '#d97706', marginTop: '2px' }}>
+                  Payment Reversals: {selectedBill.reversalHistory.length} adjustment(s) recorded
+                </div>
+              )}
             </div>
 
             <hr style={{ borderColor: '#ccc', margin: '8px 0 10px' }} />

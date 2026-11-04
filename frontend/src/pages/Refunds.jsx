@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useAppContext } from '../context/AppContext'
-import { AlertCircle, Banknote, Smartphone, RefreshCw, User, Share2, Copy, Check, Calendar } from 'lucide-react'
+import { AlertCircle,
+  Plus,
+  X,
+  RotateCcw,
+  Banknote, Smartphone, RefreshCw, User, Share2, Copy, Check, Calendar } from 'lucide-react'
 import EmptyState from '../components/common/EmptyState'
 import { getDeletedPayments, getRefundPayments } from '../api/payments'
 import { getDisplayBillId, getDisplayCustomerId, getDisplayPaymentId, getDisplayAdvanceId } from '../utils/idFormatter'
 
 const Refunds = () => {
-  const { advancePayments = [], customers = [], showToast, business } = useAppContext()
+  const { advancePayments = [], customers = [], bills = [], editBill, reverseRefund, settings, showConfirm, showToast, business } = useAppContext()
   
   const [refundPayments, setRefundPayments] = useState([])
   const [deletedPayments, setDeletedPayments] = useState([])
@@ -21,6 +25,186 @@ const Refunds = () => {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Receipt Modal State
+    // ── Process Refund Modal State ──
+  const [isProcessRefundOpen, setIsProcessRefundOpen] = useState(false)
+  const [refundBillId, setRefundBillId] = useState('')
+  const [refundScope, setRefundScope] = useState('full') // 'full' | 'partial' | 'item'
+  const [partialRefundAmt, setPartialRefundAmt] = useState('')
+  const [selectedItemsToReturn, setSelectedItemsToReturn] = useState({}) // { [itemId/index]: returnQty }
+  const [issueRefundMethod, setIssueRefundMethod] = useState('upi') // 'upi' | 'advance' | 'cash'
+  const [refundUtr, setRefundUtr] = useState('')
+  const [refundReason, setRefundReason] = useState('Customer returned goods')
+  const [securityPinInput, setSecurityPinInput] = useState('')
+  const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
+
+  // Eligible bills with payments
+  const eligibleBills = useMemo(() => {
+    return bills.filter(b => !b.deleted && Number(b.amountPaid || 0) > 0)
+  }, [bills])
+
+  const selectedRefundBill = useMemo(() => {
+    return eligibleBills.find(b => b.id === refundBillId) || null
+  }, [eligibleBills, refundBillId])
+
+  // Calculate item return total
+  const itemReturnCalculations = useMemo(() => {
+    if (!selectedRefundBill || refundScope !== 'item') return { totalReturn: 0, itemsSummary: [] }
+    let totalReturn = 0
+    const itemsSummary = []
+    const billItems = selectedRefundBill.items || []
+    const billSubtotal = Number(selectedRefundBill.subtotal || selectedRefundBill.total || 1)
+    const billTotal = Number(selectedRefundBill.total || 1)
+    const ratio = billTotal / (billSubtotal > 0 ? billSubtotal : 1)
+
+    billItems.forEach((it, idx) => {
+      const key = it.id || `item-${idx}`
+      const retQty = Number(selectedItemsToReturn[key] || 0)
+      if (retQty > 0) {
+        const unitP = Number(it.unitPrice || it.unit_price || 0)
+        const itemLineTotal = retQty * unitP * ratio
+        totalReturn += itemLineTotal
+        itemsSummary.push({
+          ...it,
+          returnQty: retQty,
+          refundAmount: Number(itemLineTotal.toFixed(2))
+        })
+      }
+    })
+    return {
+      totalReturn: Math.min(Number(totalReturn.toFixed(2)), Number(selectedRefundBill.amountPaid || 0)),
+      itemsSummary
+    }
+  }, [selectedRefundBill, refundScope, selectedItemsToReturn])
+
+  const computedRefundAmount = useMemo(() => {
+    if (!selectedRefundBill) return 0
+    const maxPaid = Number(selectedRefundBill.amountPaid || 0)
+    if (refundScope === 'full') return maxPaid
+    if (refundScope === 'partial') {
+      const val = parseFloat(partialRefundAmt) || 0
+      return Math.min(val, maxPaid)
+    }
+    if (refundScope === 'item') {
+      return itemReturnCalculations.totalReturn
+    }
+    return 0
+  }, [selectedRefundBill, refundScope, partialRefundAmt, itemReturnCalculations])
+
+  const handleExecuteRefund = async () => {
+    if (!selectedRefundBill) {
+      showToast('Please select a bill to refund.', 'error')
+      return
+    }
+    if (computedRefundAmount <= 0) {
+      showToast('Refund amount must be greater than zero.', 'error')
+      return
+    }
+    if (!refundReason.trim()) {
+      showToast('A reason for the refund is mandatory.', 'error')
+      return
+    }
+
+    // 48-Hour check
+    const billCreated = selectedRefundBill.createdAt || selectedRefundBill.created_at || selectedRefundBill.date
+    const isOlderThan48h = billCreated ? (Date.now() - new Date(billCreated).getTime()) > 48 * 60 * 60 * 1000 : false
+    if (isOlderThan48h) {
+      const expectedPin = String(settings?.securityPin || '0000').trim()
+      if (securityPinInput.trim() !== expectedPin) {
+        showToast('Incorrect Master Security PIN. Refunds after 48 hours require valid Master PIN.', 'error')
+        return
+      }
+    }
+
+    setIsSubmittingRefund(true)
+    try {
+      const refundAction = {
+        type: issueRefundMethod === 'advance' ? 'advance' : 'direct',
+        method: issueRefundMethod === 'advance' ? 'upi' : issueRefundMethod,
+        directAmount: issueRefundMethod === 'advance' ? 0 : computedRefundAmount,
+        advanceAmount: issueRefundMethod === 'advance' ? computedRefundAmount : 0,
+        utr: refundUtr,
+        reason: refundReason
+      }
+
+      // If full bill refund, new total is 0. If partial/item, new total is oldTotal - refundAmount
+      const newTotal = Math.max(0, Number((selectedRefundBill.total - computedRefundAmount).toFixed(2)))
+      
+      let updatedItems = selectedRefundBill.items || []
+      if (refundScope === 'full') {
+        updatedItems = []
+      } else if (refundScope === 'item') {
+        updatedItems = updatedItems.map((it, idx) => {
+          const key = it.id || `item-${idx}`
+          const retQty = Number(selectedItemsToReturn[key] || 0)
+          if (retQty > 0) {
+            const newQty = Math.max(0, Number(it.qty || 1) - retQty)
+            return { ...it, qty: newQty, amount: newQty * Number(it.unitPrice || 0) }
+          }
+          return it
+        }).filter(it => it.qty > 0)
+      }
+
+      const payload = {
+        ...selectedRefundBill,
+        total: newTotal,
+        subtotal: newTotal,
+        items: updatedItems,
+        reason: refundReason
+      }
+
+      await editBill(selectedRefundBill.id, payload, refundAction)
+      showToast(`Refund of ₹${computedRefundAmount.toFixed(2)} processed successfully.`, 'success')
+      
+      // Auto open receipt for this refund
+      setSelectedReceipt({
+        id: `REF-${Date.now()}`,
+        billId: selectedRefundBill.id,
+        customerName: selectedRefundBill.customerName,
+        date: new Date().toISOString(),
+        total: computedRefundAmount,
+        cash: issueRefundMethod === 'cash' ? computedRefundAmount : 0,
+        upi: issueRefundMethod === 'upi' ? computedRefundAmount : 0,
+        advance: issueRefundMethod === 'advance' ? computedRefundAmount : 0,
+        method: issueRefundMethod,
+        notes: refundReason,
+        utr: refundUtr,
+        remainingBalance: selectedRefundBill.balance
+      })
+
+      setIsProcessRefundOpen(false)
+      setRefundBillId('')
+      setPartialRefundAmt('')
+      setSelectedItemsToReturn({})
+      setRefundUtr('')
+      setSecurityPinInput('')
+      fetchRefundData()
+    } catch (err) {
+      showToast('Failed to process refund: ' + err.message, 'error')
+    } finally {
+      setIsSubmittingRefund(false)
+    }
+  }
+
+  const handleVoidRefund = (item) => {
+    showConfirm({
+      title: 'Void / Reverse Refund?',
+      message: `Are you sure you want to void refund ${item.id} (₹${item.total.toFixed(2)})? This will restore the bill's payment balance.`,
+      confirmText: 'Void Refund',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          if (reverseRefund) {
+            await reverseRefund({ refundPaymentId: item.rawId, reason: 'Refund voided by admin' })
+          }
+          showToast('Refund voided and balances restored.', 'success')
+          fetchRefundData()
+        } catch (err) {
+          showToast('Failed to void refund: ' + err.message, 'error')
+        }
+      }
+    })
+  }
+
   const [selectedReceipt, setSelectedReceipt] = useState(null)
   const [copied, setCopied] = useState(false)
 
@@ -307,10 +491,16 @@ const Refunds = () => {
           <h1>Refunds & Reversals</h1>
           <p>Live cloud audit of cash & UPI refund transactions, payment deletions, and advance returns.</p>
         </div>
-        <button className="btn btn-secondary" onClick={fetchRefundData} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <RefreshCw size={14} className={isLoading ? 'spin' : ''} />
-          <span>Refresh Data</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-primary" onClick={() => setIsProcessRefundOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Plus size={15} />
+            <span>Process Bill Refund / Return</span>
+          </button>
+          <button className="btn btn-secondary" onClick={fetchRefundData} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={14} className={isLoading ? 'spin' : ''} />
+            <span>Refresh Data</span>
+          </button>
+        </div>
       </div>
 
       {/* Period Filter Bar */}
@@ -515,15 +705,28 @@ const Refunds = () => {
                     <td className="font-mono tabular-nums">₹{log.upi.toFixed(2)}</td>
                     <td className="font-mono tabular-nums" style={{ fontWeight: 600, color: 'var(--warning)' }}>₹{log.total.toFixed(2)}</td>
                     <td>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => setSelectedReceipt(log)}
-                        title="View & Share Refund Receipt"
-                      >
-                        <Share2 size={12} />
-                        <span>Receipt</span>
-                      </button>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => setSelectedReceipt(log)}
+                          title="View & Share Refund Receipt"
+                        >
+                          <Share2 size={12} />
+                          <span>Receipt</span>
+                        </button>
+                        {log.type === 'Refund Payment' && (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            onClick={() => handleVoidRefund(log)}
+                            title="Void / Reverse this Refund"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -534,6 +737,335 @@ const Refunds = () => {
       </div>
 
       {/* Refund Receipt Modal */}
+      {/* ── Process Refund Modal ── */}
+      {isProcessRefundOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setIsProcessRefundOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '16px',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '560px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '18px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 600 }}>Process Bill Refund / Item Return</h3>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Issue full, partial, or item-level refunds with audit trail
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setIsProcessRefundOpen(false)}
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Select Bill */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>Select Paid / Partially Paid Bill *</label>
+                <select
+                  className="form-select"
+                  value={refundBillId}
+                  onChange={(e) => {
+                    setRefundBillId(e.target.value)
+                    setRefundScope('full')
+                    setPartialRefundAmt('')
+                    setSelectedItemsToReturn({})
+                  }}
+                >
+                  <option value="">-- Choose a bill to refund --</option>
+                  {eligibleBills.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {getDisplayBillId(b)} · {b.customerName || 'Customer'} (Total: ₹{Number(b.total || 0).toFixed(2)}, Paid: ₹{Number(b.amountPaid || 0).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedRefundBill && (
+                <>
+                  {/* Bill Summary Banner */}
+                  <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Customer: </span>
+                      <strong>{selectedRefundBill.customerName}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Bill Total: </span>
+                      <strong>₹{Number(selectedRefundBill.total).toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Amount Paid: </span>
+                      <strong style={{ color: 'var(--success)' }}>₹{Number(selectedRefundBill.amountPaid).toFixed(2)}</strong>
+                    </div>
+                  </div>
+
+                  {/* Scope Selector */}
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '8px', display: 'block' }}>
+                      Refund Scope *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${refundScope === 'full' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setRefundScope('full')}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        Full Refund
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${refundScope === 'partial' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => {
+                          setRefundScope('partial')
+                          setPartialRefundAmt(String(Math.min(100, Number(selectedRefundBill.amountPaid || 0))))
+                        }}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        Partial Amount
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${refundScope === 'item' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setRefundScope('item')}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        Item Return
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Partial Input */}
+                  {refundScope === 'partial' && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>Partial Refund Amount (₹) *</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max={Number(selectedRefundBill.amountPaid || 0)}
+                          className="form-input"
+                          value={partialRefundAmt}
+                          onChange={(e) => setPartialRefundAmt(e.target.value)}
+                          placeholder="Amount to refund"
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setPartialRefundAmt(String(selectedRefundBill.amountPaid))}
+                        >
+                          Max
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Item-Level Return Table */}
+                  {refundScope === 'item' && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>Select Items to Return *</label>
+                      <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+                        <table className="table" style={{ margin: 0, fontSize: '0.82rem' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ width: '40px' }}>Ret</th>
+                              <th>Item</th>
+                              <th style={{ textAlign: 'center' }}>Sold</th>
+                              <th style={{ textAlign: 'center', width: '90px' }}>Return Qty</th>
+                              <th style={{ textAlign: 'right' }}>Refund (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(selectedRefundBill.items || []).map((it, idx) => {
+                              const key = it.id || `item-${idx}`
+                              const currentRet = Number(selectedItemsToReturn[key] || 0)
+                              const isSelected = currentRet > 0
+                              const itemPrice = Number(it.unitPrice || it.unit_price || 0)
+                              return (
+                                <tr key={key}>
+                                  <td>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        setSelectedItemsToReturn(prev => ({
+                                          ...prev,
+                                          [key]: e.target.checked ? Number(it.qty || 1) : 0
+                                        }))
+                                      }}
+                                    />
+                                  </td>
+                                  <td>
+                                    <div style={{ fontWeight: 500 }}>{it.name || it.itemName || 'Item'}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{itemPrice.toFixed(2)} / unit</div>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>{it.qty || 1}</td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={it.qty || 1}
+                                      className="form-input"
+                                      style={{ padding: '2px 6px', textAlign: 'center', width: '70px', margin: '0 auto' }}
+                                      value={currentRet}
+                                      onChange={(e) => {
+                                        const v = Math.min(Number(it.qty || 1), Math.max(0, parseInt(e.target.value, 10) || 0))
+                                        setSelectedItemsToReturn(prev => ({ ...prev, [key]: v }))
+                                      }}
+                                    />
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                    ₹{(currentRet * itemPrice).toFixed(2)}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Method Selector */}
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '8px', display: 'block' }}>
+                      Refund Disbursement Method *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${issueRefundMethod === 'upi' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setIssueRefundMethod('upi')}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        UPI Return
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${issueRefundMethod === 'advance' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setIssueRefundMethod('advance')}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        Advance Credit
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${issueRefundMethod === 'cash' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setIssueRefundMethod('cash')}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        Cash Return
+                      </button>
+                    </div>
+                  </div>
+
+                  {issueRefundMethod === 'upi' && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>UPI UTR / Reference ID</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={refundUtr}
+                        onChange={(e) => setRefundUtr(e.target.value)}
+                        placeholder="e.g. 312456789012 (optional or pending)"
+                      />
+                    </div>
+                  )}
+
+                  {/* Reason */}
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>Refund Reason *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={refundReason}
+                      onChange={(e) => setRefundReason(e.target.value)}
+                      placeholder="e.g. Customer returned goods / order cancellation"
+                    />
+                  </div>
+
+                  {/* Security PIN check if >48 hours */}
+                  {selectedRefundBill && selectedRefundBill.createdAt && (Date.now() - new Date(selectedRefundBill.createdAt).getTime()) > 48 * 60 * 60 * 1000 && (
+                    <div className="form-group" style={{ marginBottom: 0, backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                      <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--warning)' }}>
+                        Master Security PIN (Bill &gt; 48 hrs old) *
+                      </label>
+                      <input
+                        type="password"
+                        className="form-input"
+                        value={securityPinInput}
+                        onChange={(e) => setSecurityPinInput(e.target.value)}
+                        placeholder="Enter master PIN"
+                      />
+                    </div>
+                  )}
+
+                  {/* Total to be refunded summary */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Total Refund Amount:</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--error)' }}>
+                      ₹{computedRefundAmount.toFixed(2)}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsProcessRefundOpen(false)}
+                disabled={isSubmittingRefund}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleExecuteRefund}
+                disabled={isSubmittingRefund || !selectedRefundBill || computedRefundAmount <= 0}
+                style={{ backgroundColor: 'var(--error)', color: '#fff', border: 'none' }}
+              >
+                {isSubmittingRefund ? 'Processing...' : 'Confirm Refund'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedReceipt && (
         <div
           style={{

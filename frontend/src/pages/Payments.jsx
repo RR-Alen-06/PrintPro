@@ -11,6 +11,8 @@ import {
   Banknote,
   Smartphone,
   Trash2,
+  RotateCcw,
+  X,
   Calendar,
   Clock,
   Sparkles
@@ -32,6 +34,7 @@ const Payments = () => {
     recordSpecificBillPayment,
     addAdvancePayment,
     deletePayment,
+    reversePayment,
     deleteAdvancePayment,
     showConfirm,
     showToast
@@ -50,6 +53,70 @@ const Payments = () => {
   const [activeTab, setActiveTab] = useState(initialTab === 'advance' || initialTab === 'deposit' ? 'deposit' : 'settle')
 
   // ── Settle Bills State ──
+    // ── Payment Reversal State ──
+  const [reversalModalItem, setReversalModalItem] = useState(null)
+  const [reversalType, setReversalType] = useState('full') // 'full' | 'partial'
+  const [reversalAmountInput, setReversalAmountInput] = useState('')
+  const [reversalReasonPreset, setReversalReasonPreset] = useState('Incorrect Cash payment entry')
+  const [reversalReason, setReversalReason] = useState('Incorrect Cash payment entry')
+  const [reversalAuthorizedBy, setReversalAuthorizedBy] = useState('Admin')
+  const [isSubmittingReversal, setIsSubmittingReversal] = useState(false)
+
+  const getRemainingReversible = (item) => {
+    if (!item) return 0
+    const rawPayment = payments.find(p => p.id === item.rawId)
+    const total = Math.abs(Number(item.totalAmount || (rawPayment && rawPayment.totalPaid) || 0))
+    const reversed = Number((rawPayment && rawPayment.reversedAmount) || item.reversedAmount || 0)
+    return Math.max(0, parseFloat((total - reversed).toFixed(2)))
+  }
+
+  const openReversalModal = (item) => {
+    setReversalModalItem(item)
+    setReversalType('full')
+    setReversalAmountInput('')
+    setReversalReasonPreset('Incorrect Cash payment entry')
+    setReversalReason('Incorrect Cash payment entry')
+    setReversalAuthorizedBy('Admin')
+  }
+
+  const handleConfirmReversal = async () => {
+    if (!reversalModalItem) return
+    const reasonText = (reversalReasonPreset === 'other' ? reversalReason : (reversalReason || reversalReasonPreset)).trim()
+    if (!reasonText) {
+      showToast('A reason for reversal is mandatory.', 'error')
+      return
+    }
+    const remaining = getRemainingReversible(reversalModalItem)
+    let amountToRev = remaining
+    if (reversalType === 'partial') {
+      amountToRev = parseFloat(reversalAmountInput)
+      if (isNaN(amountToRev) || amountToRev <= 0) {
+        showToast('Please enter a valid reversal amount greater than zero.', 'error')
+        return
+      }
+      if (amountToRev > remaining) {
+        showToast(`Reversal amount cannot exceed remaining valid payment (₹${remaining.toFixed(2)}).`, 'error')
+        return
+      }
+    }
+
+    setIsSubmittingReversal(true)
+    try {
+      await reversePayment({
+        paymentId: reversalModalItem.rawId,
+        amount: amountToRev,
+        reason: reasonText,
+        authorizedBy: reversalAuthorizedBy || 'Admin'
+      })
+      showToast(`Payment successfully reversed (₹${amountToRev.toFixed(2)}).`, 'success')
+      setReversalModalItem(null)
+    } catch (err) {
+      showToast('Failed to reverse payment: ' + err.message, 'error')
+    } finally {
+      setIsSubmittingReversal(false)
+    }
+  }
+
   const [selectedBillId, setSelectedBillId] = useState(initialBillId || 'all')
   const [settleCash, setSettleCash] = useState('')
   const [settleUpi, setSettleUpi] = useState('')
@@ -665,8 +732,18 @@ const Payments = () => {
                               style={{ cursor: 'pointer' }}
                             />
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                {getDisplayBillId(b)}
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>{getDisplayBillId(b)}</span>
+                                {b.splitPurchaseId && (
+                                  <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: 'rgba(99,102,241,0.15)', color: '#818cf8', fontWeight: 600 }}>
+                                    Split {b.splitPurchaseId}
+                                  </span>
+                                )}
+                                {b.groupRole && (
+                                  <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 600 }}>
+                                    {b.groupRole === 'split' ? 'Split Bill' : 'Shared Purchase'}
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 {new Date(b.date).toLocaleDateString()} · Total: ₹{Number(b.total).toFixed(2)}
@@ -1134,15 +1211,28 @@ const Payments = () => {
                       </span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        className="btn-icon"
-                        onClick={() => handleDeleteTxn(item)}
-                        title="Delete transaction and reverse balance"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        {item.type === 'bill_payment' && !item.isRefund && item.status !== 'reversed' && getRemainingReversible(item) > 0 && (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            onClick={() => openReversalModal(item)}
+                            title="Reverse or Undo payment"
+                            style={{ color: 'var(--accent)' }}
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-icon"
+                          onClick={() => handleDeleteTxn(item)}
+                          title="Delete transaction and reverse balance"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1151,8 +1241,214 @@ const Payments = () => {
           </div>
         )}
       </div>
+      {/* ── Payment Reversal Modal ── */}
+      {reversalModalItem && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setReversalModalItem(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '16px',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '520px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '18px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <RotateCcw size={18} color="var(--error)" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Payment Reversal / Undo</h3>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Reverse payment and reconcile affected bill outstanding
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setReversalModalItem(null)}
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Payment Reference:</span>
+                  <span className="font-mono" style={{ fontWeight: 600 }}>{reversalModalItem.displayId}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Customer:</span>
+                  <span style={{ fontWeight: 600 }}>{reversalModalItem.customerName}</span>
+                </div>
+                {reversalModalItem.billDisplay && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Associated Bill:</span>
+                    <span className="font-mono">{reversalModalItem.billDisplay}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Original Payment:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>₹{reversalModalItem.totalAmount.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Remaining Reversible:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--warning)' }}>₹{getRemainingReversible(reversalModalItem).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '8px', display: 'block' }}>
+                  Reversal Scope *
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className={`btn ${reversalType === 'full' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ justifyContent: 'center', fontSize: '0.85rem' }}
+                    onClick={() => {
+                      setReversalType('full')
+                      setReversalAmountInput('')
+                    }}
+                  >
+                    Full Reversal (₹{getRemainingReversible(reversalModalItem).toFixed(2)})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${reversalType === 'partial' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ justifyContent: 'center', fontSize: '0.85rem' }}
+                    onClick={() => {
+                      setReversalType('partial')
+                      setReversalAmountInput(String(Math.min(100, getRemainingReversible(reversalModalItem))))
+                    }}
+                  >
+                    Partial Reversal
+                  </button>
+                </div>
+              </div>
+
+              {reversalType === 'partial' && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Amount to Reverse (₹) *</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={getRemainingReversible(reversalModalItem)}
+                      className="form-input"
+                      value={reversalAmountInput}
+                      onChange={(e) => setReversalAmountInput(e.target.value)}
+                      placeholder="Enter reversal amount"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setReversalAmountInput(String(getRemainingReversible(reversalModalItem)))}
+                    >
+                      Max
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Reason for Reversal *</label>
+                <select
+                  className="form-select"
+                  value={reversalReasonPreset}
+                  onChange={(e) => {
+                    setReversalReasonPreset(e.target.value)
+                    if (e.target.value !== 'other') {
+                      setReversalReason(e.target.value)
+                    } else {
+                      setReversalReason('')
+                    }
+                  }}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <option value="Incorrect Cash payment entry">Incorrect Cash payment entry</option>
+                  <option value="Incorrect UPI payment entry">Incorrect UPI payment entry</option>
+                  <option value="Wrong payment amount recorded">Wrong payment amount recorded</option>
+                  <option value="Duplicate payment entry">Duplicate payment entry</option>
+                  <option value="Payment recorded against wrong bill">Payment recorded against wrong bill</option>
+                  <option value="Payment recorded against wrong customer">Payment recorded against wrong customer</option>
+                  <option value="Payment failed or not received">Payment failed or not received</option>
+                  <option value="other">Other / Custom Reason...</option>
+                </select>
+                {reversalReasonPreset === 'other' && (
+                  <textarea
+                    className="form-textarea"
+                    rows={2}
+                    value={reversalReason}
+                    onChange={(e) => setReversalReason(e.target.value)}
+                    placeholder="Specify the reason for reversing this payment..."
+                  />
+                )}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Authorized By *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={reversalAuthorizedBy}
+                  onChange={(e) => setReversalAuthorizedBy(e.target.value)}
+                  placeholder="Admin / Cashier name"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setReversalModalItem(null)}
+                disabled={isSubmittingReversal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleConfirmReversal}
+                disabled={isSubmittingReversal}
+                style={{ backgroundColor: 'var(--error)', color: '#fff', border: 'none' }}
+              >
+                {isSubmittingReversal ? 'Processing Reversal...' : 'Confirm Reversal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 export default Payments

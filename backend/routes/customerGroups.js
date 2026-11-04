@@ -15,6 +15,7 @@ function toCustomerGroupDto(g) {
   }
   return {
     id: g.id,
+    group_code: g.group_code || '',
     name: g.name || '',
     description: g.description || '',
     member_ids: members
@@ -62,21 +63,26 @@ router.post('/', allowlist(['name', 'description', 'member_ids', 'memberIds', 'm
       return res.status(400).json({ success: false, error: 'Group name is required' });
     }
 
-    const groupId = req.body.id || await getNextSequence(pool, req.user.id, 'group', 'GRP');
+    const groupCode = req.body.group_code || req.body.groupCode || await getNextSequence(pool, req.user.id, 'group', 'GRP');
 
-    await pool.query(
-      `INSERT INTO customer_groups (id, user_id, name, description, member_ids)
-       VALUES (?, ?, ?, ?, ?)`,
-      [
-        groupId,
-        req.user.id,
-        name,
-        description || '',
-        JSON.stringify(member_ids || [])
-      ]
-    );
+    let createdId;
+    if (req.body.id && !isNaN(parseInt(req.body.id, 10))) {
+      await pool.query(
+        `INSERT INTO customer_groups (id, user_id, name, description, member_ids, group_code)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [parseInt(req.body.id, 10), req.user.id, name, description || '', JSON.stringify(member_ids || []), groupCode]
+      );
+      createdId = parseInt(req.body.id, 10);
+    } else {
+      const [insertRes] = await pool.query(
+        `INSERT INTO customer_groups (user_id, name, description, member_ids, group_code)
+         VALUES (?, ?, ?, ?, ?) RETURNING id`,
+        [req.user.id, name, description || '', JSON.stringify(member_ids || []), groupCode]
+      );
+      createdId = insertRes.insertId || insertRes[0]?.id;
+    }
 
-    const [created] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [groupId, req.user.id]);
+    const [created] = await pool.query('SELECT * FROM customer_groups WHERE (id::text = ? OR group_code = ?) AND user_id = ?', [createdId, req.user.id]);
     res.status(201).json({ success: true, data: toCustomerGroupDto(created[0]) });
   } catch (err) {
     next(err);
@@ -91,7 +97,7 @@ router.put('/:id', allowlist(['name', 'description', 'member_ids', 'memberIds', 
     const { name, description } = req.body;
     const member_ids = req.body.member_ids !== undefined ? req.body.member_ids : (req.body.memberIds !== undefined ? req.body.memberIds : req.body.members);
 
-    const [existing] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [existing] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [id, id, req.user.id]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, error: 'Customer group not found' });
     }
@@ -102,7 +108,7 @@ router.put('/:id', allowlist(['name', 'description', 'member_ids', 'memberIds', 
          description = COALESCE(?, description),
          member_ids = COALESCE(?, member_ids),
          updated_at = NOW()
-       WHERE id = ? AND user_id = ?`,
+       WHERE (id::text = ? OR group_code = ?) AND user_id = ?`,
       [
         name,
         description,
@@ -112,7 +118,7 @@ router.put('/:id', allowlist(['name', 'description', 'member_ids', 'memberIds', 
       ]
     );
 
-    const [updated] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const [updated] = await pool.query('SELECT * FROM customer_groups WHERE id = ? AND user_id = ?', [id, id, req.user.id]);
     res.json({ success: true, data: toCustomerGroupDto(updated[0]) });
   } catch (err) {
     next(err);

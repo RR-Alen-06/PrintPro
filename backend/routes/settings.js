@@ -93,7 +93,10 @@ router.delete('/clear-all-data', async (req, res, next) => {
     await conn.query('DELETE FROM purchases WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM upi_transactions WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM cash_sessions WHERE user_id = ?', [userId]);
-    await conn.query('DELETE FROM inventory_items WHERE user_id = ?', [userId]);
+    const includeInventory = req.query.include_inventory === 'true' || req.body?.include_inventory === true;
+    if (includeInventory) {
+      await conn.query('DELETE FROM inventory_items WHERE user_id = ?', [userId]);
+    }
     await conn.query('DELETE FROM audit_log WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM sequences WHERE user_id = ?', [userId]);
     await conn.query('DELETE FROM user_settings WHERE user_id = ?', [userId]);

@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { allowlist } = require('../middleware/allowlist');
 const { validateSchema } = require('../middleware/schemaValidator');
 const schemas = require('../config/schemas');
+const { getNextSequence } = require('../utils/sequenceGenerator');
 
 // Helper to get active session ID
 async function getActiveSessionId(poolOrConn, userId) {
@@ -136,10 +137,11 @@ router.post('/open', allowlist(['opening_cash', 'opening_float', 'notes']), vali
       });
     }
 
+    const sessionSeq = await getNextSequence(pool, req.user.id, 'cash_session');
     const [result] = await pool.query(
-      `INSERT INTO cash_sessions (user_id, opened_at, opening_cash, status, notes)
-       VALUES (?, NOW(), ?, 'open', ?)`,
-      [req.user.id, floatVal, notes || '']
+      `INSERT INTO cash_sessions (user_id, session_number, opened_at, opening_cash, status, notes)
+       VALUES (?, ?, NOW(), ?, 'open', ?)`,
+      [req.user.id, sessionSeq, floatVal, notes || '']
     );
 
     const [created] = await pool.query('SELECT * FROM cash_sessions WHERE id = ? AND user_id = ?', [result.insertId, req.user.id]);

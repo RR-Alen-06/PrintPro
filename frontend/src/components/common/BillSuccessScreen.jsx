@@ -265,6 +265,23 @@ export const BillSuccessScreen = ({ bill, onDownload, onWhatsApp, onPrint, onCre
                 <strong style={{ color: 'var(--success)' }}>-₹{localBill.discountAmount.toFixed(2)}</strong>
               </div>
             )}
+            {localBill.settlementBreakdown?.excessAddedToAdvance > 0 && (
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Advance Credited:</span>{' '}
+                <strong style={{ color: 'var(--accent)' }}>+₹{localBill.settlementBreakdown.excessAddedToAdvance.toFixed(2)}</strong>
+              </div>
+            )}
+            {(localBill.returnChangeUpi > 0 || (localBill.settlementBreakdown?.excessRefundedUpi || 0) > 0) && (
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Excess Returned (UPI):</span>{' '}
+                <strong style={{ color: 'var(--success)' }}>₹{Number(localBill.returnChangeUpi || localBill.settlementBreakdown?.excessRefundedUpi || 0).toFixed(2)}</strong>
+                {localBill.settlementBreakdown?.upiRefundDetails?.utr && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                    (UTR: {localBill.settlementBreakdown.upiRefundDetails.utr})
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

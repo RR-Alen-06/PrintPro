@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { syncEntityToCloud } from '../lib/syncService'
 import { getBills } from '../api/bills'
 import { getCustomers } from '../api/customers'
-import { getPayments, getDeletedPayments } from '../api/payments'
+import { getPayments, getDeletedPayments, reversePayment as apiReversePayment } from '../api/payments'
 import { getItems } from '../api/inventory'
 import { getPurchases } from '../api/purchases'
 import { getProfile } from '../api/profile'
@@ -456,6 +456,7 @@ const baseReducer = (state, action) => {
       const payment = action.payload
       const updatedBills = state.bills.map((bill) => {
         if (bill.id !== payment.billId) return bill
+        if (payment.isRefund) return bill
         const paid = Number(bill.amountPaid || 0) + Number(payment.totalPaid)
         const balance = Math.max(bill.total - paid, 0)
         const status = paid >= bill.total ? 'paid' : 'partial'
@@ -680,6 +681,180 @@ const baseReducer = (state, action) => {
         deletedPayments: updatedDeletedPayments,
       }
     }
+    case 'REVERSE_PAYMENT': {
+      const { paymentId, reverseAmount, reason, authorizedBy, reversalPaymentId } = action.payload
+      const targetPayment = state.payments.find((p) => p.id === paymentId)
+      if (!targetPayment) return state
+
+      const originalPaid = Math.abs(Number(targetPayment.totalPaid || 0))
+      const alreadyReversed = Number(targetPayment.reversedAmount || 0)
+      const remainingReversible = Math.max(0, originalPaid - alreadyReversed)
+      const revAmt = Math.min(Number(reverseAmount || remainingReversible), remainingReversible)
+      if (revAmt <= 0) return state
+
+      const newReversedTotal = Number((alreadyReversed + revAmt).toFixed(2))
+      const isFull = newReversedTotal >= originalPaid
+      const newStatus = isFull ? 'reversed' : 'partially_reversed'
+
+      const origCash = Math.abs(Number(targetPayment.cashAmount || 0))
+      const origUpi = Math.abs(Number(targetPayment.upiAmount || 0))
+      let revCash = 0
+      let revUpi = 0
+      if (originalPaid > 0) {
+        if (origCash > 0 && origUpi <= 0) {
+          revCash = revAmt
+          revUpi = 0
+        } else if (origUpi > 0 && origCash <= 0) {
+          revCash = 0
+          revUpi = revAmt
+        } else {
+          revCash = Number((revAmt * (origCash / originalPaid)).toFixed(2))
+          revUpi = Number((revAmt - revCash).toFixed(2))
+        }
+      }
+
+      // 1. Update target payment (keep original intact, mark status and reversed amount)
+      const updatedPayments = state.payments.map((p) => {
+        if (p.id !== paymentId) return p
+        return {
+          ...p,
+          status: newStatus,
+          isReversed: isFull,
+          reversedAmount: newReversedTotal,
+          reversalHistory: [
+            ...(p.reversalHistory || []),
+            {
+              amount: revAmt,
+              reason: reason || 'Payment reversed',
+              date: new Date().toISOString(),
+              authorizedBy: authorizedBy || 'Admin'
+            }
+          ]
+        }
+      })
+
+      // 2. Create linked reversal payment transaction
+      const revPaymentRecord = {
+        id: reversalPaymentId || `PAY-REV-${Date.now()}`,
+        billId: targetPayment.billId,
+        customerId: targetPayment.customerId,
+        customerName: targetPayment.customerName,
+        date: new Date().toISOString(),
+        cashAmount: -revCash,
+        upiAmount: -revUpi,
+        totalPaid: -revAmt,
+        paymentType: 'reversal',
+        isReversal: true,
+        isRefund: false,
+        reversalOf: targetPayment.id,
+        notes: `Reversal of Payment #${targetPayment.paymentNumber || targetPayment.id}: ${reason || 'Payment reversed'}`,
+        createdAt: new Date().toISOString(),
+      }
+
+      // 3. Update affected bill
+      let updatedBills = state.bills
+      if (targetPayment.billId) {
+        updatedBills = state.bills.map((bill) => {
+          if (bill.id !== targetPayment.billId) return bill
+          const newPaid = Math.max(0, Number((Number(bill.amountPaid || 0) - revAmt).toFixed(2)))
+          const newBalance = Math.min(bill.total, Number((bill.total - newPaid).toFixed(2)))
+          const billStatus = newPaid >= bill.total ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid')
+          return {
+            ...bill,
+            amountPaid: newPaid,
+            balance: newBalance,
+            status: billStatus,
+            paymentMethod: {
+              cash: Math.max(0, Number((Number(bill.paymentMethod?.cash || 0) - revCash).toFixed(2))),
+              upi: Math.max(0, Number((Number(bill.paymentMethod?.upi || 0) - revUpi).toFixed(2))),
+            },
+            reversalHistory: [
+              ...(bill.reversalHistory || []),
+              {
+                paymentId: targetPayment.id,
+                reversalPaymentId: revPaymentRecord.id,
+                amount: revAmt,
+                reason,
+                date: new Date().toISOString()
+              }
+            ]
+          }
+        })
+      }
+
+      // 4. Update customer advance if payment created excess credit
+      let updatedCustomers = state.customers
+      if (targetPayment.customerId && targetPayment.excessCredit && Number(targetPayment.excessCredit) > 0) {
+        const excessDeduct = Math.min(revAmt, Number(targetPayment.excessCredit))
+        updatedCustomers = state.customers.map((c) => {
+          if (c.id !== targetPayment.customerId) return c
+          const newAdv = Math.max(0, Number((Number(c.advanceBalance || c.creditBalance || 0) - excessDeduct).toFixed(2)))
+          return {
+            ...c,
+            advanceBalance: newAdv,
+            creditBalance: newAdv
+          }
+        })
+      }
+
+      return {
+        ...state,
+        bills: updatedBills,
+        customers: updatedCustomers,
+        payments: [revPaymentRecord, ...updatedPayments]
+      }
+    }
+    case 'REVERSE_REFUND': {
+      const { refundPaymentId, reason, authorizedBy } = action.payload
+      const targetRefund = state.payments.find((p) => p.id === refundPaymentId)
+      if (!targetRefund || (!targetRefund.isRefund && targetRefund.paymentType !== 'refund')) return state
+
+      const refundAmt = Math.abs(Number(targetRefund.totalPaid || 0))
+      if (refundAmt <= 0) return state
+
+      const updatedPayments = state.payments.map((p) => {
+        if (p.id !== refundPaymentId) return p
+        return {
+          ...p,
+          status: 'reversed',
+          isReversed: true,
+          reversalNotes: reason,
+          reversalDate: new Date().toISOString(),
+          authorizedBy: authorizedBy || 'Admin'
+        }
+      })
+
+      let updatedBills = state.bills
+      if (targetRefund.billId) {
+        updatedBills = state.bills.map((bill) => {
+          if (bill.id !== targetRefund.billId) return bill
+          const restoredPaid = Math.min(bill.total, Number((Number(bill.amountPaid || 0) + refundAmt).toFixed(2)))
+          const restoredBalance = Math.max(0, Number((bill.total - restoredPaid).toFixed(2)))
+          const billStatus = restoredPaid >= bill.total ? 'paid' : (restoredPaid > 0 ? 'partial' : 'unpaid')
+          return {
+            ...bill,
+            amountPaid: restoredPaid,
+            balance: restoredBalance,
+            status: billStatus,
+            reversalHistory: [
+              ...(bill.reversalHistory || []),
+              {
+                refundId: targetRefund.id,
+                amount: refundAmt,
+                reason,
+                date: new Date().toISOString()
+              }
+            ]
+          }
+        })
+      }
+
+      return {
+        ...state,
+        bills: updatedBills,
+        payments: updatedPayments
+      }
+    }
     case 'SET_PROMO_CODES': {
       return {
         ...state,
@@ -774,7 +949,7 @@ const extractMaxSeq = (items, prefix) => {
 const generateSeqId = (state, type) => {
   const counters = state.idCounters || {}
   const current = Number(counters[type] || 0)
-  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP' }
+  const prefixMap = { RC: 'RC', RND: 'WI', BILL: 'BILL', PAY: 'PAY', EXP: 'EXP', ADV: 'ADV', REC: 'REC', NOTE: 'NOTE', USER: 'USR', ITEM: 'ITEM', item: 'ITEM', GRP: 'GRP', SGRP: 'SGRP', SP: 'SP' }
   const prefix = prefixMap[type] || type
 
   let maxExisting = current
@@ -794,6 +969,8 @@ const generateSeqId = (state, type) => {
     maxExisting = Math.max(maxExisting, extractMaxSeq(state.inventory, 'ITEM'))
   } else if (type === 'GRP' || type === 'SGRP') {
     maxExisting = Math.max(maxExisting, extractMaxSeq(state.customerGroups, 'GRP'), extractMaxSeq(state.groupBills, 'GRP'))
+  } else if (type === 'SP') {
+    maxExisting = Math.max(maxExisting, extractMaxSeq(state.groupBills, 'SP'), extractMaxSeq(state.bills, 'SP'))
   }
 
   const next = Math.max(current, maxExisting) + 1
@@ -1750,9 +1927,10 @@ export const AppProvider = ({ children }) => {
       bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
     }
 
-    // Excess is always automatically credited to customer advance balance
-    const overpaid = R_cash + R_upi
-    const creditToAdvance = overpaid > 0
+    // Handle excess / overpayment based on billData.excessToAdvance and billData.returnChangeUpi
+    const overpaid = Math.round((R_cash + R_upi) * 100) / 100
+    const creditToAdvance = billData.excessToAdvance !== false && overpaid > 0 && !(billData.returnChangeUpi > 0)
+    const isUpiRefund = overpaid > 0 && billData.returnChangeUpi > 0 && !creditToAdvance
 
     if (updatedCustomer) {
       const advanceDeducted = Math.min(Number(billData.advanceUsed || 0), currentAdvance) - R_advance
@@ -1807,6 +1985,28 @@ export const AppProvider = ({ children }) => {
           notes: 'Excess payment added to advance credit',
         })
       }
+    } else if (isUpiRefund) {
+      // Record official UPI refund transaction linked to bill and customer
+      const _payIdxRefund = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
+      const refundUtr = billData.refundUtr || ''
+      const refundStatus = (refundUtr && refundUtr.trim()) ? 'completed' : (billData.refundStatus || 'manual_pending')
+      paymentRecords.push({
+        id: `PAY${String(_payIdxRefund).padStart(4, '0')}`,
+        billId: billId,
+        customerId: billData.customerId,
+        date: new Date().toISOString(),
+        cashAmount: 0,
+        upiAmount: 0,
+        totalPaid: 0,
+        refundAmount: Number(billData.returnChangeUpi || overpaid),
+        paymentType: 'refund',
+        isRefund: true,
+        paymentMethod: 'upi',
+        upiId: billData.refundUpiId || billData.customerUpiId || '',
+        utr: refundUtr,
+        status: refundStatus,
+        notes: refundUtr ? `Excess payment refunded via UPI (UTR: ${refundUtr})` : 'Excess payment refund via UPI (pending verification)',
+      })
     }
 
     // Build Account Settlement Breakdown metadata
@@ -1837,6 +2037,13 @@ export const AppProvider = ({ children }) => {
       totalReceivedUpi: upiAmount,
       advanceUsed: Math.min(Number(billData.advanceUsed || 0), currentAdvance),
       excessAddedToAdvance: creditToAdvance ? overpaid : 0,
+      excessRefundedUpi: isUpiRefund ? Number(billData.returnChangeUpi || overpaid) : 0,
+      upiRefundDetails: isUpiRefund ? {
+        amount: Number(billData.returnChangeUpi || overpaid),
+        upiId: billData.refundUpiId || billData.customerUpiId || '',
+        utr: billData.refundUtr || '',
+        status: (billData.refundUtr && billData.refundUtr.trim()) ? 'completed' : 'manual_pending',
+      } : null,
       advanceBalance: updatedCustomer ? updatedCustomer.advanceBalance : 0,
       appliedToCurrentBill: currentAlloc.applied,
       appliedToCurrentBillCash: currentAlloc.cash,
@@ -1884,25 +2091,6 @@ export const AppProvider = ({ children }) => {
     paymentRecords.forEach((p) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
-
-    if (overpaid > 0 && billData.returnChangeUpi > 0) {
-      const retAmt = Math.min(overpaid, billData.returnChangeUpi)
-      const nextCount = (state.idCounters?.ADV || 0) + 1
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
-      const advId = `ADV${String(nextCount).padStart(3, '0')}`
-      dispatch({
-        type: 'RETURN_ADVANCE_PAYMENT',
-        payload: {
-          id: advId,
-          customerId: billData.customerId,
-          amount: -retAmt,
-          date: new Date().toISOString(),
-          paymentMethod: 'upi',
-          notes: 'Returned change via UPI',
-          isReturn: true,
-        }
-      })
-    }
 
     return billId
   }
@@ -2202,9 +2390,17 @@ export const AppProvider = ({ children }) => {
 
   // ── Add Group Bill (creates individual bills + a group record) ──────────────
   const addGroupBill = (groupData) => {
-    const grpCounterKey = 'GRP'
-    const grpId = generateSeqId(state, grpCounterKey)
-    dispatch({ type: 'INCREMENT_COUNTER', payload: grpCounterKey })
+    const isSplit = groupData.type === 'split'
+    let grpId = null
+
+    // ID Generation Rules:
+    // Shared Purchase: No separate Group Billing ID or Split Purchase ID
+    // Split Purchase: One unique Split Purchase ID (SP0001) + separate unique Bill IDs for each customer
+    if (isSplit) {
+      const spCounterKey = 'SP'
+      grpId = generateSeqId(state, spCounterKey)
+      dispatch({ type: 'INCREMENT_COUNTER', payload: spCounterKey })
+    }
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
     let billCounterOffset = state.idCounters?.BILL || 0
@@ -2278,8 +2474,10 @@ export const AppProvider = ({ children }) => {
         rounding: member.rounding || 0,
         notes: groupData.notes || '',
         deleted: false,
-        groupBillId: grpId,
-        groupRole: member.groupRole || 'shared',
+        groupBillId: grpId || null,
+        splitPurchaseId: isSplit ? grpId : null,
+        split_purchase_id: isSplit ? grpId : null,
+        groupRole: member.groupRole || (isSplit ? 'split' : 'shared'),
         splitTotal: groupData.splitTotal || null,
         splitCount: groupData.splitCount || null,
         settledByGroupPayment: member.settledByGroupPayment || (sponsoredReceived > 0 && directPaid < memberTotal ? true : undefined),
@@ -2296,8 +2494,8 @@ export const AppProvider = ({ children }) => {
           ...newBill,
           notification: {
             id: `NOTE${String(noteCounterOffset).padStart(4, '0')}`,
-            title: `Group Bill ${grpId} — ${billId}`,
-            message: `Bill for ${customerName} created under group ${grpId} (${billStatus}).`,
+            title: isSplit ? `Split Purchase ${grpId} — ${billId}` : `Shared Purchase — ${billId}`,
+            message: `Bill for ${customerName} created (${billStatus}).`,
             date: new Date().toISOString().slice(0, 10),
             type: billStatus === 'paid' ? 'success' : 'warning',
             read: false,
@@ -2333,41 +2531,44 @@ export const AppProvider = ({ children }) => {
           payload: {
             id: payId,
             billId,
-            groupBillId: grpId,
+            groupBillId: grpId || null,
+            splitPurchaseId: isSplit ? grpId : null,
             customerId: member.customerId,
             date: groupData.date || new Date().toISOString().slice(0, 10),
             cashAmount: directCash,
             upiAmount: directUpi,
             totalPaid: directPaid,
             totalAmount: directPaid,
-            isGroupPayment: groupSettlements.length > 0 || groupData.type === 'split',
+            isGroupPayment: groupSettlements.length > 0 || isSplit,
             groupSettlements,
             notes: groupSettlements.length > 0
-              ? `Split payment for ${billId} under group ${grpId} (sponsoring ${groupSettlements.map(g => `${g.customerName}: ₹${g.amount}`).join(', ')})`
-              : `Split payment for bill ${billId} under group ${grpId}`,
+              ? `Payment for ${billId} (sponsoring ${groupSettlements.map(g => `${g.customerName}: ₹${g.amount}`).join(', ')})`
+              : (isSplit ? `Split payment for bill ${billId} under ${grpId}` : `Shared purchase payment for bill ${billId}`),
           }
         })
       }
     }
 
-    // Store group meta record — no separate parent bill needed;
-    // group totals are always computed live from member bills
-    dispatch({
-      type: 'ADD_GROUP_BILL',
-      payload: {
-        id: grpId,
-        type: groupData.type || 'shared',
-        memberBillIds,
-        createdAt: new Date().toISOString(),
-        roundingMode: groupData.roundingMode || null,
-        totalAmount: null, // deprecated — computed live from member bills
-        splitCount: groupData.splitCount || null,
-        notes: groupData.notes || '',
-        date: groupData.date || new Date().toISOString().slice(0, 10),
-      },
-    })
+    // Store split group meta record only for split purchases
+    if (isSplit && grpId) {
+      dispatch({
+        type: 'ADD_GROUP_BILL',
+        payload: {
+          id: grpId,
+          splitPurchaseId: grpId,
+          type: 'split',
+          memberBillIds,
+          createdAt: new Date().toISOString(),
+          roundingMode: groupData.roundingMode || null,
+          totalAmount: null, // computed live from member bills
+          splitCount: groupData.splitCount || null,
+          notes: groupData.notes || '',
+          date: groupData.date || new Date().toISOString().slice(0, 10),
+        },
+      })
+    }
 
-    return grpId
+    return grpId || memberBillIds[0]
   }
 
   // (duplicate body removed — addGroupBill above is the canonical version)
@@ -2531,28 +2732,15 @@ export const AppProvider = ({ children }) => {
     const oldBill = state.bills.find(b => b.id === billId)
     if (!oldBill) return
 
-    if (!refundAction && (oldBill.status === 'paid' || Number(oldBill.balance || 0) <= 0)) {
-      showToast?.('Bill is fully settled and paid. Editing is not permitted.', 'error')
-      return
-    }
-
     const customer = state.customers.find(c => c.id === oldBill.customerId)
 
-    // Revert old bill effects
     let currentAdvance = Number(customer?.advanceBalance || 0)
-
     let oldAdvanceUsed = Number(oldBill.advanceUsed || 0)
-    const oldPayments = state.payments.filter(p => p.billId === billId)
+    const oldPayments = state.payments.filter(p => p.billId === billId && !p.isReversal && p.paymentType !== 'reversal')
     const oldPaidCash = oldPayments.reduce((s, p) => s + Number(p.cashAmount || 0), 0)
     const oldPaidUpi = oldPayments.reduce((s, p) => s + Number(p.upiAmount || 0), 0)
     const oldPaidDirect = oldPaidCash + oldPaidUpi
-
-    if (customer) {
-      currentAdvance = currentAdvance + oldAdvanceUsed
-    }
-
-    // Remove payments for this bill
-    dispatch({ type: 'REMOVE_PAYMENTS_FOR_BILL', payload: billId })
+    const oldPaidTotal = oldPaidDirect + oldAdvanceUsed
 
     const total = Number(newBillData.total)
     let updatedCustomer = customer ? { ...customer } : null
@@ -2569,8 +2757,22 @@ export const AppProvider = ({ children }) => {
       updatedCustomer.loyaltyPoints = Math.max(0, (customer.loyaltyPoints || 0) + pointsDelta)
     }
 
-    // If refundAction is provided (meaning there is an overpayment / refund due)
-    if (refundAction) {
+    const editHistoryEntry = {
+      timestamp: new Date().toISOString(),
+      previousTotal: oldBill.total,
+      newTotal: total,
+      previousPaid: oldPaidTotal,
+      previousBalance: oldBill.balance,
+      reason: newBillData.reason || newBillData.editReason || 'Bill edited',
+      changes: {
+        itemCount: newBillData.items?.length,
+        discountType: newBillData.discountType,
+        discountValue: newBillData.discountValue
+      }
+    }
+
+    // SCENARIO C & E: newBillData total is LESS than oldPaidTotal
+    if (refundAction && oldPaidTotal > total) {
       const { type: refundType, method: refundMethod, directAmount, advanceAmount } = refundAction
       
       const newAdvanceUsed = Math.max(0, oldAdvanceUsed - Number(advanceAmount || 0))
@@ -2583,7 +2785,6 @@ export const AppProvider = ({ children }) => {
         newPaidUpi = Number((newPaidDirect - newPaidCash).toFixed(2))
       }
 
-      // Update bill properties directly
       const updatedBill = {
         ...oldBill,
         ...newBillData,
@@ -2598,34 +2799,14 @@ export const AppProvider = ({ children }) => {
         loyaltyPointsEarned: newEarned,
         loyaltyPointsRedeemed: newRedeemed,
         customerTotalLoyaltyPoints: updatedCustomer ? updatedCustomer.loyaltyPoints : 0,
+        editHistory: [...(oldBill.editHistory || []), { ...editHistoryEntry, refundAction }]
       }
 
       dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates: updatedBill } })
 
-      // Recreate the direct payment record on the bill (if any direct payment remains)
-      if (oldPaidDirect > 0) {
-        const _relogPayId = generateSeqId(state, 'PAY')
-        dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
-        dispatch({
-          type: 'ADD_PAYMENT',
-          payload: {
-            id: _relogPayId,
-            billId: billId,
-            customerId: newBillData.customerId,
-            date: new Date().toISOString(),
-            cashAmount: oldPaidCash,
-            upiAmount: oldPaidUpi,
-            totalPaid: oldPaidDirect,
-            paymentType: 'full',
-            excessCredit: 0,
-            notes: 'Original direct payments re-logged',
-          }
-        })
-      }
-
-      // Record refund payment (negative payment) if directAmount > 0
+      // If direct refund (via UPI or Cash)
       if (directAmount > 0) {
-        const _refundPayId = `PAY${String((state.idCounters?.PAY || 0) + 1).padStart(4, '0')}`
+        const _refundPayId = generateSeqId(state, 'PAY')
         dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
         dispatch({
           type: 'ADD_PAYMENT',
@@ -2633,6 +2814,7 @@ export const AppProvider = ({ children }) => {
             id: _refundPayId,
             billId: billId,
             customerId: newBillData.customerId,
+            customerName: newBillData.customerName || oldBill.customerName,
             date: new Date().toISOString(),
             cashAmount: refundMethod === 'cash' ? -Number(directAmount) : 0,
             upiAmount: refundMethod === 'upi' ? -Number(directAmount) : 0,
@@ -2640,38 +2822,22 @@ export const AppProvider = ({ children }) => {
             paymentType: 'refund',
             excessCredit: 0,
             notes: refundType === 'direct' 
-              ? `Direct refund of excess payment via ${refundMethod.toUpperCase()}`
-              : `Excess payment moved to advance balance`,
+              ? `Refund of excess payment via ${refundMethod.toUpperCase()} on Bill edit`
+              : `Excess payment credited to customer advance`,
             isRefund: true,
-            pin_override: refundAction?.pinOverride || refundAction?.pin_override || false,
-            pinOverride: refundAction?.pinOverride || refundAction?.pin_override || false,
-            security_pin: refundAction?.securityPin || refundAction?.security_pin || '',
-            securityPin: refundAction?.securityPin || refundAction?.security_pin || '',
           }
         })
 
-        if (refundType === 'direct') {
-          // Direct refund to customer: customer's advance gets updated with only advanceRefund
-          if (updatedCustomer) {
-            const finalBal = currentAdvance - newAdvanceUsed
-            updatedCustomer.advanceBalance = finalBal
-            updatedCustomer.creditBalance = finalBal
-            dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
-          }
-        } else {
-          // Credit to advance: directAmount is also added to the customer's advance balance
-          // We create an advance payment deposit record for directAmount
-          const advCounterKey = 'ADV'
-          const advCount = state.idCounters?.[advCounterKey] || 0
-          const advId = `ADV${String(advCount + 1).padStart(3, '0')}`
-          dispatch({ type: 'INCREMENT_COUNTER', payload: advCounterKey })
-
+        if (refundType === 'advance' || refundType === 'credit') {
+          // Add advance payment deposit record
+          const advId = generateSeqId(state, 'ADV')
+          dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
           dispatch({
             type: 'ADD_ADVANCE_PAYMENT',
             payload: {
               id: advId,
               customerId: newBillData.customerId,
-              customerName: newBillData.customerName || '',
+              customerName: newBillData.customerName || oldBill.customerName || '',
               amount: Number(directAmount),
               cashAmount: refundMethod === 'cash' ? Number(directAmount) : 0,
               upiAmount: refundMethod === 'upi' ? Number(directAmount) : 0,
@@ -2683,164 +2849,37 @@ export const AppProvider = ({ children }) => {
           })
 
           if (updatedCustomer) {
-            const finalBal = currentAdvance - newAdvanceUsed + Number(directAmount)
+            const finalBal = currentAdvance + Number(directAmount)
             updatedCustomer.advanceBalance = finalBal
             updatedCustomer.creditBalance = finalBal
             dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
           }
         }
-      } else {
-        // If directAmount is 0, only advanceRefund applies
-        if (updatedCustomer) {
-          const finalBal = currentAdvance - newAdvanceUsed
-          updatedCustomer.advanceBalance = finalBal
-          updatedCustomer.creditBalance = finalBal
-          dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
-        }
       }
     } else {
-      // Normal editing (no overpayment/refund or total increased)
-      const cashAmount = Number(newBillData.cashAmount || 0)
-      const upiAmount = Number(newBillData.upiAmount || 0)
+      // SCENARIO A, B, D, F: Normal editing or bill total increased or unchanged
+      // Existing payments are PRESERVED!
+      const newPaid = oldPaidTotal
+      const newBalance = Math.max(0, Number((total - newPaid).toFixed(2)))
+      const newStatus = newPaid >= total ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid')
 
-      const unpaidBills = state.bills
-        .filter((b) => b.customerId === newBillData.customerId && !b.deleted && b.status !== 'paid' && b.id !== billId)
-        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
-
-      const newBill = {
+      const updatedBill = {
         ...oldBill,
         ...newBillData,
-        amountPaid: 0,
-        balance: total,
-        status: 'unpaid',
-        paymentMethod: { cash: 0, upi: 0 },
-        creditUsed: 0,
-        advanceUsed: 0,
+        amountPaid: newPaid,
+        balance: newBalance,
+        status: newStatus,
+        paymentMethod: oldBill.paymentMethod || { cash: oldPaidCash, upi: oldPaidUpi },
+        advanceUsed: oldAdvanceUsed,
         rounding: newBillData.rounding || 0,
         discountAmount: newBillData.discountAmount,
         loyaltyPointsEarned: newEarned,
         loyaltyPointsRedeemed: newRedeemed,
         customerTotalLoyaltyPoints: updatedCustomer ? updatedCustomer.loyaltyPoints : 0,
+        editHistory: [...(oldBill.editHistory || []), editHistoryEntry]
       }
 
-      const billsToPay = [...unpaidBills.map(b => ({ ...b, paymentMethod: { ...b.paymentMethod } })), newBill]
-
-      let R_advance = Math.min(Number(newBillData.advanceUsed || 0), currentAdvance)
-      let R_credit = 0
-      let R_cash = cashAmount
-      let R_upi = upiAmount
-
-      const paymentRecords = []
-
-      // Distribute advance & credit
-      for (const bill of billsToPay) {
-        let remaining = bill.total - bill.amountPaid
-        if (remaining <= 0) continue
-
-        if (R_advance > 0) {
-          const applyAdv = Math.min(R_advance, remaining)
-          bill.advanceUsed = (bill.advanceUsed || 0) + applyAdv
-          bill.amountPaid += applyAdv
-          remaining -= applyAdv
-          R_advance -= applyAdv
-        }
-
-        if (R_credit > 0 && remaining > 0) {
-          const applyCred = Math.min(R_credit, remaining)
-          bill.creditUsed = (bill.creditUsed || 0) + applyCred
-          bill.amountPaid += applyCred
-          remaining -= applyCred
-          R_credit -= applyCred
-        }
-      }
-
-      // Distribute new cash/upi
-      for (const bill of billsToPay) {
-        let remaining = bill.total - bill.amountPaid
-        if (remaining <= 0) continue
-
-        let applyCash = 0
-        let applyUpi = 0
-
-        if (R_cash > 0) {
-          applyCash = Math.min(R_cash, remaining)
-          R_cash -= applyCash
-          remaining -= applyCash
-        }
-        if (R_upi > 0 && remaining > 0) {
-          applyUpi = Math.min(R_upi, remaining)
-          R_upi -= applyUpi
-          remaining -= applyUpi
-        }
-
-        const applyTotal = applyCash + applyUpi
-        if (applyTotal > 0) {
-          bill.amountPaid += applyTotal
-          bill.paymentMethod.cash = (bill.paymentMethod.cash || 0) + applyCash
-          bill.paymentMethod.upi = (bill.paymentMethod.upi || 0) + applyUpi
-
-          const _editPayIdx = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-          paymentRecords.push({
-            id: `PAY${String(_editPayIdx).padStart(4, '0')}`,
-            billId: bill.id,
-            customerId: bill.customerId,
-            date: new Date().toISOString(),
-            cashAmount: applyCash,
-            upiAmount: applyUpi,
-            totalPaid: applyTotal,
-            paymentType: bill.amountPaid >= bill.total ? 'full' : 'partial',
-            excessCredit: 0,
-            notes: newBillData.notes || 'Edit bill payment allocation',
-          })
-        }
-      }
-
-      // Update status and balance
-      for (const bill of billsToPay) {
-        bill.balance = Math.max(bill.total - bill.amountPaid, 0)
-        bill.status = bill.amountPaid >= bill.total ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid')
-      }
-
-      const excess = R_cash + R_upi
-      if (updatedCustomer) {
-        const finalBal = Math.max(
-          (currentAdvance - (Math.min(Number(newBillData.advanceUsed || 0), currentAdvance) - R_advance)),
-          0
-        )
-        updatedCustomer.advanceBalance = finalBal
-        updatedCustomer.creditBalance = finalBal
-        dispatch({ type: 'UPDATE_CUSTOMER', payload: { id: updatedCustomer.id, updates: updatedCustomer } })
-      }
-
-      if (excess > 0 && paymentRecords.length > 0) {
-        const lastRec = paymentRecords[paymentRecords.length - 1]
-        lastRec.excessCredit = excess
-        lastRec.cashAmount += R_cash
-        lastRec.upiAmount += R_upi
-      } else if (excess > 0) {
-        const _editExcessIdx = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-        paymentRecords.push({
-          id: `PAY${String(_editExcessIdx).padStart(4, '0')}`,
-          billId: billId,
-          customerId: newBillData.customerId,
-          date: new Date().toISOString(),
-          cashAmount: R_cash,
-          upiAmount: R_upi,
-          totalPaid: 0,
-          paymentType: 'full',
-          excessCredit: excess,
-          notes: 'Excess payment from edit added to credit',
-        })
-      }
-
-      // Dispatch bills updates
-      billsToPay.forEach((b) => {
-        dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b } })
-      })
-
-      paymentRecords.forEach((p) => {
-        dispatch({ type: 'ADD_PAYMENT', payload: p })
-      })
+      dispatch({ type: 'UPDATE_BILL', payload: { id: billId, updates: updatedBill } })
     }
   }
 
@@ -2901,6 +2940,47 @@ export const AppProvider = ({ children }) => {
   const updateBill = (id, updates) => dispatch({ type: 'UPDATE_BILL', payload: { id, updates } })
   const deletePayment = (id) => dispatch({ type: 'DELETE_PAYMENT', payload: id })
 
+  const reversePayment = async ({ paymentId, amount, reason, authorizedBy }) => {
+    const p = state.payments.find(x => x.id === paymentId || x.rawId === paymentId)
+    if (!p) throw new Error('Payment transaction not found')
+    const originalPaid = Math.abs(Number(p.totalPaid || 0))
+    const alreadyRev = Number(p.reversedAmount || 0)
+    const remaining = Math.max(0, originalPaid - alreadyRev)
+    const revAmount = amount !== undefined && amount !== null && amount !== '' ? Number(amount) : remaining
+    if (revAmount <= 0) throw new Error('Reversal amount must be greater than zero')
+    if (revAmount > remaining) throw new Error(`Cannot reverse ₹${revAmount.toFixed(2)}. Remaining valid payment is ₹${remaining.toFixed(2)}`)
+
+    const revId = generateSeqId(state, 'PAY')
+    dispatch({ type: 'INCREMENT_COUNTER', payload: 'PAY' })
+
+    dispatch({
+      type: 'REVERSE_PAYMENT',
+      payload: {
+        paymentId: p.id,
+        reverseAmount: revAmount,
+        reason: reason || 'Payment reversed',
+        authorizedBy: authorizedBy || 'Admin',
+        reversalPaymentId: revId
+      }
+    })
+
+    if (isOnline) {
+      try {
+        await apiReversePayment(p.id, { amount: revAmount, reason, authorized_by: authorizedBy })
+      } catch (err) {
+        console.warn('Backend payment reversal sync notice:', err)
+      }
+    }
+    return { success: true, reversalPaymentId: revId, reversedAmount: revAmount }
+  }
+
+  const reverseRefund = async ({ refundPaymentId, reason, authorizedBy }) => {
+    dispatch({
+      type: 'REVERSE_REFUND',
+      payload: { refundPaymentId, reason, authorizedBy }
+    })
+  }
+
   const value = useMemo(
     () => ({
       ...state,
@@ -2924,6 +3004,8 @@ export const AppProvider = ({ children }) => {
       editBill,
       applyPostDiscount,
       deletePayment,
+      reversePayment,
+      reverseRefund,
       updateCustomer: (id, updates) => dispatch({ type: 'UPDATE_CUSTOMER', payload: { id, updates } }),
       updateCustomerFull,
       deleteCustomer: (id) => dispatch({ type: 'DELETE_CUSTOMER', payload: id }),
