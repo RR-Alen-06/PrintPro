@@ -1,5 +1,5 @@
 const { getPool } = require('../config/db');
-const logger = require('../utils/logger');
+const _logger = require('../utils/logger');
 const { getNextSequence } = require('../utils/sequenceGenerator');
 
 // Payment projection DTO: strips internal auth tenant ID (user_id)
@@ -157,6 +157,28 @@ async function recordPayment(req, res, next) {
       }
     }
 
+    // ── Validate that bills have outstanding balance and payment does not exceed due ──
+    const totalOutstandingDue = parseFloat(
+      billsToProcess.reduce((sum, b) => sum + Math.max(0, parseFloat(b.balance || 0)), 0).toFixed(2)
+    );
+
+    if (totalOutstandingDue <= 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'NO_OUTSTANDING_BALANCE',
+        error: 'The selected bill(s) have zero outstanding balance and are already settled.'
+      });
+    }
+
+    const totalDirectPaying = parseFloat((cashAmt + upiAmt).toFixed(2));
+    if (totalDirectPaying > totalOutstandingDue) {
+      return res.status(400).json({
+        success: false,
+        code: 'OVERPAYMENT_NOT_ALLOWED',
+        error: `Payment amount (₹${totalDirectPaying.toFixed(2)}) exceeds outstanding due (₹${totalOutstandingDue.toFixed(2)}). Ordinary bill payments cannot create advance balances. Please use the Record Advance tab for advance deposits.`
+      });
+    }
+
     let remainingCash = cashAmt;
     let remainingUpi = upiAmt;
     let remainingAdvance = (cashAmt === 0 && upiAmt === 0 && totalPaid > 0) ? totalPaid : 0;
@@ -212,7 +234,7 @@ async function recordPayment(req, res, next) {
       const [payResult] = await conn.query(
         `INSERT INTO payments (user_id, bill_id, customer_id, payment_number, cash_amount, upi_amount, total_paid, payment_type, notes, session_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, bill.id, resolvedCustomerId, paySeq, applyCash, applyUpi, applyTotal, paymentType, notes || 'FIFO payment', activeSessionId]
+        [req.user.id, bill.id, resolvedCustomerId, paySeq, applyCash, applyUpi, applyTotal, paymentType, notes || 'Bill settlement', activeSessionId]
       );
 
       // Auto-create UPI transaction if upi_amount > 0
@@ -256,46 +278,14 @@ async function recordPayment(req, res, next) {
       if (remainingCash <= 0 && remainingUpi <= 0 && remainingAdvance <= 0) break;
     }
 
-    // ── Handle excess (overpayment) ───────────────────────────────────────────
-    const excess = parseFloat((remainingCash + remainingUpi).toFixed(2));
-    if (excess > 0) {
-      await conn.query(
-        `UPDATE customers SET
-           credit_balance = COALESCE(credit_balance, 0) + ?,
-           advance_balance = COALESCE(advance_balance, 0) + ?
-         WHERE id = ? AND user_id = ?`,
-        [excess, excess, resolvedCustomerId, req.user.id]
-      );
-
-      const targetBillId = resolvedBill ? resolvedBill.id : null;
-      const advSeq = await getNextSequence(conn, req.user.id, 'advance');
-      const payMode = remainingUpi > 0 ? (remainingCash > 0 ? 'split' : 'upi') : 'cash';
-      await conn.query(
-        `INSERT INTO advance_payments (user_id, customer_id, amount, payment_mode, type, bill_id, notes, advance_number, date)
-         VALUES (?, ?, ?, ?, 'deposit', ?, ?, ?, NOW())`,
-        [req.user.id, resolvedCustomerId, excess, payMode, targetBillId, 'Excess payment credited to advance', advSeq]
-      );
-
-      if (remainingUpi > 0) {
-        await conn.query(
-          `INSERT INTO upi_transactions (user_id, bill_id, customer_id, upi_ref, amount, status, date)
-           VALUES (?, ?, ?, ?, ?, 'pending', NOW())`,
-          [req.user.id, targetBillId, resolvedCustomerId, req.body.upi_ref || '', remainingUpi]
-        );
-      }
-      paymentRecords.push({ billId: targetBillId, applied: excess, excess, isAdvance: true });
-
-      logger.info(`FIFO: Excess credit added to customer balance`, { customerId: resolvedCustomerId, excess: excess.toFixed(2) });
-    }
-
+    // Bill payments do not create advance balances (advances must be deposited via Record Advance workflow)
     await conn.commit();
 
     res.status(201).json({
       success: true,
       data: {
         payments: paymentRecords,
-        excess_to_credit: excess,
-        total_applied: parseFloat((totalPaid - excess).toFixed(2)),
+        total_applied: totalDirectPaying,
       }
     });
   } catch (err) {

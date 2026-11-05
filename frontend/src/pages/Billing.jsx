@@ -59,15 +59,16 @@ const Billing = () => {
     }
   }
 
-  const [customerType, setCustomerType] = useState('regular')
-  // For regular: select from dropdown
-  const [customerId, setCustomerId] = useState(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
-  // For random: 'existing' = pick from walk-in list, 'new' = create new
-  const [randomMode, setRandomMode] = useState('existing')
-  const [randomCustomerId, setRandomCustomerId] = useState('')
+  // Unified customer selection: 'existing' = select from unified dropdown, 'new' = inline create
+  const [customerMode, setCustomerMode] = useState('existing')
+  const [customerId, setCustomerId] = useState(() => {
+    const first = (customers || []).find((c) => !c.deleted)
+    return first?.id || ''
+  })
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [customerEmail, setCustomerEmail] = useState('')
+
   // Advance balance usage
   const [advanceUsed, setAdvanceUsed] = useState(0)
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
@@ -79,10 +80,13 @@ const Billing = () => {
   const [itemRows, setItemRows] = useState(() => [makeInitialRow(inventory)])
   const [discountType, setDiscountType] = useState('flat')
   const [discountValue, setDiscountValue] = useState(0)
-  const [cashAmount, setCashAmount] = useState(0)
-  const [upiAmount, setUpiAmount] = useState(0)
+
+  // Payment controls: Action (full | partial | unpaid) & Method (cash | upi | split)
+  const [paymentAction, setPaymentAction] = useState('full')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [cashAmount, setCashAmount] = useState('')
+  const [upiAmount, setUpiAmount] = useState('')
   const [notes, setNotes] = useState('')
-  const [paymentMode, setPaymentMode] = useState('partial')
   const [upiCheckoutAmount, setUpiCheckoutAmount] = useState(0)
   const [followUpCash, setFollowUpCash] = useState(0)
   const [followUpUpi, setFollowUpUpi] = useState(0)
@@ -142,13 +146,8 @@ const Billing = () => {
       if (billToEdit) {
         setIsEditing(true)
         setEditingBillId(billToEdit.id)
-        setCustomerType(billToEdit.customerType || 'regular')
-        if (billToEdit.customerType === 'regular') {
-          setCustomerId(billToEdit.customerId)
-        } else {
-          setRandomCustomerId(billToEdit.customerId)
-          setRandomMode('existing')
-        }
+        setCustomerMode('existing')
+        setCustomerId(billToEdit.customerId || '')
         setCustomerName(billToEdit.customerName || '')
         setCustomerPhone(billToEdit.customerPhone || '')
         setCustomerEmail(billToEdit.customerEmail || '')
@@ -158,6 +157,7 @@ const Billing = () => {
         setDiscountValue(billToEdit.discountValue || 0)
         setCashAmount(billToEdit.paymentMethod?.cash || 0)
         setUpiAmount(billToEdit.paymentMethod?.upi || 0)
+        setPaymentAction(billToEdit.status === 'paid' ? 'full' : (Number(billToEdit.amountPaid || 0) > 0 ? 'partial' : 'unpaid'))
         setNotes(billToEdit.notes || '')
         setLoyaltyPointsRedeemedInput(String(billToEdit.loyaltyPointsRedeemed || ''))
         setShouldRedeemPoints(Number(billToEdit.loyaltyPointsRedeemed || 0) > 0)
@@ -187,13 +187,8 @@ const Billing = () => {
       if (billToDup) {
         setIsEditing(false)
         setEditingBillId(null)
-        setCustomerType(billToDup.customerType || 'regular')
-        if (billToDup.customerType === 'regular') {
-          setCustomerId(billToDup.customerId)
-        } else {
-          setRandomCustomerId(billToDup.customerId)
-          setRandomMode('existing')
-        }
+        setCustomerMode('existing')
+        setCustomerId(billToDup.customerId || '')
         setCustomerName(billToDup.customerName || '')
         setCustomerPhone(billToDup.customerPhone || '')
         setCustomerEmail(billToDup.customerEmail || '')
@@ -221,18 +216,13 @@ const Billing = () => {
       }
     } else if (params.get('customerId')) {
       const targetCustId = params.get('customerId')
-      const targetCust = customers.find((c) => c.id === targetCustId)
+      const targetCust = (customers || []).find((c) => c.id === targetCustId)
       if (targetCust) {
-        setCustomerType(targetCust.type || 'regular')
-        if (targetCust.type === 'regular') {
-          setCustomerId(targetCust.id)
-        } else {
-          setRandomCustomerId(targetCust.id)
-          setRandomMode('existing')
-          setCustomerName(targetCust.name || '')
-          setCustomerPhone(targetCust.phone || '')
-          setCustomerEmail(targetCust.email || '')
-        }
+        setCustomerMode('existing')
+        setCustomerId(targetCust.id)
+        setCustomerName(targetCust.name || '')
+        setCustomerPhone(targetCust.phone || '')
+        setCustomerEmail(targetCust.email || '')
       }
     }
   }, [location.search, bills, inventory, customers, navigate, showAlert])
@@ -263,11 +253,14 @@ const Billing = () => {
     return computeSettlementBreakdown(liveBill, bills, payments, customers)
   }, [liveBill, bills, payments, customers])
 
+  const activeCustomers = useMemo(() => (customers || []).filter((c) => !c.deleted), [customers])
+
   const selectedCustomer = useMemo(() => {
-    if (customerType === 'regular') return customers.find((c) => c.id === customerId)
-    if (customerType === 'random' && randomMode === 'existing') return customers.find((c) => c.id === randomCustomerId)
+    if (customerMode === 'existing') {
+      return (customers || []).find((c) => c.id === customerId) || null
+    }
     return null
-  }, [customers, customerId, customerType, randomMode, randomCustomerId])
+  }, [customers, customerId, customerMode])
 
   const customerPendingDue = useMemo(() => {
     if (!selectedCustomer?.id) return 0
@@ -275,9 +268,6 @@ const Billing = () => {
       .filter((b) => !b.deleted && !b.isGroupParent && String(b.customerId) === String(selectedCustomer.id) && b.id !== editingBillId && Number(b.balance || 0) > 0)
       .reduce((sum, b) => sum + Number(b.balance || 0), 0)
   }, [bills, selectedCustomer, editingBillId])
-
-  const activeRegular = useMemo(() => customers.filter((c) => c.type === 'regular' && !c.deleted), [customers])
-  const activeRandom = useMemo(() => customers.filter((c) => c.type === 'random' && !c.deleted), [customers])
 
   // ── Modal helpers ──────────────────────────────────────────────────────────
   const openBillModal = (bill) => {
@@ -452,7 +442,7 @@ const Billing = () => {
     const code = promoCodeInput.trim().toUpperCase()
     if (!code) return
 
-    const currentId = customerType === 'regular' ? customerId : randomCustomerId
+    const currentId = customerMode === 'existing' ? customerId : null
 
     try {
       setIsValidatingPromo(true)
@@ -877,7 +867,7 @@ const Billing = () => {
 
   // Loyalty Points Discount calculation
   const loyaltyEnabled = settings.loyaltyEnabled !== false
-  const pointsRedeemed = loyaltyEnabled && customerType === 'regular' ? Number(loyaltyPointsRedeemedInput || 0) : 0
+  const pointsRedeemed = loyaltyEnabled && selectedCustomer ? Number(loyaltyPointsRedeemedInput || 0) : 0
   const redeemOptions = settings.loyaltyRedeemOptions || [
     { points: 100, rupees: 2.5 },
     { points: 120, rupees: 3 },
@@ -897,17 +887,79 @@ const Billing = () => {
   const sgst = totalGst / 2
 
   const total = Math.max(taxableSubtotal + totalGst, 0)
-  const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   const customerAdvance = Number(selectedCustomer?.creditBalance || selectedCustomer?.credit_balance || selectedCustomer?.advanceBalance || selectedCustomer?.advance_balance || 0)
   const appliedAdvance = Math.min(Number(advanceUsed || 0), customerAdvance, total)
-  const netBillPayable = Math.max(total - appliedAdvance, 0)
+  const netBillPayable = Math.max(Number((total - appliedAdvance).toFixed(2)), 0)
+  const amountPaid = Number(cashAmount || 0) + Number(upiAmount || 0)
   const totalCustomerOwes = Number((netBillPayable + customerPendingDue).toFixed(2))
-  const excessPaid = Math.max(amountPaid - totalCustomerOwes, 0)
-  const netBalance = Math.max(netBillPayable - Math.min(amountPaid, netBillPayable), 0)
+  const excessPaid = Math.max(Number((amountPaid - totalCustomerOwes).toFixed(2)), 0)
+  const netBalance = Math.max(Number((netBillPayable - Math.min(amountPaid, netBillPayable)).toFixed(2)), 0)
   const finalStatus =
-    amountPaid + appliedAdvance >= total ? 'paid'
+    (amountPaid + appliedAdvance >= total && total > 0) || total === 0 ? 'paid'
     : amountPaid + appliedAdvance > 0 ? 'partial'
     : 'unpaid'
+
+  // Reactive payment amounts synchronization based on action, method, and netBillPayable
+  useEffect(() => {
+    if (paymentAction === 'full') {
+      if (paymentMethod === 'cash') {
+        setCashAmount(netBillPayable > 0 ? netBillPayable.toFixed(2) : '0')
+        setUpiAmount('0')
+      } else if (paymentMethod === 'upi') {
+        setUpiAmount(netBillPayable > 0 ? netBillPayable.toFixed(2) : '0')
+        setCashAmount('0')
+      } else if (paymentMethod === 'split') {
+        const c = Number(cashAmount || 0)
+        if (c > 0 && c <= netBillPayable) {
+          setUpiAmount((netBillPayable - c).toFixed(2))
+        } else {
+          setCashAmount(netBillPayable > 0 ? netBillPayable.toFixed(2) : '0')
+          setUpiAmount('0')
+        }
+      }
+    } else if (paymentAction === 'unpaid') {
+      setCashAmount('0')
+      setUpiAmount('0')
+    }
+  }, [paymentAction, paymentMethod, netBillPayable])
+
+  // Payment validation for real-time error banner & disabling submit button
+  const paymentValidationError = useMemo(() => {
+    const c = Number(cashAmount || 0)
+    const u = Number(upiAmount || 0)
+    const paid = Number((c + u).toFixed(2))
+
+    if (c < 0 || u < 0) {
+      return 'Payment amounts cannot be negative.'
+    }
+
+    if (paid > netBillPayable) {
+      return `Payment amount (₹${paid.toFixed(2)}) cannot exceed net bill payable (₹${netBillPayable.toFixed(2)}). Overpayments against bills are not permitted.`
+    }
+
+    if (paymentAction === 'full') {
+      if (netBillPayable > 0 && Math.abs(paid - netBillPayable) > 0.01) {
+        if (paymentMethod === 'split') {
+          return `Cash (₹${c.toFixed(2)}) + UPI (₹${u.toFixed(2)}) = ₹${paid.toFixed(2)}. Full payment requires exact collection of ₹${netBillPayable.toFixed(2)}.`
+        }
+        return `Full payment requires collecting exact net payable of ₹${netBillPayable.toFixed(2)}.`
+      }
+    }
+
+    if (paymentAction === 'partial') {
+      if (netBillPayable <= 0) {
+        return 'The entire bill is covered by advance. Partial payment is not applicable.'
+      }
+      if (paid <= 0) {
+        return 'Partial payment requires an amount greater than ₹0.00.'
+      }
+      if (paid >= netBillPayable) {
+        return `Partial payment must be strictly less than ₹${netBillPayable.toFixed(2)}. To collect the full amount, select "Full Payment".`
+      }
+    }
+
+    return ''
+  }, [cashAmount, upiAmount, netBillPayable, paymentAction, paymentMethod])
 
   // Auto-detect and apply available advance payments
   React.useEffect(() => {
@@ -937,13 +989,8 @@ const Billing = () => {
     }
     setIsEditing(true)
     setEditingBillId(bill.id)
-    setCustomerType(bill.customerType || 'regular')
-    if (bill.customerType === 'regular') {
-      setCustomerId(bill.customerId)
-    } else {
-      setRandomMode('existing')
-      setRandomCustomerId(bill.customerId)
-    }
+    setCustomerMode('existing')
+    setCustomerId(bill.customerId)
     setDate(bill.date)
     setDueDate(bill.dueDate || '')
     setItemRows(bill.items.map((item) => {
@@ -968,29 +1015,10 @@ const Billing = () => {
     setCashAmount(bill.paymentMethod?.cash || 0)
     setUpiAmount(bill.paymentMethod?.upi || 0)
     setNotes(bill.notes || '')
-    setPaymentMode(bill.status === 'paid' ? 'full' : 'partial')
+    setPaymentAction(bill.status === 'paid' ? 'full' : (Number(bill.amountPaid || 0) > 0 ? 'partial' : 'unpaid'))
     setLoyaltyPointsRedeemedInput(String(bill.loyaltyPointsRedeemed || ''))
     setIsModalOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  // ── Customer type change ───────────────────────────────────────────────────
-  const handleCustomerTypeChange = (type) => {
-    setCustomerType(type)
-    setAdvanceUsed(0)
-    if (type === 'regular') {
-      const first = customers.find((c) => c.type === 'regular' && !c.deleted)
-      setCustomerId(first?.id || '')
-      setRandomCustomerId('')
-      setRandomMode('existing')
-    } else {
-      setCustomerId('')
-      setRandomCustomerId(customers.find((c) => c.type === 'random' && !c.deleted)?.id || '')
-      setRandomMode('existing')
-    }
-    setCustomerName('')
-    setCustomerPhone('')
-    setCustomerEmail('')
   }
 
   const processEditBillSave = (finalPayload) => {
@@ -1050,30 +1078,35 @@ const Billing = () => {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = (event) => {
     event.preventDefault()
+
+    if (paymentValidationError) {
+      showAlert(paymentValidationError, 'error')
+      return
+    }
+
     let customerIdToUse = ''
     let customerNameToUse = ''
 
-    if (customerType === 'regular') {
-      if (!customerId) { showAlert('Please select a regular customer.', 'error'); return }
-      customerIdToUse = customerId
-      customerNameToUse = selectedCustomer?.name || ''
-    } else {
-      if (randomMode === 'existing') {
-        if (!randomCustomerId) { showAlert('Please select a walk-in customer or choose "New Customer".', 'error'); return }
-        customerIdToUse = randomCustomerId
-        const c = customers.find((x) => x.id === randomCustomerId)
-        customerNameToUse = c?.name || 'Walk-in Customer'
-      } else {
-        if (!customerName.trim()) { showAlert('Please enter the customer name.', 'error'); return }
-        customerNameToUse = customerName.trim()
-        customerIdToUse = addCustomer({
-          type: 'random',
-          name: customerNameToUse,
-          phone: customerPhone.trim(),
-          email: customerEmail.trim(),
-          creditBalance: 0,
-        })
+    if (customerMode === 'new') {
+      if (!customerName.trim()) {
+        showAlert('Please enter the customer name.', 'error')
+        return
       }
+      customerNameToUse = customerName.trim()
+      customerIdToUse = addCustomer({
+        type: 'regular',
+        name: customerNameToUse,
+        phone: customerPhone.trim(),
+        email: customerEmail.trim(),
+        creditBalance: 0,
+      })
+    } else {
+      if (!customerId) {
+        showAlert('Please select a customer or choose "+ New Customer".', 'error')
+        return
+      }
+      customerIdToUse = customerId
+      customerNameToUse = selectedCustomer?.name || 'Customer'
     }
 
     // Merge duplicate items before submission (Part 3 requirement pass)
@@ -1097,13 +1130,11 @@ const Billing = () => {
     })
 
     const totalPaidNow = Number(cashAmount || 0) + Number(upiAmount || 0)
-    const netBillPayable = Math.max(total - appliedAdvance, 0)
-    const totalCustomerOwes = Number((netBillPayable + customerPendingDue).toFixed(2))
     const changeDue = Number((totalPaidNow - totalCustomerOwes).toFixed(2))
 
     const billPayload = {
       customerId: customerIdToUse,
-      customerType,
+      customerType: selectedCustomer?.type || 'regular',
       customerName: customerNameToUse,
       date,
       dueDate,
@@ -1124,7 +1155,7 @@ const Billing = () => {
       excessToAdvance: false,
       excessAmount: 0,
       notes,
-      paymentMode,
+      paymentMode: paymentAction,
       promoCode: appliedPromo?.code || null,
       promoDiscount: appliedPromo ? discountAmount : 0,
       loyaltyDiscount,
@@ -1142,10 +1173,9 @@ const Billing = () => {
     }
 
     if (changeDue > 0) {
-      const isRegular = customerType === 'regular'
       let defaultUpi = ''
-      if (isRegular && selectedCustomer) {
-        defaultUpi = selectedCustomer.phone ? `${selectedCustomer.phone}@upi` : ''
+      if (selectedCustomer?.phone) {
+        defaultUpi = `${selectedCustomer.phone}@upi`
       } else if (customerPhone) {
         defaultUpi = `${customerPhone.trim()}@upi`
       }
@@ -1159,7 +1189,7 @@ const Billing = () => {
         customerNameToUse,
         isEditing,
         editingBillId,
-        isRegularCustomer: isRegular,
+        isRegularCustomer: true,
       })
       setExcessStep('choice')
       setExcessRefundUpiId(defaultUpi)
@@ -1174,13 +1204,9 @@ const Billing = () => {
 
   const handleExcessChoice = (choice) => {
     if (!pendingExcessInfo) return
-    const { billPayload, changeDue, totalPaidNow, isRegularCustomer, isEditing: isEdit, editingBillId: editId } = pendingExcessInfo
+    const { billPayload, changeDue, totalPaidNow, isEditing: isEdit, editingBillId: editId } = pendingExcessInfo
 
     if (choice === 'advance') {
-      if (!isRegularCustomer) {
-        showAlert('Advance credit can only be added to a registered regular customer account. Please select "Return Excess via UPI" or register this customer.', 'warning')
-        return
-      }
       const updatedPayload = {
         ...billPayload,
         excessToAdvance: true,
@@ -1271,10 +1297,8 @@ const Billing = () => {
     setExcessQrGenerated(false)
     setIsEditing(false)
     setEditingBillId(null)
-    setCustomerType('regular')
-    setCustomerId(customers.find((c) => c.type === 'regular' && !c.deleted)?.id || '')
-    setRandomCustomerId('')
-    setRandomMode('existing')
+    setCustomerMode('existing')
+    setCustomerId(customers.find((c) => !c.deleted)?.id || '')
     setCustomerName('')
     setCustomerPhone('')
     setCustomerEmail('')
@@ -1283,10 +1307,11 @@ const Billing = () => {
     setDiscountType('flat')
     setDiscountValue(0)
     setCustomGst('')
-    setCashAmount(0)
-    setUpiAmount(0)
+    setPaymentAction('full')
+    setPaymentMethod('cash')
+    setCashAmount('')
+    setUpiAmount('')
     setNotes('')
-    setPaymentMode('partial')
     setDuplicateWarning('')
     setLoyaltyPointsRedeemedInput('')
     setShouldRedeemPoints(false)
@@ -1826,96 +1851,107 @@ const Billing = () => {
         )}
 
         <div className="grid-2" style={{ gap: '20px' }}>
-          {/* Customer Type toggle */}
+          {/* Unified Customer Selector */}
           <div className="form-group">
-            <label className="form-label">Customer Type</label>
-            <div className="radio-group">
-              <label className={`radio-option ${customerType === 'regular' ? 'selected' : ''}`}>
-                <input type="radio" name="customerType" value="regular" checked={customerType === 'regular'} onChange={() => handleCustomerTypeChange('regular')} />
-                Regular
-              </label>
-              <label className={`radio-option ${customerType === 'random' ? 'selected' : ''}`}>
-                <input type="radio" name="customerType" value="random" checked={customerType === 'random'} onChange={() => handleCustomerTypeChange('random')} />
-                Walk-in / Random
-              </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label className="form-label" style={{ margin: 0 }}>Customer</label>
+              <div className="radio-group" style={{ margin: 0 }}>
+                <label className={`radio-option ${customerMode === 'existing' ? 'selected' : ''}`} style={{ padding: '3px 10px', fontSize: '0.78rem' }}>
+                  <input
+                    type="radio"
+                    checked={customerMode === 'existing'}
+                    onChange={() => {
+                      setCustomerMode('existing')
+                      setCustomerName('')
+                      setCustomerPhone('')
+                      setCustomerEmail('')
+                    }}
+                  />
+                  Select Existing
+                </label>
+                <label className={`radio-option ${customerMode === 'new' ? 'selected' : ''}`} style={{ padding: '3px 10px', fontSize: '0.78rem' }}>
+                  <input
+                    type="radio"
+                    checked={customerMode === 'new'}
+                    onChange={() => setCustomerMode('new')}
+                  />
+                  <UserPlus size={12} /> + New Customer
+                </label>
+              </div>
             </div>
-          </div>
 
-          {/* Customer selector */}
-          <div className="form-group">
-            <label className="form-label">Customer</label>
-
-            {customerType === 'regular' ? (
-              /* ── Regular: grouped dropdown of all regular customers ── */
-              <>
-                <select
-                  className="form-select"
-                  value={customerId}
-                  onChange={(e) => { setCustomerId(e.target.value); setAdvanceUsed(0) }}
-                >
-                  <option value="">-- Select regular customer --</option>
-                  {activeRegular.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({getDisplayCustomerId(c)})
-                    </option>
-                  ))}
-                </select>
-              </>
+            {customerMode === 'existing' ? (
+              <select
+                className="form-select"
+                value={customerId}
+                onChange={(e) => {
+                  setCustomerId(e.target.value)
+                  setAdvanceUsed(0)
+                }}
+              >
+                <option value="">-- Select Customer --</option>
+                {activeCustomers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({getDisplayCustomerId(c)}){c.phone ? ` · ${c.phone}` : ''}
+                  </option>
+                ))}
+              </select>
             ) : (
-              /* ── Random: pick existing walk-in OR create new ── */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div className="radio-group">
-                  <label className={`radio-option ${randomMode === 'existing' ? 'selected' : ''}`}>
-                    <input type="radio" checked={randomMode === 'existing'} onChange={() => { setRandomMode('existing'); setCustomerName(''); setCustomerPhone(''); setCustomerEmail('') }} />
-                    Existing Walk-in
-                  </label>
-                  <label className={`radio-option ${randomMode === 'new' ? 'selected' : ''}`}>
-                    <input type="radio" checked={randomMode === 'new'} onChange={() => { setRandomMode('new'); setRandomCustomerId('') }} />
-                    <UserPlus size={13} /> New Customer
-                  </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Customer Name *"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <input
+                    className="form-input"
+                    type="tel"
+                    placeholder="Phone (optional)"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                  />
+                  <input
+                    className="form-input"
+                    type="email"
+                    placeholder="Email (optional)"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                  />
                 </div>
-
-                {randomMode === 'existing' ? (
-                  <select
-                    className="form-select"
-                    value={randomCustomerId}
-                    onChange={(e) => { setRandomCustomerId(e.target.value); setAdvanceUsed(0) }}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Saved as a customer with unique sequential ID.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '3px 10px' }}
+                    onClick={() => {
+                      if (!customerName.trim()) {
+                        showAlert('Please enter customer name.', 'error')
+                        return
+                      }
+                      const newId = addCustomer({
+                        type: 'regular',
+                        name: customerName.trim(),
+                        phone: customerPhone.trim(),
+                        email: customerEmail.trim(),
+                        creditBalance: 0,
+                      })
+                      setCustomerId(newId)
+                      setCustomerMode('existing')
+                      setCustomerName('')
+                      setCustomerPhone('')
+                      setCustomerEmail('')
+                      showToast?.('Customer created & selected!', 'success')
+                    }}
                   >
-                    <option value="">-- Select walk-in customer --</option>
-                    {activeRandom.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({getDisplayCustomerId(c)})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <>
-                    <input
-                      className="form-input"
-                      type="text"
-                      placeholder="Customer name *"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
-                    <input
-                      className="form-input"
-                      type="tel"
-                      placeholder="Phone number (optional)"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                    />
-                    <input
-                      className="form-input"
-                      type="email"
-                      placeholder="Email (optional)"
-                      value={customerEmail}
-                      onChange={(e) => setCustomerEmail(e.target.value)}
-                    />
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                      Will be saved as a new walk-in customer with a unique ID.
-                    </p>
-                  </>
-                )}
+                    Save &amp; Select
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1927,7 +1963,6 @@ const Billing = () => {
                 )}
               </div>
             )}
-
           </div>
 
           <div className="form-group">
@@ -2300,65 +2335,163 @@ const Billing = () => {
         <div className="grid-2" style={{ marginTop: '24px', gap: '20px' }}>
           <div className="card" style={{ padding: '20px' }}>
             <h3>Payment</h3>
+
+            {/* Payment Action Selector */}
             <div className="form-group">
               <label className="form-label">Payment Mode</label>
               <div className="radio-group">
-                <label className={`radio-option ${paymentMode === 'partial' ? 'selected' : ''}`}>
-                  <input type="radio" value="partial" checked={paymentMode === 'partial'} onChange={() => setPaymentMode('partial')} />
-                  Partial
-                </label>
-                <label className={`radio-option ${paymentMode === 'full' ? 'selected' : ''}`}>
-                  <input type="radio" value="full" checked={paymentMode === 'full'} onChange={() => setPaymentMode('full')} />
+                <label className={`radio-option ${paymentAction === 'full' ? 'selected' : ''}`}>
+                  <input type="radio" value="full" checked={paymentAction === 'full'} onChange={() => setPaymentAction('full')} />
                   Full
                 </label>
+                <label className={`radio-option ${paymentAction === 'partial' ? 'selected' : ''}`}>
+                  <input type="radio" value="partial" checked={paymentAction === 'partial'} onChange={() => setPaymentAction('partial')} />
+                  Partial
+                </label>
+                <label className={`radio-option ${paymentAction === 'unpaid' ? 'selected' : ''}`}>
+                  <input type="radio" value="unpaid" checked={paymentAction === 'unpaid'} onChange={() => setPaymentAction('unpaid')} />
+                  Unpaid
+                </label>
               </div>
             </div>
-            <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <label className="form-label" style={{ margin: 0 }}>Cash Amount (₹)</label>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
-                    onClick={() => {
-                      setCashAmount(total.toFixed(2))
-                      setUpiAmount('')
-                    }}
-                  >
-                    Exact
-                  </button>
-                  {[50, 100, 500, 2000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
-                      onClick={() => {
-                        const current = Number(cashAmount || 0)
-                        setCashAmount((current + amt).toFixed(2))
-                      }}
-                    >
-                      +{amt}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: '2px 6px', fontSize: '0.72rem', color: 'var(--error)' }}
-                    onClick={() => setCashAmount('')}
-                  >
-                    Clear
-                  </button>
+
+            {paymentAction !== 'unpaid' && (
+              <>
+                {/* Payment Method Selector */}
+                <div className="form-group">
+                  <label className="form-label">Payment Method</label>
+                  <div className="radio-group">
+                    <label className={`radio-option ${paymentMethod === 'cash' ? 'selected' : ''}`}>
+                      <input type="radio" value="cash" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} />
+                      Cash
+                    </label>
+                    <label className={`radio-option ${paymentMethod === 'upi' ? 'selected' : ''}`}>
+                      <input type="radio" value="upi" checked={paymentMethod === 'upi'} onChange={() => setPaymentMethod('upi')} />
+                      UPI
+                    </label>
+                    <label className={`radio-option ${paymentMethod === 'split' ? 'selected' : ''}`}>
+                      <input type="radio" value="split" checked={paymentMethod === 'split'} onChange={() => setPaymentMethod('split')} />
+                      Cash + UPI
+                    </label>
+                  </div>
                 </div>
+
+                {/* Cash Input */}
+                {(paymentMethod === 'cash' || paymentMethod === 'split') && (
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label className="form-label" style={{ margin: 0 }}>Cash Amount (₹)</label>
+                      {paymentMethod === 'split' && paymentAction === 'full' && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
+                          onClick={() => {
+                            const u = Number(upiAmount || 0)
+                            setCashAmount(Math.max(0, Number((netBillPayable - u).toFixed(2))).toFixed(2))
+                          }}
+                        >
+                          Balance → Cash
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      className="form-input font-mono"
+                      type="number"
+                      min="0"
+                      max={netBillPayable}
+                      step="0.01"
+                      value={cashAmount}
+                      onChange={(e) => setCashAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                )}
+
+                {/* UPI Input */}
+                {(paymentMethod === 'upi' || paymentMethod === 'split') && (
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label className="form-label" style={{ margin: 0 }}>UPI Amount (₹)</label>
+                      {paymentMethod === 'split' && paymentAction === 'full' && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ padding: '2px 8px', fontSize: '0.72rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-full)' }}
+                          onClick={() => {
+                            const c = Number(cashAmount || 0)
+                            setUpiAmount(Math.max(0, Number((netBillPayable - c).toFixed(2))).toFixed(2))
+                          }}
+                        >
+                          Balance → UPI
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      className="form-input font-mono"
+                      type="number"
+                      min="0"
+                      max={netBillPayable}
+                      step="0.01"
+                      value={upiAmount}
+                      onChange={(e) => setUpiAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Real-time Collection Strip */}
+            <div style={{
+              marginTop: '16px',
+              padding: '12px 14px',
+              background: 'var(--bg-elevated)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+              display: 'grid',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span className="text-muted">Amount Collected Now:</span>
+                <strong className="font-mono" style={{ color: amountPaid > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                  ₹{amountPaid.toFixed(2)}
+                </strong>
               </div>
-              <input className="form-input font-mono" type="number" min="0" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} placeholder="0.00" />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span className="text-muted">Remaining Balance Due:</span>
+                <strong className="font-mono" style={{ color: netBalance > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                  ₹{netBalance.toFixed(2)}
+                </strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', alignItems: 'center' }}>
+                <span className="text-muted">Resulting Bill Status:</span>
+                <span className={`badge badge-${finalStatus === 'paid' ? 'paid' : finalStatus === 'partial' ? 'partial' : 'unpaid'}`} style={{ fontSize: '0.7rem' }}>
+                  {finalStatus.toUpperCase()}
+                </span>
+              </div>
             </div>
-            <div className="form-group">
-              <label className="form-label">UPI Amount (₹)</label>
-              <input className="form-input font-mono" type="number" min="0" value={upiAmount} onChange={(e) => setUpiAmount(e.target.value)} placeholder="0.00" />
-            </div>
-            <div className="form-group">
+
+            {/* Payment Validation Banner */}
+            {paymentValidationError && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 12px',
+                marginTop: '12px',
+                background: 'var(--error-bg)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--error)',
+                fontSize: '0.82rem',
+              }}>
+                <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                <span>{paymentValidationError}</span>
+              </div>
+            )}
+
+            <div className="form-group" style={{ marginTop: '16px' }}>
               <label className="form-label">UPI Checkout</label>
               <div className="form-inline" style={{ gap: '12px' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleGenerateUpiLink}>
@@ -2392,34 +2525,30 @@ const Billing = () => {
                 <p className="text-muted" style={{ marginTop: '6px' }}>Set your UPI ID in Settings to enable QR codes.</p>
               )}
             </div>
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label className="form-label">Advance / Credit Balance</label>
-              <div className="stat-card-value" style={{ color: customerAdvance > 0 ? 'var(--info)' : 'var(--text-muted)' }}>₹{customerAdvance.toFixed(2)}</div>
-            </div>
 
             {/* Advance balance info for selected customer */}
-            {selectedCustomer && Number(selectedCustomer.advanceBalance || 0) > 0 && (
+            {customerAdvance > 0 && (
               <div style={{
                 marginTop: '16px', padding: '12px 14px',
                 background: 'var(--info-bg)', border: '1px solid rgba(59,130,246,0.2)',
                 borderRadius: 'var(--radius-md)', fontSize: '0.85rem',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', color: 'var(--info)' }}>
-                  <Wallet size={14} /> Advance Balance: <strong>₹{Number(selectedCustomer.advanceBalance).toFixed(2)}</strong>
+                  <Wallet size={14} /> Available Advance: <strong>₹{customerAdvance.toFixed(2)}</strong>
                 </div>
                 <label className="form-label" style={{ marginBottom: '4px' }}>Apply Advance (₹)</label>
                 <input
                   className="form-input"
                   type="number"
                   min="0"
-                  max={Math.min(Number(selectedCustomer.advanceBalance), total)}
+                  max={Math.min(customerAdvance, total)}
                   step="0.01"
                   value={advanceUsed}
-                  onChange={(e) => setAdvanceUsed(Math.min(Number(e.target.value), Number(selectedCustomer.advanceBalance), total))}
+                  onChange={(e) => setAdvanceUsed(Math.min(Number(e.target.value), customerAdvance, total))}
                   placeholder="0.00"
                 />
                 <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdvanceUsed(Math.min(Number(selectedCustomer.advanceBalance), total))}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdvanceUsed(Math.min(customerAdvance, total))}>
                     Use Full Advance
                   </button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdvanceUsed(0)}>
@@ -2524,7 +2653,7 @@ const Billing = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', marginTop: '24px', flexWrap: 'wrap' }}>
-          <button type="submit" className="btn btn-primary">
+          <button type="submit" className="btn btn-primary" disabled={Boolean(paymentValidationError)}>
             <FilePlus size={16} /> {isEditing ? 'Save Changes' : 'Generate Bill'}
           </button>
           {isEditing && (
@@ -2563,9 +2692,6 @@ const Billing = () => {
                 <tr key={bill.id}>
                   <td>
                     <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>{getDisplayBillId(bill)}</div>
-                    <span className={`badge ${bill.customerType === 'regular' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.6rem', marginTop: '2px' }}>
-                      {bill.customerType === 'regular' ? 'Regular' : 'Walk-in'}
-                    </span>
                   </td>
                   <td>{bill.customerName}</td>
                   <td>₹{bill.total.toFixed(2)}</td>
@@ -2657,7 +2783,7 @@ const Billing = () => {
             </div>
 
             <div className="modal-body" ref={billRef}>
-              {settings.loyaltyEnabled !== false && liveBill.customerType === 'regular' && (
+              {settings.loyaltyEnabled !== false && Number(liveBill.loyaltyPointsEarned || 0) > 0 && (
                 <div style={{
                   padding: '10px 14px',
                   marginBottom: '16px',
@@ -2677,7 +2803,7 @@ const Billing = () => {
               <div className="bill-view-header" style={{ marginBottom: '16px' }}>
                 <div>
                   <div className="bill-view-id" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {liveBill.customerType === 'regular' ? liveBill.customerId : 'Random Customer'}
+                    {getDisplayCustomerId(liveBill.customerId)}
                   </div>
                   <h4>{liveBill.customerName}</h4>
                 </div>

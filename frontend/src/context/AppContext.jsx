@@ -12,7 +12,7 @@ import { getSettings } from '../api/settings'
 import { getPromoCodes } from '../api/promoCodes'
 import { getAdvancePayments } from '../api/advancePayments'
 import { getCustomerGroups } from '../api/customerGroups'
-import { getGroupBills } from '../api/groupBills'
+import { getGroupBills, createGroupBill as addGroupBillApi, cancelGroupBill as cancelGroupBillApi } from '../api/groupBills'
 import {
   loadUserState,
   saveUserState,
@@ -2207,66 +2207,9 @@ export const AppProvider = ({ children }) => {
       }
     }
 
-    const excess = R_cash + R_upi
-    if (excess > 0 && paymentRecords.length > 0) {
-      const lastRec = paymentRecords[paymentRecords.length - 1]
-      lastRec.excessCredit = excess
-      lastRec.cashAmount += R_cash
-      lastRec.upiAmount += R_upi
-    } else if (excess > 0) {
-      const _payIdxExcess2 = (state.idCounters?.PAY || 0) + paymentRecords.length + 1
-      paymentRecords.push({
-        id: `PAY${String(_payIdxExcess2).padStart(4, '0')}`,
-        billId: paymentData.billId || 'General',
-        customerId: paymentData.customerId,
-        date: new Date().toISOString(),
-        cashAmount: R_cash,
-        upiAmount: R_upi,
-        totalPaid: 0,
-        paymentType: 'full',
-        excessCredit: excess,
-        notes: 'Advance deposit via payment',
-      })
-    }
-
-
     paymentRecords.forEach((p) => {
       dispatch({ type: 'ADD_PAYMENT', payload: p })
     })
-
-    // Excess is always automatically credited to customer advance balance
-    if (excess > 0) {
-      const nextCount = (state.idCounters?.ADV || 0) + 1
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
-      const advId = `ADV${String(nextCount).padStart(4, '0')}`
-      const cust = state.customers.find(c => c.id === paymentData.customerId)
-      dispatch({
-        type: 'ADD_ADVANCE_PAYMENT',
-        payload: {
-          id: advId,
-          customerId: paymentData.customerId,
-          customerName: cust?.name || 'Customer',
-          amount: excess,
-          date: new Date().toISOString(),
-          paymentMethod: R_upi > 0 ? (R_cash > 0 ? 'split' : 'upi') : 'cash',
-          cashAmount: R_cash,
-          upiAmount: R_upi,
-          notes: 'Excess payment auto-credited to advance balance',
-          isExcessCredit: true,
-        }
-      })
-      if (cust) {
-        const newBal = Number(cust.creditBalance || cust.advanceBalance || 0) + excess
-        dispatch({
-          type: 'UPDATE_CUSTOMER',
-          payload: {
-            id: paymentData.customerId,
-            creditBalance: newBal,
-            advanceBalance: newBal,
-          }
-        })
-      }
-    }
 
     updatedBills.forEach((b) => {
       dispatch({ type: 'UPDATE_BILL', payload: { id: b.id, updates: b, _localOnly: true } })
@@ -2304,7 +2247,6 @@ export const AppProvider = ({ children }) => {
     const remainingAfterAdv = Math.max(0, billRemaining - actualAdvApplied)
     const directPaying = cash + upi
     const applyAmt = Math.min(directPaying, remainingAfterAdv)
-    const excessAmt = Math.max(0, directPaying - remainingAfterAdv)
 
     // Proportional split for cash and upi
     const applyCash = directPaying > 0 ? Number((applyAmt * (cash / directPaying)).toFixed(2)) : 0
@@ -2346,45 +2288,10 @@ export const AppProvider = ({ children }) => {
           upiAmount: applyUpi,
           totalPaid: applyAmt,
           paymentType: newStatus === 'paid' ? 'full' : 'partial',
-          excessCredit: excessAmt > 0 ? excessAmt : 0,
+          excessCredit: 0,
           notes: paymentData.notes || `Targeted payment for bill ${billId}`,
         },
       })
-    }
-
-    // Automatically credit any excess payment to customer advance balance
-    if (excessAmt > 0) {
-      const nextCount = (state.idCounters?.ADV || 0) + 1
-      dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
-      const advId = `ADV${String(nextCount).padStart(4, '0')}`
-      const cust = state.customers.find(c => c.id === customerId)
-      dispatch({
-        type: 'ADD_ADVANCE_PAYMENT',
-        payload: {
-          id: advId,
-          customerId,
-          customerName: cust?.name || 'Customer',
-          amount: excessAmt,
-          date: new Date().toISOString(),
-          paymentMethod: upi > 0 ? (cash > 0 ? 'split' : 'upi') : 'cash',
-          cashAmount: directPaying > 0 ? Math.round(excessAmt * (cash / directPaying) * 100) / 100 : excessAmt,
-          upiAmount: directPaying > 0 ? Math.round(excessAmt * (upi / directPaying) * 100) / 100 : 0,
-          notes: `Excess payment from Bill ${billId} auto-credited to advance`,
-          isExcessCredit: true,
-          billId: billId,
-        }
-      })
-      if (cust) {
-        const newBal = Number(cust.creditBalance || cust.advanceBalance || 0) + excessAmt
-        dispatch({
-          type: 'UPDATE_CUSTOMER',
-          payload: {
-            id: customerId,
-            creditBalance: newBal,
-            advanceBalance: newBal,
-          }
-        })
-      }
     }
   }
 
@@ -2394,12 +2301,14 @@ export const AppProvider = ({ children }) => {
     let grpId = null
 
     // ID Generation Rules:
-    // Shared Purchase: No separate Group Billing ID or Split Purchase ID
-    // Split Purchase: One unique Split Purchase ID (SP0001) + separate unique Bill IDs for each customer
+    // Shared Purchase: Generates Group ID (GRP-xxxx) using 'GRP' counter. Does NOT generate a Split Purchase ID.
+    // Split Purchase: Generates Split Purchase ID (SP-xxxx) using 'SP' counter.
     if (isSplit) {
-      const spCounterKey = 'SP'
-      grpId = generateSeqId(state, spCounterKey)
-      dispatch({ type: 'INCREMENT_COUNTER', payload: spCounterKey })
+      grpId = generateSeqId(state, 'SP')
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'SP' })
+    } else {
+      grpId = generateSeqId(state, 'GRP')
+      dispatch({ type: 'INCREMENT_COUNTER', payload: 'GRP' })
     }
 
     // Read current BILL counter once; increment locally per member so each bill gets a unique ID
@@ -2494,7 +2403,7 @@ export const AppProvider = ({ children }) => {
           ...newBill,
           notification: {
             id: `NOTE${String(noteCounterOffset).padStart(4, '0')}`,
-            title: isSplit ? `Split Purchase ${grpId} — ${billId}` : `Shared Purchase — ${billId}`,
+            title: isSplit ? `Split Purchase ${grpId} — ${billId}` : `Shared Purchase ${grpId} — ${billId}`,
             message: `Bill for ${customerName} created (${billStatus}).`,
             date: new Date().toISOString().slice(0, 10),
             type: billStatus === 'paid' ? 'success' : 'warning',
@@ -2549,26 +2458,60 @@ export const AppProvider = ({ children }) => {
       }
     }
 
-    // Store split group meta record only for split purchases
-    if (isSplit && grpId) {
-      dispatch({
-        type: 'ADD_GROUP_BILL',
-        payload: {
-          id: grpId,
-          splitPurchaseId: grpId,
-          type: 'split',
-          memberBillIds,
-          createdAt: new Date().toISOString(),
-          roundingMode: groupData.roundingMode || null,
-          totalAmount: null, // computed live from member bills
-          splitCount: groupData.splitCount || null,
-          notes: groupData.notes || '',
-          date: groupData.date || new Date().toISOString().slice(0, 10),
-        },
-      })
+    // Store group meta record for both split and shared purchases
+    const totalGroupAmount = groupData.members.reduce((s, m) => s + Number(m.total || 0), 0)
+    const totalGroupPaid = groupData.members.reduce((s, m) => s + (Number(m.cashPaid || 0) + Number(m.upiPaid || 0) + Number(m.advanceUsed || 0) + Number(m.sponsoredAmount || 0)), 0)
+    const isPaid = (totalGroupAmount - totalGroupPaid) <= 0.005
+    const isPartial = totalGroupPaid > 0 && !isPaid
+
+    const groupRecord = {
+      id: grpId,
+      groupId: grpId,
+      splitPurchaseId: isSplit ? grpId : null,
+      type: isSplit ? 'split' : 'shared',
+      title: groupData.title || (isSplit ? `Split Purchase ${grpId}` : `Shared Purchase ${grpId}`),
+      memberBillIds,
+      createdAt: new Date().toISOString(),
+      roundingMode: groupData.roundingMode || null,
+      costMethod: groupData.costMethod || (isSplit ? 'item_split' : 'equal'),
+      totalAmount: totalGroupAmount,
+      amountPaid: totalGroupPaid,
+      splitCount: groupData.members.length,
+      notes: groupData.notes || '',
+      date: groupData.date || new Date().toISOString().slice(0, 10),
+      status: isPaid ? 'paid' : (isPartial ? 'partial' : 'unpaid'),
+      memberShares: groupData.members.map((m, idx) => ({
+        id: m.id || `m-${idx}`,
+        billId: memberBillIds[idx],
+        customerId: m.customerId,
+        customerName: m.customerName,
+        total: Number(m.total || 0),
+        amountPaid: Number(m.cashPaid || 0) + Number(m.upiPaid || 0) + Number(m.advanceUsed || 0) + Number(m.sponsoredAmount || 0),
+        advanceUsed: Number(m.advanceUsed || 0),
+        balance: Math.max(0, Number(m.total || 0) - (Number(m.cashPaid || 0) + Number(m.upiPaid || 0) + Number(m.advanceUsed || 0) + Number(m.sponsoredAmount || 0))),
+      }))
     }
 
-    return grpId || memberBillIds[0]
+    dispatch({
+      type: 'ADD_GROUP_BILL',
+      payload: groupRecord,
+    })
+
+    if (isOnline) {
+      addGroupBillApi({
+        id: grpId,
+        group_id: grpId,
+        title: groupRecord.title,
+        date: groupRecord.date,
+        total_amount: groupRecord.totalAmount,
+        amount_paid: groupRecord.amountPaid,
+        status: groupRecord.status,
+        member_shares: groupRecord.memberShares,
+        notes: groupRecord.notes
+      }).catch(err => console.warn('Could not sync group bill to backend:', err))
+    }
+
+    return grpId
   }
 
   // (duplicate body removed — addGroupBill above is the canonical version)
@@ -2667,6 +2610,106 @@ export const AppProvider = ({ children }) => {
         notes: `Full group payment for ${groupBillId} by payer bill ${payerBillId}`,
       },
     })
+  }
+
+  const cancelGroupBill = async (groupBillId, reason = 'Cancelled by user') => {
+    const grp = state.groupBills.find(g => g.id === groupBillId)
+    if (!grp) throw new Error('Group bill not found')
+
+    const memberBillIds = grp.memberBillIds || []
+    const childBills = state.bills.filter(b => memberBillIds.includes(b.id))
+
+    // 1. Reverse all payments on child bills
+    for (const b of childBills) {
+      const billPayments = state.payments.filter(
+        p => (p.billId === b.id || p.bill_id === b.id) && !p.isReversed && !p.isRefund
+      )
+      for (const p of billPayments) {
+        try {
+          await reversePayment({
+            paymentId: p.id,
+            amount: p.totalPaid,
+            reason: `Group ${groupBillId} cancelled: ${reason}`,
+            authorizedBy: 'Admin'
+          })
+        } catch (err) {
+          console.warn('Reversal error for bill payment:', p.id, err)
+        }
+      }
+
+      // If customer advance was applied to this bill, restore it
+      if (b.advanceUsed && Number(b.advanceUsed) > 0) {
+        const advId = generateSeqId(state, 'ADV')
+        dispatch({ type: 'INCREMENT_COUNTER', payload: 'ADV' })
+        dispatch({
+          type: 'ADD_ADVANCE_PAYMENT',
+          payload: {
+            id: advId,
+            advanceNumber: advId,
+            customerId: b.customerId,
+            amount: Number(b.advanceUsed),
+            cashAmount: 0,
+            upiAmount: 0,
+            date: new Date().toISOString().slice(0, 10),
+            paymentMethod: 'system',
+            notes: `Advance restored due to cancellation of group ${groupBillId}`,
+            createdAt: new Date().toISOString(),
+          }
+        })
+      }
+
+      // Update child bill status to 'cancelled'
+      dispatch({
+        type: 'UPDATE_BILL',
+        payload: {
+          id: b.id,
+          updates: {
+            status: 'cancelled',
+            notes: (b.notes ? b.notes + ' | ' : '') + `Cancelled: ${reason}`
+          }
+        }
+      })
+    }
+
+    // 2. Also check if there was a master group payment
+    const masterPayments = state.payments.filter(
+      p => p.groupBillId === groupBillId && !p.isReversed && !p.isRefund
+    )
+    for (const mp of masterPayments) {
+      try {
+        await reversePayment({
+          paymentId: mp.id,
+          amount: mp.totalPaid,
+          reason: `Group ${groupBillId} cancelled: ${reason}`,
+          authorizedBy: 'Admin'
+        })
+      } catch (err) {
+        console.warn('Reversal error for master payment:', mp.id, err)
+      }
+    }
+
+    // 3. Mark group bill cancelled
+    const updatedNotes = (grp.notes ? grp.notes + ' | ' : '') + `Cancelled: ${reason}`
+    dispatch({
+      type: 'UPDATE_GROUP_BILL',
+      payload: {
+        id: grp.id,
+        updates: {
+          status: 'cancelled',
+          notes: updatedNotes
+        }
+      }
+    })
+
+    if (isOnline) {
+      try {
+        await cancelGroupBillApi(grp.id, { reason })
+      } catch (err) {
+        console.warn('Backend cancelGroupBill sync notice:', err)
+      }
+    }
+
+    return { success: true }
   }
 
   const addInventoryItem = (itemData) => {
@@ -3032,6 +3075,7 @@ export const AppProvider = ({ children }) => {
       recordSpecificBillPayment,
       recordSplitGroupPayment,
       updateGroupBill: (id, updates) => dispatch({ type: 'UPDATE_GROUP_BILL', payload: { id, updates } }),
+      cancelGroupBill,
       setPromoCodes: (promoCodes) => dispatch({ type: 'SET_PROMO_CODES', payload: promoCodes }),
       deleteAdvancePayment: (id) => dispatch({ type: 'DELETE_ADVANCE_PAYMENT', payload: id }),
       payGroupMember: (payload) => dispatch({ type: 'PAY_GROUP_MEMBER', payload }),

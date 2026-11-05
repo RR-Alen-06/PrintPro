@@ -14,8 +14,7 @@ import {
   RotateCcw,
   X,
   Calendar,
-  Clock,
-  Sparkles
+  Clock
 } from 'lucide-react'
 import {
   getDisplayBillId,
@@ -125,6 +124,7 @@ const Payments = () => {
   const [settleNotes, setSettleNotes] = useState('')
   const [settleSuccess, setSettleSuccess] = useState('')
   const [settleError, setSettleError] = useState('')
+  const [isSubmittingSettle, setIsSubmittingSettle] = useState(false)
 
   // ── Advance Deposit State ──
   const today = new Date().toISOString().slice(0, 10)
@@ -215,8 +215,9 @@ const Payments = () => {
   const excessOverpayment = Math.max(0, totalDirectPaying - Math.max(0, targetAmountDue - parsedAdvUsed))
 
   // ── Handle Settle Bill Submit ──
-  const handleSettleSubmit = (e) => {
+  const handleSettleSubmit = async (e) => {
     e.preventDefault()
+    if (isSubmittingSettle) return
     setSettleError('')
     setSettleSuccess('')
 
@@ -225,11 +226,23 @@ const Payments = () => {
       return
     }
 
+    if (customerUnpaidBills.length === 0) {
+      setSettleError('This customer has no unpaid bills with outstanding balances.')
+      return
+    }
+
     if (totalSettlementApplying <= 0) {
       setSettleError('Please enter a payment amount (Cash, UPI, or use available Advance).')
       return
     }
 
+    const maxDirectAllowed = Math.max(0, targetAmountDue - parsedAdvUsed)
+    if (totalDirectPaying > maxDirectAllowed) {
+      setSettleError(`Payment amount (₹${totalDirectPaying.toFixed(2)}) exceeds outstanding due (₹${maxDirectAllowed.toFixed(2)}). Ordinary bill payments cannot create an advance balance. To deposit advance credit, please use the Record Advance tab.`)
+      return
+    }
+
+    setIsSubmittingSettle(true)
     try {
       if (selectedBillId && selectedBillId !== 'all') {
         // Specific Bill Settlement
@@ -241,8 +254,7 @@ const Payments = () => {
           advanceUsed: parsedAdvUsed,
           notes: settleNotes || `Direct settlement for ${getDisplayBillId(targetBill)}`
         })
-        const excessMsg = excessOverpayment > 0 ? ` (₹${excessOverpayment.toFixed(2)} excess auto-added to advance)` : ''
-        setSettleSuccess(`Recorded payment for ${getDisplayBillId(targetBill)} successfully!${excessMsg}`)
+        setSettleSuccess(`Recorded payment for ${getDisplayBillId(targetBill)} successfully!`)
       } else {
         // All Pending Bills (Auto-FIFO)
         recordPayment({
@@ -252,8 +264,7 @@ const Payments = () => {
           advanceUsed: parsedAdvUsed,
           notes: settleNotes || 'FIFO bill settlement'
         })
-        const excessMsg = excessOverpayment > 0 ? ` (₹${excessOverpayment.toFixed(2)} excess auto-added to advance)` : ''
-        setSettleSuccess(`Payment successfully distributed across customer bills!${excessMsg}`)
+        setSettleSuccess(`Payment successfully distributed across customer bills!`)
       }
 
       setSettleCash('')
@@ -266,6 +277,8 @@ const Payments = () => {
     } catch (err) {
       console.error('Failed to record settlement:', err)
       setSettleError('Failed to record payment. Please try again.')
+    } finally {
+      setIsSubmittingSettle(false)
     }
   }
 
@@ -484,34 +497,16 @@ const Payments = () => {
               style={{ padding: '10px 14px', fontSize: '0.95rem' }}
             >
               <option value="">-- Choose Customer --</option>
-              <optgroup label="Regular Customers">
-                {activeCustomers
-                  .filter((c) => c.type === 'regular')
-                  .map((c) => {
-                    const unpaid = bills.filter((b) => b.customerId === c.id && !b.deleted && b.status !== 'paid')
-                    const bal = unpaid.reduce((s, b) => s + (Number(b.balance) || 0), 0)
-                    const adv = Number(c.creditBalance || c.advanceBalance || 0)
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({getDisplayCustomerId(c)}) {bal > 0 ? `· Due: ₹${bal.toFixed(2)}` : '· Due: ₹0.00'}{adv > 0 ? ` | Adv: ₹${adv.toFixed(2)}` : ''}
-                      </option>
-                    )
-                  })}
-              </optgroup>
-              <optgroup label="Walk-in / Other Customers">
-                {activeCustomers
-                  .filter((c) => c.type !== 'regular')
-                  .map((c) => {
-                    const unpaid = bills.filter((b) => b.customerId === c.id && !b.deleted && b.status !== 'paid')
-                    const bal = unpaid.reduce((s, b) => s + (Number(b.balance) || 0), 0)
-                    const adv = Number(c.creditBalance || c.advanceBalance || 0)
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({getDisplayCustomerId(c)}) {bal > 0 ? `· Due: ₹${bal.toFixed(2)}` : '· Due: ₹0.00'}{adv > 0 ? ` | Adv: ₹${adv.toFixed(2)}` : ''}
-                      </option>
-                    )
-                  })}
-              </optgroup>
+              {activeCustomers.map((c) => {
+                const unpaid = bills.filter((b) => b.customerId === c.id && !b.deleted && b.status !== 'paid')
+                const bal = unpaid.reduce((s, b) => s + (Number(b.balance) || 0), 0)
+                const adv = Number(c.creditBalance || c.advanceBalance || 0)
+                return (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({getDisplayCustomerId(c)}) {bal > 0 ? `· Due: ₹${bal.toFixed(2)}` : '· Due: ₹0.00'}{adv > 0 ? ` | Adv: ₹${adv.toFixed(2)}` : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
 
@@ -923,31 +918,36 @@ const Payments = () => {
                         </strong>
                       </div>
 
-                      {/* Silent Overpayment Auto-Credit Notice */}
+                      {/* Overpayment Error Notice */}
                       {excessOverpayment > 0 && (
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
                           padding: '10px 12px',
-                          background: 'rgba(16,185,129,0.12)',
-                          border: '1px solid rgba(16,185,129,0.3)',
+                          background: 'var(--error-bg)',
+                          border: '1px solid rgba(239,68,68,0.3)',
                           borderRadius: 'var(--radius-sm)',
                           fontSize: '0.82rem',
-                          color: '#10b981',
+                          color: 'var(--error)',
                           fontWeight: 600,
                           marginTop: '6px'
                         }}>
-                          <Sparkles size={16} /> ₹{excessOverpayment.toFixed(2)} excess will be auto-added to Advance Balance
+                          <AlertCircle size={16} /> Payment (₹{totalDirectPaying.toFixed(2)}) exceeds outstanding due (₹{Math.max(0, targetAmountDue - parsedAdvUsed).toFixed(2)}). Overpayments are not allowed. To deposit advance credits, use Record Advance.
                         </div>
                       )}
 
                       <button
                         type="submit"
                         className="btn btn-primary"
+                        disabled={
+                          isSubmittingSettle ||
+                          totalSettlementApplying <= 0 ||
+                          totalDirectPaying > Math.max(0, targetAmountDue - parsedAdvUsed)
+                        }
                         style={{ marginTop: '12px', width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600 }}
                       >
-                        <CheckCircle size={18} /> Confirm & Settle Bill{selectedBillId === 'all' ? 's' : ''}
+                        <CheckCircle size={18} /> {isSubmittingSettle ? 'Recording Settlement...' : `Confirm & Settle Bill${selectedBillId === 'all' ? 's' : ''}`}
                       </button>
                     </div>
                   </div>
