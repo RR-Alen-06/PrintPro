@@ -94,12 +94,13 @@ router.post('/', allowlist(['id', 'group_id', 'groupId', 'title', 'date', 'total
 });
 
 // PUT /api/group-bills/:id
-router.put('/:id', allowlist(['title', 'date', 'total_amount', 'totalAmount', 'member_shares', 'memberShares', 'notes', 'id']), validateSchema(schemas.groupBillUpdate), async (req, res, next) => {
+router.put('/:id', allowlist(['title', 'date', 'total_amount', 'totalAmount', 'amount_paid', 'amountPaid', 'status', 'member_shares', 'memberShares', 'notes', 'id']), validateSchema(schemas.groupBillUpdate), async (req, res, next) => {
   try {
     const pool = getPool();
     const { id } = req.params;
-    const { title, date, notes } = req.body;
+    const { title, date, notes, status } = req.body;
     const total_amount = req.body.total_amount !== undefined ? req.body.total_amount : req.body.totalAmount;
+    const amount_paid = req.body.amount_paid !== undefined ? req.body.amount_paid : req.body.amountPaid;
     const member_shares = req.body.member_shares !== undefined ? req.body.member_shares : req.body.memberShares;
 
     const [existing] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
@@ -112,6 +113,8 @@ router.put('/:id', allowlist(['title', 'date', 'total_amount', 'totalAmount', 'm
          title = COALESCE(?, title),
          date = COALESCE(?, date),
          total_amount = COALESCE(?, total_amount),
+         amount_paid = COALESCE(?, amount_paid),
+         status = COALESCE(?::bill_status, status),
          member_shares = COALESCE(?, member_shares),
          notes = COALESCE(?, notes),
          updated_at = NOW()
@@ -120,6 +123,8 @@ router.put('/:id', allowlist(['title', 'date', 'total_amount', 'totalAmount', 'm
         title,
         date,
         total_amount !== undefined ? parseFloat(total_amount) : null,
+        amount_paid !== undefined ? parseFloat(amount_paid) : null,
+        status || null,
         member_shares ? JSON.stringify(member_shares) : null,
         notes,
         id,
@@ -226,6 +231,43 @@ router.post('/:id/pay-member', allowlist(['memberId', 'customerId', 'paymentAmou
 
     await conn.commit();
 
+    const [updated] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    res.json({ success: true, data: toGroupBillDto(updated[0]) });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+});
+
+// POST /api/group-bills/:id/cancel - Cancel a group bill and mark child bills/status cancelled
+router.post('/:id/cancel', allowlist(['reason']), async (req, res, next) => {
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { id } = req.params;
+    const { reason = 'Cancelled by user' } = req.body;
+
+    const [existing] = await conn.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, error: 'Group bill not found' });
+    }
+
+    const bill = existing[0];
+    const notesAppend = bill.notes ? `${bill.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`;
+
+    await conn.query(
+      `UPDATE group_bills SET
+         status = 'cancelled'::bill_status,
+         notes = ?,
+         updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [notesAppend, id, req.user.id]
+    );
+
+    await conn.commit();
     const [updated] = await pool.query('SELECT * FROM group_bills WHERE id = ? AND user_id = ?', [id, req.user.id]);
     res.json({ success: true, data: toGroupBillDto(updated[0]) });
   } catch (err) {

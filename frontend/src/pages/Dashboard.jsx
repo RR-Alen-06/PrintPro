@@ -279,18 +279,37 @@ const Dashboard = () => {
     return { color: 'var(--warning)', bg: 'var(--warning-bg)', border: 'rgba(245,158,11,0.2)' }
   }
 
+  // Date formatter: "04 Nov 2026"
+  const formatDisplayDate = (dStr) => {
+    if (!dStr) return '—'
+    const d = new Date(dStr)
+    if (isNaN(d.getTime())) return dStr
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+
   // ── Unified Chronological Activity Feed ────────────────────────────────────
   const recentActivities = useMemo(() => {
     const feed = []
+
+    // Helper to resolve party name cleanly (no raw UUIDs)
+    const resolveCustomerName = (custName, custId) => {
+      if (custName && custName.trim() && !custName.startsWith('Customer #')) return custName
+      if (custId) {
+        const found = (customers || []).find(c => String(c.id) === String(custId))
+        if (found?.name) return found.name
+      }
+      return 'Walk-in Customer'
+    }
 
     // 1. Bills
     activeBills.forEach(b => {
       feed.push({
         id: b.id,
+        reference: getDisplayBillId(b),
         entityType: 'bill',
         date: b.date || b.createdAt,
-        title: `Bill ${getDisplayBillId(b)}`,
-        party: b.customerName || 'Customer',
+        transaction: 'Bill Creation',
+        party: resolveCustomerName(b.customerName, b.customerId),
         amount: Number(b.total || 0),
         status: b.status,
         method: b.paymentMode || (b.paymentMethod?.cash > 0 && b.paymentMethod?.upi > 0 ? 'mixed' : (b.paymentMethod?.upi > 0 ? 'upi' : 'cash')),
@@ -303,16 +322,18 @@ const Dashboard = () => {
     ;(filteredData.payments || []).forEach(p => {
       const isRef = p.isRefund || p.paymentType === 'refund' || Number(p.totalPaid || 0) < 0
       const isGrp = p.isGroupPayment
+      const refNum = p.payment_number || (p.id ? (isRef ? `REF-${String(p.id).slice(0, 4).toUpperCase()}` : `PAY-${String(p.id).slice(0, 4).toUpperCase()}`) : 'PAY-0001')
       feed.push({
         id: p.id,
+        reference: refNum,
         entityType: isRef ? 'refund' : 'payment',
         date: p.date,
-        title: isRef ? `Refund ${p.id}` : (isGrp ? `Group Payment ${p.id}` : `Payment ${p.id}`),
-        party: p.customerName || `Customer #${p.customerId}`,
-        amount: Math.abs(Number(p.refundAmount || p.totalPaid || 0)),
+        transaction: isRef ? 'Refund' : (isGrp ? 'Group Settlement' : 'Bill Payment'),
+        party: resolveCustomerName(p.customerName, p.customerId),
+        amount: Math.abs(Number(p.refundAmount || p.totalPaid || p.amount || 0)),
         status: isRef ? (p.status || 'completed') : (p.paymentType || 'full'),
         method: p.paymentMethod || 'cash',
-        details: isRef ? (p.utr ? `UTR: ${p.utr}` : 'Pending verification') : (p.notes || `Paid against ${p.billId}`),
+        details: isRef ? (p.utr ? `UTR: ${p.utr}` : 'Pending verification') : (p.notes || (p.billId ? `Paid against ${p.billId}` : 'Bill payment')),
         raw: p
       })
     })
@@ -320,12 +341,14 @@ const Dashboard = () => {
     // 3. Advances
     ;(filteredData.advancePayments || []).forEach(ap => {
       const isRet = ap.isReturn || ap.type === 'return' || ap.type === 'refund' || Number(ap.amount || 0) < 0
+      const refNum = ap.advance_number || (ap.id ? `ADV-${String(ap.id).slice(0, 4).toUpperCase()}` : 'ADV-0001')
       feed.push({
         id: ap.id,
+        reference: refNum,
         entityType: 'advance',
         date: ap.date,
-        title: isRet ? `Advance Return ${ap.id}` : `Advance Deposit ${ap.id}`,
-        party: ap.customerName || `Customer #${ap.customerId}`,
+        transaction: isRet ? 'Advance Return' : 'Advance Deposit',
+        party: resolveCustomerName(ap.customerName, ap.customerId),
         amount: Math.abs(Number(ap.amount || 0)),
         status: isRet ? 'returned' : 'active',
         method: ap.paymentMethod || ap.paymentMode || 'cash',
@@ -338,9 +361,10 @@ const Dashboard = () => {
     ;(filteredData.expenses || []).forEach(e => {
       feed.push({
         id: e.id,
+        reference: e.id ? `EXP-${String(e.id).slice(0, 4).toUpperCase()}` : 'EXP-0001',
         entityType: 'expense',
         date: e.date,
-        title: `Expense: ${e.description || e.category || 'General'}`,
+        transaction: 'Expense',
         party: e.vendorName || e.vendor_name || 'Vendor',
         amount: Number(e.amount || e.total || 0),
         status: 'recorded',
@@ -362,7 +386,7 @@ const Dashboard = () => {
         })
 
     return filteredFeed.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 10)
-  }, [activeBills, filteredData, activityTab])
+  }, [activeBills, filteredData, activityTab, customers])
 
   // ── Charts Configurations ──────────────────────────────────────────────────
   const trendChartData = useMemo(() => {
@@ -1122,6 +1146,7 @@ const Dashboard = () => {
                 <tr>
                   <th>Date</th>
                   <th>Transaction</th>
+                  <th>Reference</th>
                   <th>Party</th>
                   <th>Payment Mode</th>
                   <th>Details</th>
@@ -1134,12 +1159,16 @@ const Dashboard = () => {
                   const isOutflow = act.entityType === 'expense' || act.entityType === 'refund' || (act.entityType === 'advance' && act.status === 'returned')
                   return (
                     <tr key={`${act.id}-${index}`}>
-                      <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                        {act.date ? new Date(act.date).toLocaleDateString() : '—'}
+                      <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {formatDisplayDate(act.date)}
                       </td>
                       <td>
-                        <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{act.title}</strong>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{act.id}</div>
+                        <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{act.transaction}</strong>
+                      </td>
+                      <td>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.82rem' }}>
+                          {act.reference}
+                        </span>
                       </td>
                       <td style={{ fontWeight: 500 }}>{act.party}</td>
                       <td>
