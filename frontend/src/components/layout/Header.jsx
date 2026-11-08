@@ -12,13 +12,19 @@ const getPageTitle = (pathname, search) => {
   }
   if (pathname === '/payments') return 'Payments & Settlements'
   if (pathname.startsWith('/customers')) return 'Customer 360 Workspace'
-  if (pathname === '/cash-register') return 'Daily Register & Settlement'
-  if (pathname === '/accounting') return 'Accounting Book'
+  if (pathname === '/cash-register') return 'Register & Cash Desk'
+  if (pathname === '/accounting') return 'Finance & Accounting'
   if (pathname === '/inventory') return 'Inventory Items'
-  if (pathname === '/analytics') return 'Analytics & Trends'
+  if (pathname === '/analytics') return 'Reports & Analytics'
   if (pathname === '/notifications') return 'Notifications'
   if (pathname === '/deleted-bills') return 'Deleted Bills Audit'
-  if (pathname === '/settings') return 'Settings'
+  if (pathname === '/settings') {
+    const params = new URLSearchParams(search)
+    const tab = params.get('tab')
+    if (tab === 'data') return 'Data Management & Backups'
+    if (tab === 'audit') return 'Deleted Bills & Audit Logs'
+    return 'Settings & System'
+  }
   if (pathname === '/data-management') return 'Data Management'
   if (pathname === '/search') return 'Global Search'
   if (pathname === '/receipt') return 'Receipt Preview'

@@ -1,17 +1,37 @@
 import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../context/AppContext'
 import { useTheme } from '../context/ThemeContext'
-import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor, ShieldCheck, Lock, Eye, EyeOff } from 'lucide-react'
+import { Save, CheckCircle, Building2, BarChart3, Sliders, AlertTriangle, Gift, Palette, Tag, Trash2, Edit2, Plus, Sparkles, X, Search, Check, Copy, Sun, Moon, Monitor, ShieldCheck, Lock, Eye, EyeOff, Database, History, RotateCcw } from 'lucide-react'
 import { updateLoyaltySettings } from '../api/loyalty'
 import { createPromoCode, updatePromoCode, deletePromoCode, bulkGeneratePromoCodes } from '../api/promoCodes'
 import { clearAllDataApi } from '../api/settings'
 import { wipeUserDatabase } from '../lib/indexedDbStore'
 import { supabase } from '../lib/supabase'
+import DataManagement from './DataManagement'
+import DeletedBills from './DeletedBills'
 
 
 const Settings = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { settings, updateSettings, business, updateBusiness, promoCodes, setPromoCodes, showConfirm, showToast, showAlert, currentUser } = useAppContext()
   const { theme, setTheme } = useTheme()
+
+  const urlTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => {
+    return ['general', 'data', 'audit'].includes(urlTab) ? urlTab : 'general'
+  })
+
+  useEffect(() => {
+    if (urlTab && ['general', 'data', 'audit'].includes(urlTab) && urlTab !== activeTab) {
+      setActiveTab(urlTab)
+    }
+  }, [urlTab, activeTab])
+
+  const switchTab = (tab) => {
+    setActiveTab(tab)
+    setSearchParams({ tab }, { replace: true })
+  }
 
 
   // Business profile local state
@@ -587,12 +607,46 @@ const Settings = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Settings</h1>
-        <p>Configure your business profile, accounting preferences, and app settings.</p>
+      <div className="page-header" style={{ marginBottom: '16px' }}>
+        <h1>Settings & System</h1>
+        <p>Configure business profile, accounting preferences, backups, and audit history.</p>
       </div>
 
-      {/* Section 1: Business Profile */}
+      <div className="tab-group" style={{ marginBottom: '20px' }}>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'general' ? 'active' : ''}`}
+          onClick={() => switchTab('general')}
+        >
+          <Sliders size={16} /> Business & Config
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'data' ? 'active' : ''}`}
+          onClick={() => switchTab('data')}
+        >
+          <Database size={16} /> Backup & Data
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
+          onClick={() => switchTab('audit')}
+        >
+          <History size={16} /> Deleted Bills & Audit
+        </button>
+      </div>
+
+      {activeTab === 'data' && (
+        <DataManagement />
+      )}
+
+      {activeTab === 'audit' && (
+        <DeletedBills />
+      )}
+
+      {activeTab === 'general' && (
+        <>
+          {/* Section 1: Business Profile */}
       <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
           <div style={{ width: '36px', height: '36px', background: 'var(--accent-light)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
@@ -2188,6 +2242,8 @@ const Settings = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )

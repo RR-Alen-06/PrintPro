@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useAppContext } from '../context/AppContext'
 import {
   DollarSign,
@@ -23,7 +23,7 @@ import {
   ArrowDownRight,
   Printer
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Doughnut } from 'react-chartjs-2'
 import '../utils/chartSetup'
 import PeriodReport from '../components/PeriodReport'
@@ -46,10 +46,24 @@ const EXPENSE_CATEGORIES = [
 const Accounting = () => {
   const { bills, payments, expenses, advancePayments, customers, business, addExpense, deleteExpense, deletedPayments } = useAppContext()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  // ── Tab Management ──────────────────────────────────────────────────────────
-  // 'overview' | 'income' | 'expenses' | 'receivables' | 'advances' | 'payments' | 'ledger' | 'reports'
-  const [activeTab, setActiveTab] = useState('overview')
+  const validTabs = ['overview', 'income', 'expenses', 'receivables', 'advances', 'payments', 'ledger', 'reports']
+  const urlTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => {
+    return validTabs.includes(urlTab) ? urlTab : 'overview'
+  })
+
+  useEffect(() => {
+    if (urlTab && validTabs.includes(urlTab) && urlTab !== activeTab) {
+      setActiveTab(urlTab)
+    }
+  }, [urlTab, activeTab])
+
+  const handleSelectTab = (tabId) => {
+    setActiveTab(tabId)
+    setSearchParams({ tab: tabId }, { replace: true })
+  }
 
   // ── Period & Date Filter ────────────────────────────────────────────────────
   const [periodFilter, setPeriodFilter] = useState('all') // 'all', 'today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'quarter', 'year', 'fy', 'custom'
@@ -779,7 +793,7 @@ const Accounting = () => {
           </button>
           <button
             className="btn btn-primary"
-            onClick={() => setActiveTab('expenses')}
+            onClick={() => handleSelectTab('expenses')}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontWeight: 600 }}
           >
             <Plus size={16} /> Record Expense
@@ -893,7 +907,7 @@ const Accounting = () => {
           { id: 'advances', label: 'Customer Advances', icon: Wallet },
           { id: 'payments', label: 'Payments & Refunds', icon: Banknote },
           { id: 'ledger', label: 'General Ledger', icon: BookOpen },
-          { id: 'reports', label: 'Period Reports', icon: FileText },
+          { id: 'reports', label: 'Financial & Period Reports', icon: FileText },
         ].map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
@@ -901,7 +915,7 @@ const Accounting = () => {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleSelectTab(tab.id)}
               style={{
                 display: 'flex',
                 alignItems: 'center',

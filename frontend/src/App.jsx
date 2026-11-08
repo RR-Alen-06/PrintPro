@@ -84,22 +84,22 @@ function App() {
             <Route path="/accounting" element={<Accounting />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/deleted-bills" element={<DeletedBills />} />
+            <Route path="/deleted-bills" element={<Navigate to="/settings?tab=audit" replace />} />
             <Route path="/promos-and-loyalty" element={<PromosAndLoyalty />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/data-management" element={<DataManagement />} />
+            <Route path="/data-management" element={<Navigate to="/settings?tab=data" replace />} />
             <Route path="/search" element={<Search />} />
             <Route path="/receipt" element={<Receipt />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/customer-ledger" element={<Navigate to="/customers?tab=ledger" replace />} />
+            <Route path="/customer-ledger" element={<Navigate to="/accounting?tab=ledger" replace />} />
             <Route path="/customer-bills" element={<Navigate to="/customers?tab=bills" replace />} />
-            <Route path="/advance-payments" element={<Navigate to="/payments" replace />} />
+            <Route path="/advance-payments" element={<Navigate to="/accounting?tab=advances" replace />} />
             <Route path="/cash-register" element={<CashRegister />} />
             <Route path="/upi-reconciliation" element={<Navigate to="/cash-register?tab=upi" replace />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/group-billing" element={<Navigate to="/billing?mode=group" replace />} />
-            <Route path="/refunds" element={<Refunds />} />
+            <Route path="/refunds" element={<Navigate to="/accounting?tab=refunds" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

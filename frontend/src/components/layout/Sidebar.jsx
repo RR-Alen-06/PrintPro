@@ -23,39 +23,35 @@ import { useAppContext } from '../../context/AppContext'
 
 const navGroups = [
   {
-    title: 'POS & Register',
+    title: 'POS & Sales',
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: Home, permKey: undefined },
       { label: 'Billing / POS', path: '/billing', icon: FileText, permKey: 'billing' },
       { label: 'Payments', path: '/payments', icon: Wallet, permKey: 'billing' },
-      { label: 'Register & UPI Desk', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
-      { label: 'Receipt Preview', path: '/receipt', icon: Receipt, permKey: 'receipt' },
+      { label: 'Register & Cash Desk', path: '/cash-register', icon: DollarSign, permKey: 'accounting' },
     ]
   },
   {
-    title: 'Customers & Sales',
+    title: 'Customers & Items',
     items: [
       { label: 'Customer 360 Hub', path: '/customers', icon: Users, permKey: 'customers' },
-      { label: 'Promos & Loyalty', path: '/promos-and-loyalty', icon: Gift, permKey: 'billing' },
-      { label: 'Refunds & Returns', path: '/refunds', icon: RefreshCw, permKey: 'accounting' },
-    ]
-  },
-  {
-    title: 'Stock & Finance',
-    items: [
       { label: 'Inventory Items', path: '/inventory', icon: Layers, permKey: 'inventory' },
-      { label: 'Accounting Book', path: '/accounting', icon: DollarSign, permKey: 'accounting' },
-      { label: 'Analytics & Trends', path: '/analytics', icon: TrendingUp, permKey: 'accounting' },
+      { label: 'Promos & Loyalty', path: '/promos-and-loyalty', icon: Gift, permKey: 'billing' },
     ]
   },
   {
-    title: 'Tools & Settings',
+    title: 'Finance & Analytics',
+    items: [
+      { label: 'Finance & Accounting', path: '/accounting', icon: DollarSign, permKey: 'accounting' },
+      { label: 'Reports & Analytics', path: '/analytics', icon: TrendingUp, permKey: 'accounting' },
+    ]
+  },
+  {
+    title: 'System & Preferences',
     items: [
       { label: 'Global Search', path: '/search', icon: SearchIcon, permKey: 'search' },
       { label: 'Notifications', path: '/notifications', icon: Bell, permKey: undefined },
-      { label: 'Data Management', path: '/data-management', icon: Download, permKey: 'dataManagement' },
-      { label: 'Deleted Bills', path: '/deleted-bills', icon: Trash2, permKey: 'deletedBills' },
-      { label: 'Settings', path: '/settings', icon: Settings, permKey: 'settings' },
+      { label: 'Settings & Data', path: '/settings', icon: Settings, permKey: 'settings' },
     ]
   }
 ]
