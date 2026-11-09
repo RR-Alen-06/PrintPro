@@ -1,0 +1,8 @@
+# Gitleaks Configuration
+[allowlist]
+description = "Allowlist false positives in test and configuration files"
+paths = [
+  '''^\.secretignore$''',
+  '''^\.gitleaksignore$''',
+  '''^scripts/scan-secrets\.js$'''
+]
