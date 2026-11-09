@@ -1,64 +1,13 @@
 # =============================================================================
 # PrintPro – GitHub Dependabot Configuration
-# Automatically opens PRs for outdated dependencies in both workspaces.
+# Automatically opens PRs for outdated dependencies.
 # =============================================================================
 
 version: 2
 
 updates:
   # --------------------------------------------------------------------------
-  # Frontend – npm (Vite / React)
-  # --------------------------------------------------------------------------
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: "Asia/Kolkata"
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - frontend
-    commit-message:
-      prefix: "chore(deps-frontend)"
-    reviewers: []
-    ignore:
-      # Keep major versions stable unless explicitly upgraded
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-router-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "vite"
-        update-types: ["version-update:semver-major"]
-
-  # --------------------------------------------------------------------------
-  # Backend – npm (Express / Node.js)
-  # --------------------------------------------------------------------------
-  - package-ecosystem: npm
-    directory: /backend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: "Asia/Kolkata"
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - backend
-    commit-message:
-      prefix: "chore(deps-backend)"
-    reviewers: []
-    ignore:
-      - dependency-name: "express"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "pg"
-        update-types: ["version-update:semver-major"]
-
-  # --------------------------------------------------------------------------
-  # Root workspace – npm
+  # Root workspace – npm (Next.js / React)
   # --------------------------------------------------------------------------
   - package-ecosystem: npm
     directory: /
@@ -67,12 +16,20 @@ updates:
       day: monday
       time: "06:00"
       timezone: "Asia/Kolkata"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     labels:
       - dependencies
-      - root
     commit-message:
-      prefix: "chore(deps-root)"
+      prefix: "chore(deps)"
+    reviewers: []
+    ignore:
+      # Keep major versions stable unless explicitly upgraded
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
 
   # --------------------------------------------------------------------------
   # GitHub Actions – keep action versions up to date
@@ -90,3 +47,4 @@ updates:
       - github-actions
     commit-message:
       prefix: "ci(deps)"
+

@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: #fbf9fa;
+    --on-background: #1b1b1d;
+    --surface: #fbf9fa;
+    --surface-container-low: #f5f3f5;
+    --surface-container: #efedef;
+    --surface-container-high: #eae7e9;
+    --surface-container-highest: #e4e2e4;
+    --on-surface: #1b1b1d;
+    --on-surface-variant: #44474c;
+    --outline: #75777d;
+    --outline-variant: #c5c6cd;
+    --primary: #1d2b3e;
+    --primary-container: #334155;
+    --on-primary: #ffffff;
+    --secondary: #0058be;
+    --secondary-container: #2170e4;
+    --tertiary: #410072;
+    --accent-emerald: #10b981;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--on-surface);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-data-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.glass-effect {
+  backdrop-filter: blur(8px);
+  background: rgba(251, 249, 250, 0.85);
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 4mm;
+  }
+
+  html[data-print-format="a4"] body {
+    margin: 0;
+    padding: 0;
+  }
+
+  html[data-print-format="thermal-80"] body {
+    margin: 0;
+    padding: 0;
+  }
+
+  html[data-print-format="thermal-58"] body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide all navigation, header, and hidden print elements */
+  header, nav, aside, footer, .print\:hidden {
+    display: none !important;
+  }
+
+  /* BULLETPROOF MODAL PRINT ISOLATION */
+  body:has(.invoice-modal-root, .payment-receipt-modal-root, .statement-modal-root) * {
+    visibility: hidden !important;
+  }
+
+  body:has(.invoice-modal-root) .invoice-modal-root,
+  body:has(.invoice-modal-root) .invoice-modal-root *:not(.print\:hidden):not(.print\:hidden *),
+  body:has(.payment-receipt-modal-root) .payment-receipt-modal-root,
+  body:has(.payment-receipt-modal-root) .payment-receipt-modal-root *:not(.print\:hidden):not(.print\:hidden *),
+  body:has(.statement-modal-root) .statement-modal-root,
+  body:has(.statement-modal-root) .statement-modal-root *:not(.print\:hidden):not(.print\:hidden *) {
+    visibility: visible !important;
+  }
+
+  body:has(.invoice-modal-root, .payment-receipt-modal-root, .statement-modal-root) .print\:hidden,
+  body:has(.invoice-modal-root, .payment-receipt-modal-root, .statement-modal-root) .print\:hidden * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body:has(.invoice-modal-root, .payment-receipt-modal-root, .statement-modal-root) main > div > *:not(.invoice-modal-root):not(.payment-receipt-modal-root):not(.statement-modal-root) {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* Modal print container normalization */
+  .invoice-modal-root,
+  .payment-receipt-modal-root,
+  .statement-modal-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  /* Single-page A4 Invoice Print Rules */
+  .a4-invoice {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Force the 3-col grid in print mode */
+  .a4-invoice .print-summary-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 4px !important;
+    font-size: 7.5px !important;
+  }
+
+  .a4-invoice .print-summary-grid > div {
+    padding: 3px 4px !important;
+    font-size: 7.5px !important;
+    line-height: 1.15 !important;
+  }
+
+  /* Thermal Receipt Print Rules */
+  .thermal-receipt {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin: 0 auto !important;
+    padding: 2mm !important;
+  }
+}
+

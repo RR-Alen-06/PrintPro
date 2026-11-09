@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: vercel-production
-  cancel-in-progress: false   # never cancel in-flight production deploys
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: "22"
@@ -34,23 +34,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install frontend deps
+      - name: Install dependencies
         run: npm ci --prefer-offline
-        working-directory: frontend
 
-      - name: Frontend lint
+      - name: Type check (tsc)
+        run: npx tsc --noEmit
+
+      - name: Run ESLint
         run: npm run lint
-        working-directory: frontend
-
-      - name: Install backend deps
-        run: npm ci --prefer-offline
-        working-directory: backend
-
-      - name: Backend lint
-        run: npm run lint
-        working-directory: backend
 
   # ---------------------------------------------------------------------------
   # Production deploy to Vercel
@@ -58,6 +51,7 @@ jobs:
   deploy-production:
     name: Vercel Production
     runs-on: ubuntu-latest
+    if: ${{ secrets.VERCEL_TOKEN != '' }}
     needs: [ci-gate]
     permissions:
       contents: write
@@ -74,18 +68,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
-
-      - name: Sync backend secrets to Vercel
-        run: |
-          printf "%s" "${{ secrets.SUPABASE_URL }}" | vercel env add SUPABASE_URL production --token=${{ secrets.VERCEL_TOKEN }} --force || true
-          printf "%s" "${{ secrets.SUPABASE_ANON_KEY }}" | vercel env add SUPABASE_ANON_KEY production --token=${{ secrets.VERCEL_TOKEN }} --force || true
-          printf "%s" "${{ secrets.SUPABASE_SECRET_KEY }}" | vercel env add SUPABASE_SECRET_KEY production --token=${{ secrets.VERCEL_TOKEN }} --force || true
-          printf "%s" "${{ secrets.SUPABASE_DB_PASSWORD }}" | vercel env add SUPABASE_DB_PASSWORD production --token=${{ secrets.VERCEL_TOKEN }} --force || true
-          printf "%s" "${{ secrets.DATABASE_URL }}" | vercel env add DATABASE_URL production --token=${{ secrets.VERCEL_TOKEN }} --force || true
 
       - name: Pull Vercel environment (production)
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
@@ -93,16 +79,9 @@ jobs:
       - name: Build project (via Vercel)
         run: |
           vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-          cat .vercel/output/config.json
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || vars.VITE_API_BASE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Deploy to Vercel (production)
         id: deploy
@@ -130,3 +109,4 @@ jobs:
               sha: context.sha,
             });
             console.log(`Tagged production deploy as ${tagName}`);
+

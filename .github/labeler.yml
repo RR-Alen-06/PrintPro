@@ -3,13 +3,13 @@
 # Used by pr-checks.yml → actions/labeler to auto-label PRs by changed files.
 # =============================================================================
 
-frontend:
+application:
   - changed-files:
-      - any-glob-to-any-file: ["frontend/**"]
+      - any-glob-to-any-file: ["src/**", "public/**"]
 
-backend:
+database:
   - changed-files:
-      - any-glob-to-any-file: ["backend/**"]
+      - any-glob-to-any-file: ["schema.sql", "supabase/**"]
 
 ci/cd:
   - changed-files:
@@ -22,14 +22,15 @@ documentation:
 dependencies:
   - changed-files:
       - any-glob-to-any-file:
-          - "**/package.json"
-          - "**/package-lock.json"
+          - "package.json"
+          - "package-lock.json"
           - ".github/dependabot.yml"
 
 configuration:
   - changed-files:
       - any-glob-to-any-file:
           - "*.config.*"
-          - "**/*.config.*"
-          - ".env.example"
+          - ".env*"
+          - "tsconfig.json"
           - "vercel.json"
+

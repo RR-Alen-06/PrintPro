@@ -1,120 +1,170 @@
-# PrintBillingApp - Print Shop Billing, Accounting & Syncing System
+# SimpleBilling (PrintPro ERP) 🖨️🧾
 
-> [!IMPORTANT]
-> **Existing Clones Notice (Oct 2026):** The Git history of this repository was rewritten to sanitize secrets. If you cloned this repository prior to October 25, 2026, **do not run `git pull`**. Please read the [Collaborator Sync Guide](COLLABORATOR_SYNC.md) for clean slate reset instructions.
+A fast, robust, web-based Point-of-Sale (POS) and shop management system designed specifically for **Xerox centres, digital print shops, photocopy studios, and stationery businesses**. Built with Next.js 16 (App Router), TypeScript, Tailwind CSS, and Supabase PostgreSQL with strict multi-tenant Row-Level Security (RLS).
 
-A comprehensive React-based billing, accounting, and syncing application designed for print shops. Features include itemized billing, payment handling, customer management, inventory tracking, and full real-time database synchronization.
+![Next.js](https://img.shields.io/badge/Next.js-16.2-black?style=for-the-badge&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC?style=for-the-badge&logo=tailwind-css)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase)
 
-## Features
+---
 
-### Core Features
-- **Billing Management**
-  - Create and manage print orders with itemized billing
-  - Support for color/B&W and single/double-sided printing
-  - Flexible discount options (flat or percentage)
-  - Split payment handling (cash + UPI)
-  - Advance credit and overpayment management
+## 📖 About The Project
 
-- **Payment Processing**
-  - Cash and UPI payment options
-  - Full/partial payment support
-  - Follow-up payment recording
-  - UPI deep link generation for online payments
-  - Payment history tracking
+Traditional billing software is rigid when handling dynamic printing jobs (such as custom per-page copy counts, variable lamination/binding rates, split payment methods, customer advances, and loyalty points). **SimpleBilling** solves this by providing:
 
-- **Customer Management**
-  - Regular and random customer support
-  - Customer credit balance tracking
-  - Contact information management
-  - Payment history per customer
+- ⚡ **High-Speed Counter POS**: Instant entry for custom Xerox/print rates and catalog products.
+- 🔒 **Multi-Tenant Security**: Strict Row-Level Security (RLS) policies on Supabase PostgreSQL isolating each shop's data (`auth.uid() = user_id`).
+- 🧾 **Dual-Mode Invoice Printing**: 1-click printing for **80mm Thermal POS Receipts** and **Standard A4 Tax Invoices**, plus PDF generation via `jsPDF`.
+- 👥 **Customer Ledgers & Dues Engine**: FIFO payment allocations, advance deposits, running balance ledgers, and dynamic loyalty point rewards.
+- 💳 **Customer Advance Wallet & Ledger Reconciliation**: 1-click allocation of surplus advance balances to outstanding bills, cash drawer isolation, and automated ledger recalculation.
+- 💰 **Accounting & Expense Tracking**: Expense category breakdown, period P&L synchronization, and Net Profit calculations.
+- 📊 **Business Reports & CSV Export**: Sales analytics, item volume tracking, and 1-click CSV report exports.
 
-- **Inventory System**
-  - Print type pricing (color/B&W, single/double-sided)
-  - Stock tracking
-  - Dynamic pricing based on print specifications
+---
 
-- **Accounting, Analytics & Reporting**
-  - Periodical analytical reports (daily, weekly, monthly, quarterly, yearly, and custom date-to-date ranges)
-  - Revenue, receivables, and cash inflow summaries
-  - Refund outflows tracking
-  - Total expenses and Net Cash Flow (Cash Inflow - Expenses) calculations on both Dashboard and Analytics
-  - Notification alerts for pending payments
+## 🏗️ System & Data Flow Architecture
 
-### Advanced Cloud & Syncing Features
+```text
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                              Next.js 16 UI                             │
+ │   (/billing, /customers, /expenses, /reports, /settings, /bills)       │
+ └───────────────────┬───────────────────────────────┬────────────────────┘
+                     │ (1. User Input)               │ (7. Print / Share)
+                     ▼                               ▼
+ ┌──────────────────────────────────────┐  ┌──────────────────────────────┐
+ │     ApiService (src/lib/services)    │  │       InvoiceModal.tsx       │
+ │ - Loyalty Engine (Earn/Redeem Rules) │  │ - 80mm Thermal Receipt View  │
+ │ - Rounding Engine (Floor/Ceil/Std)   │  │ - Standard A4 Tax Invoice    │
+ │ - FIFO Payment & Advance Allocator   │  │ - PDF Generator (jsPDF/html2)│
+ └───────────────────┬──────────────────┘  │ - WhatsApp Direct URL Link   │
+                     │ (2. PostgREST API)  │ - EmailJS Customer Dispatch  │
+                     ▼                     └──────────────────────────────┘
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                      Supabase PostgreSQL Database                      │
+ │ ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────────────┐ │
+ │ │  sequences (RPC) │ │ bills & items    │ │ payments (Ledger)        │ │
+ │ │  customers       │ │ expenses         │ │ loyalty_transactions     │ │
+ │ └──────────────────┘ └──────────────────┘ └──────────────────────────┘ │
+ └────────────────────────────────────────────────────────────────────────┘
+```
 
-- **User Authentication**
-  - Secure signup/login via Supabase Authentication (including OAuth provider integrations)
-  - Owner-level session validation
+### How Data Flows Through SimpleBilling
 
-- **Real-time Database Syncing**
-  - Fully integrated Node.js / Express backend with Supabase PostgreSQL database persistence
-  - Session-triggered data synchronization that auto-fetches all records upon user login
-  - Safeguarded State Persistence: Prevents HMR restarts or loading exceptions from deleting local data
-  - Non-destructive sync reconciliation that merges local storage entries with database records
+1. **Authentication Guard (`src/middleware.ts`)**:
+   - Server-side verification via Supabase SSR (`supabase.auth.getUser()`).
+   - Unauthenticated requests are redirected to `/login`.
+2. **POS Billing Workflow (`/billing`)**:
+   - The cashier adds print jobs or catalog products with custom quantities and unit rates.
+   - Calculates $\text{Subtotal}$, $\text{Loyalty/Manual Discount}$, $\text{GST}$, and applies the selected $\text{Rounding Method}$.
+   - Invokes PostgreSQL function `get_next_sequence('BILL')` to atomically generate unique sequential identifiers (`BILL-000001`).
+   - If a customer overpays, surplus funds are allocated via FIFO to settle earlier outstanding bills, with any remainder credited to `customers.advance_balance`.
+   - Inserts records into `bills`, `bill_items`, `payments`, and logs to immutable `audit_logs`.
+3. **Invoice Rendering & Dispatch (`InvoiceModal.tsx`)**:
+   - Automatically adapts layout to **80mm Thermal POS** or **Standard A4 Invoice**.
+   - Generates client-side single-page PDFs using `html2canvas` and `jsPDF`.
+   - Supports 1-click invoice sharing via WhatsApp URL schemes or EmailJS.
+4. **Customer Ledger Reconciliation (`/customers/[id]`)**:
+   - Reconstructs running balances from historical `bills` and `payments`.
+5. **P&L Accounting Engine (`/expenses`)**:
+   - Calculates $\text{Net Profit} = \text{Total Income} - \text{Total Expenses}$ synchronized across date filters.
 
-- **Responsive Mobile Layout**
-  - Optimized grids with fluid column sizes adapting to narrow screen viewports
-  - Mobile-responsive navigation sidebar drawer that slides in on menu click, supports close (`X`) buttons, and auto-collapses on link select
+---
 
-- **Data Management**
-  - Full JSON backup and restore
-  - CSV export for bills, customers, inventory, and payments
-  - Bulk import of customers and inventory items
-  - Data validation and recovery tools
+## 🚀 Tech Stack
 
-## Tech Stack
-
-- **Frontend**: React 18 + Vite
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript 5
+- **Styling**: Tailwind CSS v4
 - **Icons**: Lucide React
-- **Styling**: Vanilla CSS (dark theme)
-- **State Management**: React Context + useReducer
-- **Backend & Database**: Node.js + Express + Supabase Postgres
-- **Persistence**: Database Cloud Synchronization + LocalStorage Safeguarded Fallback
-- **Export**: jsPDF + html2canvas
+- **Charts**: Recharts
+- **PDF & Export**: jsPDF, html2canvas
+- **Database & Auth**: Supabase PostgreSQL with Row Level Security (RLS)
 
-## Getting Started
+---
 
-### Frontend Setup
+## 🛠️ Getting Started
+
+### Prerequisites
+
+- Node.js (v18.x or higher)
+- npm or pnpm
+- A [Supabase](https://supabase.com) project
+
+### 1. Clone & Install Dependencies
 
 ```bash
-cd frontend
+git clone https://github.com/RR-Alen-06/SimpleBilling.git
+cd SimpleBilling
 npm install
+```
+
+### 2. Configure Environment Variables
+
+Create a `.env.local` file in the root directory:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-supabase-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+### 3. Initialize Database Schema
+
+1. Open your Supabase Dashboard.
+2. Navigate to the **SQL Editor**.
+3. Run the contents of [`schema.sql`](./schema.sql).
+
+This initializes all tables (`sequences`, `customers`, `products`, `bills`, `bill_items`, `payments`, `expenses`, `settings`, `audit_logs`, `loyalty_rules`, `loyalty_redemption_rules`), indexes, and configures multi-tenant Row-Level Security policies.
+
+### 4. Run Development Server
+
+```bash
 npm run dev
 ```
 
-The frontend will be available locally at `http://localhost:5173`
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Backend Setup
+---
 
-```bash
-cd backend
-npm install
-npm start
+## 📁 Project Structure
+
+```text
+SimpleBilling/
+├── schema.sql                 # PostgreSQL DDL, triggers, and multi-tenant RLS policies
+├── src/
+│   ├── middleware.ts          # Server-side Supabase SSR session validation
+│   ├── app/
+│   │   ├── accounting/        # Cash sessions, drawer reconciliation & P&L ledger
+│   │   ├── audit/             # Immutable audit log viewer
+│   │   ├── billing/           # POS Billing counter with live price calculations
+│   │   ├── bills/             # Invoice management & admin adjustments
+│   │   ├── customers/         # Customer directory & [id] running ledger
+│   │   ├── expenses/          # Accounting suite, category charts & P&L
+│   │   ├── login/             # Admin authentication
+│   │   ├── payments/          # Standalone customer payment collection
+│   │   ├── products/          # Catalog product & pricing management
+│   │   ├── reports/           # Sales reports & CSV export
+│   │   ├── settings/          # Shop configuration, sequences, and loyalty rules
+│   │   ├── error.tsx          # Root Error Boundary for runtime resilience
+│   │   ├── layout.tsx         # Root layout
+│   │   └── page.tsx           # Dashboard & financial reconciliation
+│   ├── components/
+│   │   ├── InvoiceModal.tsx    # Dual-mode (80mm / A4) print & PDF modal
+│   │   ├── Navigation.tsx      # Responsive navigation bar
+│   │   └── SupabaseBanner.tsx  # Database connection status indicator
+│   └── lib/
+│       ├── constants/filters.ts# Shared date filter button configurations
+│       ├── services/api.ts    # Supabase CRUD API service layer
+│       ├── supabase/client.ts # Supabase client initialization
+│       ├── utils/
+│       │   ├── csv.ts         # Shared CSV export & download engine
+│       │   └── format.ts      # Centralized currency & date formatters
+│       └── types.ts           # TypeScript interfaces & domain models
+└── README.md
 ```
 
-## Usage
+---
 
-1. **Create Bills**: Navigate to Billing page, select customer, add items, specify payment mode
-2. **Record Payments**: Use the Follow-up Payment section in bill details to record partial/full payments
-3. **Generate UPI Links**: Create shareable UPI payment links for customers
-4. **Manage Customers**: Add/update customer information and track credit balances
-5. **View Reports**: Check analytics and accounting pages for revenue, cash flow, receivables, and custom date range filters
+## 📜 License
 
-## Payment Methods
-
-- **Cash**: Direct cash payment recording
-- **UPI**: Digital payment via UPI protocol with deep link support
-- **Credit**: Advance customer credit that can be applied to bills
-- **Overpayment**: Excess payments automatically converted to customer credit
-
-## Data Persistence
-
-All data is stored in the cloud database when logged in. A safeguarded local storage cache persists state offline.
-
-## License
-
-Private Project
-
-## Author
-
-Print Shop Billing Team
+This project is open-source and available under the [MIT License](LICENSE).
