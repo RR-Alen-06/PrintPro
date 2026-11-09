@@ -1,16 +1,42 @@
 {
-  "name": "printpro-root",
-  "version": "1.0.0",
+  "name": "app",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev:frontend": "npm run dev --prefix frontend",
-    "dev:backend": "npm run dev --prefix backend",
-    "build:frontend": "npm run build --prefix frontend",
-    "build": "npm run build --prefix frontend",
-    "start:backend": "npm run start --prefix backend",
-    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
-    "lint:fix": "npm run lint:fix --prefix backend && npm run lint:fix --prefix frontend",
-    "audit-check": "npm run audit-check --prefix backend && npm run audit-check --prefix frontend",
-    "security-check": "npm run lint && npm run audit-check"
+    "dev": "next dev",
+    "dev:host": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start",
+    "start:host": "next start -H 0.0.0.0",
+    "lint": "eslint",
+    "check:secrets": "node scripts/scan-secrets.js --staged",
+    "scan:history": "node scripts/scan-secrets.js --history",
+    "prepare": "node scripts/setup-git-hooks.js",
+    "clean": "node -e \"fs.rmSync('.next', {recursive: true, force: true})\"",
+    "clean:all": "node -e \"['.next', 'node_modules'].forEach(p => fs.rmSync(p, {recursive: true, force: true}))\""
+  },
+  "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "@supabase/ssr": "^0.12.3",
+    "@supabase/supabase-js": "^2.110.8",
+    "clsx": "^2.1.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^1.27.0",
+    "next": "16.2.12",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }

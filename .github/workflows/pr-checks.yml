@@ -28,7 +28,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Allowed types (extend as needed)
           types: |
             feat
             fix
@@ -49,7 +48,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 2. Validate branch naming convention
-  #    Allowed: feat/*, fix/*, chore/*, docs/*, hotfix/*, release/*
+  #    Allowed: feat/*, fix/*, chore/*, docs/*, hotfix/*, release/*, refactor/*, etc.
   # ---------------------------------------------------------------------------
   branch-name:
     name: Branch Name · Convention
@@ -86,3 +85,4 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yml
           sync-labels: true
+

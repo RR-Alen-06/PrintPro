@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL · JavaScript
+    name: CodeQL · JavaScript / TypeScript
     runs-on: ubuntu-latest
 
     strategy:
@@ -37,10 +37,8 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # Use the security-extended query suite for broader coverage
           queries: security-extended
 
-      # Let CodeQL auto-build (works fine for JS/TS)
       - name: Auto-build
         uses: github/codeql-action/autobuild@v3
 
@@ -48,3 +46,4 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+

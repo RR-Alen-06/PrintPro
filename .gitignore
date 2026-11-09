@@ -75,6 +75,8 @@ coverage/
 .turbo/
 .eslintcache
 .stylelintcache
+supabase/.temp/
+*.tsbuildinfo
 
 # ------ Uploads (user-generated files) ----------------------
 backend/uploads/
