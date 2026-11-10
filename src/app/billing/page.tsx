@@ -1537,27 +1537,6 @@ export default function BillingPage() {
               </span>
             </div>
 
-            {/* Quick 1-Click Common Presets */}
-            <div className="flex flex-wrap gap-1.5 pb-1">
-              {[
-                { name: 'A4 B&W', price: 2.00 },
-                { name: 'A4 Back-to-Back', price: 3.50 },
-                { name: 'A4 Color', price: 10.00 },
-                { name: 'Lamination', price: 20.00 },
-                { name: 'Spiral Binding', price: 35.00 }
-              ].map(chip => (
-                <button
-                  key={chip.name}
-                  type="button"
-                  onClick={() => handleSelectCustomSuggestion(chip)}
-                  className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition cursor-pointer flex items-center gap-1"
-                >
-                  <span>{chip.name}</span>
-                  <span className="text-[10px] font-mono text-slate-500 font-bold">₹{chip.price}</span>
-                </button>
-              ))}
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="sm:col-span-3 relative" ref={customDropdownRef}>
                 <input

@@ -15,11 +15,8 @@ export async function proxy(request: NextRequest) {
   const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   const pathname = request.nextUrl.pathname;
-  const isPublicAuthRoute =
-    pathname === '/login' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/reset-password' ||
-    pathname === '/verify-email';
+  // Only OAuth (Google / GitHub) is supported: /login and the /auth/callback handler.
+  const isPublicAuthRoute = pathname === '/login' || pathname.startsWith('/auth/');
 
   // If Supabase credentials are missing or placeholder, permit access
   if (
@@ -31,9 +28,9 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
-  // If on a public auth route with auth code/token params (e.g. /login?code=...), let client exchange it
-  const hasCodeOrToken = request.nextUrl.searchParams.has('code') || request.nextUrl.searchParams.has('token_hash');
-  if (isPublicAuthRoute && hasCodeOrToken) {
+  // If on a public auth route with an OAuth code param (e.g. /auth/callback?code=...), let it be exchanged
+  const hasCode = request.nextUrl.searchParams.has('code');
+  if (isPublicAuthRoute && hasCode) {
     return supabaseResponse;
   }
 
@@ -92,39 +89,15 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Determine verification status
-    // Existing accounts with email_confirmed_at / confirmed_at remain fully verified and usable
-    const isVerified = Boolean(
-      user && (user.email_confirmed_at || user.confirmed_at || user.app_metadata?.provider !== 'email')
-    );
-
-    // Unverified user attempting to access protected route -> redirect to /verify-email
-    if (user && !isVerified && !isPublicAuthRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/verify-email';
-      if (user.email) {
-        url.searchParams.set('email', user.email);
-      }
-      return NextResponse.redirect(url);
-    }
-
-    // Unverified user on /login -> redirect to /verify-email
-    if (user && !isVerified && pathname === '/login' && !hasCodeOrToken) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/verify-email';
-      if (user.email) {
-        url.searchParams.set('email', user.email);
-      }
-      return NextResponse.redirect(url);
-    }
-
-    // Authenticated AND verified user accessing /login or /verify-email -> redirect to destination
-    if (user && isVerified && (pathname === '/login' || pathname === '/verify-email') && !hasCodeOrToken) {
+    // Authenticated user accessing /login -> redirect to destination (same-origin paths only)
+    if (user && pathname === '/login' && !hasCode) {
       const nextParam = request.nextUrl.searchParams.get('next') || '/';
-      const url = request.nextUrl.clone();
-      url.pathname = nextParam.startsWith('/') ? nextParam : '/';
-      url.search = '';
-      return NextResponse.redirect(url);
+      const isSafePath =
+        nextParam.startsWith('/') && !nextParam.startsWith('//') && !nextParam.startsWith('/\\');
+      const target = new URL(isSafePath ? nextParam : '/', request.nextUrl.origin);
+      return NextResponse.redirect(
+        target.origin === request.nextUrl.origin ? target : new URL('/', request.nextUrl.origin)
+      );
     }
   } catch {
     if (!isPublicAuthRoute) {

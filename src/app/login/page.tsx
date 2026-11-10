@@ -18,7 +18,10 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const errorParam = searchParams.get('error') || searchParams.get('error_description');
   const nextParam = searchParams.get('next') || '/';
-  const targetDestination = nextParam.startsWith('/') ? nextParam : '/';
+  const targetDestination =
+    nextParam.startsWith('/') && !nextParam.startsWith('//') && !nextParam.startsWith('/\\')
+      ? nextParam
+      : '/';
 
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'github' | null>(null);
   const [errorMsg, setErrorMsg] = useState(errorParam || '');

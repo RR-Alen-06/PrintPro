@@ -2,32 +2,52 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
 
+/**
+ * OAuth callback (Google / GitHub) using the PKCE code exchange flow.
+ * Email / OTP / magic-link flows are intentionally not supported here.
+ */
+
+/**
+ * Resolves a post-auth redirect target, restricted to same-origin relative paths.
+ * Prevents open redirects such as `?next=//evil.com` or `?next=@evil.com`.
+ */
+function safeRedirect(next: string | null, origin: string): URL {
+  const fallbackUrl = new URL('/', origin);
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) {
+    return fallbackUrl;
+  }
+  try {
+    const target = new URL(next, origin);
+    return target.origin === origin ? target : fallbackUrl;
+  } catch {
+    return fallbackUrl;
+  }
+}
+
+function loginError(origin: string, message: string) {
+  return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(message)}`);
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const token_hash = searchParams.get('token_hash');
-  const type = searchParams.get('type') as
-    | 'signup'
-    | 'recovery'
-    | 'invite'
-    | 'email'
-    | 'email_change'
-    | 'magiclink'
-    | null;
-  const next = searchParams.get('next') ?? (type === 'recovery' ? '/reset-password' : '/');
+  const redirectTo = safeRedirect(searchParams.get('next'), origin);
   const errorParam = searchParams.get('error_description') || searchParams.get('error');
 
+  // Provider denied / cancelled the sign-in.
   if (errorParam) {
-    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorParam)}`);
+    return loginError(origin, errorParam);
+  }
+
+  if (!code) {
+    return loginError(origin, 'Missing authorization code. Please sign in again.');
   }
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    return NextResponse.redirect(
-      `${origin}/login?error=${encodeURIComponent('Supabase environment variables are missing.')}`
-    );
+    return loginError(origin, 'Supabase environment variables are missing.');
   }
 
   const cookieStore = await cookies();
@@ -48,50 +68,12 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Flow 1: Token hash verification (OTP / Email Confirmation / Invite / Signup)
-  if (token_hash) {
-    const targetType = type || 'signup';
-    let { error } = await supabase.auth.verifyOtp({
-      type: targetType,
-      token_hash,
-    });
-
-    if (error && targetType !== 'email') {
-      const fallback = await supabase.auth.verifyOtp({
-        type: 'email',
-        token_hash,
-      });
-      if (!fallback.error) {
-        error = null;
-      }
-    }
-
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
-    }
-
-    return NextResponse.redirect(
-      `${origin}/auth/confirm?error=${encodeURIComponent(
-        error.message || 'Verification link is invalid, expired (links expire in 24 hours), or has already been used.'
-      )}&type=${encodeURIComponent(type || 'signup')}`
-    );
+  // The session is established only if Supabase validates the code against the
+  // PKCE verifier cookie set when the OAuth flow started.
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return loginError(origin, error.message || 'Authorization code is invalid or has expired.');
   }
 
-  // Flow 2: PKCE code exchange
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
-    }
-    return NextResponse.redirect(
-      `${origin}/auth/confirm?error=${encodeURIComponent(error.message || 'Authorization code is invalid or has expired.')}`
-    );
-  }
-
-  // Fallback: If no query params are present (e.g. Supabase redirected with hash fragments #access_token=...
-  // which are client-side only), hand off to /auth/confirm client component.
-  const confirmUrl = new URL('/auth/confirm', origin);
-  if (type) confirmUrl.searchParams.set('type', type);
-  if (next) confirmUrl.searchParams.set('next', next);
-  return NextResponse.redirect(confirmUrl.toString());
+  return NextResponse.redirect(redirectTo);
 }

@@ -1523,7 +1523,7 @@ export class ApiService {
     const { data: bill, error: billErr } = await supabase
       .from('bills')
       .insert([billPayload])
-      .select('*, customers(name, mobile, email)')
+      .select('*, customers!customer_id(name, mobile, email)')
       .maybeSingle();
 
     if (billErr) throw new Error(billErr.message);
@@ -1727,7 +1727,7 @@ export class ApiService {
         edit_reason: reason
       })
       .eq('id', billId)
-      .select('*, customers(name, mobile, email)')
+      .select('*, customers!customer_id(name, mobile, email)')
       .maybeSingle();
 
     if (error) throw new Error(error.message);
@@ -1823,7 +1823,7 @@ export class ApiService {
         edit_reason: input.reason
       })
       .eq('id', billId)
-      .select('*, customers(name, mobile, email)')
+      .select('*, customers!customer_id(name, mobile, email)')
       .maybeSingle();
 
     if (billErr) throw new Error(billErr.message);
@@ -1869,7 +1869,7 @@ export class ApiService {
     if (!isSupabaseConfigured) return [];
     const query = supabase
       .from('bills')
-      .select('*, customers(name, mobile, email)');
+      .select('*, customers!customer_id(name, mobile, email)');
 
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) return [];
@@ -1882,7 +1882,7 @@ export class ApiService {
 
     let query = supabase
       .from('bills')
-      .select('*, customers(name, mobile, email), bill_items(*)');
+      .select('*, customers!customer_id(name, mobile, email), bill_items(*)');
 
     let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -1919,7 +1919,7 @@ export class ApiService {
 
     const { data: bill, error: billErr } = await supabase
       .from('bills')
-      .select('*, customers(name, mobile, email)')
+      .select('*, customers!customer_id(name, mobile, email)')
       .eq('id', id)
       .maybeSingle();
 
@@ -2082,7 +2082,7 @@ export class ApiService {
           notes: input.notes ? `Split Bill (${groupBillNumber}): ${input.notes}` : `Split Bill (${groupBillNumber})`,
           ...(userId ? { user_id: userId } : {})
         }])
-        .select('*, customers(name, mobile, email)')
+        .select('*, customers!customer_id(name, mobile, email)')
         .maybeSingle();
 
       if (billErr || !bill) throw new Error(billErr?.message || `Failed to create bill for customer ${custId}`);
@@ -2345,7 +2345,7 @@ export class ApiService {
           notes: `Shared Bill Share (${groupBillNumber}) - ${participantName}`,
           ...(userId ? { user_id: userId } : {})
         }])
-        .select('*, customers(name, mobile, email)')
+        .select('*, customers!customer_id(name, mobile, email)')
         .maybeSingle();
 
       if (billErr || !bill) throw new Error(billErr?.message || `Failed to create bill for participant ${participantName}`);
@@ -2470,7 +2470,7 @@ export class ApiService {
         cancellation_reason: reason
       })
       .eq('id', billId)
-      .select('*, customers(name, mobile, email)')
+      .select('*, customers!customer_id(name, mobile, email)')
       .maybeSingle();
 
     if (billErr || !updatedBill) throw new Error(billErr?.message || 'Failed to cancel bill');
@@ -2580,7 +2580,7 @@ export class ApiService {
     if (!isSupabaseConfigured) return [];
     const { data, error } = await supabase
       .from('group_bills')
-      .select('*, bills(*, customers(name, mobile, email))')
+      .select('*, bills(*, customers!customer_id(name, mobile, email))')
       .order('created_at', { ascending: false });
 
     if (error || !data) return [];
@@ -2594,7 +2594,7 @@ export class ApiService {
     if (!isSupabaseConfigured) return null;
     const { data: grp, error } = await supabase
       .from('group_bills')
-      .select('*, bills(*, customers(name, mobile, email)), group_bill_items(*)')
+      .select('*, bills(*, customers!customer_id(name, mobile, email)), group_bill_items(*)')
       .eq('id', id)
       .maybeSingle();
 
@@ -5289,7 +5289,7 @@ _(Points will be credited upon bill settlement)_`;
 
     let query = supabase
       .from('bill_items')
-      .select('*, bills(id, bill_number, created_at, customer_id, customers(name), total, grand_total, discount)');
+      .select('*, bills(id, bill_number, created_at, customer_id, customers!customer_id(name), total, grand_total, discount)');
 
     if (isCustom) {
       query = query.is('product_id', null).eq('product_name', product.name);
