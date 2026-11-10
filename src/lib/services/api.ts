@@ -869,14 +869,40 @@ export class ApiService {
     }
 
     const prev = await this.getSettings();
-    const { error } = await supabase.from('settings').upsert({
-      key,
-      value: sanitizedValue,
-      ...(userId ? { user_id: userId } : {}),
-      updated_at: new Date().toISOString()
-    }, { onConflict: userId ? 'user_id,key' : 'key' });
+    const nowIso = new Date().toISOString();
 
-    if (error) throw new Error(error.message);
+    // Update-or-insert by (user_id, key) / key without relying on a specific
+    // ON CONFLICT unique index existing in the database.
+    let existingQuery = supabase.from('settings').select('id').eq('key', key);
+    if (userId) {
+      existingQuery = existingQuery.eq('user_id', userId);
+    } else {
+      existingQuery = existingQuery.is('user_id', null);
+    }
+    const { data: existingRows, error: selectErr } = await existingQuery.limit(1);
+    if (selectErr) throw new Error(selectErr.message);
+
+    if (existingRows && existingRows.length > 0) {
+      let updateQuery = supabase
+        .from('settings')
+        .update({ value: sanitizedValue, updated_at: nowIso })
+        .eq('key', key);
+      if (userId) {
+        updateQuery = updateQuery.eq('user_id', userId);
+      } else {
+        updateQuery = updateQuery.is('user_id', null);
+      }
+      const { error: updateErr } = await updateQuery;
+      if (updateErr) throw new Error(updateErr.message);
+    } else {
+      const { error: insertErr } = await supabase.from('settings').insert([{
+        key,
+        value: sanitizedValue,
+        ...(userId ? { user_id: userId } : {}),
+        updated_at: nowIso
+      }]);
+      if (insertErr) throw new Error(insertErr.message);
+    }
 
     await this.logAudit({
       user_name: userName,
