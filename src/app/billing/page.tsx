@@ -56,15 +56,7 @@ export default function BillingPage() {
   const [customHighlightedIndex, setCustomHighlightedIndex] = useState(-1);
   const customInputRef = useRef<HTMLInputElement>(null);
   const customDropdownRef = useRef<HTMLDivElement>(null);
-  const [recentCustomItems, setRecentCustomItems] = useState<Array<{ name: string; price: number }>>([
-    { name: 'A4 B&W Single', price: 2.00 },
-    { name: 'A4 B&W Back-to-Back', price: 3.50 },
-    { name: 'A4 Color Print', price: 10.00 },
-    { name: 'A3 B&W Print', price: 5.00 },
-    { name: 'Lamination A4', price: 20.00 },
-    { name: 'Spiral Binding', price: 35.00 },
-    { name: 'Passport Size Photo (8 pcs)', price: 50.00 }
-  ]);
+  const [recentCustomItems, setRecentCustomItems] = useState<Array<{ name: string; price: number }>>([]);
 
   // Catalog search & quick add quantity
   const [productSearch, setProductSearch] = useState('');
@@ -141,7 +133,8 @@ export default function BillingPage() {
     // Load stored recent custom items from localStorage
     if (typeof window !== 'undefined') {
       try {
-        const stored = localStorage.getItem('printpro_recent_custom_items');
+        localStorage.removeItem('printpro_recent_custom_items');
+        const stored = localStorage.getItem('printpro_user_custom_items');
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -342,7 +335,7 @@ export default function BillingPage() {
       const updated = [{ name: cleanName, price }, ...filtered].slice(0, 20);
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem('printpro_recent_custom_items', JSON.stringify(updated));
+          localStorage.setItem('printpro_user_custom_items', JSON.stringify(updated));
         } catch { }
       }
       return updated;

@@ -1,7 +1,7 @@
 -- =========================================================================
 -- PrintPro ERP / Xerox & Stationery Billing System Database Schema
--- Multi-Tenant & Single-Store Hybrid Schema (Safe Zero-Data-Loss Backfill)
--- Fully compatible with Supabase PostgREST, Single/Multi-Tenant & Dev Bypass
+-- Multi-Tenant Schema (Safe Zero-Data-Loss Backfill)
+-- Fully compatible with Supabase PostgREST & Strict Tenant Isolation (RLS)
 -- =========================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -14,6 +14,7 @@ DECLARE
     tbl text;
     pk_name text;
     fk_name text;
+    fk_rec record;
     tables text[] := ARRAY[
         'sequences',
         'customers',
@@ -57,7 +58,7 @@ BEGIN
                 EXECUTE format('ALTER TABLE public.%I ADD PRIMARY KEY (id);', tbl);
             END IF;
 
-            -- Relax legacy NOT NULL constraint on user_id for dev/bypass testing
+            -- Relax legacy NOT NULL constraint on user_id during schema migration
             IF EXISTS (
                 SELECT 1 FROM information_schema.columns 
                 WHERE table_schema = 'public' AND table_name = tbl AND column_name = 'user_id' AND is_nullable = 'NO'
@@ -67,6 +68,74 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- Drop legacy sequences and settings constraints & indexes that cause conflicts during backfill
+    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS unique_user_entity_sequence CASCADE;
+    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_entity_unique CASCADE;
+    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_id_key_key CASCADE;
+    ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
+
+    DROP INDEX IF EXISTS public.unique_user_entity_sequence CASCADE;
+    DROP INDEX IF EXISTS public.sequences_user_entity_unique CASCADE;
+    DROP INDEX IF EXISTS public.idx_sequences_key_unified CASCADE;
+    DROP INDEX IF EXISTS public.idx_sequences_key_standalone CASCADE;
+    DROP INDEX IF EXISTS public.idx_settings_key_unified CASCADE;
+    DROP INDEX IF EXISTS public.idx_settings_key_standalone CASCADE;
+
+    -- If legacy entity_type column exists on sequences, relax NOT NULL and populate key/entity_type
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'entity_type'
+    ) THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'entity_type' AND is_nullable = 'NO'
+        ) THEN
+            ALTER TABLE public.sequences ALTER COLUMN entity_type DROP NOT NULL;
+        END IF;
+
+        ALTER TABLE public.sequences ALTER COLUMN entity_type SET DEFAULT NULL;
+
+        UPDATE public.sequences 
+        SET key = UPPER(entity_type) 
+        WHERE (key IS NULL OR TRIM(key) = '') AND entity_type IS NOT NULL;
+
+        UPDATE public.sequences 
+        SET entity_type = LOWER(key) 
+        WHERE (entity_type IS NULL OR TRIM(entity_type) = '') AND key IS NOT NULL;
+    END IF;
+
+    -- If legacy last_seq column exists on sequences, preserve counters into current_val
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'last_seq'
+    ) THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'last_seq' AND is_nullable = 'NO'
+        ) THEN
+            ALTER TABLE public.sequences ALTER COLUMN last_seq DROP NOT NULL;
+        END IF;
+        ALTER TABLE public.sequences ALTER COLUMN last_seq SET DEFAULT 0;
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'current_val'
+        ) THEN
+            UPDATE public.sequences 
+            SET current_val = GREATEST(COALESCE(current_val, 0), COALESCE(last_seq, 0)),
+                last_seq = GREATEST(COALESCE(current_val, 0), COALESCE(last_seq, 0));
+        END IF;
+    END IF;
+
+    -- Normalize legacy sequence key aliases to match application keys
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'key'
+    ) THEN
+        UPDATE public.sequences SET key = 'CLOSE' WHERE UPPER(TRIM(key)) = 'CLOSING';
+        UPDATE public.sequences SET key = 'TRANS' WHERE UPPER(TRIM(key)) = 'TRANSFER';
+        UPDATE public.sequences SET key = 'LOYALTY' WHERE UPPER(TRIM(key)) = 'LOYALTY_TX';
+    END IF;
+
     -- 3. Relax legacy NOT NULL constraints from older PrintPro tables
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'type' AND is_nullable = 'NO') THEN
         ALTER TABLE public.customers ALTER COLUMN type DROP NOT NULL;
@@ -74,6 +143,34 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'date' AND is_nullable = 'NO') THEN
         ALTER TABLE public.bills ALTER COLUMN date DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'subtotal' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bills ALTER COLUMN subtotal DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'amount_paid' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bills ALTER COLUMN amount_paid DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'balance' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bills ALTER COLUMN balance DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'item_name' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bill_items ALTER COLUMN item_name DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'qty' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bill_items ALTER COLUMN qty DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'unit_price' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bill_items ALTER COLUMN unit_price DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'amount' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.bill_items ALTER COLUMN amount DROP NOT NULL;
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'print_type' AND is_nullable = 'NO') THEN
@@ -88,28 +185,148 @@ BEGIN
         ALTER TABLE public.payments ALTER COLUMN payment_type DROP NOT NULL;
     END IF;
 
-    -- 4. Harmonize legacy column types for foreign keys (UUID conversion)
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'bill_id' AND udt_name != 'uuid') THEN
-        ALTER TABLE public.payments ALTER COLUMN bill_id TYPE UUID USING (
-            CASE WHEN bill_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN bill_id::uuid ELSE NULL END
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'total_paid' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.payments ALTER COLUMN total_paid DROP NOT NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_bills' AND column_name = 'group_id' AND is_nullable = 'NO') THEN
+        ALTER TABLE public.group_bills ALTER COLUMN group_id DROP NOT NULL;
+    END IF;
+
+    -- 4. Harmonize legacy column types for foreign keys & primary keys (UUID conversion)
+    -- 4A. group_bills.id conversion to UUID
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'group_bills' AND column_name = 'id' AND udt_name != 'uuid'
+    ) THEN
+        FOR fk_rec IN
+            SELECT c.conrelid::regclass AS src_tbl, c.conname
+            FROM pg_constraint c
+            WHERE c.confrelid = 'public.group_bills'::regclass AND c.contype = 'f'
+        LOOP
+            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I CASCADE;', fk_rec.src_tbl, fk_rec.conname);
+        END LOOP;
+
+        SELECT c.conname INTO pk_name
+        FROM pg_constraint c
+        WHERE c.conrelid = 'public.group_bills'::regclass AND c.contype = 'p';
+
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE public.group_bills DROP CONSTRAINT IF EXISTS %I CASCADE;', pk_name);
+        END IF;
+
+        ALTER TABLE public.group_bills ALTER COLUMN id TYPE UUID USING (
+            CASE 
+                WHEN id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN id::uuid 
+                ELSE gen_random_uuid() 
+            END
+        );
+        ALTER TABLE public.group_bills ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.group_bills ADD PRIMARY KEY (id);
+    END IF;
+
+    -- 4B. customers.id conversion to UUID if legacy varchar
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'id' AND udt_name != 'uuid'
+    ) THEN
+        FOR fk_rec IN
+            SELECT c.conrelid::regclass AS src_tbl, c.conname
+            FROM pg_constraint c
+            WHERE c.confrelid = 'public.customers'::regclass AND c.contype = 'f'
+        LOOP
+            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I CASCADE;', fk_rec.src_tbl, fk_rec.conname);
+        END LOOP;
+
+        SELECT c.conname INTO pk_name
+        FROM pg_constraint c
+        WHERE c.conrelid = 'public.customers'::regclass AND c.contype = 'p';
+
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE public.customers DROP CONSTRAINT IF EXISTS %I CASCADE;', pk_name);
+        END IF;
+
+        ALTER TABLE public.customers ALTER COLUMN id TYPE UUID USING (
+            CASE 
+                WHEN id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN id::uuid 
+                ELSE gen_random_uuid() 
+            END
+        );
+        ALTER TABLE public.customers ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.customers ADD PRIMARY KEY (id);
+    END IF;
+
+    -- 4C. bills.id conversion to UUID if legacy varchar
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'id' AND udt_name != 'uuid'
+    ) THEN
+        FOR fk_rec IN
+            SELECT c.conrelid::regclass AS src_tbl, c.conname
+            FROM pg_constraint c
+            WHERE c.confrelid = 'public.bills'::regclass AND c.contype = 'f'
+        LOOP
+            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I CASCADE;', fk_rec.src_tbl, fk_rec.conname);
+        END LOOP;
+
+        SELECT c.conname INTO pk_name
+        FROM pg_constraint c
+        WHERE c.conrelid = 'public.bills'::regclass AND c.contype = 'p';
+
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE public.bills DROP CONSTRAINT IF EXISTS %I CASCADE;', pk_name);
+        END IF;
+
+        ALTER TABLE public.bills ALTER COLUMN id TYPE UUID USING (
+            CASE 
+                WHEN id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN id::uuid 
+                ELSE gen_random_uuid() 
+            END
+        );
+        ALTER TABLE public.bills ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.bills ADD PRIMARY KEY (id);
+    END IF;
+
+    -- 4D. Harmonize foreign key columns to UUID
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'group_bill_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.bills ALTER COLUMN group_bill_id TYPE UUID USING (
+            CASE WHEN group_bill_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN group_bill_id::uuid ELSE NULL END
         );
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'customer_id' AND udt_name != 'uuid') THEN
-        ALTER TABLE public.payments ALTER COLUMN customer_id TYPE UUID USING (
-            CASE WHEN customer_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN customer_id::uuid ELSE NULL END
-        );
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'bill_id' AND udt_name != 'uuid') THEN
-        ALTER TABLE public.bill_items ALTER COLUMN bill_id TYPE UUID USING (
-            CASE WHEN bill_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN bill_id::uuid ELSE NULL END
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'paid_by_customer_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.bills ALTER COLUMN paid_by_customer_id TYPE UUID USING (
+            CASE WHEN paid_by_customer_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN paid_by_customer_id::uuid ELSE NULL END
         );
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'customer_id' AND udt_name != 'uuid') THEN
         ALTER TABLE public.bills ALTER COLUMN customer_id TYPE UUID USING (
-            CASE WHEN customer_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN customer_id::uuid ELSE NULL END
+            CASE WHEN customer_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN customer_id::uuid ELSE NULL END
+        );
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_bills' AND column_name = 'primary_payer_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.group_bills ALTER COLUMN primary_payer_id TYPE UUID USING (
+            CASE WHEN primary_payer_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN primary_payer_id::uuid ELSE NULL END
+        );
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'bill_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.payments ALTER COLUMN bill_id TYPE UUID USING (
+            CASE WHEN bill_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN bill_id::uuid ELSE NULL END
+        );
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'customer_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.payments ALTER COLUMN customer_id TYPE UUID USING (
+            CASE WHEN customer_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN customer_id::uuid ELSE NULL END
+        );
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'bill_id' AND udt_name != 'uuid') THEN
+        ALTER TABLE public.bill_items ALTER COLUMN bill_id TYPE UUID USING (
+            CASE WHEN bill_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN bill_id::uuid ELSE NULL END
         );
     END IF;
 END $$;
@@ -134,8 +351,41 @@ ALTER TABLE public.sequences ADD COLUMN IF NOT EXISTS padding INT DEFAULT 6;
 ALTER TABLE public.sequences ADD COLUMN IF NOT EXISTS current_val BIGINT DEFAULT 0;
 ALTER TABLE public.sequences ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
+-- Trigger to keep legacy entity_type/last_seq and modern key/current_val in sync
+CREATE OR REPLACE FUNCTION public.sync_sequences_key_compat()
+RETURNS TRIGGER AS $$
+BEGIN
+    BEGIN
+        IF NEW.key IS NULL AND NEW.entity_type IS NOT NULL THEN
+            NEW.key := UPPER(NEW.entity_type);
+        END IF;
+        IF NEW.entity_type IS NULL AND NEW.key IS NOT NULL THEN
+            NEW.entity_type := LOWER(NEW.key);
+        END IF;
+    EXCEPTION WHEN undefined_column THEN
+    END;
+
+    BEGIN
+        IF NEW.current_val IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.current_val IS DISTINCT FROM OLD.current_val) THEN
+            NEW.last_seq := NEW.current_val;
+        ELSIF NEW.current_val IS NULL OR NEW.current_val = 0 THEN
+            NEW.current_val := COALESCE(NEW.last_seq, 0);
+        END IF;
+    EXCEPTION WHEN undefined_column THEN
+    END;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_sequences_key_compat ON public.sequences;
+CREATE TRIGGER trg_sync_sequences_key_compat
+BEFORE INSERT OR UPDATE ON public.sequences
+FOR EACH ROW EXECUTE FUNCTION public.sync_sequences_key_compat();
+
 -- Atomic Database Transaction Sequence Generator with User Isolation
-CREATE OR REPLACE FUNCTION get_next_sequence(p_key TEXT)
+DROP FUNCTION IF EXISTS public.get_next_sequence(text);
+CREATE OR REPLACE FUNCTION public.get_next_sequence(p_key TEXT)
 RETURNS TEXT AS $$
 DECLARE
     v_user_id UUID := auth.uid();
@@ -143,28 +393,28 @@ DECLARE
     v_padding INT;
     v_next_val BIGINT;
 BEGIN
-    INSERT INTO public.sequences (user_id, key, prefix, padding, current_val)
-    VALUES (v_user_id, UPPER(p_key), UPPER(p_key), 6, 1)
-    ON CONFLICT (user_id, key) DO UPDATE
-    SET current_val = sequences.current_val + 1,
+    -- 1. First try atomic UPDATE on existing sequence row for this user
+    UPDATE public.sequences
+    SET current_val = COALESCE(current_val, 0) + 1,
         updated_at = now()
+    WHERE (user_id = v_user_id OR (v_user_id IS NULL AND user_id IS NULL))
+      AND UPPER(key) = UPPER(p_key)
     RETURNING prefix, padding, current_val INTO v_prefix, v_padding, v_next_val;
 
+    -- 2. If no sequence row exists yet for this user & key, insert initial row
     IF v_prefix IS NULL THEN
-        UPDATE public.sequences
-        SET current_val = sequences.current_val + 1,
-            updated_at = now()
-        WHERE (user_id = v_user_id OR (v_user_id IS NULL AND user_id IS NULL)) AND UPPER(key) = UPPER(p_key)
+        INSERT INTO public.sequences (user_id, key, prefix, padding, current_val)
+        VALUES (v_user_id, UPPER(p_key), UPPER(LEFT(p_key, 3)), 6, 1)
         RETURNING prefix, padding, current_val INTO v_prefix, v_padding, v_next_val;
     END IF;
 
     IF v_prefix IS NULL THEN
-        v_prefix := UPPER(p_key);
+        v_prefix := UPPER(LEFT(p_key, 3));
         v_padding := 6;
         v_next_val := 1;
     END IF;
 
-    RETURN v_prefix || '-' || LPAD(v_next_val::text, v_padding, '0');
+    RETURN v_prefix || '-' || LPAD(v_next_val::text, COALESCE(v_padding, 6), '0');
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -252,7 +502,7 @@ CREATE TABLE IF NOT EXISTS public.bills (
 
 ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
 ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS bill_number TEXT;
-ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL;
+ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS customer_id UUID;
 ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS total NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS discount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS gst_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00;
@@ -311,7 +561,7 @@ ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS grand_total NUMERIC(10, 
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS balance_due NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS participant_count INT DEFAULT 1;
-ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS primary_payer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL;
+ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS primary_payer_id UUID;
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'COMPLETED';
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
@@ -319,28 +569,49 @@ ALTER TABLE public.group_bills ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ D
 -- Foreign keys for group_bills & bills linking
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.bills'::regclass AND attname = 'group_bill_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'group_bills' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'bills' AND c1.column_name = 'group_bill_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.bills ADD CONSTRAINT fk_bills_group_bill FOREIGN KEY (group_bill_id) REFERENCES public.group_bills(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
+              AND conname = 'fk_bills_group_bill'
+        ) THEN
+            ALTER TABLE public.bills ADD CONSTRAINT fk_bills_group_bill FOREIGN KEY (group_bill_id) REFERENCES public.group_bills(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.bills'::regclass AND attname = 'paid_by_customer_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'customers' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'bills' AND c1.column_name = 'paid_by_customer_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.bills ADD CONSTRAINT fk_bills_paid_by FOREIGN KEY (paid_by_customer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
+              AND conname = 'fk_bills_paid_by'
+        ) THEN
+            ALTER TABLE public.bills ADD CONSTRAINT fk_bills_paid_by FOREIGN KEY (paid_by_customer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.group_bills'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.group_bills'::regclass AND attname = 'primary_payer_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'customers' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'group_bills' AND c1.column_name = 'primary_payer_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.group_bills ADD CONSTRAINT fk_group_bills_primary_payer FOREIGN KEY (primary_payer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.group_bills'::regclass AND contype = 'f' 
+              AND conname = 'fk_group_bills_primary_payer'
+        ) THEN
+            ALTER TABLE public.group_bills ADD CONSTRAINT fk_group_bills_primary_payer FOREIGN KEY (primary_payer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
 
@@ -360,8 +631,8 @@ CREATE TABLE IF NOT EXISTS public.group_bill_items (
 );
 
 ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS group_bill_id UUID REFERENCES public.group_bills(id) ON DELETE CASCADE;
-ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES public.products(id) ON DELETE SET NULL;
+ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS group_bill_id UUID;
+ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS product_id UUID;
 ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS product_name TEXT;
 ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(10, 2) DEFAULT 1;
 ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2) DEFAULT 0.00;
@@ -370,32 +641,53 @@ ALTER TABLE public.group_bill_items ADD COLUMN IF NOT EXISTS created_at TIMESTAM
 
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.group_bill_items'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.group_bill_items'::regclass AND attname = 'group_bill_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'group_bills' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'group_bill_items' AND c1.column_name = 'group_bill_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.group_bill_items ADD CONSTRAINT fk_group_bill_items_group FOREIGN KEY (group_bill_id) REFERENCES public.group_bills(id) ON DELETE CASCADE;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.group_bill_items'::regclass AND contype = 'f' 
+              AND conname = 'fk_group_bill_items_group'
+        ) THEN
+            ALTER TABLE public.group_bill_items ADD CONSTRAINT fk_group_bill_items_group FOREIGN KEY (group_bill_id) REFERENCES public.group_bills(id) ON DELETE CASCADE;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.group_bill_items'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.group_bill_items'::regclass AND attname = 'product_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'products' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'group_bill_items' AND c1.column_name = 'product_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.group_bill_items ADD CONSTRAINT fk_group_bill_items_product FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.group_bill_items'::regclass AND contype = 'f' 
+              AND conname = 'fk_group_bill_items_product'
+        ) THEN
+            ALTER TABLE public.group_bill_items ADD CONSTRAINT fk_group_bill_items_product FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
 
 -- Clean single-column foreign key for bills -> customers (for PostgREST)
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.bills'::regclass AND attname = 'customer_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'customers' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'bills' AND c1.column_name = 'customer_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.bills ADD CONSTRAINT fk_bills_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.bills'::regclass AND contype = 'f' 
+              AND conname = 'fk_bills_customer'
+        ) THEN
+            ALTER TABLE public.bills ADD CONSTRAINT fk_bills_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
 
@@ -415,8 +707,8 @@ CREATE TABLE IF NOT EXISTS public.bill_items (
 );
 
 ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS bill_id UUID REFERENCES public.bills(id) ON DELETE CASCADE;
-ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES public.products(id) ON DELETE SET NULL;
+ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS bill_id UUID;
+ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS product_id UUID;
 ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS product_name TEXT;
 ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(10, 2) DEFAULT 1;
 ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2) DEFAULT 0.00;
@@ -426,22 +718,140 @@ ALTER TABLE public.bill_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DE
 -- Clean foreign keys for bill_items
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.bill_items'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.bill_items'::regclass AND attname = 'bill_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'bills' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'bill_items' AND c1.column_name = 'bill_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.bill_items ADD CONSTRAINT fk_bill_items_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE CASCADE;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.bill_items'::regclass AND contype = 'f' 
+              AND conname = 'fk_bill_items_bill'
+        ) THEN
+            ALTER TABLE public.bill_items ADD CONSTRAINT fk_bill_items_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE CASCADE;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.bill_items'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.bill_items'::regclass AND attname = 'product_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'products' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'bill_items' AND c1.column_name = 'product_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.bill_items ADD CONSTRAINT fk_bill_items_product FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.bill_items'::regclass AND contype = 'f' 
+              AND conname = 'fk_bill_items_product'
+        ) THEN
+            ALTER TABLE public.bill_items ADD CONSTRAINT fk_bill_items_product FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
+
+-- Ensure legacy and modern bill_items columns are synchronized safely (and remove any 'Custom Item' defaults)
+ALTER TABLE public.bill_items ALTER COLUMN product_name DROP DEFAULT;
+ALTER TABLE public.group_bill_items ALTER COLUMN product_name DROP DEFAULT;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'item_name') THEN
+        UPDATE public.bill_items 
+        SET product_name = item_name 
+        WHERE (product_name IS NULL OR product_name = '' OR product_name = 'Custom Item') 
+          AND item_name IS NOT NULL AND item_name != '' AND item_name != 'Custom Item';
+        UPDATE public.bill_items 
+        SET item_name = product_name 
+        WHERE (item_name IS NULL OR item_name = '' OR item_name = 'Custom Item') 
+          AND product_name IS NOT NULL AND product_name != '';
+    END IF;
+
+    -- Also restore product_name from products catalog if linked via product_id
+    UPDATE public.bill_items bi
+    SET product_name = p.name
+    FROM public.products p
+    WHERE bi.product_id = p.id
+      AND (bi.product_name IS NULL OR bi.product_name = '' OR bi.product_name = 'Custom Item');
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'qty') THEN
+        UPDATE public.bill_items SET quantity = qty WHERE quantity IS NULL AND qty IS NOT NULL;
+        UPDATE public.bill_items SET qty = ROUND(quantity)::INT WHERE qty IS NULL AND quantity IS NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'unit_price') THEN
+        UPDATE public.bill_items SET price = unit_price WHERE price IS NULL AND unit_price IS NOT NULL;
+        UPDATE public.bill_items SET unit_price = price WHERE unit_price IS NULL AND price IS NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bill_items' AND column_name = 'amount') THEN
+        UPDATE public.bill_items SET total = amount WHERE total IS NULL AND amount IS NOT NULL;
+        UPDATE public.bill_items SET amount = total WHERE amount IS NULL AND total IS NOT NULL;
+    END IF;
+END $$;
+
+-- Bi-directional trigger to guarantee item_name and product_name never conflict
+CREATE OR REPLACE FUNCTION public.sync_bill_items_legacy_compat()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Synchronize product_name <-> item_name
+    IF NEW.product_name IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.product_name IS DISTINCT FROM OLD.product_name) THEN
+        BEGIN
+            NEW.item_name := NEW.product_name;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    ELSIF NEW.product_name IS NULL THEN
+        BEGIN
+            NEW.product_name := NEW.item_name;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    END IF;
+
+    -- Synchronize quantity <-> qty
+    IF NEW.quantity IS NOT NULL THEN
+        BEGIN
+            NEW.qty := ROUND(NEW.quantity)::INT;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    ELSIF NEW.quantity IS NULL THEN
+        BEGIN
+            NEW.quantity := NEW.qty;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    END IF;
+
+    -- Synchronize price <-> unit_price
+    IF NEW.price IS NOT NULL THEN
+        BEGIN
+            NEW.unit_price := NEW.price;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    ELSIF NEW.price IS NULL THEN
+        BEGIN
+            NEW.price := NEW.unit_price;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    END IF;
+
+    -- Synchronize total <-> amount
+    IF NEW.total IS NOT NULL THEN
+        BEGIN
+            NEW.amount := NEW.total;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    ELSIF NEW.total IS NULL THEN
+        BEGIN
+            NEW.total := NEW.amount;
+        EXCEPTION WHEN undefined_column THEN
+        END;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_bill_items_legacy_compat ON public.bill_items;
+CREATE TRIGGER trg_sync_bill_items_legacy_compat
+BEFORE INSERT OR UPDATE ON public.bill_items
+FOR EACH ROW
+EXECUTE FUNCTION public.sync_bill_items_legacy_compat();
 
 -- -------------------------------------------------------------------------
 -- 5. PAYMENTS TABLE
@@ -460,8 +870,8 @@ CREATE TABLE IF NOT EXISTS public.payments (
 
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS payment_number TEXT;
-ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES public.customers(id) ON DELETE CASCADE;
-ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS bill_id UUID REFERENCES public.bills(id) ON DELETE SET NULL;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS customer_id UUID;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS bill_id UUID;
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS amount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'Cash';
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS notes TEXT;
@@ -471,20 +881,34 @@ ALTER TABLE public.payments DROP CONSTRAINT IF EXISTS payments_payment_method_ch
 -- Clean foreign keys for payments
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.payments'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.payments'::regclass AND attname = 'customer_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'customers' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'payments' AND c1.column_name = 'customer_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.payments ADD CONSTRAINT fk_payments_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.payments'::regclass AND contype = 'f' 
+              AND conname = 'fk_payments_customer'
+        ) THEN
+            ALTER TABLE public.payments ADD CONSTRAINT fk_payments_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.payments'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.payments'::regclass AND attname = 'bill_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'bills' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'payments' AND c1.column_name = 'bill_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.payments ADD CONSTRAINT fk_payments_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.payments'::regclass AND contype = 'f' 
+              AND conname = 'fk_payments_bill'
+        ) THEN
+            ALTER TABLE public.payments ADD CONSTRAINT fk_payments_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
 
@@ -535,6 +959,7 @@ ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFA
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
+    audit_number TEXT,
     user_name TEXT NOT NULL DEFAULT 'Admin',
     action TEXT NOT NULL,
     entity TEXT NOT NULL,
@@ -544,6 +969,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 );
 
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS audit_number TEXT;
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT 'Admin';
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS action TEXT;
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS entity TEXT;
@@ -578,20 +1004,34 @@ ALTER TABLE public.loyalty_transactions ADD COLUMN IF NOT EXISTS created_at TIME
 -- Clean foreign keys for loyalty_transactions
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.loyalty_transactions'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.loyalty_transactions'::regclass AND attname = 'customer_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'customers' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'loyalty_transactions' AND c1.column_name = 'customer_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.loyalty_transactions ADD CONSTRAINT fk_loyalty_tx_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.loyalty_transactions'::regclass AND contype = 'f' 
+              AND conname = 'fk_loyalty_tx_customer'
+        ) THEN
+            ALTER TABLE public.loyalty_transactions ADD CONSTRAINT fk_loyalty_tx_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+        END IF;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.loyalty_transactions'::regclass AND contype = 'f' 
-          AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.loyalty_transactions'::regclass AND attname = 'bill_id')]
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns c1
+        JOIN information_schema.columns c2 ON c2.table_schema = 'public' AND c2.table_name = 'bills' AND c2.column_name = 'id'
+        WHERE c1.table_schema = 'public' AND c1.table_name = 'loyalty_transactions' AND c1.column_name = 'bill_id'
+          AND c1.udt_name = c2.udt_name
     ) THEN
-        ALTER TABLE public.loyalty_transactions ADD CONSTRAINT fk_loyalty_tx_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE SET NULL;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conrelid = 'public.loyalty_transactions'::regclass AND contype = 'f' 
+              AND conname = 'fk_loyalty_tx_bill'
+        ) THEN
+            ALTER TABLE public.loyalty_transactions ADD CONSTRAINT fk_loyalty_tx_bill FOREIGN KEY (bill_id) REFERENCES public.bills(id) ON DELETE SET NULL;
+        END IF;
     END IF;
 END $$;
 
@@ -729,7 +1169,70 @@ BEGIN
     SELECT id INTO v_owner_id FROM auth.users ORDER BY created_at ASC LIMIT 1;
 
     IF v_owner_id IS NOT NULL THEN
+        -- 1. Sequences: merge current_val and deduplicate before updating user_id
+        UPDATE public.sequences s
+        SET current_val = GREATEST(s.current_val, n.current_val),
+            updated_at = now()
+        FROM public.sequences n
+        WHERE s.user_id = v_owner_id
+          AND n.user_id IS NULL
+          AND UPPER(COALESCE(s.key, '')) = UPPER(COALESCE(n.key, ''));
+
+        DELETE FROM public.sequences
+        WHERE user_id IS NULL
+          AND UPPER(COALESCE(key, '')) IN (
+              SELECT UPPER(COALESCE(key, ''))
+              FROM public.sequences
+              WHERE user_id = v_owner_id
+          );
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'entity_type'
+        ) THEN
+            EXECUTE '
+                DELETE FROM public.sequences
+                WHERE user_id IS NULL
+                  AND LOWER(COALESCE(entity_type, '''')) IN (
+                      SELECT LOWER(COALESCE(entity_type, ''''))
+                      FROM public.sequences
+                      WHERE user_id = $1
+                  )'
+            USING v_owner_id;
+        END IF;
+
         UPDATE public.sequences SET user_id = v_owner_id WHERE user_id IS NULL;
+
+        -- 2. Settings: deduplicate before updating user_id
+        DELETE FROM public.settings
+        WHERE user_id IS NULL
+          AND key IN (
+              SELECT key
+              FROM public.settings
+              WHERE user_id = v_owner_id
+          );
+        UPDATE public.settings SET user_id = v_owner_id WHERE user_id IS NULL;
+
+        -- 3. Loyalty rules: deduplicate before updating user_id
+        DELETE FROM public.loyalty_rules
+        WHERE user_id IS NULL
+          AND rule_name IN (
+              SELECT rule_name
+              FROM public.loyalty_rules
+              WHERE user_id = v_owner_id
+          );
+        UPDATE public.loyalty_rules SET user_id = v_owner_id WHERE user_id IS NULL;
+
+        DELETE FROM public.loyalty_redemption_rules
+        WHERE user_id IS NULL
+          AND points_required IN (
+              SELECT points_required
+              FROM public.loyalty_redemption_rules
+              WHERE user_id = v_owner_id
+          );
+        UPDATE public.loyalty_redemption_rules SET user_id = v_owner_id WHERE user_id IS NULL;
+
+        -- 4. Customer, bills & transactions backfill
         UPDATE public.customers SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.products SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.bills SET user_id = v_owner_id WHERE user_id IS NULL;
@@ -742,11 +1245,8 @@ BEGIN
         UPDATE public.group_bill_items SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.payments SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.expenses SET user_id = v_owner_id WHERE user_id IS NULL;
-        UPDATE public.settings SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.audit_logs SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.loyalty_transactions SET user_id = v_owner_id WHERE user_id IS NULL;
-        UPDATE public.loyalty_rules SET user_id = v_owner_id WHERE user_id IS NULL;
-        UPDATE public.loyalty_redemption_rules SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.internal_transfers SET user_id = v_owner_id WHERE user_id IS NULL;
         UPDATE public.accounting_closings SET user_id = v_owner_id WHERE user_id IS NULL;
     END IF;
@@ -754,52 +1254,51 @@ END $$;
 
 -- Clean up any legacy duplicate seed rules before creating unique constraints
 DELETE FROM public.loyalty_redemption_rules a
-WHERE a.id NOT IN (
-    SELECT MIN(id::text)::uuid
-    FROM public.loyalty_redemption_rules
-    GROUP BY user_id, points_required
+WHERE a.ctid NOT IN (
+    SELECT rid
+    FROM (
+        SELECT DISTINCT ON (user_id, points_required) ctid AS rid
+        FROM public.loyalty_redemption_rules
+        ORDER BY user_id, points_required, created_at DESC NULLS LAST
+    ) sub
 );
 
 DELETE FROM public.loyalty_rules a
-WHERE a.id NOT IN (
-    SELECT MIN(id::text)::uuid
-    FROM public.loyalty_rules
-    GROUP BY user_id, rule_name
+WHERE a.ctid NOT IN (
+    SELECT rid
+    FROM (
+        SELECT DISTINCT ON (user_id, rule_name) ctid AS rid
+        FROM public.loyalty_rules
+        ORDER BY user_id, rule_name, created_at DESC NULLS LAST
+    ) sub
 );
 
--- Clean up any invalid or duplicate sequences before creating unique constraints
+-- Clean up any invalid or duplicate sequences (keep highest current_val!)
 DELETE FROM public.sequences WHERE key IS NULL OR TRIM(key) = '';
+UPDATE public.sequences SET key = UPPER(TRIM(key));
 
 DELETE FROM public.sequences a
-WHERE a.id NOT IN (
-    SELECT MIN(id::text)::uuid
-    FROM public.sequences
-    GROUP BY COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid), key
+WHERE a.ctid NOT IN (
+    SELECT rid
+    FROM (
+        SELECT DISTINCT ON (user_id, key) ctid AS rid
+        FROM public.sequences
+        ORDER BY user_id, key, current_val DESC NULLS LAST, updated_at DESC NULLS LAST
+    ) sub
 );
 
--- Seed default standard entity sequences if table is empty
-DO $$
-DECLARE
-    v_owner_id UUID;
-BEGIN
-    SELECT id INTO v_owner_id FROM auth.users ORDER BY created_at ASC LIMIT 1;
-
-    INSERT INTO public.sequences (user_id, key, prefix, padding, current_val)
-    VALUES 
-        (v_owner_id, 'BILL', 'INV', 6, 0),
-        (v_owner_id, 'GROUP_BILL', 'GRP', 6, 0),
-        (v_owner_id, 'CLOSING', 'CLS', 6, 0),
-        (v_owner_id, 'CUSTOMER', 'CUST', 6, 0),
-        (v_owner_id, 'PRODUCT', 'PROD', 6, 0),
-        (v_owner_id, 'PAYMENT', 'PAY', 6, 0),
-        (v_owner_id, 'EXPENSE', 'EXP', 6, 0),
-        (v_owner_id, 'TRANSFER', 'TRF', 6, 0),
-        (v_owner_id, 'LOYALTY_TX', 'LTX', 6, 0)
-    ON CONFLICT DO NOTHING;
-END $$;
+DELETE FROM public.settings a
+WHERE a.ctid NOT IN (
+    SELECT rid
+    FROM (
+        SELECT DISTINCT ON (user_id, key) ctid AS rid
+        FROM public.settings
+        ORDER BY user_id, key, updated_at DESC NULLS LAST
+    ) sub
+);
 
 -- =========================================================================
--- INDEXES
+-- INDEXES & UNIQUE CONSTRAINTS (Created before seed so ON CONFLICT works)
 -- =========================================================================
 CREATE INDEX IF NOT EXISTS idx_customers_user_id ON public.customers(user_id);
 CREATE INDEX IF NOT EXISTS idx_products_user_id ON public.products(user_id);
@@ -820,16 +1319,56 @@ CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON public.expenses(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON public.audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_transactions_user_id ON public.loyalty_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_redemption_user ON public.loyalty_redemption_rules(user_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_redemption_unique ON public.loyalty_redemption_rules(user_id, points_required);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_rules_unique ON public.loyalty_rules(user_id, rule_name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sequences_user_key ON public.sequences(user_id, key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_settings_user_key ON public.settings(user_id, key);
 
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sequences_user_id_key_key') THEN
+        ALTER TABLE public.sequences ADD CONSTRAINT sequences_user_id_key_key UNIQUE USING INDEX idx_sequences_user_key;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settings_user_id_key_key') THEN
+        ALTER TABLE public.settings ADD CONSTRAINT settings_user_id_key_key UNIQUE USING INDEX idx_settings_user_key;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Seed default standard entity sequences for all users if missing (never overwrites existing counters)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'sequences' AND column_name = 'entity_type' AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE public.sequences ALTER COLUMN entity_type DROP NOT NULL;
+    END IF;
+
+    INSERT INTO public.sequences (user_id, key, prefix, padding, current_val)
+    SELECT u.id, s.key, s.prefix, 6, 0
+    FROM auth.users u
+    CROSS JOIN (
+        VALUES 
+            ('AUDIT', 'AUD'),
+            ('BILL', 'INV'),
+            ('CLOSE', 'CLS'),
+            ('CUSTOMER', 'CUST'),
+            ('EXPENSE', 'EXP'),
+            ('GROUP_BILL', 'GRP'),
+            ('LOYALTY', 'LTX'),
+            ('PAYMENT', 'PAY'),
+            ('PRODUCT', 'PROD'),
+            ('TRANS', 'TRF')
+    ) AS s(key, prefix)
+    ON CONFLICT (user_id, key) DO NOTHING;
+END $$;
+
 -- =========================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
--- Supports:
--- 1. Strict multi-tenant isolation for authenticated users
--- 2. Dev Bypass & Single-Store support for public/anon key access
+-- Strict multi-tenant isolation for authenticated users
 -- =========================================================================
 ALTER TABLE public.sequences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
@@ -862,56 +1401,39 @@ BEGIN
     END LOOP;
 END $$;
 
--- Authenticated Users: Tenant Data Isolation (or user_id is null / matching)
-CREATE POLICY "Tenant isolation on sequences" ON public.sequences FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on customers" ON public.customers FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on products" ON public.products FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on bills" ON public.bills FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on bill_items" ON public.bill_items FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on group_bills" ON public.group_bills FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on group_bill_items" ON public.group_bill_items FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on payments" ON public.payments FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on expenses" ON public.expenses FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on settings" ON public.settings FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on loyalty_transactions" ON public.loyalty_transactions FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on loyalty_rules" ON public.loyalty_rules FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on loyalty_redemption_rules" ON public.loyalty_redemption_rules FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on internal_transfers" ON public.internal_transfers FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant isolation on accounting_closings" ON public.accounting_closings FOR ALL TO authenticated USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
+-- Authenticated Users: Strict Tenant Data Isolation
+CREATE POLICY "Tenant isolation on sequences" ON public.sequences FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on customers" ON public.customers FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on products" ON public.products FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on bills" ON public.bills FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on bill_items" ON public.bill_items FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on group_bills" ON public.group_bills FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on group_bill_items" ON public.group_bill_items FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on payments" ON public.payments FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on expenses" ON public.expenses FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on settings" ON public.settings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on loyalty_transactions" ON public.loyalty_transactions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on loyalty_rules" ON public.loyalty_rules FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on loyalty_redemption_rules" ON public.loyalty_redemption_rules FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on internal_transfers" ON public.internal_transfers FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant isolation on accounting_closings" ON public.accounting_closings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Audit logs for authenticated users
-CREATE POLICY "Tenant insert on audit_logs" ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Tenant select on audit_logs" ON public.audit_logs FOR SELECT TO authenticated USING (auth.uid() = user_id OR user_id IS NULL);
-
--- Anonymous / Dev Bypass Access: Allows seamless local development without login
-CREATE POLICY "Anon bypass access on sequences" ON public.sequences FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on customers" ON public.customers FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on products" ON public.products FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on bills" ON public.bills FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on bill_items" ON public.bill_items FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on group_bills" ON public.group_bills FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on group_bill_items" ON public.group_bill_items FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on payments" ON public.payments FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on expenses" ON public.expenses FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on settings" ON public.settings FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on audit_logs" ON public.audit_logs FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on loyalty_transactions" ON public.loyalty_transactions FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on loyalty_rules" ON public.loyalty_rules FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on loyalty_redemption_rules" ON public.loyalty_redemption_rules FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on internal_transfers" ON public.internal_transfers FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "Anon bypass access on accounting_closings" ON public.accounting_closings FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Tenant insert on audit_logs" ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Tenant select on audit_logs" ON public.audit_logs FOR SELECT TO authenticated USING (auth.uid() = user_id);
 
 -- -------------------------------------------------------------------------
 -- PERMISSIONS / ROLE GRANTS
+-- Strict tenant authorization: anon role cannot access data tables
 -- -------------------------------------------------------------------------
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, service_role;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO authenticated, service_role;
 
 -- -------------------------------------------------------------------------
 -- RELOAD SUPABASE POSTGREST SCHEMA CACHE INSTANTLY

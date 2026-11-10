@@ -707,9 +707,8 @@ export default function SettingsPage() {
                               type="text"
                               value={seq.prefix}
                               onChange={(e) => {
-                                const updated = [...sequences];
-                                updated[idx].prefix = e.target.value.toUpperCase();
-                                setSequences(updated);
+                                const newPrefix = e.target.value.toUpperCase();
+                                setSequences(prev => prev.map(s => s.key === seq.key ? { ...s, prefix: newPrefix } : s));
                               }}
                               className="w-24 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold"
                             />
@@ -718,9 +717,8 @@ export default function SettingsPage() {
                             <select
                               value={seq.padding}
                               onChange={(e) => {
-                                const updated = [...sequences];
-                                updated[idx].padding = Number(e.target.value);
-                                setSequences(updated);
+                                const newPadding = Number(e.target.value);
+                                setSequences(prev => prev.map(s => s.key === seq.key ? { ...s, padding: newPadding } : s));
                               }}
                               className="bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs font-bold"
                             >
@@ -730,10 +728,10 @@ export default function SettingsPage() {
                             </select>
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-slate-800">
-                            {seq.current_val}
+                            {Number(seq.current_val || 0)}
                           </td>
                           <td className="py-3 px-4 text-center font-mono font-bold text-blue-700 text-xs">
-                            {seq.prefix}-{String(seq.current_val + 1).padStart(seq.padding, '0')}
+                            {seq.prefix}-{String(Number(seq.current_val || 0) + 1).padStart(Number(seq.padding || 6), '0')}
                           </td>
                           <td className="py-3 px-4 text-center">
                             <button

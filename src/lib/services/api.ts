@@ -118,6 +118,56 @@ export class ApiService {
     }
   }
 
+  /**
+   * Robust helper to insert bill_items with automatic fallback to legacy column mapping (item_name, qty, unit_price, amount)
+   */
+  static async insertBillItemsWithFallback(items: Array<Record<string, unknown>>): Promise<void> {
+    if (!items || items.length === 0) return;
+
+    const { error: primaryErr } = await supabase.from('bill_items').insert(items as never);
+    if (!primaryErr) return;
+
+    const errText = primaryErr.message || '';
+    if (
+      errText.includes('item_name') ||
+      errText.includes('qty') ||
+      errText.includes('unit_price') ||
+      errText.includes('amount') ||
+      errText.includes('print_type') ||
+      errText.includes('sides')
+    ) {
+      console.warn('bill_items insert encountered legacy schema constraint; retrying with compat payload:', errText);
+      const compatItems = items.map(it => ({
+        ...it,
+        item_name: it.product_name || 'Item',
+        qty: Math.max(1, Math.round(Number(it.quantity) || 1)),
+        unit_price: Number(it.price) || 0,
+        amount: Number(it.total) || 0,
+        print_type: 'bw',
+        sides: 'single'
+      }));
+
+      const { error: retryErr } = await supabase.from('bill_items').insert(compatItems as never);
+      if (!retryErr) return;
+      throw new Error(`Failed to insert bill items: ${retryErr.message}`);
+    }
+
+    throw new Error(primaryErr.message);
+  }
+
+
+  private static readonly DEFAULT_SEQUENCES: Array<{ key: string; prefix: string; padding: number }> = [
+    { key: 'AUDIT', prefix: 'AUD', padding: 6 },
+    { key: 'BILL', prefix: 'INV', padding: 6 },
+    { key: 'CLOSE', prefix: 'CLS', padding: 6 },
+    { key: 'CUSTOMER', prefix: 'CUST', padding: 6 },
+    { key: 'EXPENSE', prefix: 'EXP', padding: 6 },
+    { key: 'GROUP_BILL', prefix: 'GRP', padding: 6 },
+    { key: 'LOYALTY', prefix: 'LTX', padding: 6 },
+    { key: 'PAYMENT', prefix: 'PAY', padding: 6 },
+    { key: 'PRODUCT', prefix: 'PROD', padding: 6 },
+    { key: 'TRANS', prefix: 'TRF', padding: 6 }
+  ];
 
   static async getNextSequence(key: string): Promise<string> {
     if (!isSupabaseConfigured) {
@@ -136,22 +186,50 @@ export class ApiService {
 
 
   private static async fallbackSequence(key: string): Promise<string> {
+    const normalizedKey = key.trim().toUpperCase();
     const userId = await this.getUserId();
-    const query = supabase.from('sequences').select('*').eq('key', key.toUpperCase());
-    const { data: seq } = await query.maybeSingle();
+    const defaultCfg = this.DEFAULT_SEQUENCES.find(d => d.key === normalizedKey);
 
-    const prefix = seq?.prefix || key.slice(0, 3).toUpperCase();
-    const padding = seq?.padding || 6;
-    const nextVal = (seq?.current_val || 0) + 1;
+    const { data: rows } = await supabase
+      .from('sequences')
+      .select('*')
+      .ilike('key', normalizedKey);
 
-    await supabase.from('sequences').upsert({
-      key: key.toUpperCase(),
-      prefix,
-      padding,
-      current_val: nextVal,
-      ...(userId ? { user_id: userId } : {}),
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'key' });
+    const seq = (rows || []).sort((a, b) => {
+      const valA = Math.max(Number(a.current_val || 0), Number((a as Record<string, unknown>).last_seq || 0));
+      const valB = Math.max(Number(b.current_val || 0), Number((b as Record<string, unknown>).last_seq || 0));
+      return valB - valA;
+    })[0];
+
+    const prefix = seq?.prefix || defaultCfg?.prefix || normalizedKey.slice(0, 3);
+    const padding = Number(seq?.padding || defaultCfg?.padding || 6);
+    const currentCounter = Math.max(
+      Number(seq?.current_val || 0),
+      Number((seq as Record<string, unknown> | undefined)?.last_seq || 0)
+    );
+    const nextVal = currentCounter + 1;
+
+    if (seq?.id) {
+      await supabase
+        .from('sequences')
+        .update({
+          key: normalizedKey,
+          prefix,
+          padding,
+          current_val: nextVal,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', seq.id);
+    } else {
+      await supabase.from('sequences').insert({
+        key: normalizedKey,
+        prefix,
+        padding,
+        current_val: nextVal,
+        ...(userId ? { user_id: userId } : {}),
+        updated_at: new Date().toISOString()
+      });
+    }
 
     return `${prefix}-${String(nextVal).padStart(padding, '0')}`;
   }
@@ -159,30 +237,137 @@ export class ApiService {
 
   static async getSequences(): Promise<SequenceConfig[]> {
     if (!isSupabaseConfigured) return [];
-    const query = supabase.from('sequences').select('*');
-    const { data, error } = await query.order('key', { ascending: true });
-    if (error) return [];
-    return data || [];
+    const userId = await this.getUserId();
+    const { data, error } = await supabase
+      .from('sequences')
+      .select('*')
+      .order('key', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching sequences:', error);
+    }
+
+    const byKey = new Map<string, SequenceConfig>();
+    const rawList = (data || []) as Array<Record<string, unknown>>;
+
+    for (const row of rawList) {
+      const rawKey = String(row.key || row.entity_type || '').trim().toUpperCase();
+      if (!rawKey) continue;
+      // Map legacy key aliases to active app keys
+      const mappedKey =
+        rawKey === 'CLOSING' ? 'CLOSE' :
+        rawKey === 'TRANSFER' ? 'TRANS' :
+        rawKey === 'LOYALTY_TX' ? 'LOYALTY' :
+        rawKey;
+
+      const counterVal = Math.max(Number(row.current_val || 0), Number(row.last_seq || 0));
+      const existing = byKey.get(mappedKey);
+      if (!existing || counterVal > existing.current_val) {
+        byKey.set(mappedKey, {
+          id: row.id as string | undefined,
+          user_id: (row.user_id as string | null | undefined) ?? userId,
+          key: mappedKey,
+          prefix: String(row.prefix || mappedKey.slice(0, 3)).toUpperCase(),
+          padding: Number(row.padding || 6),
+          current_val: counterVal,
+          updated_at: row.updated_at as string | undefined
+        });
+      }
+    }
+
+    // Ensure all 10 standard sequence keys exist in the list (and seed missing ones in background)
+    const missingToSeed: Array<Record<string, unknown>> = [];
+    for (const def of this.DEFAULT_SEQUENCES) {
+      if (!byKey.has(def.key)) {
+        const fallbackEntry: SequenceConfig = {
+          user_id: userId,
+          key: def.key,
+          prefix: def.prefix,
+          padding: def.padding,
+          current_val: 0
+        };
+        byKey.set(def.key, fallbackEntry);
+        missingToSeed.push({
+          key: def.key,
+          prefix: def.prefix,
+          padding: def.padding,
+          current_val: 0,
+          ...(userId ? { user_id: userId } : {}),
+          updated_at: new Date().toISOString()
+        });
+      }
+    }
+
+    if (missingToSeed.length > 0) {
+      void supabase.from('sequences').insert(missingToSeed as never);
+    }
+
+    return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
   }
 
 
   static async updateSequenceConfig(key: string, prefix: string, padding: number, userName = 'Super Admin'): Promise<void> {
     if (!isSupabaseConfigured) return;
+    const normalizedKey = key.trim().toUpperCase();
+    const cleanPrefix = prefix.trim().toUpperCase() || normalizedKey.slice(0, 3);
+    const cleanPadding = Math.min(12, Math.max(2, Number(padding) || 6));
     const userId = await this.getUserId();
-    const { error } = await supabase.from('sequences').upsert({
-      key: key.toUpperCase(),
-      prefix: prefix.toUpperCase(),
-      padding: Math.min(12, Math.max(2, padding)),
-      ...(userId ? { user_id: userId } : {}),
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'key' });
-    if (error) throw new Error(error.message);
+
+    const { data: existingRows, error: fetchErr } = await supabase
+      .from('sequences')
+      .select('*')
+      .ilike('key', normalizedKey);
+
+    if (fetchErr) throw new Error(fetchErr.message);
+
+    if (existingRows && existingRows.length > 0) {
+      // Keep the highest counter across any duplicate rows and update by ID
+      const maxVal = existingRows.reduce((max, r) => {
+        const v = Math.max(Number(r.current_val || 0), Number((r as Record<string, unknown>).last_seq || 0));
+        return Math.max(max, v);
+      }, 0);
+
+      const primaryId = existingRows[0].id;
+      const { error: updateErr } = await supabase
+        .from('sequences')
+        .update({
+          key: normalizedKey,
+          prefix: cleanPrefix,
+          padding: cleanPadding,
+          current_val: maxVal,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', primaryId);
+
+      if (updateErr) throw new Error(updateErr.message);
+
+      // Clean up any extra duplicate rows for the same key
+      if (existingRows.length > 1) {
+        const extraIds = existingRows.slice(1).map(r => r.id).filter(Boolean);
+        if (extraIds.length > 0) {
+          await supabase.from('sequences').delete().in('id', extraIds);
+        }
+      }
+    } else {
+      const { error: insertErr } = await supabase
+        .from('sequences')
+        .insert({
+          key: normalizedKey,
+          prefix: cleanPrefix,
+          padding: cleanPadding,
+          current_val: 0,
+          ...(userId ? { user_id: userId } : {}),
+          updated_at: new Date().toISOString()
+        });
+
+      if (insertErr) throw new Error(insertErr.message);
+    }
 
     await this.logAudit({
       user_name: userName,
       action: 'UPDATE_SEQUENCE_CONFIG',
-      entity: `Sequence ${key}`,
-      new_value: `Prefix: ${prefix.toUpperCase()}, Padding: ${padding}`
+      entity: `Sequence ${normalizedKey}`,
+      new_value: `Prefix: ${cleanPrefix}, Padding: ${cleanPadding}`
     });
   }
 
@@ -689,7 +874,7 @@ export class ApiService {
       value: sanitizedValue,
       ...(userId ? { user_id: userId } : {}),
       updated_at: new Date().toISOString()
-    }, { onConflict: 'key' });
+    }, { onConflict: userId ? 'user_id,key' : 'key' });
 
     if (error) throw new Error(error.message);
 
@@ -1354,8 +1539,7 @@ export class ApiService {
       ...(userId ? { user_id: userId } : {})
     }));
 
-    const { error: itemsErr } = await supabase.from('bill_items').insert(itemsToInsert);
-    if (itemsErr) throw new Error(itemsErr.message);
+    await this.insertBillItemsWithFallback(itemsToInsert);
 
     const currentBillPaymentAmount = Number((thisBillDirectPaid + advanceEarned).toFixed(2));
     if (billData.customer_id && currentBillPaymentAmount > 0) {
@@ -1456,10 +1640,10 @@ export class ApiService {
       user_id: it.user_id as string | null | undefined,
       bill_id: it.bill_id as string | undefined,
       product_id: (it.product_id as string | null | undefined) ?? null,
-      product_name: String(it.product_name || ''),
-      price: Number(it.price || 0),
-      quantity: Number(it.quantity || 0),
-      total: Number(it.total || 0),
+      product_name: String((it.product_name && it.product_name !== 'Custom Item') ? it.product_name : (it.item_name || it.product_name || '')),
+      price: Number(it.price ?? it.unit_price ?? 0),
+      quantity: Number(it.quantity ?? it.qty ?? 0),
+      total: Number(it.total ?? it.amount ?? 0),
       created_at: it.created_at as string | undefined
     }));
 
@@ -1657,8 +1841,11 @@ export class ApiService {
     }));
 
     if (sanitizedItems.length > 0) {
-      const { error: itemsErr } = await supabase.from('bill_items').insert(sanitizedItems);
-      if (itemsErr) console.error('Error inserting updated bill items:', itemsErr);
+      try {
+        await this.insertBillItemsWithFallback(sanitizedItems);
+      } catch (itemsErr) {
+        console.error('Error inserting updated bill items:', itemsErr);
+      }
     }
 
     // 4. Log audit entry
@@ -1910,7 +2097,7 @@ export class ApiService {
         total: it.total,
         ...(userId ? { user_id: userId } : {})
       }));
-      await supabase.from('bill_items').insert(itemsToInsert);
+      await this.insertBillItemsWithFallback(itemsToInsert);
 
       // Create payment receipt if paid directly
       if (directPaid > 0) {
@@ -2173,7 +2360,7 @@ export class ApiService {
         total: shareAmount,
         ...(userId ? { user_id: userId } : {})
       };
-      await supabase.from('bill_items').insert([shareLineItem]);
+      await this.insertBillItemsWithFallback([shareLineItem]);
 
       // Create payment receipt if direct payment was made
       if (directPaid > 0) {
@@ -5209,7 +5396,7 @@ _(Points will be credited upon bill settlement)_`;
 
     const query = supabase
       .from('bill_items')
-      .select('product_name, quantity, price, total, created_at, bill_id')
+      .select('*')
       .is('product_id', null);
 
     const { data: customItems, error } = await query.order('created_at', { ascending: false });
@@ -5234,10 +5421,16 @@ _(Points will be credited upon bill settlement)_`;
       if (startDate && itemTime < startDate.getTime()) continue;
       if (endDate && itemTime > endDate.getTime()) continue;
 
-      const name = (item.product_name || 'Ad-hoc Service').trim();
-      const qty = Number(item.quantity || 0);
-      const price = Number(item.price || 0);
-      const total = Number(item.total || (qty * price));
+      const rawItem = item as Record<string, unknown>;
+      const resolvedName = (item.product_name && item.product_name !== 'Custom Item')
+        ? item.product_name
+        : String(rawItem.item_name || '');
+      const name = resolvedName.trim();
+      if (!name || name === 'Custom Item') continue;
+
+      const qty = Number(item.quantity ?? rawItem.qty ?? 0);
+      const price = Number(item.price ?? rawItem.unit_price ?? 0);
+      const total = Number(item.total ?? rawItem.amount ?? (qty * price));
 
       if (!itemMap.has(name)) {
         itemMap.set(name, {
