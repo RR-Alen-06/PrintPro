@@ -587,33 +587,36 @@ export type Database = {
       }
       loyalty_rules: {
         Row: {
-          applicable_product_category: string | null
           created_at: string
           enabled: boolean
           id: string
-          minimum_bill_amount: number
-          points_per_currency_unit: number
-          rule_type: string
+          max_bill_amount: number | null
+          min_bill_amount: number
+          points_earned: number
+          rule_name: string
+          sort_order: number
           user_id: string | null
         }
         Insert: {
-          applicable_product_category?: string | null
           created_at?: string
           enabled?: boolean
           id?: string
-          minimum_bill_amount: number
-          points_per_currency_unit: number
-          rule_type: string
+          max_bill_amount?: number | null
+          min_bill_amount?: number
+          points_earned?: number
+          rule_name: string
+          sort_order?: number
           user_id?: string | null
         }
         Update: {
-          applicable_product_category?: string | null
           created_at?: string
           enabled?: boolean
           id?: string
-          minimum_bill_amount?: number
-          points_per_currency_unit?: number
-          rule_type?: string
+          max_bill_amount?: number | null
+          min_bill_amount?: number
+          points_earned?: number
+          rule_name?: string
+          sort_order?: number
           user_id?: string | null
         }
         Relationships: []
@@ -623,30 +626,33 @@ export type Database = {
           bill_id: string | null
           created_at: string
           customer_id: string
-          description: string | null
           id: string
+          notes: string | null
           points: number
-          transaction_type: string
+          transaction_number: string | null
+          type: string
           user_id: string | null
         }
         Insert: {
           bill_id?: string | null
           created_at?: string
           customer_id: string
-          description?: string | null
           id?: string
+          notes?: string | null
           points: number
-          transaction_type: string
+          transaction_number?: string | null
+          type: string
           user_id?: string | null
         }
         Update: {
           bill_id?: string | null
           created_at?: string
           customer_id?: string
-          description?: string | null
           id?: string
+          notes?: string | null
           points?: number
-          transaction_type?: string
+          transaction_number?: string | null
+          type?: string
           user_id?: string | null
         }
         Relationships: [
