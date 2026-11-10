@@ -10,11 +10,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const isAuthPage =
-    pathname === '/login' ||
-    pathname === '/verify-email' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/reset-password';
+  const isAuthPage = pathname === '/login' || pathname.startsWith('/auth/');
 
   const [isVerifying, setIsVerifying] = useState(!isAuthPage && isSupabaseConfigured);
 
