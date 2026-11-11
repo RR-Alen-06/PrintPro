@@ -69,10 +69,15 @@ BEGIN
     END LOOP;
 
     -- Drop legacy sequences and settings constraints & indexes that cause conflicts during backfill
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS unique_user_entity_sequence CASCADE;
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_entity_unique CASCADE;
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_id_key_key CASCADE;
-    ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sequences') THEN
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS unique_user_entity_sequence CASCADE;
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_entity_unique CASCADE;
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_id_key_key CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'settings') THEN
+        ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
+    END IF;
 
     DROP INDEX IF EXISTS public.unique_user_entity_sequence CASCADE;
     DROP INDEX IF EXISTS public.sequences_user_entity_unique CASCADE;
