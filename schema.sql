@@ -69,10 +69,15 @@ BEGIN
     END LOOP;
 
     -- Drop legacy sequences and settings constraints & indexes that cause conflicts during backfill
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS unique_user_entity_sequence CASCADE;
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_entity_unique CASCADE;
-    ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_id_key_key CASCADE;
-    ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sequences') THEN
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS unique_user_entity_sequence CASCADE;
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_entity_unique CASCADE;
+        ALTER TABLE public.sequences DROP CONSTRAINT IF EXISTS sequences_user_id_key_key CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'settings') THEN
+        ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
+    END IF;
 
     DROP INDEX IF EXISTS public.unique_user_entity_sequence CASCADE;
     DROP INDEX IF EXISTS public.sequences_user_entity_unique CASCADE;
@@ -1327,11 +1332,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_settings_user_key ON public.settings(user_
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sequences_user_id_key_key') THEN
-        ALTER TABLE public.sequences ADD CONSTRAINT sequences_user_id_key_key UNIQUE USING INDEX idx_sequences_user_key;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.sequences'::regclass AND conname = 'sequences_user_id_key_key') THEN
+        ALTER TABLE public.sequences ADD CONSTRAINT sequences_user_id_key_key UNIQUE (user_id, key);
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settings_user_id_key_key') THEN
-        ALTER TABLE public.settings ADD CONSTRAINT settings_user_id_key_key UNIQUE USING INDEX idx_settings_user_key;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.settings'::regclass AND conname = 'settings_user_id_key_key') THEN
+        ALTER TABLE public.settings ADD CONSTRAINT settings_user_id_key_key UNIQUE (user_id, key);
     END IF;
 EXCEPTION WHEN OTHERS THEN
     NULL;
@@ -1363,7 +1374,10 @@ BEGIN
             ('PRODUCT', 'PROD'),
             ('TRANS', 'TRF')
     ) AS s(key, prefix)
-    ON CONFLICT (user_id, key) DO NOTHING;
+    WHERE NOT EXISTS (
+        SELECT 1 FROM public.sequences existing
+        WHERE existing.user_id = u.id AND UPPER(existing.key) = s.key
+    );
 END $$;
 
 -- =========================================================================

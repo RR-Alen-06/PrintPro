@@ -119,40 +119,18 @@ export class ApiService {
   }
 
   /**
-   * Robust helper to insert bill_items with automatic fallback to legacy column mapping (item_name, qty, unit_price, amount)
+   * Helper to insert bill_items cleanly into public.bill_items
    */
-  static async insertBillItemsWithFallback(items: Array<Record<string, unknown>>): Promise<void> {
+  static async insertBillItems(items: Array<Record<string, unknown>>): Promise<void> {
     if (!items || items.length === 0) return;
-
-    const { error: primaryErr } = await supabase.from('bill_items').insert(items as never);
-    if (!primaryErr) return;
-
-    const errText = primaryErr.message || '';
-    if (
-      errText.includes('item_name') ||
-      errText.includes('qty') ||
-      errText.includes('unit_price') ||
-      errText.includes('amount') ||
-      errText.includes('print_type') ||
-      errText.includes('sides')
-    ) {
-      console.warn('bill_items insert encountered legacy schema constraint; retrying with compat payload:', errText);
-      const compatItems = items.map(it => ({
-        ...it,
-        item_name: it.product_name || 'Item',
-        qty: Math.max(1, Math.round(Number(it.quantity) || 1)),
-        unit_price: Number(it.price) || 0,
-        amount: Number(it.total) || 0,
-        print_type: 'bw',
-        sides: 'single'
-      }));
-
-      const { error: retryErr } = await supabase.from('bill_items').insert(compatItems as never);
-      if (!retryErr) return;
-      throw new Error(`Failed to insert bill items: ${retryErr.message}`);
+    const { error } = await supabase.from('bill_items').insert(items as never);
+    if (error) {
+      throw new Error(`Failed to insert bill items: ${error.message}`);
     }
+  }
 
-    throw new Error(primaryErr.message);
+  static async insertBillItemsWithFallback(items: Array<Record<string, unknown>>): Promise<void> {
+    return this.insertBillItems(items);
   }
 
 
@@ -195,18 +173,11 @@ export class ApiService {
       .select('*')
       .ilike('key', normalizedKey);
 
-    const seq = (rows || []).sort((a, b) => {
-      const valA = Math.max(Number(a.current_val || 0), Number((a as Record<string, unknown>).last_seq || 0));
-      const valB = Math.max(Number(b.current_val || 0), Number((b as Record<string, unknown>).last_seq || 0));
-      return valB - valA;
-    })[0];
+    const seq = (rows || []).sort((a, b) => Number(b.current_val || 0) - Number(a.current_val || 0))[0];
 
     const prefix = seq?.prefix || defaultCfg?.prefix || normalizedKey.slice(0, 3);
     const padding = Number(seq?.padding || defaultCfg?.padding || 6);
-    const currentCounter = Math.max(
-      Number(seq?.current_val || 0),
-      Number((seq as Record<string, unknown> | undefined)?.last_seq || 0)
-    );
+    const currentCounter = Number(seq?.current_val || 0);
     const nextVal = currentCounter + 1;
 
     if (seq?.id) {
@@ -251,16 +222,16 @@ export class ApiService {
     const rawList = (data || []) as Array<Record<string, unknown>>;
 
     for (const row of rawList) {
-      const rawKey = String(row.key || row.entity_type || '').trim().toUpperCase();
+      const rawKey = String(row.key || '').trim().toUpperCase();
       if (!rawKey) continue;
-      // Map legacy key aliases to active app keys
+      // Map legacy key aliases if any remain
       const mappedKey =
         rawKey === 'CLOSING' ? 'CLOSE' :
         rawKey === 'TRANSFER' ? 'TRANS' :
         rawKey === 'LOYALTY_TX' ? 'LOYALTY' :
         rawKey;
 
-      const counterVal = Math.max(Number(row.current_val || 0), Number(row.last_seq || 0));
+      const counterVal = Number(row.current_val || 0);
       const existing = byKey.get(mappedKey);
       if (!existing || counterVal > existing.current_val) {
         byKey.set(mappedKey, {
@@ -323,8 +294,7 @@ export class ApiService {
     if (existingRows && existingRows.length > 0) {
       // Keep the highest counter across any duplicate rows and update by ID
       const maxVal = existingRows.reduce((max, r) => {
-        const v = Math.max(Number(r.current_val || 0), Number((r as Record<string, unknown>).last_seq || 0));
-        return Math.max(max, v);
+        return Math.max(max, Number(r.current_val || 0));
       }, 0);
 
       const primaryId = existingRows[0].id;
@@ -869,14 +839,40 @@ export class ApiService {
     }
 
     const prev = await this.getSettings();
-    const { error } = await supabase.from('settings').upsert({
-      key,
-      value: sanitizedValue,
-      ...(userId ? { user_id: userId } : {}),
-      updated_at: new Date().toISOString()
-    }, { onConflict: userId ? 'user_id,key' : 'key' });
+    const nowIso = new Date().toISOString();
 
-    if (error) throw new Error(error.message);
+    // Update-or-insert by (user_id, key) / key without relying on a specific
+    // ON CONFLICT unique index existing in the database.
+    let existingQuery = supabase.from('settings').select('id').eq('key', key);
+    if (userId) {
+      existingQuery = existingQuery.eq('user_id', userId);
+    } else {
+      existingQuery = existingQuery.is('user_id', null);
+    }
+    const { data: existingRows, error: selectErr } = await existingQuery.limit(1);
+    if (selectErr) throw new Error(selectErr.message);
+
+    if (existingRows && existingRows.length > 0) {
+      let updateQuery = supabase
+        .from('settings')
+        .update({ value: sanitizedValue, updated_at: nowIso })
+        .eq('key', key);
+      if (userId) {
+        updateQuery = updateQuery.eq('user_id', userId);
+      } else {
+        updateQuery = updateQuery.is('user_id', null);
+      }
+      const { error: updateErr } = await updateQuery;
+      if (updateErr) throw new Error(updateErr.message);
+    } else {
+      const { error: insertErr } = await supabase.from('settings').insert([{
+        key,
+        value: sanitizedValue,
+        ...(userId ? { user_id: userId } : {}),
+        updated_at: nowIso
+      }]);
+      if (insertErr) throw new Error(insertErr.message);
+    }
 
     await this.logAudit({
       user_name: userName,
@@ -4540,26 +4536,15 @@ export class ApiService {
       payment_mode: mode,
       notes: noteText || null,
       expense_number,
-      cash_amount: cashAmt,
-      upi_amount: upiAmt,
       ...(expense.created_at ? { created_at: expense.created_at } : {}),
       ...(userId ? { user_id: userId } : {})
     };
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from('expenses')
       .insert([payload])
       .select()
       .maybeSingle();
-
-    if (error && (error.message?.includes('column "cash_amount"') || error.code === '42703')) {
-      // Fallback if DB columns not yet added to postgrest cache
-      delete payload.cash_amount;
-      delete payload.upi_amount;
-      const retry = await supabase.from('expenses').insert([payload]).select().maybeSingle();
-      data = retry.data;
-      error = retry.error;
-    }
 
     if (error) throw new Error(error.message);
     if (!data) throw new Error('Failed to create expense');

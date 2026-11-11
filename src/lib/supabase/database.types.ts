@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -7,8 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
@@ -24,7 +26,7 @@ export type Database = {
           closed_at: string | null
           closed_by: string | null
           closing_advance_pool: number | null
-          closing_date: string | null
+          closing_date: string
           closing_month: string | null
           closing_number: string | null
           closing_type: string
@@ -61,10 +63,10 @@ export type Database = {
           closed_at?: string | null
           closed_by?: string | null
           closing_advance_pool?: number | null
-          closing_date?: string | null
+          closing_date: string
           closing_month?: string | null
           closing_number?: string | null
-          closing_type?: string
+          closing_type: string
           created_at?: string
           denominations?: Json | null
           discrepancy_note?: string | null
@@ -98,7 +100,7 @@ export type Database = {
           closed_at?: string | null
           closed_by?: string | null
           closing_advance_pool?: number | null
-          closing_date?: string | null
+          closing_date?: string
           closing_month?: string | null
           closing_number?: string | null
           closing_type?: string
@@ -210,19 +212,33 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "products"
             referencedColumns: ["id"]
-          }
+          },
+          {
+            foreignKeyName: "fk_bill_items_bill"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_bill_items_product"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bills: {
         Row: {
-          advance_earned: number | null
-          advance_used: number | null
+          advance_earned: number
+          advance_used: number
           bill_number: string
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
-          card_paid: number | null
-          cash_paid: number | null
+          card_paid: number
+          cash_paid: number
           created_at: string
           customer_id: string | null
           discount: number
@@ -234,29 +250,28 @@ export type Database = {
           group_role: string | null
           gst_amount: number
           id: string
-          loyalty_points_earned: number | null
-          loyalty_points_redeemed: number | null
+          loyalty_points_earned: number
+          loyalty_points_redeemed: number
           notes: string | null
-          paid_amount: number
           paid_by_customer_id: string | null
-          paid_total: number | null
+          paid_total: number
           payment_method: string
-          rounding_adjustment: number | null
-          rounding_method: string | null
+          rounding_adjustment: number
+          rounding_method: string
           status: string | null
           total: number
-          upi_paid: number | null
+          upi_paid: number
           user_id: string | null
         }
         Insert: {
-          advance_earned?: number | null
-          advance_used?: number | null
+          advance_earned?: number
+          advance_used?: number
           bill_number: string
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
-          card_paid?: number | null
-          cash_paid?: number | null
+          card_paid?: number
+          cash_paid?: number
           created_at?: string
           customer_id?: string | null
           discount?: number
@@ -268,29 +283,28 @@ export type Database = {
           group_role?: string | null
           gst_amount?: number
           id?: string
-          loyalty_points_earned?: number | null
-          loyalty_points_redeemed?: number | null
+          loyalty_points_earned?: number
+          loyalty_points_redeemed?: number
           notes?: string | null
-          paid_amount?: number
           paid_by_customer_id?: string | null
-          paid_total?: number | null
+          paid_total?: number
           payment_method?: string
-          rounding_adjustment?: number | null
-          rounding_method?: string | null
+          rounding_adjustment?: number
+          rounding_method?: string
           status?: string | null
           total?: number
-          upi_paid?: number | null
+          upi_paid?: number
           user_id?: string | null
         }
         Update: {
-          advance_earned?: number | null
-          advance_used?: number | null
+          advance_earned?: number
+          advance_used?: number
           bill_number?: string
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
-          card_paid?: number | null
-          cash_paid?: number | null
+          card_paid?: number
+          cash_paid?: number
           created_at?: string
           customer_id?: string | null
           discount?: number
@@ -302,23 +316,29 @@ export type Database = {
           group_role?: string | null
           gst_amount?: number
           id?: string
-          loyalty_points_earned?: number | null
-          loyalty_points_redeemed?: number | null
+          loyalty_points_earned?: number
+          loyalty_points_redeemed?: number
           notes?: string | null
-          paid_amount?: number
           paid_by_customer_id?: string | null
-          paid_total?: number | null
+          paid_total?: number
           payment_method?: string
-          rounding_adjustment?: number | null
-          rounding_method?: string | null
+          rounding_adjustment?: number
+          rounding_method?: string
           status?: string | null
           total?: number
-          upi_paid?: number | null
+          upi_paid?: number
           user_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "bills_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_bills_customer"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
@@ -337,7 +357,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       customers: {
@@ -390,7 +410,7 @@ export type Database = {
         }
         Insert: {
           amount: number
-          category: string
+          category?: string
           created_at?: string
           expense_number?: string | null
           id?: string
@@ -412,6 +432,71 @@ export type Database = {
         }
         Relationships: []
       }
+      group_bill_items: {
+        Row: {
+          created_at: string
+          group_bill_id: string
+          id: string
+          price: number
+          product_id: string | null
+          product_name: string
+          quantity: number
+          total: number
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          group_bill_id: string
+          id?: string
+          price: number
+          product_id?: string | null
+          product_name: string
+          quantity: number
+          total: number
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          group_bill_id?: string
+          id?: string
+          price?: number
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+          total?: number
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_group_bill_items_group"
+            columns: ["group_bill_id"]
+            isOneToOne: false
+            referencedRelation: "group_bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_group_bill_items_product"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bill_items_group_bill_id_fkey"
+            columns: ["group_bill_id"]
+            isOneToOne: false
+            referencedRelation: "group_bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bill_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       group_bills: {
         Row: {
           balance_due: number
@@ -431,7 +516,7 @@ export type Database = {
         }
         Insert: {
           balance_due?: number
-          billing_type?: string
+          billing_type: string
           created_at?: string
           discount?: number
           grand_total?: number
@@ -468,58 +553,14 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
-        ]
-      }
-      group_bill_items: {
-        Row: {
-          created_at: string
-          group_bill_id: string
-          id: string
-          price: number
-          product_id: string | null
-          product_name: string
-          quantity: number
-          total: number
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          group_bill_id: string
-          id?: string
-          price?: number
-          product_id?: string | null
-          product_name: string
-          quantity?: number
-          total?: number
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          group_bill_id?: string
-          id?: string
-          price?: number
-          product_id?: string | null
-          product_name?: string
-          quantity?: number
-          total?: number
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "fk_group_bill_items_group"
-            columns: ["group_bill_id"]
-            isOneToOne: false
-            referencedRelation: "group_bills"
-            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_group_bill_items_product"
-            columns: ["product_id"]
+            foreignKeyName: "group_bills_primary_payer_id_fkey"
+            columns: ["primary_payer_id"]
             isOneToOne: false
-            referencedRelation: "products"
+            referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       internal_transfers: {
@@ -535,7 +576,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
-          amount?: number
+          amount: number
           created_at?: string
           created_by?: string | null
           direction: string
@@ -657,6 +698,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_loyalty_tx_bill"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_loyalty_tx_customer"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "loyalty_transactions_bill_id_fkey"
             columns: ["bill_id"]
             isOneToOne: false
@@ -669,7 +724,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       payments: {
@@ -677,7 +732,7 @@ export type Database = {
           amount: number
           bill_id: string | null
           created_at: string
-          customer_id: string
+          customer_id: string | null
           id: string
           notes: string | null
           payment_method: string
@@ -688,7 +743,7 @@ export type Database = {
           amount: number
           bill_id?: string | null
           created_at?: string
-          customer_id: string
+          customer_id?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
@@ -699,7 +754,7 @@ export type Database = {
           amount?: number
           bill_id?: string | null
           created_at?: string
-          customer_id?: string
+          customer_id?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
@@ -707,6 +762,20 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_payments_bill"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_payments_customer"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payments_bill_id_fkey"
             columns: ["bill_id"]
@@ -720,7 +789,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       products: {
@@ -756,6 +825,7 @@ export type Database = {
       sequences: {
         Row: {
           current_val: number
+          id: string
           key: string
           padding: number
           prefix: string
@@ -764,6 +834,7 @@ export type Database = {
         }
         Insert: {
           current_val?: number
+          id?: string
           key: string
           padding?: number
           prefix: string
@@ -772,6 +843,7 @@ export type Database = {
         }
         Update: {
           current_val?: number
+          id?: string
           key?: string
           padding?: number
           prefix?: string
@@ -782,18 +854,21 @@ export type Database = {
       }
       settings: {
         Row: {
+          id: string
           key: string
           updated_at: string
           user_id: string | null
           value: Json
         }
         Insert: {
+          id?: string
           key: string
           updated_at?: string
           user_id?: string | null
           value: Json
         }
         Update: {
+          id?: string
           key?: string
           updated_at?: string
           user_id?: string | null
@@ -807,9 +882,23 @@ export type Database = {
     }
     Functions: {
       get_next_sequence: { Args: { p_key: string }; Returns: string }
+      get_next_sequence_code: {
+        Args: {
+          p_entity_type: string
+          p_padding?: number
+          p_prefix: string
+          p_user_id: string
+        }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      bill_status: "unpaid" | "partial" | "paid" | "cancelled"
+      customer_type: "regular" | "random"
+      discount_type: "percent" | "flat"
+      payment_type: "full" | "partial" | "refund" | "reversal"
+      print_type: "color" | "bw"
+      sides_type: "single" | "double"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -899,3 +988,50 @@ export type TablesUpdate<
       ? U
       : never
     : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      bill_status: ["unpaid", "partial", "paid", "cancelled"],
+      customer_type: ["regular", "random"],
+      discount_type: ["percent", "flat"],
+      payment_type: ["full", "partial", "refund", "reversal"],
+      print_type: ["color", "bw"],
+      sides_type: ["single", "double"],
+    },
+  },
+} as const

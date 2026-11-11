@@ -56,12 +56,7 @@ CROSS JOIN (
         ('PAYMENT', 'PAY'),
         ('PRODUCT', 'PROD'),
         ('TRANS', 'TRF')
-) AS s(key, prefix)
-ON CONFLICT (user_id, key) DO UPDATE 
-SET current_val = 0,
-    prefix = EXCLUDED.prefix,
-    padding = 6,
-    updated_at = now();
+) AS s(key, prefix);
 
 -- 3. RE-SEED DEFAULT APPLICATION SETTINGS FOR ALL AUTH USERS
 INSERT INTO public.settings (user_id, key, value, updated_at)
@@ -130,10 +125,7 @@ CROSS JOIN (
             ],
             "default_payment_mode": "Cash"
         }')
-) AS s(key, value)
-ON CONFLICT (user_id, key) DO UPDATE 
-SET value = EXCLUDED.value,
-    updated_at = now();
+) AS s(key, value);
 
 -- 4. RELOAD POSTGREST SCHEMA CACHE INSTANTLY
 NOTIFY pgrst, 'reload schema';
