@@ -1540,7 +1540,7 @@ export class ApiService {
     const currentBillPaymentAmount = Number((thisBillDirectPaid + advanceEarned).toFixed(2));
     if (billData.customer_id && currentBillPaymentAmount > 0) {
       const paySeq = await this.getNextSequence('PAYMENT');
-      await supabase.from('payments').insert([{
+      const { error: payErr } = await supabase.from('payments').insert([{
         payment_number: paySeq,
         customer_id: billData.customer_id,
         bill_id: bill.id,
@@ -1552,6 +1552,9 @@ export class ApiService {
           : `Initial payment for Bill ${bill.bill_number}`,
         ...(userId ? { user_id: userId } : {})
       }]);
+      if (payErr) {
+        console.error('Failed to insert initial payment record for bill:', payErr);
+      }
     }
 
     if (billData.customer_id && paidTotal >= grandTotal - 0.01 && grandTotal > 0) {
@@ -4781,8 +4784,8 @@ export class ApiService {
     });
 
     allBills.forEach(b => {
-      // Only include direct cash/upi from walk-in bills without registered customer payments
-      if (!b.customer_id && !paymentBillIds.has(b.id)) {
+      // Include direct cash/upi from any bill without a registered payment voucher
+      if (!paymentBillIds.has(b.id)) {
         cashCollected += Number(b.cash_paid || 0);
         upiCollected += Number(b.upi_paid || 0);
       }
@@ -6625,8 +6628,8 @@ _(Points will be credited upon bill settlement)_`;
     });
 
     bills.forEach(b => {
-      // Only include direct cash/upi from walk-in bills without registered customer payments
-      if (!b.customer_id && !paymentBillIds.has(b.id)) {
+      // Include direct cash/upi from any bill without a registered payment voucher
+      if (!paymentBillIds.has(b.id)) {
         current_cash_inflow += Number(b.cash_paid || 0);
         current_upi_inflow += Number(b.upi_paid || 0);
       }
@@ -6734,8 +6737,8 @@ _(Points will be credited upon bill settlement)_`;
     });
 
     rangeBills.forEach(b => {
-      // Only include direct cash/upi from walk-in bills without registered customer payments
-      if (!b.customer_id && !paymentBillIds.has(b.id)) {
+      // Include direct cash/upi from any bill without a registered payment voucher
+      if (!paymentBillIds.has(b.id)) {
         cash_inflow += Number(b.cash_paid || 0);
         upi_inflow += Number(b.upi_paid || 0);
       }

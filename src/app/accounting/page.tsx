@@ -213,7 +213,9 @@ export default function AccountingPage() {
       // Credit sales display as "Pay Later" with 0 inflow, whose settlements later appear under PAY-xxxx vouchers.
       billsData.forEach(b => {
         const initialPay = initialPaymentByBillId.get(b.id);
-        const isWalkIn = !b.customer_id && Number(b.paid_total || 0) > 0;
+        const billCash = Number(b.cash_paid || 0);
+        const billUpi = Number(b.upi_paid || 0);
+        const billPaid = Number(b.paid_total || 0);
 
         let cashIn = 0;
         let upiIn = 0;
@@ -227,14 +229,19 @@ export default function AccountingPage() {
             upiIn = Number(initialPay.amount);
             mode = 'UPI';
           } else if (initialPay.payment_method === 'Split Payment') {
-            cashIn = Number(b.cash_paid || 0);
-            upiIn = Number(b.upi_paid || 0);
+            cashIn = billCash > 0 ? billCash : Number(initialPay.amount);
+            upiIn = billUpi;
             mode = 'Split';
+          } else {
+            cashIn = billCash;
+            upiIn = billUpi;
+            mode = initialPay.payment_method || b.payment_method || 'Cash';
           }
-        } else if (isWalkIn) {
-          cashIn = Number(b.cash_paid || 0);
-          upiIn = Number(b.upi_paid || 0);
-          mode = cashIn > 0 && upiIn > 0 ? 'Split' : (cashIn > 0 ? 'Cash' : (upiIn > 0 ? 'UPI' : 'Pay Later'));
+        } else if (billCash > 0 || billUpi > 0 || billPaid > 0) {
+          // Robust fallback: Bill was paid directly at checkout (Walk-in or registered customer)
+          cashIn = billCash;
+          upiIn = billUpi;
+          mode = cashIn > 0 && upiIn > 0 ? 'Split' : (cashIn > 0 ? 'Cash' : (upiIn > 0 ? 'UPI' : (b.payment_method || 'Cash')));
         } else {
           mode = 'Pay Later';
         }

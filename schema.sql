@@ -904,6 +904,10 @@ ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS bill_id UUID;
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS amount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'Cash';
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'COMPLETED';
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
 ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE public.payments DROP CONSTRAINT IF EXISTS payments_payment_method_check;
 
