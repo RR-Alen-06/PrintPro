@@ -675,34 +675,46 @@ export type Database = {
         Row: {
           amount: number
           bill_id: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           created_at: string
           customer_id: string | null
           id: string
           notes: string | null
           payment_method: string
           payment_number: string | null
+          status: string | null
           user_id: string | null
         }
         Insert: {
           amount: number
           bill_id?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
           customer_id?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
           payment_number?: string | null
+          status?: string | null
           user_id?: string | null
         }
         Update: {
           amount?: number
           bill_id?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
           customer_id?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
           payment_number?: string | null
+          status?: string | null
           user_id?: string | null
         }
         Relationships: [
