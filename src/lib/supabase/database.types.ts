@@ -200,20 +200,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "bill_items_bill_id_fkey"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "bills"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "bill_items_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "products"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "fk_bill_items_bill"
             columns: ["bill_id"]
             isOneToOne: false
@@ -330,13 +316,6 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "bills_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "fk_bills_customer"
             columns: ["customer_id"]
@@ -481,20 +460,6 @@ export type Database = {
             referencedRelation: "products"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "group_bill_items_group_bill_id_fkey"
-            columns: ["group_bill_id"]
-            isOneToOne: false
-            referencedRelation: "group_bills"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "group_bill_items_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "products"
-            referencedColumns: ["id"]
-          },
         ]
       }
       group_bills: {
@@ -549,13 +514,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "fk_group_bills_primary_payer"
-            columns: ["primary_payer_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "group_bills_primary_payer_id_fkey"
             columns: ["primary_payer_id"]
             isOneToOne: false
             referencedRelation: "customers"
@@ -711,20 +669,6 @@ export type Database = {
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "loyalty_transactions_bill_id_fkey"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "bills"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "loyalty_transactions_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
         ]
       }
       payments: {
@@ -771,20 +715,6 @@ export type Database = {
           },
           {
             foreignKeyName: "fk_payments_customer"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payments_bill_id_fkey"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "bills"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payments_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"

@@ -79,6 +79,30 @@ BEGIN
         ALTER TABLE public.settings DROP CONSTRAINT IF EXISTS settings_user_id_key_key CASCADE;
     END IF;
 
+    -- Drop duplicate auto-generated foreign keys so PostgREST embeds are unambiguous
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bills') THEN
+        ALTER TABLE public.bills DROP CONSTRAINT IF EXISTS bills_customer_id_fkey CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bill_items') THEN
+        ALTER TABLE public.bill_items DROP CONSTRAINT IF EXISTS bill_items_bill_id_fkey CASCADE;
+        ALTER TABLE public.bill_items DROP CONSTRAINT IF EXISTS bill_items_product_id_fkey CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'group_bill_items') THEN
+        ALTER TABLE public.group_bill_items DROP CONSTRAINT IF EXISTS group_bill_items_group_bill_id_fkey CASCADE;
+        ALTER TABLE public.group_bill_items DROP CONSTRAINT IF EXISTS group_bill_items_product_id_fkey CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'group_bills') THEN
+        ALTER TABLE public.group_bills DROP CONSTRAINT IF EXISTS group_bills_primary_payer_id_fkey CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'loyalty_transactions') THEN
+        ALTER TABLE public.loyalty_transactions DROP CONSTRAINT IF EXISTS loyalty_transactions_bill_id_fkey CASCADE;
+        ALTER TABLE public.loyalty_transactions DROP CONSTRAINT IF EXISTS loyalty_transactions_customer_id_fkey CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments') THEN
+        ALTER TABLE public.payments DROP CONSTRAINT IF EXISTS payments_bill_id_fkey CASCADE;
+        ALTER TABLE public.payments DROP CONSTRAINT IF EXISTS payments_customer_id_fkey CASCADE;
+    END IF;
+
     DROP INDEX IF EXISTS public.unique_user_entity_sequence CASCADE;
     DROP INDEX IF EXISTS public.sequences_user_entity_unique CASCADE;
     DROP INDEX IF EXISTS public.idx_sequences_key_unified CASCADE;
