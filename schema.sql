@@ -966,6 +966,8 @@ ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS amount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Shop Expense';
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS payment_mode TEXT DEFAULT 'Cash';
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS cash_amount NUMERIC(10, 2) DEFAULT 0.00;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS upi_amount NUMERIC(10, 2) DEFAULT 0.00;
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE public.expenses DROP CONSTRAINT IF EXISTS expenses_category_check;

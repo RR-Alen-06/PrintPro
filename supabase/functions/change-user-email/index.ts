@@ -97,11 +97,10 @@ serve(async (req: Request) => {
       );
     }
 
-    // 4. Authorization check: Caller must be the target user OR have admin privileges
+    // 4. Authorization check: Caller must be the target user OR have server-managed admin privileges (app_metadata only)
     const isSelf = callerUser.id === userId;
     const isAdmin =
       callerUser.app_metadata?.role === 'admin' ||
-      callerUser.user_metadata?.role === 'admin' ||
       callerUser.app_metadata?.is_admin === true;
 
     if (!isSelf && !isAdmin) {
@@ -161,16 +160,9 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7. Update any mirror copies of email in application tables (e.g. settings / profiles / customers)
+    // 7. Log the email update in the immutable audit log (do not overwrite tenant customers' emails)
     let appTablesUpdated = true;
     try {
-      // Update customer record if user is registered as a customer
-      await supabaseAdmin
-        .from('customers')
-        .update({ email: cleanEmail })
-        .eq('user_id', userId);
-
-      // Log the email update in the immutable audit log
       await supabaseAdmin.from('audit_logs').insert([{
         user_id: userId,
         user_name: callerUser.email || 'Admin',
@@ -180,7 +172,7 @@ serve(async (req: Request) => {
         new_value: cleanEmail
       }]);
     } catch (tableErr) {
-      console.warn('Warning: Non-critical error updating app tables / audit log:', tableErr);
+      console.warn('Warning: Non-critical error writing audit log:', tableErr);
       appTablesUpdated = false;
     }
 

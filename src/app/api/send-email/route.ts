@@ -8,32 +8,42 @@ export async function POST(request: NextRequest) {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (supabaseUrl && supabaseKey && !supabaseUrl.includes('placeholder')) {
-      const cookieStore = await cookies();
-      const supabase = createServerClient(supabaseUrl, supabaseKey, {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {
-              // Readonly in some contexts
-            }
-          },
-        },
-      });
+    const isSupabaseConfigured =
+      Boolean(supabaseUrl && supabaseKey) &&
+      !supabaseUrl!.includes('placeholder') &&
+      supabaseUrl !== 'https://your-supabase-project.supabase.co';
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        return NextResponse.json(
-          { error: 'Unauthorized: You must be logged in to send invoice emails.' },
-          { status: 401 }
-        );
-      }
+    if (!isSupabaseConfigured) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Authentication service is not configured.' },
+        { status: 401 }
+      );
+    }
+
+    const cookieStore = await cookies();
+    const supabase = createServerClient(supabaseUrl!, supabaseKey!, {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Readonly in some contexts
+          }
+        },
+      },
+    });
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized: You must be logged in to send invoice emails.' },
+        { status: 401 }
+      );
     }
 
     // 2. Parse payload with explicit allowlist (drops role, permissions, price, credits, status, IDs, etc.)
@@ -54,10 +64,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Recipient email is required.' }, { status: 400 });
     }
 
-    // 3. Resolve service credentials (server-side environment variables take precedence)
-    const serviceId = process.env.EMAILJS_SERVICE_ID || customServiceId;
-    const templateId = process.env.EMAILJS_TEMPLATE_ID || customTemplateId;
-    const publicKey = process.env.EMAILJS_PUBLIC_KEY || customPublicKey;
+    // 3. Resolve service credentials (server-side environment variables take precedence;
+    // custom IDs are only permitted as fallback when server env vars are unset and must match safe ID format)
+    const safeIdPattern = /^[a-zA-Z0-9_-]{3,64}$/;
+    const serviceId = process.env.EMAILJS_SERVICE_ID || (customServiceId && safeIdPattern.test(customServiceId) ? customServiceId : undefined);
+    const templateId = process.env.EMAILJS_TEMPLATE_ID || (customTemplateId && safeIdPattern.test(customTemplateId) ? customTemplateId : undefined);
+    const publicKey = process.env.EMAILJS_PUBLIC_KEY || (customPublicKey && safeIdPattern.test(customPublicKey) ? customPublicKey : undefined);
     const privateKey = process.env.EMAILJS_PRIVATE_KEY;
 
     if (!serviceId || !templateId || !publicKey) {
