@@ -866,16 +866,23 @@ export default function BillingPage() {
 
     setSaving(true);
     try {
-      const participantsPayload = sharedParticipants.map(p => ({
-        customer_id: p.customer_id || null,
-        customer_name: p.guest_name,
-        share_amount: Number(p.share_amount),
-        paid_by_customer_id: p.paid_by_customer_id || null,
-        cash_paid: Number(p.cash_paid || 0),
-        upi_paid: Number(p.upi_paid || 0),
-        use_advance: p.use_advance,
-        payment_method: p.payment_mode
-      }));
+      const participantsPayload = sharedParticipants.map(p => {
+        const shareAmt = Number(p.share_amount);
+        const mode = p.payment_mode;
+        const cashPaid = mode === 'Cash' ? (Number(p.cash_paid || 0) > 0 ? Number(p.cash_paid) : shareAmt) : 0;
+        const upiPaid = mode === 'UPI' ? (Number(p.upi_paid || 0) > 0 ? Number(p.upi_paid) : shareAmt) : 0;
+        const useAdvance = mode === 'Advance';
+        return {
+          customer_id: p.customer_id || null,
+          customer_name: p.guest_name,
+          share_amount: shareAmt,
+          paid_by_customer_id: p.paid_by_customer_id || null,
+          cash_paid: cashPaid,
+          upi_paid: upiPaid,
+          use_advance: useAdvance,
+          payment_method: mode
+        };
+      });
 
       const grp = await ApiService.createSharedBilling({
         items: cart,
@@ -1431,29 +1438,7 @@ export default function BillingPage() {
                             />
                           </div>
 
-                          <div>
-                            <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Who Pays?</label>
-                            <select
-                              value={part.paid_by_customer_id || ''}
-                              onChange={(e) => {
-                                const val = e.target.value || null;
-                                setSharedParticipants(prev => prev.map((item, idx) => idx === pIdx ? { ...item, paid_by_customer_id: val } : item));
-                              }}
-                              className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-[11px] font-medium text-slate-800"
-                            >
-                              <option value="">Self (This Member)</option>
-                              {sharedParticipants
-                                .filter(other => other.customer_id && other.id !== part.id)
-                                .map(other => {
-                                  const oCust = customers.find(c => c.id === other.customer_id);
-                                  return (
-                                    <option key={other.id} value={other.customer_id!}>
-                                      Paid by {oCust?.name}
-                                    </option>
-                                  );
-                                })}
-                            </select>
-                          </div>
+
                         </div>
                       </div>
                     );
@@ -2478,6 +2463,7 @@ export default function BillingPage() {
                   {sharedParticipants.map((part, idx) => {
                     const cust = part.customer_id ? customers.find(c => c.id === part.customer_id) : null;
                     const payerCust = part.paid_by_customer_id ? customers.find(c => c.id === part.paid_by_customer_id) : null;
+                    const effectivePayer = payerCust || cust;
                     const isRegistered = Boolean(part.customer_id);
                     const name = isRegistered ? cust?.name : `${part.guest_name} (Guest)`;
 
@@ -2495,25 +2481,62 @@ export default function BillingPage() {
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
-                          <span className="text-slate-500">
-                            Settlement: <strong className="text-slate-800">{payerCust ? `Covered by ${payerCust.name}` : 'Self'}</strong>
-                          </span>
-                          <select
-                            value={part.payment_mode}
-                            onChange={(e) => {
-                              const mode = e.target.value as 'Cash' | 'UPI' | 'Advance' | 'Pay Later';
-                              setSharedParticipants(prev => prev.map((item, i) => i === idx ? { ...item, payment_mode: mode } : item));
-                            }}
-                            className="bg-slate-50 border border-slate-200 rounded px-2 py-0.5 text-[10px] font-bold text-slate-800"
-                          >
-                            <option value="Pay Later">Pay Later (Credit)</option>
-                            <option value="Cash">Cash</option>
-                            <option value="UPI">UPI</option>
-                            {isRegistered && cust && cust.advance_balance > 0 && (
-                              <option value="Advance">Advance (₹{cust.advance_balance})</option>
-                            )}
-                          </select>
+                        <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500 font-medium shrink-0">Who Pays?</span>
+                            <select
+                              value={part.paid_by_customer_id || ''}
+                              onChange={(e) => {
+                                const val = e.target.value || null;
+                                const nextPayer = val ? customers.find(c => c.id === val) : cust;
+                                setSharedParticipants(prev => prev.map((item, i) => {
+                                  if (i !== idx) return item;
+                                  const canKeepAdvance = item.payment_mode === 'Advance' && nextPayer && nextPayer.advance_balance > 0;
+                                  return {
+                                    ...item,
+                                    paid_by_customer_id: val,
+                                    payment_mode: item.payment_mode === 'Advance' && !canKeepAdvance ? 'Pay Later' : item.payment_mode
+                                  };
+                                }));
+                              }}
+                              className="bg-white border border-slate-300 rounded px-2 py-0.5 text-[10px] font-semibold text-slate-800 max-w-[165px]"
+                            >
+                              <option value="">Self ({isRegistered ? cust?.name : 'Guest'})</option>
+                              {customers
+                                .filter(c => c.id !== part.customer_id)
+                                .map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}{c.advance_balance > 0 ? ` (Adv: ₹${c.advance_balance})` : ''}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">
+                              Settlement: <strong className="text-slate-800">{payerCust ? `Covered by ${payerCust.name}` : 'Self'}</strong>
+                            </span>
+                            <select
+                              value={part.payment_mode}
+                              onChange={(e) => {
+                                const mode = e.target.value as 'Cash' | 'UPI' | 'Advance' | 'Pay Later';
+                                setSharedParticipants(prev => prev.map((item, i) => i === idx ? {
+                                  ...item,
+                                  payment_mode: mode,
+                                  cash_paid: mode === 'Cash' ? Number(item.share_amount || 0) : 0,
+                                  upi_paid: mode === 'UPI' ? Number(item.share_amount || 0) : 0,
+                                  use_advance: mode === 'Advance'
+                                } : item));
+                              }}
+                              className="bg-slate-50 border border-slate-200 rounded px-2 py-0.5 text-[10px] font-bold text-slate-800"
+                            >
+                              <option value="Pay Later">Pay Later (Credit)</option>
+                              <option value="Cash">Cash</option>
+                              <option value="UPI">UPI</option>
+                              {effectivePayer && effectivePayer.advance_balance > 0 && (
+                                <option value="Advance">Advance (₹{effectivePayer.advance_balance})</option>
+                              )}
+                            </select>
+                          </div>
                         </div>
                       </div>
                     );

@@ -420,11 +420,6 @@ export default function SettingsPage() {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (superAdminPin !== settings.security.super_admin_pin) {
-      setErrorMsg('Invalid Super Admin Security PIN.');
-      return;
-    }
-
     if (purgeInput !== 'DELETE') {
       setErrorMsg('You must type DELETE in capital letters to confirm data purge.');
       return;
@@ -432,6 +427,13 @@ export default function SettingsPage() {
 
     setSaving(true);
     try {
+      const isPinValid = await ApiService.verifyAdminPin(superAdminPin.trim());
+      if (!isPinValid) {
+        setErrorMsg('Invalid Super Admin Security PIN.');
+        setSaving(false);
+        return;
+      }
+
       await ApiService.purgeAllBusinessData('Super Admin');
       setSuccessMsg('All business transaction data has been permanently deleted.');
       setShowPurgeModal(false);
@@ -1270,7 +1272,7 @@ export default function SettingsPage() {
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Super Admin Security PIN</label>
                       <input
                         type="password"
-                        placeholder="Default: 1234"
+                        placeholder="Leave as **** to keep current PIN"
                         value={settings.security.super_admin_pin}
                         onChange={(e) => setSettings({
                           ...settings,

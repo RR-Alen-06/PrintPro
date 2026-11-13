@@ -6,11 +6,6 @@ export async function proxy(request: NextRequest) {
     request,
   });
 
-  // Bypass authentication check during testing
-  if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
-    return supabaseResponse;
-  }
-
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

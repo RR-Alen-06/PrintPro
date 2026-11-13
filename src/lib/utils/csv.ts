@@ -1,4 +1,16 @@
 /**
+ * Neutralize spreadsheet formula injection (=, +, -, @, tab, CR) and quote CSV cells.
+ */
+function sanitizeCSVCell(cell: string | number | null | undefined): string {
+  if (cell === null || cell === undefined) return '""';
+  let str = String(cell);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+/**
  * Utility for exporting and downloading tabular data as CSV files.
  */
 export function downloadCSV(
@@ -7,16 +19,8 @@ export function downloadCSV(
   rows: (string | number | null | undefined)[][]
 ): void {
   const csvContent = [
-    headers.join(','),
-    ...rows.map((row) =>
-      row
-        .map((cell) => {
-          if (cell === null || cell === undefined) return '""';
-          const stringVal = String(cell).replace(/"/g, '""');
-          return `"${stringVal}"`;
-        })
-        .join(',')
-    ),
+    headers.map((h) => sanitizeCSVCell(h)).join(','),
+    ...rows.map((row) => row.map((cell) => sanitizeCSVCell(cell)).join(',')),
   ].join('\n');
 
   const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });

@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { ApiService } from '@/lib/services/api';
-import { Bill, AllSettings } from '@/lib/types';
+import { Bill, AllSettings, GroupBill, Customer } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { InvoiceModal } from '@/components/InvoiceModal';
+import { GroupInvoiceModal } from '@/components/GroupInvoiceModal';
 import { EditBillModal } from '@/components/EditBillModal';
 import { 
   FileText, 
@@ -20,7 +20,8 @@ import {
   RotateCcw,
   RefreshCw,
   Wallet,
-  Loader2
+  Loader2,
+  Users
 } from 'lucide-react';
 
 export default function ManageBillsPage() {
@@ -28,7 +29,10 @@ export default function ManageBillsPage() {
   const [settings, setSettings] = useState<AllSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [groupFilter, setGroupFilter] = useState<'ALL' | 'INDIVIDUAL' | 'GROUP'>('ALL');
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [selectedGroupBill, setSelectedGroupBill] = useState<GroupBill | null>(null);
+  const [loadingGroupBillId, setLoadingGroupBillId] = useState<string | null>(null);
 
   // Edit Bill Modal
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
@@ -47,6 +51,70 @@ export default function ManageBillsPage() {
   const [allocateAmount, setAllocateAmount] = useState<number | ''>('');
   const [allocating, setAllocating] = useState(false);
   const [loadingCustAdvance, setLoadingCustAdvance] = useState(false);
+
+  // Settle Bill ("Who Pays?") Modal State
+  const [settleBill, setSettleBill] = useState<Bill | null>(null);
+  const [settleCustomers, setSettleCustomers] = useState<Customer[]>([]);
+  const [settlePayerId, setSettlePayerId] = useState<string>('');
+  const [settleAmount, setSettleAmount] = useState<string>('');
+  const [settleMethod, setSettleMethod] = useState<'Cash' | 'UPI'>('Cash');
+  const [settleNotes, setSettleNotes] = useState<string>('');
+  const [settling, setSettling] = useState(false);
+
+  const handleOpenSettleBill = async (bill: Bill) => {
+    const remaining = Math.max(0, Number((Number(bill.grand_total || 0) - Number(bill.paid_total || 0)).toFixed(2)));
+    setSettleBill(bill);
+    setSettlePayerId(bill.paid_by_customer_id || bill.customer_id || '');
+    setSettleAmount(remaining.toFixed(2));
+    setSettleMethod('Cash');
+    setSettleNotes('');
+    setErrorMsg('');
+    if (settleCustomers.length === 0) {
+      try {
+        const custs = await ApiService.getCustomers();
+        setSettleCustomers(custs);
+      } catch (err) {
+        console.error('Failed to load customers for settle modal:', err);
+      }
+    }
+  };
+
+  const handleSettleBillSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settleBill) return;
+    const amt = Number(settleAmount);
+    const remaining = Math.max(0, Number((Number(settleBill.grand_total || 0) - Number(settleBill.paid_total || 0)).toFixed(2)));
+    if (isNaN(amt) || amt <= 0) {
+      setErrorMsg('Settlement amount must be greater than ₹0.00.');
+      return;
+    }
+    if (amt > remaining + 0.01) {
+      setErrorMsg(`Settlement amount cannot exceed remaining due (₹${remaining.toFixed(2)}).`);
+      return;
+    }
+
+    setSettling(true);
+    setErrorMsg('');
+    try {
+      await ApiService.settleBillDue({
+        bill_id: settleBill.id,
+        paid_by_customer_id: settlePayerId || null,
+        amount: amt,
+        payment_method: settleMethod,
+        notes: settleNotes.trim() || undefined
+      });
+      const payerName = settlePayerId
+        ? (settleCustomers.find(c => c.id === settlePayerId)?.name || 'Selected Customer')
+        : 'Walk-in / Guest';
+      setSuccessMsg(`Settled ₹${amt.toFixed(2)} for Bill ${settleBill.bill_number} (Paid by ${payerName}).`);
+      setSettleBill(null);
+      await loadData();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to settle bill');
+    } finally {
+      setSettling(false);
+    }
+  };
 
   // Feedback
   const [errorMsg, setErrorMsg] = useState('');
@@ -133,14 +201,16 @@ export default function ManageBillsPage() {
     }
   };
 
-  const handleOpenReversePayment = (bill: Bill) => {
+  const handleOpenReversePayment = async (bill: Bill) => {
     setReversingBill(bill);
     setReverseReason('Accidentally recorded payment when no funds received');
     setReversePin('');
     setOverride48h(false);
     setRefundAdvanceToWallet(false);
     const reversalWindowHours = Number(settings?.security?.payment_reversal_window_hours) || 72;
-    setIsReversalPastLimit((Date.now() - new Date(bill.created_at).getTime()) > reversalWindowHours * 3600 * 1000);
+    const latestPayTime = await ApiService.getLatestBillPaymentTime(bill.id);
+    const referenceTime = latestPayTime ?? new Date(bill.created_at).getTime();
+    setIsReversalPastLimit((new Date().getTime() - referenceTime) > reversalWindowHours * 3600 * 1000);
     setErrorMsg('');
     setSuccessMsg('');
   };
@@ -158,8 +228,7 @@ export default function ManageBillsPage() {
     }
 
     const reversalWindowHours = Number(settings?.security?.payment_reversal_window_hours) || 72;
-    const isPastLimit = (Date.now() - new Date(reversingBill.created_at).getTime()) > reversalWindowHours * 3600 * 1000;
-    if (isPastLimit && !override48h) {
+    if (isReversalPastLimit && !override48h) {
       setErrorMsg(`This payment is older than ${reversalWindowHours} hours. Please check the Super Admin ${reversalWindowHours}-Hour Override box to proceed.`);
       return;
     }
@@ -210,10 +279,32 @@ export default function ManageBillsPage() {
     }
   };
 
-  const filteredBills = bills.filter(b => 
-    b.bill_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (b.customer_name && b.customer_name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const handleViewGroupBill = async (groupBillId: string) => {
+    try {
+      setLoadingGroupBillId(groupBillId);
+      const grp = await ApiService.getGroupBillById(groupBillId);
+      if (grp) {
+        setSelectedGroupBill(grp);
+      } else {
+        alert('Group bill details could not be found.');
+      }
+    } catch (err) {
+      console.error('Error fetching group bill:', err);
+    } finally {
+      setLoadingGroupBillId(null);
+    }
+  };
+
+  const filteredBills = bills.filter(b => {
+    const matchesSearch =
+      b.bill_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (b.customer_name && b.customer_name.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    if (!matchesSearch) return false;
+    if (groupFilter === 'INDIVIDUAL') return !b.group_bill_id;
+    if (groupFilter === 'GROUP') return !!b.group_bill_id;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -253,16 +344,41 @@ export default function ManageBillsPage() {
         </div>
       )}
 
-      {/* Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-3">
-        <Search size={18} className="text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search by Bill Number or Customer Name..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full bg-transparent text-sm focus:outline-none text-slate-800"
-        />
+      {/* Search Bar & Filters */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center space-x-3 flex-1">
+          <Search size={18} className="text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by Bill Number or Customer Name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-transparent text-sm focus:outline-none text-slate-800"
+          />
+        </div>
+
+        {/* Group Order Filter Pills */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-lg self-start md:self-auto text-xs font-semibold">
+          <button
+            onClick={() => setGroupFilter('ALL')}
+            className={`px-3 py-1.5 rounded-md transition ${groupFilter === 'ALL' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+          >
+            All Bills
+          </button>
+          <button
+            onClick={() => setGroupFilter('INDIVIDUAL')}
+            className={`px-3 py-1.5 rounded-md transition ${groupFilter === 'INDIVIDUAL' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+          >
+            Individual Only
+          </button>
+          <button
+            onClick={() => setGroupFilter('GROUP')}
+            className={`px-3 py-1.5 rounded-md transition flex items-center gap-1.5 ${groupFilter === 'GROUP' ? 'bg-purple-600 text-white shadow-sm' : 'text-purple-700 hover:text-purple-900'}`}
+          >
+            <Users size={12} />
+            <span>Group Orders</span>
+          </button>
+        </div>
       </div>
 
       {/* BILLS TABLE */}
@@ -294,13 +410,20 @@ export default function ManageBillsPage() {
                   const paid = Number(b.paid_total || 0);
                   const grand = Number(b.grand_total || 0);
                   const remaining = Math.max(0, grand - paid);
-                  const isFullyPaid = remaining <= 0.01;
-                  const isPartiallyPaid = !isFullyPaid && paid > 0.01;
+                  const isCancelled = b.status === 'CANCELLED' || b.status === 'VOID';
+                  const isFullyPaid = !isCancelled && remaining <= 0.01;
+                  const isPartiallyPaid = !isCancelled && !isFullyPaid && paid > 0.01;
 
                   return (
-                    <tr key={b.id} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={b.id} className={isCancelled ? 'bg-rose-50/40 opacity-75 hover:bg-rose-50/60 transition-colors' : 'hover:bg-slate-50/80 transition-colors'}>
                       <td className="px-6 py-4 font-data-mono font-bold text-slate-900">
-                        {b.bill_number}
+                        <div>{b.bill_number}</div>
+                        {b.group_bill_id && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 mt-1">
+                            <Users size={10} />
+                            <span>Group Order</span>
+                          </span>
+                        )}
                         {b.edited_at && (
                           <span className="block text-[10px] text-amber-600 font-sans font-normal flex items-center space-x-0.5 mt-0.5">
                             <Clock size={10} />
@@ -360,7 +483,11 @@ export default function ManageBillsPage() {
                         ₹{Number(b.grand_total).toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {isFullyPaid ? (
+                        {isCancelled ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                            Cancelled / Void
+                          </span>
+                        ) : isFullyPaid ? (
                           <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
                             Fully Paid
                           </span>
@@ -376,22 +503,24 @@ export default function ManageBillsPage() {
                       </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center space-x-1.5">
-                        {!isFullyPaid && b.customer_id && (
+                        {!isCancelled && !isFullyPaid && (
                           <>
+                            {b.customer_id && (
+                              <button
+                                onClick={() => handleOpenAllocateAdvance(b)}
+                                className="p-1.5 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded transition"
+                                title="Apply Customer Advance Credit to this Bill"
+                              >
+                                <Wallet size={16} />
+                              </button>
+                            )}
                             <button
-                              onClick={() => handleOpenAllocateAdvance(b)}
-                              className="p-1.5 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded transition"
-                              title="Apply Customer Advance Credit to this Bill"
-                            >
-                              <Wallet size={16} />
-                            </button>
-                            <Link
-                              href={`/payments?customerId=${b.customer_id}`}
+                              onClick={() => handleOpenSettleBill(b)}
                               className="p-1.5 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded transition"
-                              title="Collect Payment"
+                              title="Settle Bill / Choose Who Pays"
                             >
                               <CreditCard size={16} />
-                            </Link>
+                            </button>
                           </>
                         )}
                         <button
@@ -401,14 +530,30 @@ export default function ManageBillsPage() {
                         >
                           <Eye size={16} />
                         </button>
-                        <button
-                          onClick={() => handleOpenEdit(b)}
-                          className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition"
-                          title="Super Admin: Edit Bill Items & Details"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                        {paid > 0.01 && (
+                        {b.group_bill_id && (
+                          <button
+                            onClick={() => handleViewGroupBill(b.group_bill_id!)}
+                            disabled={loadingGroupBillId === b.group_bill_id}
+                            className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition"
+                            title="View Consolidated Group Invoice"
+                          >
+                            {loadingGroupBillId === b.group_bill_id ? (
+                              <Loader2 size={16} className="animate-spin text-purple-600" />
+                            ) : (
+                              <Users size={16} />
+                            )}
+                          </button>
+                        )}
+                        {!isCancelled && (
+                          <button
+                            onClick={() => handleOpenEdit(b)}
+                            className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition"
+                            title="Super Admin: Edit Bill Items & Details"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                        )}
+                        {!isCancelled && paid > 0.01 && (
                           <button
                             onClick={() => handleOpenReversePayment(b)}
                             className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded transition"
@@ -742,6 +887,126 @@ export default function ManageBillsPage() {
         </div>
       )}
 
+      {/* Settle Bill ("Who Pays?") Modal */}
+      {settleBill && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+              <div className="flex items-center space-x-2">
+                <CreditCard className="text-emerald-400" size={20} />
+                <h3 className="font-bold text-base">Settle Bill — Who Pays?</h3>
+              </div>
+              <button
+                onClick={() => setSettleBill(null)}
+                className="text-slate-400 hover:text-white transition text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <form onSubmit={handleSettleBillSubmit} className="p-6 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Bill Number:</span>
+                  <span className="font-bold text-slate-900">{settleBill.bill_number}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Billed To:</span>
+                  <span className="font-semibold text-slate-800">{settleBill.customer_name || 'Walk-in Customer'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Remaining Due:</span>
+                  <span className="font-extrabold text-amber-700">
+                    ₹{Math.max(0, Number((Number(settleBill.grand_total || 0) - Number(settleBill.paid_total || 0)).toFixed(2))).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                  Who Pays?
+                </label>
+                <select
+                  value={settlePayerId}
+                  onChange={(e) => setSettlePayerId(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                >
+                  <option value="">Walk-in / Guest (No Customer Account)</option>
+                  {settleCustomers.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.id === settleBill.customer_id ? ' (Bill Owner)' : ''}{c.mobile ? ` — ${c.mobile}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Choose the customer paying this bill. Loyalty points (if enabled) are awarded to the payer.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                    Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={settleAmount}
+                    onChange={(e) => setSettleAmount(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                    Payment Method
+                  </label>
+                  <select
+                    value={settleMethod}
+                    onChange={(e) => setSettleMethod(e.target.value as 'Cash' | 'UPI')}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                  Notes (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={settleNotes}
+                  onChange={(e) => setSettleNotes(e.target.value)}
+                  placeholder="e.g. Paid at counter by friend"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSettleBill(null)}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={settling}
+                  className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {settling ? <Loader2 size={14} className="animate-spin" /> : <CreditCard size={14} />}
+                  <span>{settling ? 'Settling...' : `Confirm Payment ₹${Number(settleAmount || 0).toFixed(2)}`}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Invoice Modal */}
       {selectedBill && (
         <InvoiceModal 
@@ -749,6 +1014,22 @@ export default function ManageBillsPage() {
           settings={settings || undefined} 
           customerEmail={selectedBill.customer_email || undefined} 
           onClose={() => setSelectedBill(null)} 
+        />
+      )}
+
+      {/* Consolidated Group Invoice Modal */}
+      {selectedGroupBill && (
+        <GroupInvoiceModal
+          groupBill={selectedGroupBill}
+          settings={settings || undefined}
+          onClose={() => setSelectedGroupBill(null)}
+          onCancelMemberBill={async () => {
+            await loadData();
+            if (selectedGroupBill?.id) {
+              const refreshed = await ApiService.getGroupBillById(selectedGroupBill.id);
+              if (refreshed) setSelectedGroupBill(refreshed);
+            }
+          }}
         />
       )}
     </div>

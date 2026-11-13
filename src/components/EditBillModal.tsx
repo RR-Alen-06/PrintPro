@@ -44,22 +44,14 @@ export function EditBillModal({ bill, onClose, onSaved }: EditBillModalProps) {
   const [customerId, setCustomerId] = useState<string>(bill.customer_id || '');
   const [items, setItems] = useState<EditableItem[]>(() => {
     const raw = bill.items || (bill as unknown as { bill_items?: EditableItem[] }).bill_items || [];
-    if (raw.length > 0) {
-      return raw.map(it => ({
-        id: it.id,
-        product_id: it.product_id || null,
-        product_name: it.product_name,
-        quantity: Number(it.quantity || 1),
-        price: Number(it.price || 0),
-        total: Number((Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2))
-      }));
-    }
-    return [{
-      product_name: 'General Item',
-      quantity: 1,
-      price: Number(bill.grand_total || 0),
-      total: Number(bill.grand_total || 0)
-    }];
+    return raw.map(it => ({
+      id: it.id,
+      product_id: it.product_id || null,
+      product_name: it.product_name,
+      quantity: Number(it.quantity || 1),
+      price: Number(it.price || 0),
+      total: Number((Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2))
+    }));
   });
 
   const [discount, setDiscount] = useState<number>(Number(bill.discount || 0));
@@ -220,14 +212,15 @@ export function EditBillModal({ bill, onClose, onSaved }: EditBillModalProps) {
       return;
     }
 
-    const expectedPin = settings?.security?.super_admin_pin || '1234';
-    if (adminPin.trim() !== expectedPin) {
-      setErrorMsg('Invalid Super Admin Security PIN. Authorization required.');
-      return;
-    }
-
     setSubmitting(true);
     try {
+      const isPinValid = await ApiService.verifyAdminPin(adminPin.trim());
+      if (!isPinValid) {
+        setErrorMsg('Invalid Super Admin Security PIN. Authorization required.');
+        setSubmitting(false);
+        return;
+      }
+
       const updated = await ApiService.editFullBill(bill.id, {
         customer_id: customerId || null,
         items,
