@@ -13,17 +13,21 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { InvoiceModal } from './InvoiceModal';
+import { GroupPaymentModal } from './GroupPaymentModal';
 
 interface GroupInvoiceModalProps {
   groupBill: GroupBill | null;
   settings?: AllSettings;
   onClose: () => void;
   onCancelMemberBill?: (billId: string) => void;
+  onPaymentRecorded?: () => void;
 }
 
-export function GroupInvoiceModal({ groupBill, settings: propSettings, onClose, onCancelMemberBill }: GroupInvoiceModalProps) {
+export function GroupInvoiceModal({ groupBill: propGroupBill, settings: propSettings, onClose, onCancelMemberBill, onPaymentRecorded }: GroupInvoiceModalProps) {
   const [activeTab, setActiveTab] = useState<'summary' | 'individual'>('summary');
   const [selectedIndividualBill, setSelectedIndividualBill] = useState<Bill | null>(null);
+  const [showGroupPaymentModal, setShowGroupPaymentModal] = useState(false);
+  const [localGroupBill, setLocalGroupBill] = useState<GroupBill | null>(propGroupBill);
   const [fetchedSettings, setFetchedSettings] = useState<AllSettings | null>(null);
   const [cancelReason, setCancelReason] = useState<string>('');
   const [showCancelPrompt, setShowCancelPrompt] = useState<string | null>(null);
@@ -33,6 +37,10 @@ export function GroupInvoiceModal({ groupBill, settings: propSettings, onClose, 
   const summaryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setLocalGroupBill(propGroupBill);
+  }, [propGroupBill]);
+
+  useEffect(() => {
     if (!propSettings) {
       ApiService.getSettings().then(s => {
         if (s) setFetchedSettings(s);
@@ -40,6 +48,7 @@ export function GroupInvoiceModal({ groupBill, settings: propSettings, onClose, 
     }
   }, [propSettings]);
 
+  const groupBill = localGroupBill || propGroupBill;
   if (!groupBill) return null;
 
   const activeSettings = propSettings || fetchedSettings || DEFAULT_SETTINGS;
@@ -105,6 +114,14 @@ export function GroupInvoiceModal({ groupBill, settings: propSettings, onClose, 
             </div>
 
             <div className="flex items-center gap-2">
+              {Number(groupBill.balance_due || 0) > 0.01 && (
+                <button
+                  onClick={() => setShowGroupPaymentModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  <span>Collect Payment</span>
+                </button>
+              )}
               <button
                 onClick={handlePrintSummary}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-all shadow-sm"
@@ -475,6 +492,21 @@ export function GroupInvoiceModal({ groupBill, settings: propSettings, onClose, 
           bill={selectedIndividualBill}
           settings={activeSettings}
           onClose={() => setSelectedIndividualBill(null)}
+        />
+      )}
+
+      {/* Group Bill Payment Modal */}
+      {showGroupPaymentModal && (
+        <GroupPaymentModal
+          groupBill={groupBill}
+          onClose={() => setShowGroupPaymentModal(false)}
+          onSuccess={async () => {
+            setShowGroupPaymentModal(false);
+            const refreshed = await ApiService.getGroupBillById(groupBill.id);
+            if (refreshed) setLocalGroupBill(refreshed);
+            setActionSuccess('Group bill payment recorded successfully.');
+            if (onPaymentRecorded) onPaymentRecorded();
+          }}
         />
       )}
     </>

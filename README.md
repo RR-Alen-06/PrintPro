@@ -112,7 +112,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 1. Open your Supabase Dashboard.
 2. Navigate to the **SQL Editor**.
-3. Run the contents of [`schema.sql`](./schema.sql).
+3. Apply the database migrations in [`supabase/migrations`](./supabase/migrations) (via `supabase db push` or the Supabase SQL Editor).
 
 This initializes all tables (`sequences`, `customers`, `products`, `bills`, `bill_items`, `payments`, `expenses`, `settings`, `audit_logs`, `loyalty_rules`, `loyalty_redemption_rules`), indexes, and configures multi-tenant Row-Level Security policies.
 
@@ -130,7 +130,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ```text
 SimpleBilling/
-├── schema.sql                 # PostgreSQL DDL, triggers, and multi-tenant RLS policies
+├── supabase/migrations/       # PostgreSQL DDL, triggers, RPCs, and multi-tenant RLS policies
 ├── src/
 │   ├── middleware.ts          # Server-side Supabase SSR session validation
 │   ├── app/

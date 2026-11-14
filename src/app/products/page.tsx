@@ -2,10 +2,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiService } from '@/lib/services/api';
-import { Product, Bill, CustomItemAnalytics, DateFilterOption } from '@/lib/types';
+import { Product, Bill, CustomItemAnalytics, DateFilterOption, AccountingClosing } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { ProductSalesHistoryModal } from '@/components/ProductSalesHistoryModal';
 import { InvoiceModal } from '@/components/InvoiceModal';
+import { downloadCSV } from '@/lib/utils/csv';
+import { jsPDF } from 'jspdf';
 import { 
   Package, 
   Plus, 
@@ -22,7 +24,9 @@ import {
   IndianRupee,
   ShoppingCart,
   FolderPlus,
-  Filter
+  Filter,
+  Download,
+  FileText
 } from 'lucide-react';
 
 const CATEGORIES = ['Xerox & Print', 'Lamination & Binding', 'Stationery', 'Paper & Envelopes', 'Other Services'];
@@ -39,7 +43,10 @@ export default function ProductsPage() {
   const [customItems, setCustomItems] = useState<CustomItemAnalytics[]>([]);
   const [loadingCustom, setLoadingCustom] = useState(false);
   const [customSearchTerm, setCustomSearchTerm] = useState('');
-  const [customDateFilter, setCustomDateFilter] = useState<DateFilterOption>('all_time');
+  const [customDateFilter, setCustomDateFilter] = useState<DateFilterOption>('current_session');
+  const [customSessionMode, setCustomSessionMode] = useState<'preset' | 'closed'>('preset');
+  const [closings, setClosings] = useState<AccountingClosing[]>([]);
+  const [selectedClosingId, setSelectedClosingId] = useState<string>('ALL_CLOSED');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
@@ -89,7 +96,10 @@ export default function ProductsPage() {
 
   useEffect(() => {
     loadProducts();
-    loadCustomItems('all_time');
+    loadCustomItems('current_session');
+    ApiService.getAccountingClosings()
+      .then(data => setClosings(data))
+      .catch(err => console.error('Failed to load closings:', err));
   }, [loadCustomItems]);
 
   const handleApplyCustomDateFilter = () => {
@@ -99,9 +109,28 @@ export default function ProductsPage() {
   };
 
   const handleFilterChange = (filter: DateFilterOption) => {
+    setCustomSessionMode('preset');
     setCustomDateFilter(filter);
     if (filter !== 'custom') {
       loadCustomItems(filter);
+    }
+  };
+
+  const handleSelectClosedSessions = (closingId: string) => {
+    setCustomSessionMode('closed');
+    setSelectedClosingId(closingId);
+    if (closings.length === 0) {
+      setCustomItems([]);
+      return;
+    }
+    if (closingId === 'ALL_CLOSED') {
+      const latestTo = closings.reduce((max, c) => (new Date(c.to_date).getTime() > new Date(max).getTime() ? c.to_date : max), closings[0].to_date);
+      loadCustomItems('custom', '1970-01-01T00:00:00.000Z', latestTo);
+    } else {
+      const target = closings.find(c => c.id === closingId);
+      if (target) {
+        loadCustomItems('custom', target.from_date, target.to_date);
+      }
     }
   };
 
@@ -211,6 +240,115 @@ export default function ProductsPage() {
   const totalCustomRevenue = customItems.reduce((sum, i) => sum + i.total_revenue, 0);
   const totalCustomQty = customItems.reduce((sum, i) => sum + i.total_quantity, 0);
   const totalCustomOrders = customItems.reduce((sum, i) => sum + i.orders_count, 0);
+
+  const getCustomPeriodLabel = () => {
+    if (customSessionMode === 'closed') {
+      if (selectedClosingId === 'ALL_CLOSED') return `All Closed Sessions (${closings.length})`;
+      const target = closings.find(c => c.id === selectedClosingId);
+      return target ? `${target.closing_number}` : 'Closed Sessions';
+    }
+    if (customDateFilter === 'custom' && customFrom && customTo) return `${customFrom} to ${customTo}`;
+    return customDateFilter.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const handleExportCustomCSV = () => {
+    if (filteredCustomItems.length === 0) return;
+    const headers = ['Service Name', 'Qty Billed', 'Orders Count', 'Avg Rate (₹)', 'First Billed', 'Last Billed', 'Gross Revenue (₹)'];
+    const rows = filteredCustomItems.map(item => [
+      item.name,
+      item.total_quantity,
+      item.orders_count,
+      Number(item.average_selling_rate).toFixed(2),
+      new Date(item.first_used_at).toLocaleDateString('en-IN'),
+      new Date(item.last_used_at).toLocaleDateString('en-IN'),
+      Number(item.total_revenue).toFixed(2)
+    ]);
+    downloadCSV(`Custom_Services_Analytics_${new Date().toISOString().split('T')[0]}`, headers, rows);
+  };
+
+  const handleExportCustomPDF = () => {
+    if (filteredCustomItems.length === 0) return;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    let y = margin;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Custom & Ad-Hoc Services Analytics', margin, y);
+    y += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Period: ${getCustomPeriodLabel()}  |  Generated: ${new Date().toLocaleString('en-IN')}`, margin, y);
+    y += 6;
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(
+      `Unique Services: ${filteredCustomItems.length}   |   Total Units: ${totalCustomQty}   |   Orders: ${totalCustomOrders}   |   Gross Revenue: ₹${totalCustomRevenue.toFixed(2)}`,
+      margin + 4,
+      y + 8.5
+    );
+    y += 19;
+
+    const cols = [66, 20, 22, 24, 24, 26];
+    const hdrs = ['Service Name', 'Qty', 'Orders', 'Avg Rate (₹)', 'Last Billed', 'Revenue (₹)'];
+    const drawHeader = () => {
+      doc.setFillColor(30, 41, 59);
+      doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      let x = margin;
+      hdrs.forEach((h, i) => {
+        if (i >= 1) doc.text(h, x + cols[i] - 2, y + 4.8, { align: 'right' });
+        else doc.text(h, x + 2, y + 4.8);
+        x += cols[i];
+      });
+      y += 7;
+    };
+    drawHeader();
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    filteredCustomItems.forEach((item, idx) => {
+      if (y > pageHeight - 16) {
+        doc.addPage();
+        y = margin;
+        drawHeader();
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+      }
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y, pageWidth - margin * 2, 6.5, 'F');
+      }
+      doc.setTextColor(51, 65, 85);
+      let x = margin;
+      doc.text(item.name.slice(0, 34), x + 2, y + 4.4);
+      x += cols[0];
+      doc.text(String(item.total_quantity), x + cols[1] - 2, y + 4.4, { align: 'right' });
+      x += cols[1];
+      doc.text(String(item.orders_count), x + cols[2] - 2, y + 4.4, { align: 'right' });
+      x += cols[2];
+      doc.text(Number(item.average_selling_rate).toFixed(2), x + cols[3] - 2, y + 4.4, { align: 'right' });
+      x += cols[3];
+      doc.text(new Date(item.last_used_at).toLocaleDateString('en-IN'), x + cols[4] - 2, y + 4.4, { align: 'right' });
+      x += cols[4];
+      doc.text(Number(item.total_revenue).toFixed(2), x + cols[5] - 2, y + 4.4, { align: 'right' });
+      y += 6.5;
+    });
+
+    doc.save(`Custom_Services_Analytics_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
   return (
     <div className="space-y-6">
@@ -486,6 +624,7 @@ export default function ProductsPage() {
               </span>
               {(
                 [
+                  { id: 'current_session', label: 'Current Session' },
                   { id: 'all_time', label: 'All Time' },
                   { id: 'today', label: 'Today' },
                   { id: 'monthly', label: 'This Month' },
@@ -495,8 +634,8 @@ export default function ProductsPage() {
                 <button
                   key={preset.id}
                   onClick={() => handleFilterChange(preset.id)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                    customDateFilter === preset.id
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    customSessionMode === 'preset' && customDateFilter === preset.id
                       ? 'bg-amber-600 text-white shadow-2xs'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
@@ -504,8 +643,54 @@ export default function ProductsPage() {
                   {preset.label}
                 </button>
               ))}
+              <button
+                onClick={() => handleSelectClosedSessions(selectedClosingId)}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                  customSessionMode === 'closed'
+                    ? 'bg-slate-800 text-white shadow-2xs'
+                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                Closed Sessions
+              </button>
 
-              {customDateFilter === 'custom' && (
+              {customSessionMode === 'closed' && closings.length > 0 && (
+                <select
+                  value={selectedClosingId}
+                  onChange={(e) => handleSelectClosedSessions(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800"
+                >
+                  <option value="ALL_CLOSED">All Closed Sessions ({closings.length})</option>
+                  {closings.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.closing_number} ({new Date(c.from_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – {new Date(c.to_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {filteredCustomItems.length > 0 && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  <button
+                    onClick={handleExportCustomCSV}
+                    className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1 cursor-pointer transition"
+                    title="Export Custom Services Analytics CSV"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>CSV</span>
+                  </button>
+                  <button
+                    onClick={handleExportCustomPDF}
+                    className="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg flex items-center gap-1 cursor-pointer transition"
+                    title="Export Custom Services Analytics PDF"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </button>
+                </div>
+              )}
+
+              {customSessionMode === 'preset' && customDateFilter === 'custom' && (
                 <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-xs">
                   <Calendar className="w-3.5 h-3.5 text-amber-600" />
                   <input

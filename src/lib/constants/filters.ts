@@ -26,6 +26,7 @@ export const REPORTS_DATE_FILTER_BUTTONS: DateFilterButtonConfig[] = [
   { id: 'monthly', label: 'This Month' },
   { id: 'quarterly', label: 'Quarter' },
   { id: 'financial_year', label: 'Financial Year' },
+  { id: 'all_time', label: 'All Time' },
   { id: 'custom', label: 'Custom' },
 ];
 

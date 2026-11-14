@@ -9,7 +9,8 @@ import {
   AllSettings, 
   Expense, 
   Payment, 
-  InternalTransfer 
+  InternalTransfer,
+  AccountingClosing
 } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { downloadCSV } from '@/lib/utils/csv';
@@ -48,15 +49,46 @@ export default function ReportsPage() {
   const [generatingMaster, setGeneratingMaster] = useState(false);
 
   // Date Filter State
-  const [dateFilter, setDateFilter] = useState<DateFilterOption>('today');
+  const [dateFilter, setDateFilter] = useState<DateFilterOption>('current_session');
+  const [sessionMode, setSessionMode] = useState<'preset' | 'closed'>('preset');
+  const [closings, setClosings] = useState<AccountingClosing[]>([]);
+  const [selectedClosingId, setSelectedClosingId] = useState<string>('ALL_CLOSED');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+
+  const getEffectiveRange = (
+    activeMode = sessionMode,
+    activeFilter = dateFilter,
+    activeClosings = closings,
+    activeClosingId = selectedClosingId
+  ): { filter: DateFilterOption; from?: string; to?: string } => {
+    if (activeMode === 'closed') {
+      if (activeClosings.length === 0) {
+        return { filter: 'custom', from: '1970-01-01T00:00:00.000Z', to: '1970-01-01T00:00:00.000Z' };
+      }
+      if (activeClosingId === 'ALL_CLOSED') {
+        const latestTo = activeClosings.reduce(
+          (max, c) => (new Date(c.to_date).getTime() > new Date(max).getTime() ? c.to_date : max),
+          activeClosings[0].to_date
+        );
+        return { filter: 'custom', from: '1970-01-01T00:00:00.000Z', to: latestTo };
+      }
+      const target = activeClosings.find(c => c.id === activeClosingId);
+      if (target) {
+        return { filter: 'custom', from: target.from_date, to: target.to_date };
+      }
+    }
+    return { filter: activeFilter, from: customFrom, to: customTo };
+  };
 
   const loadReportData = async () => {
     setLoading(true);
     try {
+      const closingsData = await ApiService.getAccountingClosings();
+      setClosings(closingsData);
+      const eff = getEffectiveRange(sessionMode, dateFilter, closingsData, selectedClosingId);
       const [filteredBills, custSummaries, fetchedSettings, expensesData, paymentsData, transfersData] = await Promise.all([
-        ApiService.getBillsByDateRange(dateFilter, { from: customFrom, to: customTo }),
+        ApiService.getBillsByDateRange(eff.filter, eff.from && eff.to ? { from: eff.from, to: eff.to } : undefined),
         ApiService.getCustomerSummaries(),
         ApiService.getSettings(),
         ApiService.getExpenses(),
@@ -79,7 +111,7 @@ export default function ReportsPage() {
   useEffect(() => {
     loadReportData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFilter, customFrom, customTo]);
+  }, [dateFilter, customFrom, customTo, sessionMode, selectedClosingId]);
 
   // Helper to filter any time-stamped array by the active date range
   const filterByDate = <T extends { created_at: string }>(items: T[], filter: DateFilterOption, range?: { from?: string; to?: string }) => {
@@ -117,20 +149,26 @@ export default function ReportsPage() {
         const end = new Date(fyStartY + 1, 2, 31, 23, 59, 59, 999);
         return d >= start && d <= end;
       }
+      if (filter === 'current_session') {
+        if (closings.length === 0) return true;
+        const latestToMs = Math.max(...closings.map(c => new Date(c.to_date).getTime()));
+        return d.getTime() > latestToMs;
+      }
       if (filter === 'custom' && range?.from && range?.to) {
         const fromD = new Date(range.from);
-        fromD.setHours(0, 0, 0, 0);
+        if (!range.from.includes('T')) fromD.setHours(0, 0, 0, 0);
         const toD = new Date(range.to);
-        toD.setHours(23, 59, 59, 999);
+        if (!range.to.includes('T')) toD.setHours(23, 59, 59, 999);
         return d >= fromD && d <= toD;
       }
       return true;
     });
   };
 
-  const periodExpenses = filterByDate(allExpenses, dateFilter, { from: customFrom, to: customTo });
-  const periodPayments = filterByDate(allPayments.filter(p => p.status !== 'CANCELLED' && p.status !== 'REVERSED'), dateFilter, { from: customFrom, to: customTo });
-  const periodTransfers = filterByDate(allTransfers, dateFilter, { from: customFrom, to: customTo });
+  const activeRange = getEffectiveRange();
+  const periodExpenses = filterByDate(allExpenses, activeRange.filter, { from: activeRange.from, to: activeRange.to });
+  const periodPayments = filterByDate(allPayments.filter(p => p.status !== 'CANCELLED' && p.status !== 'REVERSED'), activeRange.filter, { from: activeRange.from, to: activeRange.to });
+  const periodTransfers = filterByDate(allTransfers, activeRange.filter, { from: activeRange.from, to: activeRange.to });
 
   // Cash Payers: customer bills paid in cash + standalone / dues payments in cash
   const cashPayers: { customer_name: string; ref: string; date: string; amount: number }[] = [];
@@ -220,6 +258,12 @@ export default function ReportsPage() {
   const itemSales = Array.from(itemMap.values()).sort((a, b) => b.total - a.total);
 
   const getFilterLabel = (filter = dateFilter) => {
+    if (sessionMode === 'closed') {
+      if (selectedClosingId === 'ALL_CLOSED') return 'All Closed Sessions';
+      const target = closings.find(c => c.id === selectedClosingId);
+      return target ? `Closed Session (${target.closing_number})` : 'Closed Session';
+    }
+    if (filter === 'current_session') return 'Current Session';
     if (filter === 'today') return 'Today';
     if (filter === 'yesterday') return 'Yesterday';
     if (filter === 'weekly') return 'Last 7 Days';
@@ -665,13 +709,16 @@ export default function ReportsPage() {
           </div>
 
           {/* Quick Date Pills */}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 items-center">
             {dateFilterButtons.map((btn) => (
               <button
                 key={btn.id}
-                onClick={() => setDateFilter(btn.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  dateFilter === btn.id
+                onClick={() => {
+                  setSessionMode('preset');
+                  setDateFilter(btn.id);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  sessionMode === 'preset' && dateFilter === btn.id
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
@@ -679,11 +726,36 @@ export default function ReportsPage() {
                 {btn.label}
               </button>
             ))}
+            <button
+              onClick={() => setSessionMode('closed')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                sessionMode === 'closed'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Closed Sessions
+            </button>
+
+            {sessionMode === 'closed' && closings.length > 0 && (
+              <select
+                value={selectedClosingId}
+                onChange={(e) => setSelectedClosingId(e.target.value)}
+                className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+              >
+                <option value="ALL_CLOSED">All Closed Sessions ({closings.length})</option>
+                {closings.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.closing_number} ({new Date(c.from_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – {new Date(c.to_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
         {/* Custom Date Pickers */}
-        {dateFilter === 'custom' && (
+        {sessionMode === 'preset' && dateFilter === 'custom' && (
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs">
             <div className="flex items-center space-x-2">
               <span className="font-semibold text-slate-600">From:</span>

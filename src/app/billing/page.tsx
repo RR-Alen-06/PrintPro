@@ -819,7 +819,11 @@ export default function BillingPage() {
 
   const autoRecalculateEqualSplit = (partsList: typeof sharedParticipants) => {
     const n = partsList.length;
-    if (n === 0 || roundedTotal <= 0) return;
+    if (n === 0) return;
+    if (roundedTotal <= 0) {
+      setSharedParticipants(partsList.map(p => ({ ...p, share_amount: 0 })));
+      return;
+    }
     const base = Math.floor((roundedTotal / n) * 100) / 100;
     const remainder = Number((roundedTotal - (base * n)).toFixed(2));
     const updated = partsList.map((p, idx) => ({
@@ -829,20 +833,23 @@ export default function BillingPage() {
     setSharedParticipants(updated);
   };
 
-  const handleSetAllPaidBy = (payerCustId: string) => {
-    if (!payerCustId) {
-      // Reset all to self-pay
-      setSharedParticipants(prev => prev.map(p => ({
+  // Auto-keep shared participant shares equally divided when cart/total changes
+  useEffect(() => {
+    if (billingMode !== 'SHARED' || sharedParticipants.length === 0) return;
+    const n = sharedParticipants.length;
+    const base = roundedTotal > 0 ? Math.floor((roundedTotal / n) * 100) / 100 : 0;
+    const remainder = roundedTotal > 0 ? Number((roundedTotal - (base * n)).toFixed(2)) : 0;
+    const needsUpdate = sharedParticipants.some((p, idx) => {
+      const expected = idx === 0 ? Number((base + remainder).toFixed(2)) : base;
+      return Math.abs(Number(p.share_amount || 0) - expected) > 0.001;
+    });
+    if (needsUpdate) {
+      setSharedParticipants(prev => prev.map((p, idx) => ({
         ...p,
-        paid_by_customer_id: null
+        share_amount: idx === 0 ? Number((base + remainder).toFixed(2)) : base
       })));
-      return;
     }
-    setSharedParticipants(prev => prev.map(p => ({
-      ...p,
-      paid_by_customer_id: p.customer_id === payerCustId ? null : payerCustId
-    })));
-  };
+  }, [billingMode, roundedTotal, sharedParticipants]);
 
   const handleCreateSharedBillingSubmit = async () => {
     setErrorMsg('');
@@ -857,30 +864,23 @@ export default function BillingPage() {
       return;
     }
 
-    // Verify share amounts sum to roundedTotal
-    const sumShares = Number(sharedParticipants.reduce((s, p) => s + Number(p.share_amount || 0), 0).toFixed(2));
-    if (Math.abs(sumShares - roundedTotal) > 0.05) {
-      setErrorMsg(`Participant shares total (₹${sumShares.toFixed(2)}) must equal the Grand Total (₹${roundedTotal.toFixed(2)}). Click "Divide Equally" to balance automatically.`);
-      return;
-    }
+    const n = sharedParticipants.length;
+    const base = Math.floor((roundedTotal / n) * 100) / 100;
+    const remainder = Number((roundedTotal - (base * n)).toFixed(2));
 
     setSaving(true);
     try {
-      const participantsPayload = sharedParticipants.map(p => {
-        const shareAmt = Number(p.share_amount);
-        const mode = p.payment_mode;
-        const cashPaid = mode === 'Cash' ? (Number(p.cash_paid || 0) > 0 ? Number(p.cash_paid) : shareAmt) : 0;
-        const upiPaid = mode === 'UPI' ? (Number(p.upi_paid || 0) > 0 ? Number(p.upi_paid) : shareAmt) : 0;
-        const useAdvance = mode === 'Advance';
+      const participantsPayload = sharedParticipants.map((p, idx) => {
+        const shareAmt = idx === 0 ? Number((base + remainder).toFixed(2)) : base;
         return {
           customer_id: p.customer_id || null,
           customer_name: p.guest_name,
           share_amount: shareAmt,
-          paid_by_customer_id: p.paid_by_customer_id || null,
-          cash_paid: cashPaid,
-          upi_paid: upiPaid,
-          use_advance: useAdvance,
-          payment_method: mode
+          paid_by_customer_id: null,
+          cash_paid: 0,
+          upi_paid: 0,
+          use_advance: false,
+          payment_method: 'Pay Later'
         };
       });
 
@@ -2431,113 +2431,34 @@ export default function BillingPage() {
                   );
                 })()}
 
-                {/* Quick Single Payer Selector */}
-                {sharedParticipants.some(p => p.customer_id) && (
-                  <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-slate-600 font-medium">Entire Bill Paid by:</span>
-                    <select
-                      onChange={(e) => handleSetAllPaidBy(e.target.value)}
-                      className="bg-white border border-emerald-300 rounded px-2 py-1 text-xs font-bold text-emerald-950 focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="">Each Member Pays Self</option>
-                      {sharedParticipants.filter(p => p.customer_id).map(p => {
-                        const cust = customers.find(c => c.id === p.customer_id);
-                        return (
-                          <option key={p.id} value={p.customer_id!}>
-                            {cust?.name} Pays Full Bill
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                )}
+                <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5">
+                  Total is divided equally (Total / N). Collect payments per member or combined after generating the bill.
+                </p>
               </div>
 
               {/* Shared Participants Overview */}
               {sharedParticipants.length === 0 ? (
                 <div className="py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
-                  Please add group participants on the left to review individual shares.
+                  Please add group participants on the left to review equal shares.
                 </div>
               ) : (
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   {sharedParticipants.map((part, idx) => {
                     const cust = part.customer_id ? customers.find(c => c.id === part.customer_id) : null;
-                    const payerCust = part.paid_by_customer_id ? customers.find(c => c.id === part.paid_by_customer_id) : null;
-                    const effectivePayer = payerCust || cust;
                     const isRegistered = Boolean(part.customer_id);
                     const name = isRegistered ? cust?.name : `${part.guest_name} (Guest)`;
 
                     return (
-                      <div key={part.id} className="p-3 bg-white rounded-xl border border-emerald-200/80 shadow-2xs text-xs space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                            <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] flex items-center justify-center font-bold">
-                              {idx + 1}
-                            </span>
-                            <span>{name}</span>
+                      <div key={part.id} className="p-3 bg-white rounded-xl border border-emerald-200/80 shadow-2xs text-xs flex items-center justify-between">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] flex items-center justify-center font-bold">
+                            {idx + 1}
                           </span>
-                          <span className="font-mono font-extrabold text-slate-900 text-sm">
-                            ₹{Number(part.share_amount || 0).toFixed(2)}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-slate-500 font-medium shrink-0">Who Pays?</span>
-                            <select
-                              value={part.paid_by_customer_id || ''}
-                              onChange={(e) => {
-                                const val = e.target.value || null;
-                                const nextPayer = val ? customers.find(c => c.id === val) : cust;
-                                setSharedParticipants(prev => prev.map((item, i) => {
-                                  if (i !== idx) return item;
-                                  const canKeepAdvance = item.payment_mode === 'Advance' && nextPayer && nextPayer.advance_balance > 0;
-                                  return {
-                                    ...item,
-                                    paid_by_customer_id: val,
-                                    payment_mode: item.payment_mode === 'Advance' && !canKeepAdvance ? 'Pay Later' : item.payment_mode
-                                  };
-                                }));
-                              }}
-                              className="bg-white border border-slate-300 rounded px-2 py-0.5 text-[10px] font-semibold text-slate-800 max-w-[165px]"
-                            >
-                              <option value="">Self ({isRegistered ? cust?.name : 'Guest'})</option>
-                              {customers
-                                .filter(c => c.id !== part.customer_id)
-                                .map(c => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}{c.advance_balance > 0 ? ` (Adv: ₹${c.advance_balance})` : ''}
-                                  </option>
-                                ))}
-                            </select>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-slate-500">
-                              Settlement: <strong className="text-slate-800">{payerCust ? `Covered by ${payerCust.name}` : 'Self'}</strong>
-                            </span>
-                            <select
-                              value={part.payment_mode}
-                              onChange={(e) => {
-                                const mode = e.target.value as 'Cash' | 'UPI' | 'Advance' | 'Pay Later';
-                                setSharedParticipants(prev => prev.map((item, i) => i === idx ? {
-                                  ...item,
-                                  payment_mode: mode,
-                                  cash_paid: mode === 'Cash' ? Number(item.share_amount || 0) : 0,
-                                  upi_paid: mode === 'UPI' ? Number(item.share_amount || 0) : 0,
-                                  use_advance: mode === 'Advance'
-                                } : item));
-                              }}
-                              className="bg-slate-50 border border-slate-200 rounded px-2 py-0.5 text-[10px] font-bold text-slate-800"
-                            >
-                              <option value="Pay Later">Pay Later (Credit)</option>
-                              <option value="Cash">Cash</option>
-                              <option value="UPI">UPI</option>
-                              {effectivePayer && effectivePayer.advance_balance > 0 && (
-                                <option value="Advance">Advance (₹{effectivePayer.advance_balance})</option>
-                              )}
-                            </select>
-                          </div>
-                        </div>
+                          <span>{name}</span>
+                        </span>
+                        <span className="font-mono font-extrabold text-slate-900 text-sm">
+                          ₹{Number(part.share_amount || 0).toFixed(2)}
+                        </span>
                       </div>
                     );
                   })}
