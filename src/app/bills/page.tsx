@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ApiService } from '@/lib/services/api';
-import { Bill, AllSettings, GroupBill, Customer } from '@/lib/types';
+import { Bill, AllSettings, GroupBill, Customer, AccountingClosing } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { InvoiceModal } from '@/components/InvoiceModal';
 import { GroupInvoiceModal } from '@/components/GroupInvoiceModal';
@@ -26,10 +26,14 @@ import {
 
 export default function ManageBillsPage() {
   const [bills, setBills] = useState<Bill[]>([]);
+  const [closings, setClosings] = useState<AccountingClosing[]>([]);
   const [settings, setSettings] = useState<AllSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [groupFilter, setGroupFilter] = useState<'ALL' | 'INDIVIDUAL' | 'GROUP'>('ALL');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'ALL' | 'PAID' | 'PARTIAL' | 'PAY_LATER'>('ALL');
+  const [sessionFilter, setSessionFilter] = useState<'CURRENT' | 'CLOSED' | 'ALL'>('CURRENT');
+  const [selectedClosingId, setSelectedClosingId] = useState<string>('ALL_CLOSED');
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [selectedGroupBill, setSelectedGroupBill] = useState<GroupBill | null>(null);
   const [loadingGroupBillId, setLoadingGroupBillId] = useState<string | null>(null);
@@ -169,12 +173,14 @@ export default function ManageBillsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [billsData, settingsData] = await Promise.all([
+      const [billsData, settingsData, closingsData] = await Promise.all([
         ApiService.getBills(),
-        ApiService.getSettings()
+        ApiService.getSettings(),
+        ApiService.getAccountingClosings()
       ]);
       setBills(billsData);
       setSettings(settingsData);
+      setClosings(closingsData);
     } catch (err) {
       console.error('Error fetching bills & settings:', err);
     } finally {
@@ -295,14 +301,46 @@ export default function ManageBillsPage() {
     }
   };
 
+  const latestClosingToMs = closings.length > 0
+    ? Math.max(...closings.map(c => new Date(c.to_date).getTime()))
+    : null;
+
   const filteredBills = bills.filter(b => {
     const matchesSearch =
       b.bill_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (b.customer_name && b.customer_name.toLowerCase().includes(searchTerm.toLowerCase()));
     
     if (!matchesSearch) return false;
-    if (groupFilter === 'INDIVIDUAL') return !b.group_bill_id;
-    if (groupFilter === 'GROUP') return !!b.group_bill_id;
+    if (groupFilter === 'INDIVIDUAL' && b.group_bill_id) return false;
+    if (groupFilter === 'GROUP' && !b.group_bill_id) return false;
+
+    const billMs = new Date(b.created_at).getTime();
+    if (sessionFilter === 'CURRENT') {
+      if (latestClosingToMs !== null && billMs <= latestClosingToMs) return false;
+    } else if (sessionFilter === 'CLOSED') {
+      if (latestClosingToMs === null) return false;
+      if (selectedClosingId === 'ALL_CLOSED') {
+        if (billMs > latestClosingToMs) return false;
+      } else {
+        const targetClosing = closings.find(c => c.id === selectedClosingId);
+        if (!targetClosing) return false;
+        const fromMs = new Date(targetClosing.from_date).getTime();
+        const toMs = new Date(targetClosing.to_date).getTime();
+        if (billMs < fromMs || billMs > toMs) return false;
+      }
+    }
+
+    if (paymentStatusFilter !== 'ALL') {
+      const isCancelled = b.status === 'CANCELLED' || b.status === 'VOID';
+      if (isCancelled) return false;
+      const grandTotal = Number(b.grand_total || 0);
+      const paid = Number(b.paid_total || 0);
+      const remaining = Math.max(0, Number((grandTotal - paid).toFixed(2)));
+      if (paymentStatusFilter === 'PAID' && remaining > 0.01) return false;
+      if (paymentStatusFilter === 'PARTIAL' && (remaining <= 0.01 || paid <= 0.01)) return false;
+      if (paymentStatusFilter === 'PAY_LATER' && (remaining <= 0.01 || paid > 0.01)) return false;
+    }
+
     return true;
   });
 
@@ -357,6 +395,45 @@ export default function ManageBillsPage() {
           />
         </div>
 
+        {/* Session Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-slate-100 p-1 rounded-lg text-xs font-semibold">
+            <button
+              onClick={() => setSessionFilter('CURRENT')}
+              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${sessionFilter === 'CURRENT' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Current Session
+            </button>
+            <button
+              onClick={() => setSessionFilter('CLOSED')}
+              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${sessionFilter === 'CLOSED' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Closed Sessions
+            </button>
+            <button
+              onClick={() => setSessionFilter('ALL')}
+              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${sessionFilter === 'ALL' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              All Bills
+            </button>
+          </div>
+
+          {sessionFilter === 'CLOSED' && closings.length > 0 && (
+            <select
+              value={selectedClosingId}
+              onChange={(e) => setSelectedClosingId(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+            >
+              <option value="ALL_CLOSED">All Closed Sessions ({closings.length})</option>
+              {closings.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.closing_number} ({new Date(c.from_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – {new Date(c.to_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* Group Order Filter Pills */}
         <div className="flex items-center bg-slate-100 p-1 rounded-lg self-start md:self-auto text-xs font-semibold">
           <button
@@ -378,6 +455,34 @@ export default function ManageBillsPage() {
             <Users size={12} />
             <span>Group Orders</span>
           </button>
+        </div>
+
+        {/* Payment Status Filter Pills */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-lg self-start md:self-auto text-xs font-semibold">
+          {([
+            { id: 'ALL', label: 'All' },
+            { id: 'PAID', label: 'Paid' },
+            { id: 'PARTIAL', label: 'Partial' },
+            { id: 'PAY_LATER', label: 'Pay Later' }
+          ] as const).map(pill => (
+            <button
+              key={pill.id}
+              onClick={() => setPaymentStatusFilter(pill.id)}
+              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
+                paymentStatusFilter === pill.id
+                  ? pill.id === 'PAY_LATER'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : pill.id === 'PARTIAL'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : pill.id === 'PAID'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {pill.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -516,10 +621,11 @@ export default function ManageBillsPage() {
                             )}
                             <button
                               onClick={() => handleOpenSettleBill(b)}
-                              className="p-1.5 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded transition"
+                              className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md transition flex items-center gap-1 cursor-pointer"
                               title="Settle Bill / Choose Who Pays"
                             >
-                              <CreditCard size={16} />
+                              <CreditCard size={13} />
+                              <span>Settle Due</span>
                             </button>
                           </>
                         )}
@@ -1023,6 +1129,13 @@ export default function ManageBillsPage() {
           groupBill={selectedGroupBill}
           settings={settings || undefined}
           onClose={() => setSelectedGroupBill(null)}
+          onPaymentRecorded={async () => {
+            await loadData();
+            if (selectedGroupBill?.id) {
+              const refreshed = await ApiService.getGroupBillById(selectedGroupBill.id);
+              if (refreshed) setSelectedGroupBill(refreshed);
+            }
+          }}
           onCancelMemberBill={async () => {
             await loadData();
             if (selectedGroupBill?.id) {

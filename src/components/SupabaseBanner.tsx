@@ -14,7 +14,7 @@ export function SupabaseBanner() {
         <div className="flex-1">
           <h3 className="text-sm font-bold text-amber-800">Supabase Connection Required</h3>
           <p className="text-xs text-amber-700 mt-1">
-            Please add your Supabase credentials to <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono">.env.local</code> and run the <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono">schema.sql</code> script in your Supabase SQL Editor.
+            Please add your Supabase credentials to <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono">.env.local</code> and apply the migrations in <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono">supabase/migrations</code>.
           </p>
           <div className="mt-2 text-xs font-medium text-amber-900">
             Copy values for: <span className="font-mono">NEXT_PUBLIC_SUPABASE_URL</span> and <span className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</span>

@@ -268,6 +268,29 @@ export default function DashboardPage() {
             <IndianRupee size={24} />
           </div>
         </div>
+
+        {/* Bills Generated & Avg Bill Value */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bills Generated</p>
+            <p className="text-2xl font-data-mono font-extrabold text-slate-900 mt-1">{stats.bills_generated}</p>
+            <p className="text-[11px] text-slate-500 font-medium mt-0.5">Avg: ₹{stats.average_bill_value.toFixed(2)}</p>
+          </div>
+          <div className="bg-slate-100 text-slate-700 p-3 rounded-xl border border-slate-200">
+            <TrendingUp size={24} />
+          </div>
+        </div>
+
+        {/* Total Customers */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Customers</p>
+            <p className="text-2xl font-data-mono font-extrabold text-indigo-700 mt-1">{stats.total_customers}</p>
+          </div>
+          <div className="bg-indigo-50 text-indigo-600 p-3 rounded-xl border border-indigo-100">
+            <Users size={24} />
+          </div>
+        </div>
       </div>
 
       {/* PAYMENT ANALYSIS BREAKDOWN TABLE & FINANCIAL SUMMARY */}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ApiService } from '@/lib/services/api';
-import { Expense, DateFilterOption, ExpensePaymentMode } from '@/lib/types';
+import { Expense, DateFilterOption, ExpensePaymentMode, AccountingClosing } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { downloadCSV } from '@/lib/utils/csv';
 import { EXPENSES_DATE_FILTER_BUTTONS } from '@/lib/constants/filters';
@@ -79,7 +79,10 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
 
   // Filters & Search
-  const [dateFilter, setDateFilter] = useState<DateFilterOption>('all_time');
+  const [dateFilter, setDateFilter] = useState<DateFilterOption>('current_session');
+  const [closings, setClosings] = useState<AccountingClosing[]>([]);
+  const [isClosedSessionView, setIsClosedSessionView] = useState(false);
+  const [selectedClosingId, setSelectedClosingId] = useState<string>('ALL_CLOSED');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -114,12 +117,37 @@ export default function ExpensesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [expData, stats, settingsData] = await Promise.all([
+      const [expData, closingsData, settingsData] = await Promise.all([
         ApiService.getExpenses(),
-        ApiService.getDashboardStats(dateFilter, { from: customFrom, to: customTo }),
+        ApiService.getAccountingClosings(),
         ApiService.getSettings()
       ]);
       setExpenses(expData);
+      setClosings(closingsData);
+
+      let statsFilter: DateFilterOption = dateFilter;
+      let statsCustom = { from: customFrom, to: customTo };
+      if (isClosedSessionView) {
+        if (closingsData.length > 0) {
+          const target = selectedClosingId !== 'ALL_CLOSED'
+            ? closingsData.find(c => c.id === selectedClosingId)
+            : null;
+          if (target) {
+            statsFilter = 'custom';
+            statsCustom = { from: target.from_date, to: target.to_date };
+          } else {
+            const minFromMs = Math.min(...closingsData.map(c => new Date(c.from_date).getTime()));
+            const maxToMs = Math.max(...closingsData.map(c => new Date(c.to_date).getTime()));
+            statsFilter = 'custom';
+            statsCustom = {
+              from: new Date(minFromMs).toISOString(),
+              to: new Date(maxToMs).toISOString()
+            };
+          }
+        }
+      }
+
+      const stats = await ApiService.getDashboardStats(statsFilter, statsCustom);
       setTotalIncome(stats.total_income);
       setTotalExpense(stats.total_expense);
 
@@ -136,7 +164,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFilter, customFrom, customTo]);
+  }, [dateFilter, customFrom, customTo, isClosedSessionView, selectedClosingId]);
 
   const handleOpenAdd = () => {
     setTitle('');
@@ -256,8 +284,31 @@ export default function ExpensesPage() {
     }
   };
 
-  // Filter expenses list by date, category, payment mode, and search query
-  const dateBounds = ApiService.getDateRangeBounds(dateFilter, { from: customFrom, to: customTo });
+  // Filter expenses list by session/date, category, payment mode, and search query
+  const latestClosing = closings[0];
+  const dateBounds: { startDate?: Date; endDate?: Date } = (() => {
+    if (isClosedSessionView) {
+      if (closings.length === 0) {
+        return { startDate: new Date(8640000000000000), endDate: new Date(-8640000000000000) };
+      }
+      const target = selectedClosingId !== 'ALL_CLOSED'
+        ? closings.find(c => c.id === selectedClosingId)
+        : null;
+      if (target) {
+        return { startDate: new Date(target.from_date), endDate: new Date(target.to_date) };
+      }
+      const minFromMs = Math.min(...closings.map(c => new Date(c.from_date).getTime()));
+      const maxToMs = Math.max(...closings.map(c => new Date(c.to_date).getTime()));
+      return { startDate: new Date(minFromMs), endDate: new Date(maxToMs) };
+    }
+    if (dateFilter === 'current_session') {
+      if (latestClosing?.to_date) {
+        return { startDate: new Date(new Date(latestClosing.to_date).getTime() + 1) };
+      }
+      return {};
+    }
+    return ApiService.getDateRangeBounds(dateFilter, { from: customFrom, to: customTo });
+  })();
   const filteredExpenses = expenses.filter((exp) => {
     const expDate = new Date(exp.created_at);
     if (dateBounds.startDate && expDate < dateBounds.startDate) return false;
@@ -400,9 +451,12 @@ export default function ExpensesPage() {
             {dateFilterButtons.map((btn) => (
               <button
                 key={btn.id}
-                onClick={() => setDateFilter(btn.id)}
+                onClick={() => {
+                  setIsClosedSessionView(false);
+                  setDateFilter(btn.id);
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  dateFilter === btn.id
+                  !isClosedSessionView && dateFilter === btn.id
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
@@ -410,11 +464,44 @@ export default function ExpensesPage() {
                 {btn.label}
               </button>
             ))}
+            <button
+              onClick={() => setIsClosedSessionView(true)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                isClosedSessionView
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Closed Sessions
+            </button>
           </div>
         </div>
 
+        {/* Closed Session Picker */}
+        {isClosedSessionView && (
+          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs">
+            <span className="font-semibold text-slate-600">Closed Session:</span>
+            {closings.length === 0 ? (
+              <span className="text-slate-400 italic">No closed sessions recorded yet.</span>
+            ) : (
+              <select
+                value={selectedClosingId}
+                onChange={(e) => setSelectedClosingId(e.target.value)}
+                className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                <option value="ALL_CLOSED">All Closed Sessions ({closings.length})</option>
+                {closings.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.closing_number || 'CLOSE'} ({new Date(c.from_date).toLocaleDateString('en-IN')} → {new Date(c.to_date).toLocaleDateString('en-IN')})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
         {/* Custom Date Pickers */}
-        {dateFilter === 'custom' && (
+        {!isClosedSessionView && dateFilter === 'custom' && (
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs">
             <div className="flex items-center space-x-2">
               <span className="font-semibold text-slate-600">From:</span>

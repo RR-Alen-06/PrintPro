@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiService } from '@/lib/services/api';
-import { Product, ProductSalesAnalytics, DateFilterOption } from '@/lib/types';
+import { Product, ProductSalesAnalytics, DateFilterOption, AccountingClosing } from '@/lib/types';
+import { downloadCSV } from '@/lib/utils/csv';
+import { jsPDF } from 'jspdf';
 import { 
   X, 
   Package, 
@@ -15,7 +17,9 @@ import {
   Search,
   Filter,
   ArrowUpDown,
-  BarChart3
+  BarChart3,
+  Download,
+  FileText
 } from 'lucide-react';
 
 interface ProductSalesHistoryModalProps {
@@ -25,7 +29,10 @@ interface ProductSalesHistoryModalProps {
 }
 
 export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: ProductSalesHistoryModalProps) {
-  const [filter, setFilter] = useState<DateFilterOption>('all_time');
+  const [filter, setFilter] = useState<DateFilterOption>('current_session');
+  const [sessionMode, setSessionMode] = useState<'preset' | 'closed'>('preset');
+  const [closings, setClosings] = useState<AccountingClosing[]>([]);
+  const [selectedClosingId, setSelectedClosingId] = useState<string>('ALL_CLOSED');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [analytics, setAnalytics] = useState<ProductSalesAnalytics | null>(null);
@@ -47,14 +54,48 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
   }, [product.id]);
 
   useEffect(() => {
+    ApiService.getAccountingClosings()
+      .then(data => setClosings(data))
+      .catch(err => console.error('Failed to load accounting closings:', err));
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
     async function loadData() {
-      if (filter === 'custom' && (!customFrom || !customTo)) {
-        return;
+      let effectiveFilter: DateFilterOption = filter;
+      let customRange: { from: string; to: string } | undefined;
+
+      if (sessionMode === 'closed') {
+        if (closings.length === 0) {
+          if (isMounted) {
+            setAnalytics({
+              product,
+              total_quantity_sold: 0,
+              total_revenue: 0,
+              average_selling_rate: 0,
+              orders_count: 0,
+              transactions: []
+            });
+            setLoading(false);
+          }
+          return;
+        }
+        effectiveFilter = 'custom';
+        if (selectedClosingId === 'ALL_CLOSED') {
+          const latestTo = closings.reduce((max, c) => (new Date(c.to_date).getTime() > new Date(max).getTime() ? c.to_date : max), closings[0].to_date);
+          customRange = { from: '1970-01-01T00:00:00.000Z', to: latestTo };
+        } else {
+          const target = closings.find(c => c.id === selectedClosingId);
+          if (!target) return;
+          customRange = { from: target.from_date, to: target.to_date };
+        }
+      } else if (filter === 'custom') {
+        if (!customFrom || !customTo) return;
+        customRange = { from: customFrom, to: customTo };
       }
+
       try {
-        const customRange = (filter === 'custom' && customFrom && customTo) ? { from: customFrom, to: customTo } : undefined;
-        const data = await ApiService.getProductSalesAnalytics(product.id, filter, customRange);
+        const data = await ApiService.getProductSalesAnalytics(product.id, effectiveFilter, customRange);
         if (isMounted) {
           setAnalytics(data);
           setLoading(false);
@@ -68,7 +109,7 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
     return () => {
       isMounted = false;
     };
-  }, [product.id, filter, customFrom, customTo]);
+  }, [product, filter, customFrom, customTo, sessionMode, closings, selectedClosingId]);
 
   const handleApplyCustomFilter = () => {
     if (customFrom && customTo) {
@@ -89,6 +130,116 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
       const diff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       return sortDesc ? diff : -diff;
     });
+
+  const getPeriodLabel = () => {
+    if (sessionMode === 'closed') {
+      if (selectedClosingId === 'ALL_CLOSED') return `All Closed Sessions (${closings.length})`;
+      const target = closings.find(c => c.id === selectedClosingId);
+      return target ? `${target.closing_number}` : 'Closed Sessions';
+    }
+    if (filter === 'custom' && customFrom && customTo) return `${customFrom} to ${customTo}`;
+    return filter.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const handleExportCSV = () => {
+    if (!analytics) return;
+    const headers = ['Date & Time', 'Invoice #', 'Customer', 'Quantity', 'Rate (₹)', 'Total (₹)'];
+    const rows = filteredTransactions.map(t => [
+      new Date(t.created_at).toLocaleString('en-IN'),
+      t.bill_number,
+      t.customer_name || 'Walk-in Customer',
+      t.quantity,
+      Number(t.price).toFixed(2),
+      Number(t.total).toFixed(2)
+    ]);
+    const safeName = product.name.replace(/[^a-zA-Z0-9_-]+/g, '_');
+    downloadCSV(`Product_Analytics_${safeName}_${new Date().toISOString().split('T')[0]}`, headers, rows);
+  };
+
+  const handleExportPDF = () => {
+    if (!analytics) return;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    let y = margin;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Product Sales Analytics: ${product.name}`, margin, y);
+    y += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Category: ${product.category || 'N/A'}  |  Period: ${getPeriodLabel()}  |  Generated: ${new Date().toLocaleString('en-IN')}`, margin, y);
+    y += 6;
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(
+      `Qty Sold: ${analytics.total_quantity_sold}   |   Gross Revenue: ₹${Number(analytics.total_revenue).toFixed(2)}   |   Avg Rate: ₹${Number(analytics.average_selling_rate).toFixed(2)}   |   Orders: ${analytics.orders_count}`,
+      margin + 4,
+      y + 8.5
+    );
+    y += 19;
+
+    const cols = [38, 30, 52, 18, 22, 22];
+    const hdrs = ['Date & Time', 'Invoice #', 'Customer', 'Qty', 'Rate (₹)', 'Total (₹)'];
+    const drawHeader = () => {
+      doc.setFillColor(30, 41, 59);
+      doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      let x = margin;
+      hdrs.forEach((h, i) => {
+        if (i >= 3) doc.text(h, x + cols[i] - 2, y + 4.8, { align: 'right' });
+        else doc.text(h, x + 2, y + 4.8);
+        x += cols[i];
+      });
+      y += 7;
+    };
+    drawHeader();
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    filteredTransactions.forEach((t, idx) => {
+      if (y > pageHeight - 16) {
+        doc.addPage();
+        y = margin;
+        drawHeader();
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+      }
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y, pageWidth - margin * 2, 6.5, 'F');
+      }
+      doc.setTextColor(51, 65, 85);
+      let x = margin;
+      doc.text(new Date(t.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }), x + 2, y + 4.4);
+      x += cols[0];
+      doc.text(t.bill_number, x + 2, y + 4.4);
+      x += cols[1];
+      doc.text((t.customer_name || 'Walk-in').slice(0, 26), x + 2, y + 4.4);
+      x += cols[2];
+      doc.text(String(t.quantity), x + cols[3] - 2, y + 4.4, { align: 'right' });
+      x += cols[3];
+      doc.text(Number(t.price).toFixed(2), x + cols[4] - 2, y + 4.4, { align: 'right' });
+      x += cols[4];
+      doc.text(Number(t.total).toFixed(2), x + cols[5] - 2, y + 4.4, { align: 'right' });
+      y += 6.5;
+    });
+
+    const safeName = product.name.replace(/[^a-zA-Z0-9_-]+/g, '_');
+    doc.save(`Product_Analytics_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -118,13 +269,35 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
               </p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {analytics && filteredTransactions.length > 0 && (
+              <>
+                <button
+                  onClick={handleExportCSV}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1 cursor-pointer transition"
+                  title="Export Transactions to CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>CSV</span>
+                </button>
+                <button
+                  onClick={handleExportPDF}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg flex items-center gap-1 cursor-pointer transition"
+                  title="Export Product Analytics PDF"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </button>
+              </>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Filter Toolbar */}
@@ -135,6 +308,7 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
             </span>
             {(
               [
+                { id: 'current_session', label: 'Current Session' },
                 { id: 'all_time', label: 'All Time' },
                 { id: 'today', label: 'Today' },
                 { id: 'monthly', label: 'This Month' },
@@ -143,9 +317,12 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
             ).map(preset => (
               <button
                 key={preset.id}
-                onClick={() => setFilter(preset.id)}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                  filter === preset.id
+                onClick={() => {
+                  setSessionMode('preset');
+                  setFilter(preset.id);
+                }}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                  sessionMode === 'preset' && filter === preset.id
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                 }`}
@@ -153,9 +330,34 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
                 {preset.label}
               </button>
             ))}
+            <button
+              onClick={() => setSessionMode('closed')}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                sessionMode === 'closed'
+                  ? 'bg-slate-800 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              Closed Sessions
+            </button>
           </div>
 
-          {filter === 'custom' && (
+          {sessionMode === 'closed' && closings.length > 0 && (
+            <select
+              value={selectedClosingId}
+              onChange={(e) => setSelectedClosingId(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800"
+            >
+              <option value="ALL_CLOSED">All Closed Sessions ({closings.length})</option>
+              {closings.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.closing_number} ({new Date(c.from_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – {new Date(c.to_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})
+                </option>
+              ))}
+            </select>
+          )}
+
+          {sessionMode === 'preset' && filter === 'custom' && (
             <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border border-slate-200 text-xs">
               <Calendar className="w-3.5 h-3.5 text-blue-600" />
               <input

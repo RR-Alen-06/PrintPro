@@ -52,6 +52,7 @@ export default function SettingsPage() {
   // Super Admin Purge Modal
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [purgeInput, setPurgeInput] = useState('');
+  const [keepPurgeNumbering, setKeepPurgeNumbering] = useState(false);
   const [superAdminPin, setSuperAdminPin] = useState('');
 
   // Loyalty Simulator state
@@ -434,11 +435,14 @@ export default function SettingsPage() {
         return;
       }
 
-      await ApiService.purgeAllBusinessData('Super Admin');
-      setSuccessMsg('All business transaction data has been permanently deleted.');
+      await ApiService.purgeAllBusinessData('Super Admin', {
+        resetSequences: !keepPurgeNumbering
+      });
+      setSuccessMsg('All business data has been permanently deleted.');
       setShowPurgeModal(false);
       setPurgeInput('');
       setSuperAdminPin('');
+      setKeepPurgeNumbering(false);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to purge data');
     } finally {
@@ -1549,11 +1553,20 @@ export default function SettingsPage() {
               <AlertTriangle className="mx-auto text-rose-600" size={44} />
               <h3 className="text-xl font-extrabold text-slate-900">DELETE ALL BUSINESS DATA</h3>
               <p className="text-xs text-rose-700 font-semibold">
-                WARNING: This will permanently wipe all bills, payments, customer ledgers, expenses, and audit history from the database!
+                WARNING: This will permanently wipe all bills, group bills, payments, customers, products, expenses, transfers, closings, loyalty records, and audit logs. Settings and login are preserved.
               </p>
             </div>
 
             <form onSubmit={handlePurgeSubmit} className="space-y-3 pt-2">
+              <label className="flex items-center gap-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={keepPurgeNumbering}
+                  onChange={(e) => setKeepPurgeNumbering(e.target.checked)}
+                  className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span>Keep current ID numbering (do not reset sequences to 1)</span>
+              </label>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Super Admin Security PIN</label>
                 <input

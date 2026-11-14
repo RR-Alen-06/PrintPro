@@ -1711,7 +1711,7 @@ export class ApiService {
     if (filter === 'current_session') {
       const latestClosing = await this.getLatestAccountingClosing();
       if (latestClosing?.to_date) {
-        startDate = new Date(latestClosing.to_date);
+        startDate = new Date(new Date(latestClosing.to_date).getTime() + 1);
       }
     } else {
       const bounds = this.getDateRangeBounds(filter, customRange);
@@ -1866,16 +1866,24 @@ export class ApiService {
       const paidTotal = Number((advanceUsed + directPaid).toFixed(2));
       totalGroupPaid += paidTotal;
 
+      const directMethod =
+        appliedUpi > 0 && appliedCash === 0
+          ? 'UPI'
+          : appliedCash > 0 && appliedUpi === 0
+            ? 'Cash'
+            : appliedCash > 0 && appliedUpi > 0
+              ? 'Split Payment'
+              : 'Pay Later';
+
       let paymentMethod = override?.payment_method || 'Pay Later';
-      if (!override?.payment_method) {
+      if (!override?.payment_method || (directPaid > 0 && (paymentMethod === 'Pay Later' || paymentMethod === 'Advance Used'))) {
         if (paidTotal >= customerGrandTotal - 0.01) {
           if (advanceUsed >= customerGrandTotal - 0.01) paymentMethod = 'Advance Used';
-          else if (upiPaid > 0 && cashPaid === 0) paymentMethod = 'UPI';
-          else if (cashPaid > 0 && upiPaid === 0) paymentMethod = 'Cash';
-          else if (cashPaid > 0 && upiPaid > 0) paymentMethod = 'Split Payment';
-          else paymentMethod = 'Cash';
-        } else if (paidTotal > 0) {
-          paymentMethod = cashPaid > 0 && upiPaid > 0 ? 'Split Payment' : (upiPaid > 0 ? 'UPI' : 'Cash');
+          else paymentMethod = directMethod;
+        } else if (directPaid > 0) {
+          paymentMethod = directMethod;
+        } else if (advanceUsed > 0) {
+          paymentMethod = 'Advance Used';
         } else {
           paymentMethod = 'Pay Later';
         }
@@ -1931,7 +1939,7 @@ export class ApiService {
           customer_id: custId,
           bill_id: bill.id,
           amount: directPaid,
-          payment_method: paymentMethod,
+          payment_method: directMethod,
           status: 'COMPLETED',
           notes: `Split Bill initial payment - ${billNumber} (${groupBillNumber})`,
           ...(userId ? { user_id: userId } : {})
@@ -2280,6 +2288,186 @@ export class ApiService {
       balance_due: finalGroupBalanceDue,
       bills: createdBills,
       items: masterItemsToInsert
+    };
+  }
+
+  static async recordGroupBillPayment(input: {
+    group_bill_id: string;
+    paying_customer_id: string;
+    payment_method: 'Cash' | 'UPI' | 'Advance';
+    allocations: Array<{ bill_id: string; amount: number }>;
+    notes?: string;
+  }, userName = 'Admin'): Promise<{
+    payment_id?: string | null;
+    payment_number?: string | null;
+    total_paid: number;
+    group_paid_amount: number;
+    group_balance_due: number;
+  }> {
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+    if (!input.paying_customer_id) throw new Error('Please select a paying customer.');
+    const validAllocations = (input.allocations || [])
+      .map(a => ({ bill_id: a.bill_id, amount: Number(Number(a.amount || 0).toFixed(2)) }))
+      .filter(a => a.bill_id && a.amount > 0);
+    if (validAllocations.length === 0) {
+      throw new Error('Please select at least one member share to pay.');
+    }
+
+    // Prefer atomic Postgres RPC when available
+    try {
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('record_group_bill_payment_atomic', {
+        p_group_bill_id: input.group_bill_id,
+        p_paying_customer_id: input.paying_customer_id,
+        p_payment_method: input.payment_method,
+        p_allocations: validAllocations,
+        p_notes: input.notes || null
+      });
+      if (!rpcErr && rpcRes && typeof rpcRes === 'object' && 'total_paid' in rpcRes) {
+        const res = rpcRes as {
+          payment_id?: string | null;
+          payment_number?: string | null;
+          total_paid: number;
+          group_paid_amount: number;
+          group_balance_due: number;
+        };
+        await this.logAudit({
+          user_name: userName,
+          action: 'GROUP_BILL_PAYMENT',
+          entity: `Group Bill ${input.group_bill_id}`,
+          new_value: `Paid ₹${Number(res.total_paid).toFixed(2)} via ${input.payment_method}`
+        });
+        return res;
+      } else if (rpcErr) {
+        const code = String((rpcErr as { code?: string }).code || '');
+        const msg = String(rpcErr.message || '');
+        const isMissingRpc = code === 'PGRST202' || code === '42883' || msg.includes('record_group_bill_payment_atomic');
+        if (!isMissingRpc) {
+          throw new Error(msg || 'Failed to record group bill payment');
+        }
+      }
+    } catch (rpcCatchErr) {
+      if (
+        rpcCatchErr instanceof Error &&
+        !rpcCatchErr.message.includes('record_group_bill_payment_atomic') &&
+        !rpcCatchErr.message.includes('rpc is not a function')
+      ) {
+        throw rpcCatchErr;
+      }
+    }
+
+    // Client-side fallback
+    const userId = await this.getUserId();
+    const { data: groupBill } = await supabase
+      .from('group_bills')
+      .select('*')
+      .eq('id', input.group_bill_id)
+      .maybeSingle();
+    if (!groupBill) throw new Error('Group bill not found.');
+
+    const { data: payer } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', input.paying_customer_id)
+      .maybeSingle();
+    if (!payer) throw new Error('Paying customer not found.');
+
+    const { data: childBills } = await supabase
+      .from('bills')
+      .select('*')
+      .eq('group_bill_id', input.group_bill_id);
+
+    const billsMap = new Map<string, Record<string, unknown>>();
+    (childBills || []).forEach(b => billsMap.set(b.id as string, b as Record<string, unknown>));
+
+    let totalApplied = 0;
+    for (const alloc of validAllocations) {
+      const bill = billsMap.get(alloc.bill_id);
+      if (!bill || !this.isActiveBill(bill as { status?: string })) continue;
+
+      const grandTotal = Number(bill.grand_total || 0);
+      const currentPaid = Number(bill.paid_total || 0);
+      const remainingDue = Math.max(0, Number((grandTotal - currentPaid).toFixed(2)));
+      const apply = Math.min(remainingDue, alloc.amount);
+      if (apply <= 0) continue;
+
+      if (input.payment_method === 'Advance' && Number(payer.advance_balance || 0) < totalApplied + apply) {
+        throw new Error('Insufficient customer advance balance.');
+      }
+
+      const newPaid = Number((currentPaid + apply).toFixed(2));
+      const newCash = Number(bill.cash_paid || 0) + (input.payment_method === 'Cash' ? apply : 0);
+      const newUpi = Number(bill.upi_paid || 0) + (input.payment_method === 'UPI' ? apply : 0);
+      const newAdv = Number(bill.advance_used || 0) + (input.payment_method === 'Advance' ? apply : 0);
+
+      let newMethod = String(bill.payment_method || input.payment_method);
+      if (newUpi > 0 && newCash === 0) newMethod = 'UPI';
+      else if (newCash > 0 && newUpi === 0) newMethod = 'Cash';
+      else if (newCash > 0 && newUpi > 0) newMethod = 'Split Payment';
+      else if (newAdv > 0) newMethod = 'Advance Used';
+
+      const billUpdate: Record<string, unknown> = {
+        paid_total: newPaid,
+        cash_paid: newCash,
+        upi_paid: newUpi,
+        advance_used: newAdv,
+        payment_method: newMethod
+      };
+      if (bill.customer_id !== input.paying_customer_id) {
+        billUpdate.paid_by_customer_id = input.paying_customer_id;
+      }
+
+      await supabase.from('bills').update(billUpdate).eq('id', bill.id);
+      bill.paid_total = newPaid;
+      totalApplied = Number((totalApplied + apply).toFixed(2));
+    }
+
+    if (totalApplied <= 0) {
+      throw new Error('No payable balance selected.');
+    }
+
+    let paymentId: string | null = null;
+    let paymentNumber: string | null = null;
+
+    if (input.payment_method === 'Advance') {
+      const newAdvance = Math.max(0, Number((Number(payer.advance_balance || 0) - totalApplied).toFixed(2)));
+      await supabase.from('customers').update({ advance_balance: newAdvance }).eq('id', input.paying_customer_id);
+    } else {
+      paymentNumber = await this.getNextSequence('PAYMENT');
+      const { data: createdPay } = await supabase.from('payments').insert([{
+        payment_number: paymentNumber,
+        customer_id: input.paying_customer_id,
+        bill_id: null,
+        amount: totalApplied,
+        payment_method: input.payment_method,
+        status: 'COMPLETED',
+        notes: input.notes || `Group Bill Payment (${groupBill.group_bill_number})`,
+        ...(userId ? { user_id: userId } : {})
+      }]).select().maybeSingle();
+      paymentId = (createdPay?.id as string) || null;
+    }
+
+    const activeChildBills = Array.from(billsMap.values()).filter(b => this.isActiveBill(b as { status?: string }));
+    const groupPaidAmount = Number(activeChildBills.reduce((s, b) => s + Number(b.paid_total || 0), 0).toFixed(2));
+    const groupBalanceDue = Math.max(0, Number(activeChildBills.reduce((s, b) => s + Math.max(0, Number(b.grand_total || 0) - Number(b.paid_total || 0)), 0).toFixed(2)));
+
+    await supabase.from('group_bills').update({
+      paid_amount: groupPaidAmount,
+      balance_due: groupBalanceDue
+    }).eq('id', input.group_bill_id);
+
+    await this.logAudit({
+      user_name: userName,
+      action: 'GROUP_BILL_PAYMENT',
+      entity: `Group Bill ${groupBill.group_bill_number}`,
+      new_value: `Paid ₹${totalApplied.toFixed(2)} via ${input.payment_method} by ${payer.name}`
+    });
+
+    return {
+      payment_id: paymentId,
+      payment_number: paymentNumber,
+      total_paid: totalApplied,
+      group_paid_amount: groupPaidAmount,
+      group_balance_due: groupBalanceDue
     };
   }
 
@@ -3123,8 +3311,13 @@ export class ApiService {
         p_payment_method: payment.payment_method || 'Cash',
         p_notes: payment.notes || null
       });
-      if (!rpcErr && rpcRes && typeof rpcRes === 'object' && 'payment_id' in rpcRes) {
-        const paymentId = (rpcRes as { payment_id: string; payment_number?: string }).payment_id;
+      const rpcPayId =
+        rpcRes && typeof rpcRes === 'object'
+          ? (rpcRes as { id?: string; payment_id?: string }).id ||
+            (rpcRes as { payment_id?: string }).payment_id
+          : undefined;
+      if (!rpcErr && rpcPayId) {
+        const paymentId = rpcPayId;
         const { data: createdPay } = await supabase
           .from('payments')
           .select('*, customers(name, mobile), bills(bill_number)')
@@ -3137,6 +3330,17 @@ export class ApiService {
           new_value: `Amount: ₹${numericAmount.toFixed(2)} via ${payment.payment_method || 'Cash'}`
         });
         if (createdPay) return this.formatPaymentRow(createdPay);
+        return {
+          id: paymentId,
+          payment_number: (rpcRes as { payment_number?: string }).payment_number || '',
+          customer_id: payment.customer_id,
+          bill_id: payment.bill_id || null,
+          amount: numericAmount,
+          payment_method: payment.payment_method || 'Cash',
+          status: 'COMPLETED',
+          notes: payment.notes || null,
+          created_at: new Date().toISOString()
+        } as Payment;
       } else if (rpcErr) {
         const code = String((rpcErr as { code?: string }).code || '');
         const msg = String(rpcErr.message || '');
@@ -4115,41 +4319,57 @@ export class ApiService {
       const { data: custBills } = await supabase
         .from('bills')
         .select('*')
-        .eq('customer_id', payment.customer_id)
+        .or(`customer_id.eq.${payment.customer_id},paid_by_customer_id.eq.${payment.customer_id}`)
         .order('created_at', { ascending: false });
 
+      let targetGroupBillId: string | null = null;
+      if (payment.notes) {
+        const grpMatch = payment.notes.match(/Group Bill Payment \(([^)]+)\)/i);
+        if (grpMatch?.[1]) {
+          const { data: grpRow } = await supabase
+            .from('group_bills')
+            .select('id')
+            .eq('group_bill_number', grpMatch[1].trim())
+            .maybeSingle();
+          if (grpRow?.id) targetGroupBillId = grpRow.id;
+        }
+      }
+
       // Identify portion of this specific payment that was credited to advance vs applied to bills
-      let advanceCreditedFromThisPayment = 0;
+      let explicitAdvanceCredited: number | null = null;
       if (payment.notes) {
         const advMatch = payment.notes.match(/Advance Credited:\s*₹?([0-9.]+)/i);
         if (advMatch) {
-          advanceCreditedFromThisPayment = Number(advMatch[1]) || 0;
-        }
-      }
-      if (advanceCreditedFromThisPayment === 0 && !payment.bill_id) {
-        const totalDuesAcrossBills = (custBills || []).reduce(
-          (s, b) => s + Math.max(0, Number(b.grand_total || 0) - Number(b.paid_total || 0)),
-          0
-        );
-        if (amount > totalDuesAcrossBills) {
-          advanceCreditedFromThisPayment = Number((amount - totalDuesAcrossBills).toFixed(2));
+          explicitAdvanceCredited = Number(advMatch[1]) || 0;
+        } else {
+          const duesMatch = payment.notes.match(/Dues Settled:\s*₹?([0-9.]+)/i);
+          if (duesMatch) {
+            const duesSettled = Number(duesMatch[1]) || 0;
+            explicitAdvanceCredited = Number(Math.max(0, amount - duesSettled).toFixed(2));
+          } else if (targetGroupBillId) {
+            explicitAdvanceCredited = 0;
+          }
         }
       }
 
-      // Rollback only the advance amount created by THIS payment; never touch customer's separate advance or applied advance on bills
-      const deductFromAdvance = Math.min(currentAdvance, advanceCreditedFromThisPayment);
-      let remainingToReverseFromBills = Number((amount - advanceCreditedFromThisPayment).toFixed(2));
+      let remainingToReverseFromBills =
+        explicitAdvanceCredited !== null
+          ? Number(Math.max(0, amount - explicitAdvanceCredited).toFixed(2))
+          : amount;
 
-      if (cust && deductFromAdvance > 0) {
-        const newAdvance = Number(Math.max(0, currentAdvance - deductFromAdvance).toFixed(2));
-        await supabase
-          .from('customers')
-          .update({ advance_balance: newAdvance })
-          .eq('id', payment.customer_id);
+      const activeCustBills = (custBills || []).filter(cb => this.isActiveBill(cb));
+      if (targetGroupBillId) {
+        activeCustBills.sort((a, b) => {
+          const aMatch = a.group_bill_id === targetGroupBillId ? 0 : 1;
+          const bMatch = b.group_bill_id === targetGroupBillId ? 0 : 1;
+          return aMatch - bMatch;
+        });
       }
+
+      const affectedGroupIds = new Set<string>();
 
       if (remainingToReverseFromBills > 0.009) {
-        for (const b of (custBills || []).filter(cb => this.isActiveBill(cb))) {
+        for (const b of activeCustBills) {
           if (remainingToReverseFromBills <= 0.009) break;
           const bCash = Number(b.cash_paid || 0);
           const bUpi = Number(b.upi_paid || 0);
@@ -4164,11 +4384,15 @@ export class ApiService {
           let newCash = bCash;
           let newUpi = bUpi;
           if (payment.payment_method === 'UPI') {
-            newUpi = Math.max(0, bUpi - deduct);
-          } else if (payment.payment_method === 'Cash') {
-            newCash = Math.max(0, bCash - deduct);
-          } else if (bDirect > 0) {
-            newCash = Math.max(0, bCash - deduct);
+            const fromUpi = Math.min(bUpi, deduct);
+            newUpi = Number((bUpi - fromUpi).toFixed(2));
+            const rem = Number((deduct - fromUpi).toFixed(2));
+            if (rem > 0) newCash = Number(Math.max(0, bCash - rem).toFixed(2));
+          } else if (payment.payment_method === 'Cash' || bDirect > 0) {
+            const fromCash = Math.min(bCash, deduct);
+            newCash = Number((bCash - fromCash).toFixed(2));
+            const rem = Number((deduct - fromCash).toFixed(2));
+            if (rem > 0) newUpi = Number(Math.max(0, bUpi - rem).toFixed(2));
           }
 
           const grandTotal = Number(b.grand_total || 0);
@@ -4186,6 +4410,10 @@ export class ApiService {
             payment_method: newMethod
           };
 
+          if (b.paid_by_customer_id === payment.customer_id && b.customer_id !== payment.customer_id && newPaid <= 0.01) {
+            bUpdate.paid_by_customer_id = null;
+          }
+
           if (newPaid < grandTotal - 0.01 && Number(b.loyalty_points_earned || 0) > 0) {
             await this.reverseLoyaltyPointsForBill(b.id, userName);
             bUpdate.loyalty_points_earned = 0;
@@ -4196,8 +4424,40 @@ export class ApiService {
             .update(bUpdate)
             .eq('id', b.id);
 
+          if (b.group_bill_id) {
+            affectedGroupIds.add(b.group_bill_id);
+          }
+
           remainingToReverseFromBills = Number((remainingToReverseFromBills - deduct).toFixed(2));
         }
+      }
+
+      for (const gid of affectedGroupIds) {
+        const { data: grpBills } = await supabase
+          .from('bills')
+          .select('grand_total, paid_total, status')
+          .eq('group_bill_id', gid);
+        const activeGrpBills = (grpBills || []).filter(gb => this.isActiveBill(gb));
+        const grpGrand = activeGrpBills.reduce((s, gb) => s + Number(gb.grand_total || 0), 0);
+        const grpPaid = activeGrpBills.reduce((s, gb) => s + Number(gb.paid_total || 0), 0);
+        await supabase.from('group_bills').update({
+          paid_amount: Number(grpPaid.toFixed(2)),
+          balance_due: Number(Math.max(0, grpGrand - grpPaid).toFixed(2))
+        }).eq('id', gid);
+      }
+
+      const advanceToRollback =
+        explicitAdvanceCredited !== null
+          ? explicitAdvanceCredited
+          : Number(Math.max(0, remainingToReverseFromBills).toFixed(2));
+      const deductFromAdvance = Math.min(currentAdvance, advanceToRollback);
+
+      if (cust && deductFromAdvance > 0) {
+        const newAdvance = Number(Math.max(0, currentAdvance - deductFromAdvance).toFixed(2));
+        await supabase
+          .from('customers')
+          .update({ advance_balance: newAdvance })
+          .eq('id', payment.customer_id);
       }
     }
 
@@ -4646,28 +4906,69 @@ export class ApiService {
   }
 
 
-  static async purgeAllBusinessData(userName = 'Super Admin'): Promise<void> {
+  static async purgeAllBusinessData(
+    userName = 'Super Admin',
+    options?: { resetSequences?: boolean }
+  ): Promise<void> {
     if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+    const resetSequences = options?.resetSequences !== false;
 
-    const delBillItems = supabase.from('bill_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const delPayments = supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const delBills = supabase.from('bills').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const delExpenses = supabase.from('expenses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const delLoyalty = supabase.from('loyalty_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const updateCust = supabase.from('customers').update({ advance_balance: 0, loyalty_points: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+    try {
+      const { error: rpcErr } = await supabase.rpc('purge_all_business_data', {
+        p_reset_sequences: resetSequences
+      });
+      if (!rpcErr) {
+        if (!resetSequences) {
+          await this.logAudit({
+            user_name: userName,
+            action: 'PURGE_ALL_BUSINESS_DATA',
+            entity: 'All Business Records (Sequences Preserved)'
+          });
+        }
+        return;
+      }
+      const code = String((rpcErr as { code?: string }).code || '');
+      const msg = String(rpcErr.message || '');
+      const isMissingRpc = code === 'PGRST202' || code === '42883' || msg.includes('purge_all_business_data');
+      if (!isMissingRpc) {
+        throw new Error(msg || 'Failed to purge business data');
+      }
+    } catch (rpcCatchErr) {
+      if (
+        rpcCatchErr instanceof Error &&
+        !rpcCatchErr.message.includes('purge_all_business_data') &&
+        !rpcCatchErr.message.includes('rpc is not a function')
+      ) {
+        throw rpcCatchErr;
+      }
+    }
 
-    await delBillItems;
-    await delPayments;
-    await delBills;
-    await delExpenses;
-    await delLoyalty;
-    await updateCust;
+    const nilUuid = '00000000-0000-0000-0000-000000000000';
+    await supabase.from('group_bill_items').delete().neq('id', nilUuid);
+    await supabase.from('bill_items').delete().neq('id', nilUuid);
+    await supabase.from('payments').delete().neq('id', nilUuid);
+    await supabase.from('bills').delete().neq('id', nilUuid);
+    await supabase.from('group_bills').delete().neq('id', nilUuid);
+    await supabase.from('expenses').delete().neq('id', nilUuid);
+    await supabase.from('internal_transfers').delete().neq('id', nilUuid);
+    await supabase.from('accounting_closings').delete().neq('id', nilUuid);
+    await supabase.from('loyalty_transactions').delete().neq('id', nilUuid);
+    await supabase.from('audit_logs').delete().neq('id', nilUuid);
+    await supabase.from('customers').delete().neq('id', nilUuid);
+    await supabase.from('products').delete().neq('id', nilUuid);
 
-    await this.logAudit({
-      user_name: userName,
-      action: 'PURGE_ALL_BUSINESS_DATA',
-      entity: 'All Business Records'
-    });
+    if (resetSequences) {
+      await supabase
+        .from('sequences')
+        .update({ current_val: 0, updated_at: new Date().toISOString() })
+        .neq('id', nilUuid);
+    } else {
+      await this.logAudit({
+        user_name: userName,
+        action: 'PURGE_ALL_BUSINESS_DATA',
+        entity: 'All Business Records (Sequences Preserved)'
+      });
+    }
   }
 
 
@@ -4678,7 +4979,7 @@ export class ApiService {
     if (filter === 'current_session') {
       const latestClosing = await this.getLatestAccountingClosing();
       if (latestClosing?.to_date) {
-        startDate = new Date(latestClosing.to_date);
+        startDate = new Date(new Date(latestClosing.to_date).getTime() + 1);
       }
     } else {
       const bounds = this.getDateRangeBounds(filter, customRange);
@@ -4733,7 +5034,7 @@ export class ApiService {
     }
 
     const [
-      { data: bills },
+      billsRes,
       { data: payments },
       { data: expenses }
     ] = await Promise.all([
@@ -4741,6 +5042,15 @@ export class ApiService {
       paymentsQuery.order('created_at', { ascending: false }),
       expensesQuery.order('created_at', { ascending: false })
     ]);
+
+    let bills = billsRes.data;
+    if (billsRes.error) {
+      let fallbackBillsQuery = supabase.from('bills').select('*');
+      if (startDate) fallbackBillsQuery = fallbackBillsQuery.gte('created_at', startDate.toISOString());
+      if (endDate) fallbackBillsQuery = fallbackBillsQuery.lte('created_at', endDate.toISOString());
+      const fallbackRes = await fallbackBillsQuery.order('created_at', { ascending: false });
+      bills = fallbackRes.data;
+    }
 
     const allBills = (bills || []).filter(b => this.isActiveBill(b));
     const allPayments = (payments || []).filter(p => p.status !== 'CANCELLED' && p.status !== 'REVERSED');
@@ -4789,8 +5099,8 @@ export class ApiService {
     });
 
     allBills.forEach(b => {
-      // Include direct cash/upi from any bill without a registered payment voucher
-      if (!paymentBillIds.has(b.id)) {
+      // Include direct cash/upi only for walk-in bills (no customer_id -> no payment voucher row)
+      if (!b.customer_id && !paymentBillIds.has(b.id)) {
         cashCollected += Number(b.cash_paid || 0);
         upiCollected += Number(b.upi_paid || 0);
       }
@@ -5062,6 +5372,20 @@ export class ApiService {
   }
 
 
+  private static async resolveFilterDateBounds(
+    filter: DateFilterOption,
+    customRange?: { from: string; to: string }
+  ): Promise<{ startDate?: Date; endDate?: Date }> {
+    if (filter === 'current_session') {
+      const latestClosing = await this.getLatestAccountingClosing();
+      if (latestClosing?.to_date) {
+        return { startDate: new Date(new Date(latestClosing.to_date).getTime() + 1) };
+      }
+      return {};
+    }
+    return this.getDateRangeBounds(filter, customRange);
+  }
+
   static async getProductSalesAnalytics(
     productId: string,
     filter: DateFilterOption = 'all_time',
@@ -5102,7 +5426,7 @@ export class ApiService {
       product = p;
     }
 
-    const { startDate, endDate } = this.getDateRangeBounds(filter, customRange);
+    const { startDate, endDate } = await this.resolveFilterDateBounds(filter, customRange);
 
     let query = supabase
       .from('bill_items')
@@ -5211,7 +5535,7 @@ export class ApiService {
   ): Promise<CustomItemAnalytics[]> {
     if (!isSupabaseConfigured) return [];
 
-    const { startDate, endDate } = this.getDateRangeBounds(filter, customRange);
+    const { startDate, endDate } = await this.resolveFilterDateBounds(filter, customRange);
 
     const query = supabase
       .from('bill_items')
@@ -5342,22 +5666,32 @@ export class ApiService {
     ]);
 
     const bills = billsRes.data || [];
-    const payments = paymentsRes.data || [];
+    const billIds = bills.map(b => b.id).filter(Boolean);
+    let payments = paymentsRes.data || [];
+
+    if (billIds.length > 0) {
+      const { data: billLinkedPayments } = await supabase
+        .from('payments')
+        .select('*')
+        .in('bill_id', billIds)
+        .order('created_at', { ascending: true });
+      if (billLinkedPayments && billLinkedPayments.length > 0) {
+        const seenPayIds = new Set(payments.map(p => p.id));
+        const extra = billLinkedPayments.filter(p => !seenPayIds.has(p.id));
+        if (extra.length > 0) {
+          payments = [...payments, ...extra].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        }
+      }
+    }
+
     const activePayments = payments.filter(p => p.status !== 'CANCELLED' && p.status !== 'REVERSED');
 
-    const totalAllTimeBilled = Number((bills || []).reduce((sum, b) => sum + Number(b.grand_total || 0), 0).toFixed(2));
-    const totalBillPaid = Number((bills || []).reduce((sum, b) => sum + Number(b.paid_total || 0), 0).toFixed(2));
-    const totalPaymentsVouchers = Number(activePayments.reduce((s, p) => s + Number(p.amount || 0), 0).toFixed(2));
-    const totalCustomerPaid = Math.max(totalPaymentsVouchers, totalBillPaid);
-
     const currentOutstandingBalance = Number((bills || []).reduce((sum, b) => sum + Math.max(0, Number(b.grand_total || 0) - Number(b.paid_total || 0)), 0).toFixed(2));
-    const currentAdvanceBalance = totalCustomerPaid > totalAllTimeBilled ? Number((totalCustomerPaid - totalAllTimeBilled).toFixed(2)) : 0.00;
-
-    const stmtStoredAdvBefore = Number(customer.advance_balance || 0);
+    // Read-only: keep stored customer advance_balance intact without overwriting it on statement view
+    const currentAdvanceBalance = Number(customer.advance_balance || 0);
     customer.advance_balance = currentAdvanceBalance;
-    if (Math.abs(stmtStoredAdvBefore - currentAdvanceBalance) > 0.001) {
-      await supabase.from('customers').update({ advance_balance: currentAdvanceBalance }).eq('id', customerId);
-    }
 
     const stmtBillMap = new Map((bills || []).map(b => [b.id, b]));
     const stmtInitialPaymentByBillId = new Map<string, (typeof activePayments)[0]>();
@@ -5375,7 +5709,7 @@ export class ApiService {
       }
     }
 
-    const { startDate, endDate } = this.getDateRangeBounds(filter, customRange);
+    const { startDate, endDate } = await this.resolveFilterDateBounds(filter, customRange);
 
     // Compute Opening Balance as of start date (prior debits minus prior credits)
     let openingBalance = 0;
@@ -5415,15 +5749,22 @@ export class ApiService {
       let payRef = '';
 
       if (initialPayment) {
-        paidAmount = Number(initialPayment.amount || 0);
+        const rawInitAmt = Number(initialPayment.amount || 0);
+        paidAmount = initialPayment.customer_id === customerId ? rawInitAmt : Math.min(grandTotal, rawInitAmt);
         payMethod = initialPayment.payment_method || payMethod;
         payRef = initialPayment.payment_number;
-      } else {
-        paidAmount = Math.max(0, Number(b.paid_total || 0) - advUsed);
+      } else if (
+        b.paid_by_customer_id &&
+        b.paid_by_customer_id !== customerId &&
+        !activePayments.some(p => p.bill_id === b.id)
+      ) {
+        // Cross-customer group/shared payment with bill_id = null: credit direct settled portion on bill row
+        paidAmount = Math.max(0, Number((Math.min(grandTotal, Number(b.paid_total || 0)) - advUsed).toFixed(2)));
       }
+      // Otherwise, any direct payment on this bill is recorded on its own PAYMENT row (avoid double-counting)
 
       const directPaid = Math.min(grandTotal, paidAmount);
-      const totalSettledOnBill = Number((directPaid + advUsed).toFixed(2));
+      const totalSettledOnBill = Number(Math.min(grandTotal, Number(b.paid_total || 0)).toFixed(2));
       const balanceDue = Math.max(0, Number((grandTotal - totalSettledOnBill).toFixed(2)));
       const isFullyPaid = balanceDue <= 0.009;
       const discount = Number(b.discount || 0);
@@ -5504,7 +5845,12 @@ export class ApiService {
       if (startDate && pTime < startDate.getTime()) continue;
       if (endDate && pTime > endDate.getTime()) continue;
 
-      const amt = Number(p.amount || 0);
+      const rawAmt = Number(p.amount || 0);
+      const linkedBill = p.bill_id ? stmtBillMap.get(p.bill_id) : undefined;
+      const amt =
+        p.customer_id !== customerId && linkedBill
+          ? Math.min(Number(linkedBill.grand_total || rawAmt), rawAmt)
+          : rawAmt;
       paymentsCount++;
 
       transactionsList.push({
@@ -5717,7 +6063,27 @@ export class ApiService {
         if (typeof window !== 'undefined') {
           try { window.sessionStorage?.removeItem('sb_table_internal_transfers'); } catch { }
         }
-        return data || [];
+        const remoteTransfers = data || [];
+        const localTransfers = this.getLocalTransfers();
+        if (localTransfers.length === 0) return remoteTransfers;
+
+        const seenIds = new Set(remoteTransfers.map(t => t.id));
+        const missingLocal = localTransfers.filter(t => !seenIds.has(t.id));
+        if (missingLocal.length === 0) return remoteTransfers;
+
+        for (const localRow of missingLocal) {
+          try {
+            const syncPayload: Record<string, unknown> = { ...localRow };
+            if (syncPayload.notes === null) delete syncPayload.notes;
+            await supabase.from('internal_transfers').insert([syncPayload]);
+          } catch {
+            // Non-blocking
+          }
+        }
+
+        return [...remoteTransfers, ...missingLocal].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
       } catch {
         return this.getLocalTransfers();
       } finally {
@@ -5752,11 +6118,20 @@ export class ApiService {
 
     if (isSupabaseConfigured && this.hasInternalTransfersTable !== false) {
       try {
-        const { data, error } = await supabase
+        const payload: Record<string, unknown> = { ...record };
+        if (payload.notes === null) delete payload.notes;
+        let { data, error } = await supabase
           .from('internal_transfers')
-          .insert([record])
+          .insert([payload])
           .select()
           .maybeSingle();
+
+        if (error && (error.message?.includes('column') || error.code === '42703' || error.code === 'PGRST204')) {
+          delete payload.notes;
+          const retry = await supabase.from('internal_transfers').insert([payload]).select().maybeSingle();
+          data = retry.data;
+          error = retry.error;
+        }
 
         if (!error && data) {
           await this.logAudit({
@@ -5884,7 +6259,33 @@ export class ApiService {
         if (typeof window !== 'undefined') {
           try { window.sessionStorage?.removeItem('sb_table_accounting_closings'); } catch { }
         }
-        return (data || []).map(c => this.normalizeClosingRecord(c));
+        const remoteClosings = (data || []).map(c => this.normalizeClosingRecord(c));
+        const localClosings = this.getLocalClosings();
+        if (localClosings.length === 0) return remoteClosings;
+
+        const seenIds = new Set(remoteClosings.map(c => c.id));
+        const seenNumbers = new Set(remoteClosings.map(c => c.closing_number).filter(Boolean));
+        const missingLocal = localClosings.filter(
+          c => !seenIds.has(c.id) && (!c.closing_number || !seenNumbers.has(c.closing_number))
+        );
+        if (missingLocal.length === 0) return remoteClosings;
+
+        // Best-effort sync any local-only closings (e.g. from prior schema mismatch) back into Supabase
+        for (const localRow of missingLocal) {
+          try {
+            const syncPayload: Record<string, unknown> = { ...localRow };
+            if (syncPayload.last_audited_at === null) delete syncPayload.last_audited_at;
+            if (syncPayload.last_audited_by === null) delete syncPayload.last_audited_by;
+            if (syncPayload.audit_notes === null) delete syncPayload.audit_notes;
+            await supabase.from('accounting_closings').insert([syncPayload]);
+          } catch {
+            // Non-blocking: local copy still returned below
+          }
+        }
+
+        return [...remoteClosings, ...missingLocal].sort(
+          (a, b) => new Date(b.closed_at || b.to_date).getTime() - new Date(a.closed_at || a.to_date).getTime()
+        );
       } catch {
         return this.getLocalClosings();
       } finally {
@@ -5965,18 +6366,26 @@ export class ApiService {
     if (isSupabaseConfigured && this.hasAccountingClosingsTable !== false) {
       try {
         const payload: Record<string, unknown> = { ...record };
+        // Omit null audit fields on initial close so older schemas without these columns succeed on first try
+        if (payload.last_audited_at === null) delete payload.last_audited_at;
+        if (payload.last_audited_by === null) delete payload.last_audited_by;
+        if (payload.audit_notes === null) delete payload.audit_notes;
+
         let { data, error } = await supabase
           .from('accounting_closings')
           .insert([payload])
           .select()
           .maybeSingle();
 
-        if (error && (error.message?.includes('column') || error.code === '42703')) {
+        if (error && (error.message?.includes('column') || error.code === '42703' || error.code === 'PGRST204')) {
           delete payload.opening_advance_pool;
           delete payload.advance_received;
           delete payload.advance_utilized;
           delete payload.closing_advance_pool;
           delete payload.denominations;
+          delete payload.last_audited_at;
+          delete payload.last_audited_by;
+          delete payload.audit_notes;
           const retry = await supabase.from('accounting_closings').insert([payload]).select().maybeSingle();
           data = retry.data;
           error = retry.error;
@@ -6246,27 +6655,52 @@ export class ApiService {
     // 4. Update target session in Supabase & Local
     if (isSupabaseConfigured && this.hasAccountingClosingsTable !== false) {
       try {
-        await supabase
+        const updatePayload: Record<string, unknown> = {
+          cash_inflow: updatedTarget.cash_inflow,
+          upi_inflow: updatedTarget.upi_inflow,
+          cash_outflow: updatedTarget.cash_outflow,
+          upi_outflow: updatedTarget.upi_outflow,
+          transfers_cash_to_upi: updatedTarget.transfers_cash_to_upi,
+          transfers_upi_to_cash: updatedTarget.transfers_upi_to_cash,
+          expected_cash: updatedTarget.expected_cash,
+          expected_upi: updatedTarget.expected_upi,
+          actual_cash: updatedTarget.actual_cash,
+          actual_upi: updatedTarget.actual_upi,
+          cash_difference: updatedTarget.cash_difference,
+          upi_difference: updatedTarget.upi_difference,
+          discrepancy_note: updatedTarget.discrepancy_note,
+          last_audited_at: updatedTarget.last_audited_at,
+          last_audited_by: updatedTarget.last_audited_by,
+          audit_notes: updatedTarget.audit_notes
+        };
+
+        let { data: updatedRemote, error: updateErr } = await supabase
           .from('accounting_closings')
-          .update({
-            cash_inflow: updatedTarget.cash_inflow,
-            upi_inflow: updatedTarget.upi_inflow,
-            cash_outflow: updatedTarget.cash_outflow,
-            upi_outflow: updatedTarget.upi_outflow,
-            transfers_cash_to_upi: updatedTarget.transfers_cash_to_upi,
-            transfers_upi_to_cash: updatedTarget.transfers_upi_to_cash,
-            expected_cash: updatedTarget.expected_cash,
-            expected_upi: updatedTarget.expected_upi,
-            actual_cash: updatedTarget.actual_cash,
-            actual_upi: updatedTarget.actual_upi,
-            cash_difference: updatedTarget.cash_difference,
-            upi_difference: updatedTarget.upi_difference,
-            discrepancy_note: updatedTarget.discrepancy_note,
-            last_audited_at: updatedTarget.last_audited_at,
-            last_audited_by: updatedTarget.last_audited_by,
-            audit_notes: updatedTarget.audit_notes
-          })
-          .eq('id', target.id);
+          .update(updatePayload)
+          .eq('id', target.id)
+          .select()
+          .maybeSingle();
+
+        if (updateErr && (updateErr.message?.includes('column') || updateErr.code === '42703' || updateErr.code === 'PGRST204')) {
+          delete updatePayload.last_audited_at;
+          delete updatePayload.last_audited_by;
+          delete updatePayload.audit_notes;
+          const retry = await supabase
+            .from('accounting_closings')
+            .update(updatePayload)
+            .eq('id', target.id)
+            .select()
+            .maybeSingle();
+          updatedRemote = retry.data;
+          updateErr = retry.error;
+        }
+
+        if (!updateErr && !updatedRemote) {
+          // Target closing existed only in localStorage; insert it into Supabase now
+          await supabase.from('accounting_closings').insert([updatedTarget]);
+        } else if (updateErr) {
+          console.warn('Supabase update failed for target closing:', updateErr);
+        }
       } catch (err) {
         console.warn('Supabase update failed for target closing:', err);
       }
@@ -6397,8 +6831,9 @@ export class ApiService {
       }
     }
 
-    const opening_cash = latestClosing ? Number(latestClosing.actual_cash !== undefined ? latestClosing.actual_cash : (latestClosing.expected_cash || 0)) : 0;
-    const opening_upi = latestClosing ? Number(latestClosing.actual_upi !== undefined ? latestClosing.actual_upi : (latestClosing.expected_upi || 0)) : 0;
+    // New session starts Cash & UPI at 0 after a closing; only Customer Advance carries forward
+    const opening_cash = 0;
+    const opening_upi = 0;
 
     const sessionStartMs = new Date(session_start_date).getTime();
 
@@ -6522,8 +6957,8 @@ export class ApiService {
     const closings = await this.getAccountingClosings();
     // Prior closing ending at or before fromDate
     const priorClosing = closings.find(c => new Date(c.to_date).getTime() <= fromMs);
-    const opening_cash = priorClosing ? Number(priorClosing.actual_cash !== undefined ? priorClosing.actual_cash : (priorClosing.expected_cash || 0)) : 0;
-    const opening_upi = priorClosing ? Number(priorClosing.actual_upi !== undefined ? priorClosing.actual_upi : (priorClosing.expected_upi || 0)) : 0;
+    const opening_cash = 0;
+    const opening_upi = 0;
     const isExactPriorBoundary = priorClosing ? new Date(priorClosing.to_date).getTime() === fromMs : false;
 
     const [rawAllBills, allPayments, allExpenses, allTransfers, allCustomers] = await Promise.all([
@@ -6569,8 +7004,8 @@ export class ApiService {
     });
 
     rangeBills.forEach(b => {
-      // Include direct cash/upi from any bill without a registered payment voucher
-      if (!paymentBillIds.has(b.id)) {
+      // Include direct cash/upi only for walk-in bills (no customer_id -> no payment voucher row)
+      if (!b.customer_id && !paymentBillIds.has(b.id)) {
         cash_inflow += Number(b.cash_paid || 0);
         upi_inflow += Number(b.upi_paid || 0);
       }

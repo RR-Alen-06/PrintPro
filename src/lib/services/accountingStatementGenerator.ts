@@ -4,6 +4,7 @@ import { AccountingClosing, ShopSettings } from '../types';
 export interface AccountingStatementData {
   shop_settings: Partial<ShopSettings>;
   closing: AccountingClosing;
+  total_sales?: number;
   bills_count?: number;
   expenses_count?: number;
   transfers_count?: number;
@@ -209,14 +210,48 @@ export class AccountingStatementGenerator {
       y += rowHeight;
     });
 
-    y += 8;
+    y += 6;
+
+    // Customer Advance Pool & Sales Handover Summary
+    const openAdv = Number(closing.opening_advance_pool || 0);
+    const advRecv = Number(closing.advance_received || 0);
+    const advUsed = Number(closing.advance_utilized || 0);
+    const closeAdv = Number(closing.closing_advance_pool || 0);
+    const netCollections = inCash + inUpi;
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, contentWidth, 16, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 41, 59);
+    doc.text('ADVANCE POOL & COLLECTIONS SUMMARY:', margin + 4, y + 5.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const salesPart = data.total_sales !== undefined ? `Period Sales: ₹${Number(data.total_sales).toFixed(2)}   |   ` : '';
+    doc.text(
+      `${salesPart}Direct Collections: ₹${netCollections.toFixed(2)} (Cash ₹${inCash.toFixed(2)} + UPI ₹${inUpi.toFixed(2)})`,
+      margin + 4,
+      y + 10.5
+    );
+    doc.text(
+      `Advance Pool — Opening: ₹${openAdv.toFixed(2)}  |  Received: +₹${advRecv.toFixed(2)}  |  Utilized: -₹${advUsed.toFixed(2)}  |  Closing Pool: ₹${closeAdv.toFixed(2)}`,
+      margin + 4,
+      y + 14.5
+    );
+
+    y += 20;
 
     // Discrepancy Note Box if present
     if (closing.discrepancy_note || closing.audit_notes) {
       doc.setFillColor(255, 251, 235); // amber-50
       doc.setDrawColor(251, 191, 36); // amber-400
       doc.setLineWidth(0.3);
-      doc.roundedRect(margin, y, contentWidth, 16, 2, 2, 'FD');
+      doc.roundedRect(margin, y, contentWidth, 18, 2, 2, 'FD');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
@@ -226,12 +261,15 @@ export class AccountingStatementGenerator {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(180, 83, 9);
-      const noteText = closing.discrepancy_note || closing.audit_notes || '';
-      doc.text(noteText, margin + 4, y + 10, { maxWidth: contentWidth - 8 });
+      const noteParts = [
+        closing.discrepancy_note ? `Discrepancy: ${closing.discrepancy_note}` : '',
+        closing.audit_notes ? `Audit Log: ${closing.audit_notes}` : ''
+      ].filter(Boolean);
+      doc.text(noteParts.join(' | '), margin + 4, y + 10, { maxWidth: contentWidth - 8 });
 
-      y += 20;
+      y += 22;
     } else {
-      y += 6;
+      y += 4;
     }
 
     // Signatures Block

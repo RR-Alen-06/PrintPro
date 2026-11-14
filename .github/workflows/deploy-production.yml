@@ -51,7 +51,6 @@ jobs:
   deploy-production:
     name: Vercel Production
     runs-on: ubuntu-latest
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
     needs: [ci-gate]
     permissions:
       contents: write
@@ -60,10 +59,24 @@ jobs:
       url: ${{ steps.deploy.outputs.production_url }}
 
     steps:
+      - name: Check Vercel token
+        id: check-token
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN not set; skipping production deploy."
+          fi
+
       - name: Checkout repository
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -71,12 +84,15 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install Vercel CLI
+        if: steps.check-token.outputs.enabled == 'true'
         run: npm install --global vercel@latest
 
       - name: Pull Vercel environment (production)
+        if: steps.check-token.outputs.enabled == 'true'
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build project (via Vercel)
+        if: steps.check-token.outputs.enabled == 'true'
         run: |
           vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
@@ -84,6 +100,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Deploy to Vercel (production)
+        if: steps.check-token.outputs.enabled == 'true'
         id: deploy
         run: |
           vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }} --yes > deployment_url.txt
@@ -91,11 +108,13 @@ jobs:
           echo "production_url=$URL" >> $GITHUB_OUTPUT
 
       - name: Print deployment URL
+        if: steps.check-token.outputs.enabled == 'true'
         run: |
           echo "✅ Production deployed to: ${{ steps.deploy.outputs.production_url }}"
 
       # ---- Create a GitHub Release tag for every production deploy ----------
       - name: Create deployment tag
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/github-script@v7
         with:
           script: |

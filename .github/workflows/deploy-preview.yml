@@ -24,16 +24,29 @@ jobs:
   deploy-preview:
     name: Vercel Preview
     runs-on: ubuntu-latest
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
     permissions:
       pull-requests: write
       contents: read
 
     steps:
+      - name: Check Vercel token
+        id: check-token
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN not set; skipping preview deploy."
+          fi
+
       - name: Checkout repository
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -41,18 +54,22 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install Vercel CLI
+        if: steps.check-token.outputs.enabled == 'true'
         run: npm install --global vercel@latest
 
       - name: Pull Vercel environment (preview)
+        if: steps.check-token.outputs.enabled == 'true'
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build project (via Vercel)
+        if: steps.check-token.outputs.enabled == 'true'
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Deploy to Vercel (preview)
+        if: steps.check-token.outputs.enabled == 'true'
         id: deploy
         run: |
           vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }} --yes > deployment_url.txt
@@ -60,6 +77,7 @@ jobs:
           echo "preview_url=$URL" >> $GITHUB_OUTPUT
 
       - name: Comment preview URL on PR
+        if: steps.check-token.outputs.enabled == 'true'
         uses: actions/github-script@v7
         with:
           script: |

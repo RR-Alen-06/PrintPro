@@ -125,6 +125,11 @@ export default function AccountingPage() {
     '50': 0,
     '20': 0,
     '10': 0,
+    'coin_20': 0,
+    'coin_10': 0,
+    'coin_5': 0,
+    'coin_2': 0,
+    'coin_1': 0,
     'coins': 0
   });
   const [useDenominationCounter, setUseDenominationCounter] = useState(true);
@@ -237,13 +242,15 @@ export default function AccountingPage() {
             upiIn = billUpi;
             mode = initialPay.payment_method || b.payment_method || 'Cash';
           }
-        } else if (billCash > 0 || billUpi > 0 || billPaid > 0) {
-          // Robust fallback: Bill was paid directly at checkout (Walk-in or registered customer)
+        } else if (!b.customer_id && (billCash > 0 || billUpi > 0 || billPaid > 0)) {
+          // Walk-in bill paid directly at checkout (no customer_id -> no PAY-xxxx voucher)
           cashIn = billCash;
           upiIn = billUpi;
           mode = cashIn > 0 && upiIn > 0 ? 'Split' : (cashIn > 0 ? 'Cash' : (upiIn > 0 ? 'UPI' : (b.payment_method || 'Cash')));
+        } else if (Number(b.advance_used || 0) > 0 && billCash === 0 && billUpi === 0) {
+          mode = 'Advance Used';
         } else {
-          mode = 'Pay Later';
+          mode = b.customer_id && (billCash > 0 || billUpi > 0) ? `${b.payment_method || 'Paid'} (via PAY)` : 'Pay Later';
         }
 
         const desc = b.customer_name
@@ -426,7 +433,11 @@ export default function AccountingPage() {
       setReconcileCalc(calc);
       setActualCash(calc.expected_cash);
       setActualUpi(calc.expected_upi);
-      setDenominations({ '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, 'coins': 0 });
+      setDenominations({
+        '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0,
+        'coin_20': 0, 'coin_10': 0, 'coin_5': 0, 'coin_2': 0, 'coin_1': 0,
+        'coins': 0
+      });
       setShowCloseModal(true);
     } catch (err) {
       console.error('Failed to calculate reconciliation:', err);
@@ -881,14 +892,23 @@ export default function AccountingPage() {
     }
   };
 
-  // Print Statement PDF
-  const handlePrintStatement = (closing: AccountingClosing) => {
+  // Print or Download Statement PDF
+  const handlePrintStatement = (closing: AccountingClosing, mode: 'download' | 'print' = 'download') => {
     try {
       const doc = AccountingStatementGenerator.generateStatementPdf({
         shop_settings: settings?.shop || {},
         closing
       });
-      doc.save(`Accounting-Statement-${closing.closing_number || 'Session'}.pdf`);
+      if (mode === 'print') {
+        doc.autoPrint();
+        const blobUrl = doc.output('bloburl');
+        const win = window.open(blobUrl, '_blank');
+        if (!win) {
+          doc.save(`Accounting-Statement-${closing.closing_number || 'Session'}.pdf`);
+        }
+      } else {
+        doc.save(`Accounting-Statement-${closing.closing_number || 'Session'}.pdf`);
+      }
     } catch (err) {
       console.error('PDF generate error:', err);
       setFeedback({ type: 'error', message: 'Failed to generate PDF statement' });
@@ -1008,19 +1028,28 @@ export default function AccountingPage() {
     const count = Math.max(0, parseInt(countStr, 10) || 0);
     const updated = { ...denominations, [denomKey]: count };
     setDenominations(updated);
-    const total = 
+    const total =
       (Number(updated['500'] || 0) * 500) +
       (Number(updated['200'] || 0) * 200) +
       (Number(updated['100'] || 0) * 100) +
       (Number(updated['50'] || 0) * 50) +
       (Number(updated['20'] || 0) * 20) +
       (Number(updated['10'] || 0) * 10) +
+      (Number(updated['coin_20'] || 0) * 20) +
+      (Number(updated['coin_10'] || 0) * 10) +
+      (Number(updated['coin_5'] || 0) * 5) +
+      (Number(updated['coin_2'] || 0) * 2) +
+      (Number(updated['coin_1'] || 0) * 1) +
       Number(updated['coins'] || 0);
     setActualCash(total);
   };
 
   const handleResetDenominations = () => {
-    const zeroDenoms = { '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, 'coins': 0 };
+    const zeroDenoms = {
+      '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0,
+      'coin_20': 0, 'coin_10': 0, 'coin_5': 0, 'coin_2': 0, 'coin_1': 0,
+      'coins': 0
+    };
     setDenominations(zeroDenoms);
     setActualCash(0);
   };
@@ -2202,6 +2231,11 @@ export default function AccountingPage() {
                             {c.denominations['50'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹50 × {c.denominations['50']}</span> : null}
                             {c.denominations['20'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹20 × {c.denominations['20']}</span> : null}
                             {c.denominations['10'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹10 × {c.denominations['10']}</span> : null}
+                            {c.denominations['coin_20'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹20 Coin × {c.denominations['coin_20']}</span> : null}
+                            {c.denominations['coin_10'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹10 Coin × {c.denominations['coin_10']}</span> : null}
+                            {c.denominations['coin_5'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹5 Coin × {c.denominations['coin_5']}</span> : null}
+                            {c.denominations['coin_2'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹2 Coin × {c.denominations['coin_2']}</span> : null}
+                            {c.denominations['coin_1'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">₹1 Coin × {c.denominations['coin_1']}</span> : null}
                             {c.denominations['coins'] ? <span className="bg-white text-slate-800 px-1.5 py-0.5 rounded border border-amber-200">Coins: ₹{c.denominations['coins']}</span> : null}
                           </div>
                         )}
@@ -2230,11 +2264,20 @@ export default function AccountingPage() {
 
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handlePrintStatement(c)}
-                            className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg shadow-xs flex items-center space-x-1 cursor-pointer transition"
-                            title="Print Certified PDF Statement"
+                            onClick={() => handlePrintStatement(c, 'print')}
+                            className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg shadow-xs flex items-center space-x-1 cursor-pointer transition"
+                            title="Print Handover Summary"
                           >
                             <Printer size={13} className="text-indigo-600" />
+                            <span>Print</span>
+                          </button>
+
+                          <button
+                            onClick={() => handlePrintStatement(c, 'download')}
+                            className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg shadow-xs flex items-center space-x-1 cursor-pointer transition"
+                            title="Download Certified PDF Statement"
+                          >
+                            <Download size={13} className="text-slate-600" />
                             <span>PDF</span>
                           </button>
 
@@ -2768,8 +2811,36 @@ export default function AccountingPage() {
                             ))}
                           </div>
 
+                          <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider pt-1">
+                            Coins (₹20, ₹10, ₹5, ₹2, ₹1)
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                            {[
+                              { label: '₹20 C', key: 'coin_20', val: 20 },
+                              { label: '₹10 C', key: 'coin_10', val: 10 },
+                              { label: '₹5 C',  key: 'coin_5',  val: 5 },
+                              { label: '₹2 C',  key: 'coin_2',  val: 2 },
+                              { label: '₹1 C',  key: 'coin_1',  val: 1 },
+                            ].map(item => (
+                              <div key={item.key} className="flex items-center justify-between bg-white px-1.5 py-1 rounded border border-amber-200">
+                                <span className="font-bold text-slate-800 font-mono text-[10px] w-10">{item.label}×</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  placeholder="0"
+                                  value={denominations[item.key] || ''}
+                                  onChange={(e) => handleDenominationChange(item.key, e.target.value)}
+                                  className="w-12 text-center text-xs font-mono font-bold bg-amber-50/50 border border-amber-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                />
+                                <span className="font-mono text-[10px] text-slate-500 w-12 text-right">
+                                  ₹{((Number(denominations[item.key]) || 0) * item.val).toFixed(0)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
                           <div className="flex items-center justify-between bg-white px-2 py-1 rounded border border-amber-200 text-[11px]">
-                            <span className="font-bold text-slate-800 font-mono text-[10px]">Coins / Loose (₹)</span>
+                            <span className="font-bold text-slate-800 font-mono text-[10px]">Other Loose Coins (₹)</span>
                             <input
                               type="number"
                               min="0"
