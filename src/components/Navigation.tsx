@@ -15,7 +15,6 @@ import {
   CreditCard,
   Menu, 
   X, 
-  Printer,
   Database,
   QrCode,
   LogOut,
