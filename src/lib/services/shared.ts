@@ -219,7 +219,10 @@ export async function fallbackSequence(key: string): Promise<string> {
     });
   }
 
-  return `${prefix}-${String(nextVal).padStart(padding, '0')}`;
+  const rawStr = String(nextVal);
+  const steppedPad = rawStr.length <= 4 ? 4 : rawStr.length <= 6 ? 6 : rawStr.length <= 8 ? 8 : rawStr.length;
+  const targetPad = Math.max(padding, steppedPad);
+  return `${prefix}-${rawStr.padStart(targetPad, '0')}`;
 }
 
 export async function getNextSequence(key: string): Promise<string> {
