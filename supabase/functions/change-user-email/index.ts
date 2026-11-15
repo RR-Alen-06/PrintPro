@@ -3,15 +3,23 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.8';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function getCorsHeaders(req: Request): Record<string, string> {
+  const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN') || '';
+  const requestOrigin = req.headers.get('Origin') || '';
+  const allowOrigin =
+    allowedOrigin && requestOrigin === allowedOrigin ? requestOrigin : allowedOrigin || 'null';
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Vary': 'Origin',
+  };
+}
 
 // Standard RFC 5322 compliant regex for basic email format validation
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
   // 1. Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -155,7 +163,7 @@ serve(async (req: Request) => {
 
       console.error('Supabase admin updateUserById error:', updateErr);
       return new Response(
-        JSON.stringify({ error: `Failed to update email: ${updateErr.message}` }),
+        JSON.stringify({ error: 'Failed to update email address.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -191,10 +199,9 @@ serve(async (req: Request) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown server error';
     console.error('Unhandled Edge Function error:', err);
     return new Response(
-      JSON.stringify({ error: `Internal server error: ${errorMsg}` }),
+      JSON.stringify({ error: 'Internal server error.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

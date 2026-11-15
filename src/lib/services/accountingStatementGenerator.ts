@@ -293,7 +293,7 @@ export class AccountingStatementGenerator {
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `PrintPro SimpleBilling ERP — Certified Accounting Closing Statement | Ref: ${closing.closing_number || 'CLOSE'} | Generated: ${new Date().toLocaleString('en-IN')}`,
+      `PrintPRO — Certified Accounting Closing Statement | Ref: ${closing.closing_number || 'CLOSE'} | Generated: ${new Date().toLocaleString('en-IN')}`,
       pageWidth / 2,
       pageHeight - 8,
       { align: 'center' }

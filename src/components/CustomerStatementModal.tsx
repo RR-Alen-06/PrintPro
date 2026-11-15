@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiService } from '@/lib/services/api';
 import { StatementGenerator } from '@/lib/services/statementGenerator';
+import { buildWhatsAppUrl, sharePdfWithWebShare } from '@/lib/utils/shareUtils';
 import { CustomerStatementData, DateFilterOption } from '@/lib/types';
 import { 
   X, 
@@ -26,7 +27,10 @@ import {
   CreditCard,
   ArrowUpRight,
   ArrowDownLeft,
-  Check
+  Check,
+  MessageSquare,
+  Share2,
+  Loader2
 } from 'lucide-react';
 
 interface CustomerStatementModalProps {
@@ -41,7 +45,20 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
   const [statementData, setStatementData] = useState<CustomerStatementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [sharingPdf, setSharingPdf] = useState(false);
+  const [pdfUnsupportedFallback, setPdfUnsupportedFallback] = useState(false);
+  const [shareToast, setShareToast] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [expandedTxnIds, setExpandedTxnIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (shareToast) {
+      const timer = setTimeout(() => {
+        setShareToast(null);
+        setPdfUnsupportedFallback(false);
+      }, pdfUnsupportedFallback ? 8000 : 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [shareToast, pdfUnsupportedFallback]);
 
   const fetchStatement = useCallback(async (selectedFilter: DateFilterOption, from?: string, to?: string) => {
     setLoading(true);
@@ -130,6 +147,62 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
     }
   };
 
+  const handleShareWhatsAppSummary = () => {
+    if (!statementData) return;
+    setPdfUnsupportedFallback(false);
+    const text = ApiService.generateStatementSummaryText(statementData);
+    const url = buildWhatsAppUrl(text, statementData.customer.mobile);
+    window.open(url, '_blank');
+  };
+
+  const handleShareStatementPdf = async () => {
+    if (!statementData) return;
+    setPdfUnsupportedFallback(false);
+    setSharingPdf(true);
+    try {
+      const doc = StatementGenerator.generateStatementPdf(statementData);
+      const blob = doc.output('blob');
+      const filename = StatementGenerator.getStatementFilename(statementData);
+      const summaryText = ApiService.generateStatementSummaryText(statementData);
+      const outcome = await sharePdfWithWebShare(
+        blob,
+        filename,
+        `Statement of Account - ${statementData.customer.name}`,
+        summaryText
+      );
+      if (outcome === 'shared') {
+        setShareToast({ text: 'Statement PDF shared!', type: 'success' });
+      } else if (outcome === 'unsupported') {
+        setPdfUnsupportedFallback(true);
+        setShareToast({
+          text: 'Direct PDF sharing is only supported on mobile/compatible browsers.',
+          type: 'info'
+        });
+      }
+    } catch (e) {
+      console.error('PDF share error:', e);
+      setShareToast({ text: 'Failed to share Statement PDF.', type: 'error' });
+    } finally {
+      setSharingPdf(false);
+    }
+  };
+
+  const handleCopyAndOpenWhatsApp = async () => {
+    if (!statementData) return;
+    const text = ApiService.generateStatementSummaryText(statementData);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      // Clipboard may be blocked in non-HTTPS contexts
+    }
+    const url = buildWhatsAppUrl(text, statementData.customer.mobile);
+    window.open(url, '_blank');
+    setPdfUnsupportedFallback(false);
+    setShareToast({ text: 'Copied statement summary & opened WhatsApp!', type: 'success' });
+  };
+
   const hasInvoices = (statementData?.transactions || []).some(t => t.type === 'INVOICE');
   const invoiceCount = (statementData?.transactions || []).filter(t => t.type === 'INVOICE').length;
   const allInvoicesExpanded = hasInvoices && (statementData?.transactions || [])
@@ -141,7 +214,7 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
       <div className="relative w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in zoom-in-95 duration-200 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:max-h-none">
         
         {/* Modal Top Header (Clean Light ERP Surface) */}
-        <div className="flex items-center justify-between px-6 py-4 bg-white text-slate-900 border-b border-slate-200 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 bg-white text-slate-900 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3.5">
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-600">
               <FileText className="w-5 h-5" />
@@ -165,7 +238,25 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleShareWhatsAppSummary}
+              disabled={loading || !statementData}
+              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+              title="Share Statement Summary via WhatsApp"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </button>
+            <button
+              onClick={handleShareStatementPdf}
+              disabled={loading || !statementData || sharingPdf}
+              className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+              title="Share Statement PDF without downloading"
+            >
+              {sharingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>{sharingPdf ? 'Preparing...' : 'Share PDF'}</span>
+            </button>
             <button
               onClick={handlePrintPdf}
               disabled={loading || !statementData}
@@ -193,6 +284,41 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
             </button>
           </div>
         </div>
+
+        {/* Share Toast / Desktop Fallback Banner */}
+        {shareToast && (
+          <div className={`px-6 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 shrink-0 ${
+            shareToast.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200' :
+            shareToast.type === 'error' ? 'bg-rose-50 text-rose-800 border-b border-rose-200' :
+            'bg-blue-50 text-blue-800 border-b border-blue-200'
+          }`}>
+            <span>{shareToast.text}</span>
+            <div className="flex items-center gap-2 ml-auto">
+              {pdfUnsupportedFallback && (
+                <>
+                  <button
+                    onClick={handleCopyAndOpenWhatsApp}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] transition cursor-pointer"
+                  >
+                    Copy Text & Open WhatsApp
+                  </button>
+                  <button
+                    onClick={() => { setPdfUnsupportedFallback(false); handleDownloadPdf(); }}
+                    className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded font-bold text-[11px] transition cursor-pointer"
+                  >
+                    Download PDF
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => { setShareToast(null); setPdfUnsupportedFallback(false); }}
+                className="text-slate-500 hover:text-slate-700 ml-1 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Date Filter & Control Bar */}
         <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -806,13 +932,29 @@ export function CustomerStatementModal({ customerId, onClose }: CustomerStatemen
         </div>
 
         {/* Modal Bottom Toolbar */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2.5 text-xs text-slate-500 shrink-0">
           <span className="font-mono text-[11px] text-slate-600">
             {statementData ? (
               <span>Financial Ledger of Account • Chronological Debits & Credits</span>
             ) : null}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleShareWhatsAppSummary}
+              disabled={loading || !statementData}
+              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>WhatsApp Summary</span>
+            </button>
+            <button
+              onClick={handleShareStatementPdf}
+              disabled={loading || !statementData || sharingPdf}
+              className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 font-semibold rounded-lg border border-teal-200 transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              {sharingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>{sharingPdf ? 'Preparing...' : 'Share PDF'}</span>
+            </button>
             <button
               onClick={handlePrintPdf}
               disabled={loading || !statementData}

@@ -13,13 +13,27 @@ export async function proxy(request: NextRequest) {
   // Only OAuth (Google / GitHub) is supported: /login and the /auth/callback handler.
   const isPublicAuthRoute = pathname === '/login' || pathname.startsWith('/auth/');
 
-  // If Supabase credentials are missing or placeholder, permit access
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // If Supabase credentials are missing or placeholder:
+  // fail closed in production; permit local dev/test fallback outside production.
   if (
     !supabaseUrl ||
     !supabaseKey ||
     supabaseUrl.includes('placeholder') ||
     supabaseUrl === 'https://your-supabase-project.supabase.co'
   ) {
+    if (isProd && !isPublicAuthRoute) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Authentication service is not configured.' },
+          { status: 503 }
+        );
+      }
+      const url = request.nextUrl.clone();
+      url.pathname = '/login';
+      return NextResponse.redirect(url);
+    }
     return supabaseResponse;
   }
 
@@ -37,12 +51,6 @@ export async function proxy(request: NextRequest) {
 
   // If on a public auth route and no auth token present, serve immediately
   if (isPublicAuthRoute && !hasAuthToken) {
-    return supabaseResponse;
-  }
-
-  // Fast path for prefetch requests: skip remote getUser() roundtrip if auth cookie is present
-  const isPrefetch = request.headers.get('next-router-prefetch') === '1' || request.headers.get('purpose') === 'prefetch';
-  if (isPrefetch && hasAuthToken) {
     return supabaseResponse;
   }
 
@@ -114,6 +122,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public assets
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico|css|js)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico|css|js|webmanifest)$).*)',
   ],
 };

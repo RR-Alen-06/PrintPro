@@ -274,6 +274,11 @@ export function GroupInvoiceModal({ groupBill: propGroupBill, settings: propSett
                                   )}
                                 </div>
                                 <span className="text-[10px] text-slate-400 font-mono">{b.bill_number}</span>
+                                {groupBill.billing_type === 'SHARED' && b.paid_by_customer_id && b.paid_by_customer_id !== b.customer_id && (
+                                  <span className="block text-[10px] text-indigo-700 font-semibold mt-0.5">
+                                    Paid by {b.paid_by_customer_name || 'Another Customer'}
+                                  </span>
+                                )}
                                 {b.payment_method && b.payment_method.startsWith('Paid by') && (
                                   <span className="block text-[10px] text-indigo-600 font-medium">{b.payment_method}</span>
                                 )}

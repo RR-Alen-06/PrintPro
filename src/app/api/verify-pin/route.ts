@@ -2,14 +2,36 @@ import { createServerClient } from '@supabase/ssr';
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
+import { checkRateLimit, clearRateLimit } from '@/lib/services/rateLimit';
 
 const DEFAULT_ADMIN_PIN = '1234';
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_SECONDS = 15 * 60;
+
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0]?.trim() || 'unknown';
+  }
+  return request.headers.get('x-real-ip')?.trim() || 'unknown';
+}
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a, 'utf8');
   const bufB = Buffer.from(b, 'utf8');
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function verifyScryptPin(pin: string, encoded: string): boolean {
+  const parts = encoded.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+  const [, saltHex, hashHex] = parts;
+  if (!saltHex || !hashHex) return false;
+  const expectedBuf = Buffer.from(hashHex, 'hex');
+  const derivedBuf = crypto.scryptSync(pin, saltHex, expectedBuf.length);
+  if (derivedBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(derivedBuf, expectedBuf);
 }
 
 export async function POST(request: NextRequest) {
@@ -29,7 +51,32 @@ export async function POST(request: NextRequest) {
       supabaseUrl !== 'https://your-supabase-project.supabase.co';
 
     if (!isSupabaseConfigured) {
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json(
+          { valid: false, error: 'Authentication service is not configured.' },
+          { status: 503 }
+        );
+      }
+      const rateKey = `verify-pin:ip:${getClientIp(request)}`;
+      const { blocked, retryAfterSeconds } = await checkRateLimit(
+        null,
+        rateKey,
+        MAX_FAILED_ATTEMPTS,
+        LOCKOUT_WINDOW_SECONDS,
+        false
+      );
+      if (blocked) {
+        return NextResponse.json(
+          { valid: false, error: 'Too many failed PIN attempts. Please try again later.' },
+          { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+        );
+      }
       const valid = safeEqual(pin, DEFAULT_ADMIN_PIN);
+      if (valid) {
+        await clearRateLimit(null, rateKey);
+      } else {
+        await checkRateLimit(null, rateKey, MAX_FAILED_ATTEMPTS, LOCKOUT_WINDOW_SECONDS, true);
+      }
       return NextResponse.json({ valid }, { status: valid ? 200 : 403 });
     }
 
@@ -59,6 +106,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rateKey = `verify-pin:user:${user.id}`;
+    const { blocked, retryAfterSeconds } = await checkRateLimit(
+      supabase,
+      rateKey,
+      MAX_FAILED_ATTEMPTS,
+      LOCKOUT_WINDOW_SECONDS,
+      false
+    );
+    if (blocked) {
+      return NextResponse.json(
+        { valid: false, error: 'Too many failed PIN attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+      );
+    }
+
     let query = supabase.from('settings').select('value').eq('key', 'security');
     if (user?.id) {
       query = query.eq('user_id', user.id);
@@ -67,13 +129,27 @@ export async function POST(request: NextRequest) {
     }
     const { data: rows } = await query.limit(1);
     const storedValue = rows?.[0]?.value as { super_admin_pin?: string } | undefined;
-    const expectedPin = (storedValue?.super_admin_pin || DEFAULT_ADMIN_PIN).trim();
+    const storedPin = (storedValue?.super_admin_pin || DEFAULT_ADMIN_PIN).trim();
 
-    const valid = safeEqual(pin, expectedPin);
+    let valid = false;
+    if (storedPin.startsWith('scrypt$')) {
+      valid = verifyScryptPin(pin, storedPin);
+    } else if (storedPin.startsWith('$2')) {
+      const { data: rpcValid, error: rpcErr } = await supabase.rpc('verify_admin_pin', { p_pin: pin });
+      valid = !rpcErr && rpcValid === true;
+    } else {
+      valid = safeEqual(pin, storedPin);
+    }
+
+    if (valid) {
+      await clearRateLimit(supabase, rateKey);
+    } else {
+      await checkRateLimit(supabase, rateKey, MAX_FAILED_ATTEMPTS, LOCKOUT_WINDOW_SECONDS, true);
+    }
     return NextResponse.json({ valid }, { status: valid ? 200 : 403 });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Failed to verify PIN';
-    return NextResponse.json({ valid: false, error: errorMsg }, { status: 500 });
+    console.error('verify-pin error:', err);
+    return NextResponse.json({ valid: false, error: 'Failed to verify PIN.' }, { status: 500 });
   }
 }
 

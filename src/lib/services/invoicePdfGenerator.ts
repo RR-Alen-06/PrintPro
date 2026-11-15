@@ -337,7 +337,7 @@ export class InvoicePdfGenerator {
     doc.text(shop.terms || 'Terms: Goods once sold will not be taken back or exchanged. Subject to local jurisdiction.', margin, y);
     y += 4;
     doc.setFont('helvetica', 'bold');
-    doc.text(shop.footer_message || 'Thank you for your business! Generated via PrintPro ERP.', margin, y);
+    doc.text(shop.footer_message || 'Thank you for your business! Generated via PrintPRO.', margin, y);
 
     return doc;
   }

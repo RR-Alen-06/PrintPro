@@ -18,6 +18,7 @@ import {
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { AccountingStatementGenerator } from '@/lib/services/accountingStatementGenerator';
 import { CashBankBookPdfGenerator } from '@/lib/services/cashBankBookPdfGenerator';
+import type { jsPDF } from 'jspdf';
 import { ACCOUNTING_DATE_FILTER_BUTTONS } from '@/lib/constants/filters';
 import { downloadCSV } from '@/lib/utils/csv';
 import { 
@@ -51,6 +52,7 @@ interface LedgerRow {
   type: 'BILL' | 'PAYMENT' | 'EXPENSE' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   refNumber: string;
   description: string;
+  partyName?: string;
   mode: string;
   cashIn: number;
   cashOut: number;
@@ -63,6 +65,19 @@ interface LedgerRow {
 
 export default function AccountingPage() {
   const router = useRouter();
+  const [bookPreview, setBookPreview] = useState<{
+    title: string;
+    filename: string;
+    blobUrl: string;
+    doc: jsPDF;
+  } | null>(null);
+
+  const closeBookPreview = () => {
+    if (bookPreview?.blobUrl) {
+      try { URL.revokeObjectURL(bookPreview.blobUrl); } catch { }
+    }
+    setBookPreview(null);
+  };
   const [activeTab, setActiveTab] = useState<'daybook' | 'cash_register' | 'upi_register' | 'transfers' | 'closings'>('daybook');
   const [loading, setLoading] = useState(true);
   const [shouldAutoOpenClose, setShouldAutoOpenClose] = useState(false);
@@ -78,6 +93,7 @@ export default function AccountingPage() {
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState<string>('ALL');
+  const [ledgerSortOrder, setLedgerSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // Record Shop Expense Modal State
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -242,8 +258,8 @@ export default function AccountingPage() {
             upiIn = billUpi;
             mode = initialPay.payment_method || b.payment_method || 'Cash';
           }
-        } else if (!b.customer_id && (billCash > 0 || billUpi > 0 || billPaid > 0)) {
-          // Walk-in bill paid directly at checkout (no customer_id -> no PAY-xxxx voucher)
+        } else if (!b.customer_id && !activePayments.some(p => p.bill_id === b.id) && (billCash > 0 || billUpi > 0 || billPaid > 0)) {
+          // Walk-in bill paid directly at checkout (no PAY-xxxx voucher)
           cashIn = billCash;
           upiIn = billUpi;
           mode = cashIn > 0 && upiIn > 0 ? 'Split' : (cashIn > 0 ? 'Cash' : (upiIn > 0 ? 'UPI' : (b.payment_method || 'Cash')));
@@ -263,6 +279,7 @@ export default function AccountingPage() {
           type: 'BILL',
           refNumber: b.bill_number,
           description: desc,
+          partyName: b.customer_name || 'Walk-in Customer',
           mode,
           cashIn,
           cashOut: 0,
@@ -306,6 +323,7 @@ export default function AccountingPage() {
           type: 'PAYMENT',
           refNumber: p.payment_number || 'PAY-—',
           description: desc,
+          partyName: p.customer_name || 'Customer',
           mode: p.payment_method || 'Cash',
           cashIn: payCashIn,
           cashOut: 0,
@@ -331,6 +349,7 @@ export default function AccountingPage() {
           type: 'EXPENSE',
           refNumber: e.expense_number || 'EXP-—',
           description: `Expense: ${e.title} (${e.category})`,
+          partyName: e.category || 'Shop Expense',
           mode: e.payment_mode || 'Cash',
           cashIn: 0,
           cashOut: cashAmt,
@@ -350,6 +369,7 @@ export default function AccountingPage() {
             type: 'TRANSFER_OUT',
             refNumber: t.transfer_number || 'TRANS-—',
             description: `Transfer: Cash to UPI (${t.reason})`,
+            partyName: 'Internal Contra',
             mode: 'Cash -> UPI',
             cashIn: 0,
             cashOut: amt,
@@ -364,6 +384,7 @@ export default function AccountingPage() {
             type: 'TRANSFER_IN',
             refNumber: t.transfer_number || 'TRANS-—',
             description: `Transfer: UPI to Cash (${t.reason})`,
+            partyName: 'Internal Contra',
             mode: 'UPI -> Cash',
             cashIn: amt,
             cashOut: 0,
@@ -1020,8 +1041,11 @@ export default function AccountingPage() {
       }
 
       return true;
+    }).sort((a, b) => {
+      const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      return ledgerSortOrder === 'asc' ? diff : -diff;
     });
-  }, [ledgerRows, sessionStatus, dateFilter, customFrom, customTo, ledgerTypeFilter, searchQuery]);
+  }, [ledgerRows, sessionStatus, dateFilter, customFrom, customTo, ledgerTypeFilter, searchQuery, ledgerSortOrder]);
 
   // Denomination helpers
   const handleDenominationChange = (denomKey: string, countStr: string) => {
@@ -1136,15 +1160,17 @@ export default function AccountingPage() {
     downloadCSV('upi_register_ledger', headers, rows);
   };
 
-  // Export Cash Book PDF
+  // Export Cash Book PDF (chronological oldest-first order for running balance clarity)
   const handleExportCashBookPdf = () => {
     try {
-      const entries = filteredLedger
+      const entries = [...filteredLedger]
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         .filter(r => (r.cashIn > 0 || r.cashOut > 0))
         .map(r => ({
           date: r.date,
           ref_number: r.refNumber,
           description: r.description,
+          party_name: r.partyName,
           inflow: r.cashIn,
           outflow: r.cashOut,
           running_balance: r.runningCash !== undefined ? r.runningCash : 0
@@ -1154,7 +1180,7 @@ export default function AccountingPage() {
       if (entries.length > 0) {
         openingBalance = Number((entries[0].running_balance - entries[0].inflow + entries[0].outflow).toFixed(2));
       } else if (sessionStatus) {
-        openingBalance = sessionStatus.last_closed_session?.actual_cash ?? sessionStatus.expected_cash_in_hand;
+        openingBalance = sessionStatus.opening_cash ?? 0;
       }
       const closingBalance = entries.length > 0 ? entries[entries.length - 1].running_balance : openingBalance;
 
@@ -1173,22 +1199,30 @@ export default function AccountingPage() {
         entries
       });
 
-      doc.save(`Cash-Book-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const blobUrl = URL.createObjectURL(doc.output('blob'));
+      setBookPreview({
+        title: 'Cash Book Ledger Preview',
+        filename: `Cash-Book-${new Date().toISOString().slice(0, 10)}.pdf`,
+        blobUrl,
+        doc
+      });
     } catch (err) {
       console.error('Failed to generate Cash Book PDF:', err);
       setFeedback({ type: 'error', message: 'Failed to generate Cash Book PDF' });
     }
   };
 
-  // Export Bank/UPI Book PDF
+  // Export Bank/UPI Book PDF (chronological oldest-first order for running balance clarity)
   const handleExportBankBookPdf = () => {
     try {
-      const entries = filteredLedger
+      const entries = [...filteredLedger]
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         .filter(r => (r.upiIn > 0 || r.upiOut > 0))
         .map(r => ({
           date: r.date,
           ref_number: r.refNumber,
           description: r.description,
+          party_name: r.partyName,
           inflow: r.upiIn,
           outflow: r.upiOut,
           running_balance: r.runningUpi !== undefined ? r.runningUpi : 0
@@ -1198,7 +1232,7 @@ export default function AccountingPage() {
       if (entries.length > 0) {
         openingBalance = Number((entries[0].running_balance - entries[0].inflow + entries[0].outflow).toFixed(2));
       } else if (sessionStatus) {
-        openingBalance = sessionStatus.last_closed_session?.actual_upi ?? sessionStatus.expected_upi_in_hand;
+        openingBalance = sessionStatus.opening_upi ?? 0;
       }
       const closingBalance = entries.length > 0 ? entries[entries.length - 1].running_balance : openingBalance;
 
@@ -1217,7 +1251,13 @@ export default function AccountingPage() {
         entries
       });
 
-      doc.save(`Bank-UPI-Book-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const blobUrl = URL.createObjectURL(doc.output('blob'));
+      setBookPreview({
+        title: 'Bank & UPI Book Ledger Preview',
+        filename: `Bank-UPI-Book-${new Date().toISOString().slice(0, 10)}.pdf`,
+        blobUrl,
+        doc
+      });
     } catch (err) {
       console.error('Failed to generate Bank/UPI Book PDF:', err);
       setFeedback({ type: 'error', message: 'Failed to generate Bank/UPI Book PDF' });
@@ -1537,6 +1577,16 @@ export default function AccountingPage() {
                   <option value="EXPENSES">Expenses Only</option>
                   <option value="TRANSFERS">Transfers Only</option>
                 </select>
+
+                <button
+                  type="button"
+                  onClick={() => setLedgerSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg cursor-pointer transition flex items-center gap-1"
+                  title="Toggle chronological sort order in the ledger table"
+                >
+                  <ArrowRightLeft size={12} className="rotate-90 text-slate-500" />
+                  <span>{ledgerSortOrder === 'asc' ? 'Oldest First' : 'Newest First'}</span>
+                </button>
 
                 <div className="flex items-center gap-1.5 sm:border-l sm:border-slate-200 sm:pl-2">
                   <button
@@ -3859,6 +3909,59 @@ export default function AccountingPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cash / Bank Book PDF Preview Modal */}
+      {bookPreview && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl flex flex-col overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+                <h3 className="font-bold text-sm truncate">{bookPreview.title}</h3>
+                <span className="text-[11px] font-mono text-slate-400 hidden sm:inline truncate">
+                  {bookPreview.filename}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const win = window.open(bookPreview.blobUrl, '_blank');
+                    if (win) win.focus();
+                  }}
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Open / Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bookPreview.doc.save(bookPreview.filename)}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={closeBookPreview}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+                  aria-label="Close preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-3 bg-slate-100">
+              <iframe
+                src={bookPreview.blobUrl}
+                title={bookPreview.title}
+                className="w-full h-[75vh] rounded-lg border border-slate-300 bg-white"
+              />
+            </div>
           </div>
         </div>
       )}

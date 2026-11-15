@@ -15,7 +15,6 @@ import {
   CreditCard,
   Menu, 
   X, 
-  Printer,
   Database,
   QrCode,
   LogOut,
@@ -68,11 +67,13 @@ export function Navigation() {
             {mobileOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm group-hover:bg-blue-500 transition-colors">
-              <Printer size={20} />
-            </div>
+            <img
+              src="/logo.png"
+              alt="PrintPRO"
+              className="w-9 h-9 rounded-lg object-cover shadow-sm group-hover:opacity-90 transition-opacity"
+            />
             <div className="flex flex-col">
-              <span className="font-bold text-base sm:text-lg leading-tight tracking-tight text-white">PrintPro ERP</span>
+              <span className="font-bold text-base sm:text-lg leading-tight tracking-tight text-white">PrintPRO</span>
               <span className="text-[10px] font-medium text-blue-400 leading-none">Xerox & POS Terminal</span>
             </div>
           </Link>
@@ -139,9 +140,9 @@ export function Navigation() {
           >
             <div>
               <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-                <div className="flex items-center space-x-2 font-bold text-lg">
-                  <Printer className="text-blue-400" size={20} />
-                  <span>PrintPro ERP</span>
+                <div className="flex items-center space-x-2.5 font-bold text-lg">
+                  <img src="/logo.png" alt="PrintPRO" className="w-7 h-7 rounded-md object-cover" />
+                  <span>PrintPRO</span>
                 </div>
                 <button onClick={() => setMobileOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
                   <X size={20} />
@@ -180,7 +181,7 @@ export function Navigation() {
                 <span>Sign Out</span>
               </button>
               <div className="text-[10px] text-slate-500 text-center">
-                PrintPro ERP Terminal v2.0
+                PrintPRO Terminal v2.0
               </div>
             </div>
           </div>

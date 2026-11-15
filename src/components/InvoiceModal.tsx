@@ -18,6 +18,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { InvoicePdfGenerator } from '@/lib/services/invoicePdfGenerator';
+import { buildWhatsAppUrl, sharePdfWithWebShare } from '@/lib/utils/shareUtils';
 import { jsPDF } from 'jspdf';
 
 interface InvoiceModalProps {
@@ -35,8 +36,11 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
   
   // PDF download & Email states
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+  const [sharingPdf, setSharingPdf] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [whatsappFormat, setWhatsappFormat] = useState<'compact' | 'detailed'>('compact');
+  const [pdfUnsupportedFallback, setPdfUnsupportedFallback] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const invoiceRef = useRef<HTMLDivElement>(null);
@@ -80,13 +84,16 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Clear toast after 4s
+  // Clear toast after 4s (8s when showing PDF fallback actions)
   useEffect(() => {
     if (toastMsg) {
-      const timer = setTimeout(() => setToastMsg(null), 4000);
+      const timer = setTimeout(() => {
+        setToastMsg(null);
+        setPdfUnsupportedFallback(false);
+      }, pdfUnsupportedFallback ? 8000 : 4000);
       return () => clearTimeout(timer);
     }
-  }, [toastMsg]);
+  }, [toastMsg, pdfUnsupportedFallback]);
 
   if (!bill) return null;
 
@@ -158,13 +165,68 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
     }
   };
 
-  const handleShareWhatsAppText = () => {
-    const text = ApiService.generateDigitalReceiptText(bill, summary, shop);
-    const encoded = encodeURIComponent(text);
-    const phone = bill.customer_mobile ? bill.customer_mobile.replace(/[^0-9]/g, '') : '';
-    const url = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encoded}` : `https://api.whatsapp.com/send?text=${encoded}`;
+  const getReceiptText = (format: 'compact' | 'detailed' = whatsappFormat) =>
+    format === 'compact'
+      ? ApiService.generateCompactReceiptText(bill, summary, shop)
+      : ApiService.generateDigitalReceiptText(bill, summary, shop);
+
+  const handleShareWhatsAppText = (format: 'compact' | 'detailed' = whatsappFormat) => {
+    setWhatsappFormat(format);
+    setPdfUnsupportedFallback(false);
+    const text = getReceiptText(format);
+    const url = buildWhatsAppUrl(text, customerMobile || bill.customer_mobile);
     window.open(url, '_blank');
     setShareMenuOpen(false);
+  };
+
+  const handleShareWhatsAppPdf = async () => {
+    setShareMenuOpen(false);
+    setPdfUnsupportedFallback(false);
+    setSharingPdf(true);
+    try {
+      const result = await generatePdfInstance();
+      if (!result) {
+        setToastMsg({ text: 'Failed to generate PDF file.', type: 'error' });
+        return;
+      }
+      const blob = result.pdf.output('blob');
+      const compactText = getReceiptText('compact');
+      const outcome = await sharePdfWithWebShare(
+        blob,
+        result.filename,
+        `Invoice ${bill.bill_number} - ${shop.shop_name || 'Store'}`,
+        compactText
+      );
+      if (outcome === 'shared') {
+        setToastMsg({ text: 'Invoice PDF shared!', type: 'success' });
+      } else if (outcome === 'unsupported') {
+        setPdfUnsupportedFallback(true);
+        setToastMsg({
+          text: 'Direct PDF sharing is only supported on mobile/compatible browsers.',
+          type: 'info'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to share PDF:', err);
+      setToastMsg({ text: 'Failed to share PDF file.', type: 'error' });
+    } finally {
+      setSharingPdf(false);
+    }
+  };
+
+  const handleCopyAndOpenWhatsApp = async () => {
+    const text = getReceiptText(whatsappFormat);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      // Clipboard may be blocked in non-HTTPS contexts; still open WhatsApp
+    }
+    const url = buildWhatsAppUrl(text, customerMobile || bill.customer_mobile);
+    window.open(url, '_blank');
+    setPdfUnsupportedFallback(false);
+    setToastMsg({ text: 'Copied receipt text & opened WhatsApp!', type: 'success' });
   };
 
   const handleShareTelegram = () => {
@@ -253,11 +315,11 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
   };
 
   return (
-    <div className="invoice-modal-root fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:static print:bg-white print:backdrop-none">
-      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden my-8 print:shadow-none print:m-0 print:max-w-none print:w-full">
+    <div className="invoice-modal-root fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:static print:bg-white print:backdrop-none">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden my-4 sm:my-8 print:shadow-none print:m-0 print:max-w-none print:w-full">
         
         {/* Modal Toolbar (Hidden during print) */}
-        <div className="bg-slate-900 text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div className="bg-slate-900 text-white px-4 sm:px-6 py-3.5 sm:py-4 flex flex-wrap items-center justify-between gap-2.5 print:hidden">
           <div className="flex items-center space-x-2">
             <CheckCircle2 className="text-emerald-400" size={20} />
             <span className="font-bold text-base sm:text-lg">Bill Saved & Receipt Ready</span>
@@ -339,15 +401,42 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
               </button>
 
               {shareMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-52 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-slate-200">
-                  {/* WhatsApp */}
+                <div className="absolute right-0 mt-1.5 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-slate-200">
+                  {/* WhatsApp (Smart Compact) */}
                   <button
-                    onClick={handleShareWhatsAppText}
-                    className="w-full px-3.5 py-2 text-left hover:bg-slate-700/80 flex items-center space-x-2.5 text-emerald-400 font-semibold transition"
+                    onClick={() => handleShareWhatsAppText('compact')}
+                    className="w-full px-3.5 py-2 text-left hover:bg-slate-700/80 flex items-center justify-between text-emerald-400 font-semibold transition"
                   >
-                    <MessageSquare size={15} />
-                    <span>WhatsApp (Text)</span>
+                    <span className="flex items-center space-x-2.5">
+                      <MessageSquare size={15} />
+                      <span>WhatsApp (Compact)</span>
+                    </span>
+                    {whatsappFormat === 'compact' && <CheckCircle2 size={13} />}
                   </button>
+
+                  {/* WhatsApp (Full Detailed) */}
+                  <button
+                    onClick={() => handleShareWhatsAppText('detailed')}
+                    className="w-full px-3.5 py-2 text-left hover:bg-slate-700/80 flex items-center justify-between text-emerald-300 font-semibold transition"
+                  >
+                    <span className="flex items-center space-x-2.5">
+                      <Receipt size={15} />
+                      <span>WhatsApp (Detailed)</span>
+                    </span>
+                    {whatsappFormat === 'detailed' && <CheckCircle2 size={13} />}
+                  </button>
+
+                  {/* Share Invoice PDF (Native / Mobile) */}
+                  <button
+                    onClick={handleShareWhatsAppPdf}
+                    disabled={sharingPdf}
+                    className="w-full px-3.5 py-2 text-left hover:bg-slate-700/80 flex items-center space-x-2.5 text-teal-300 font-semibold transition disabled:opacity-50"
+                  >
+                    {sharingPdf ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}
+                    <span>Share Invoice PDF</span>
+                  </button>
+
+                  <div className="border-t border-slate-700 my-1"></div>
 
                   {/* Email with PDF */}
                   <button
@@ -412,13 +501,36 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
 
         {/* Toast Alert */}
         {toastMsg && (
-          <div className={`px-6 py-2 text-xs font-semibold flex items-center justify-between print:hidden ${
+          <div className={`px-6 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 print:hidden ${
             toastMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200' :
             toastMsg.type === 'error' ? 'bg-rose-50 text-rose-800 border-b border-rose-200' :
             'bg-blue-50 text-blue-800 border-b border-blue-200'
           }`}>
             <span>{toastMsg.text}</span>
-            <button onClick={() => setToastMsg(null)} className="text-slate-500 hover:text-slate-700 ml-2">×</button>
+            <div className="flex items-center gap-2 ml-auto">
+              {pdfUnsupportedFallback && (
+                <>
+                  <button
+                    onClick={handleCopyAndOpenWhatsApp}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] transition"
+                  >
+                    Copy Text & Open WhatsApp
+                  </button>
+                  <button
+                    onClick={() => { setPdfUnsupportedFallback(false); handleDownloadPDF(); }}
+                    className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded font-bold text-[11px] transition"
+                  >
+                    Download PDF
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => { setToastMsg(null); setPdfUnsupportedFallback(false); }}
+                className="text-slate-500 hover:text-slate-700 ml-1"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
 
@@ -657,7 +769,7 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
 
               <div className="text-center pt-3 text-[10px] text-slate-500 uppercase tracking-wider">
                 *** {shop.footer_message || 'Thank You for Visiting'} ***
-                <br />Powered by PrintPro ERP
+                <br />Powered by PrintPRO
               </div>
             </div>
           )}
@@ -931,21 +1043,47 @@ export function InvoiceModal({ bill, settings: propSettings, customerEmail: prop
               </div>
 
               <div className="pt-1 border-t border-slate-200 text-center text-[11px] print:text-[8.5px] text-slate-500">
-                {shop.footer_message || 'Thank you for visiting. Powered by PrintPro ERP'}
+                {shop.footer_message || 'Thank you for visiting. Powered by PrintPRO'}
               </div>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-between items-center print:hidden">
-          <button
-            onClick={handleShareWhatsAppText}
-            className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 rounded-lg border border-emerald-200 flex items-center space-x-1.5 transition"
-          >
-            <MessageSquare size={14} />
-            <span>Share WhatsApp Receipt</span>
-          </button>
+        <div className="bg-slate-50 px-4 sm:px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex bg-slate-200/80 p-0.5 rounded-lg text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setWhatsappFormat('compact')}
+                className={`px-2 py-1 rounded-md transition ${whatsappFormat === 'compact' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+              >
+                Compact
+              </button>
+              <button
+                type="button"
+                onClick={() => setWhatsappFormat('detailed')}
+                className={`px-2 py-1 rounded-md transition ${whatsappFormat === 'detailed' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+              >
+                Detailed
+              </button>
+            </div>
+            <button
+              onClick={() => handleShareWhatsAppText(whatsappFormat)}
+              className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 rounded-lg border border-emerald-200 flex items-center space-x-1.5 transition"
+            >
+              <MessageSquare size={14} />
+              <span>Share WhatsApp ({whatsappFormat === 'compact' ? 'Compact' : 'Detailed'})</span>
+            </button>
+            <button
+              onClick={handleShareWhatsAppPdf}
+              disabled={sharingPdf}
+              className="text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-2 rounded-lg border border-teal-200 flex items-center space-x-1.5 transition disabled:opacity-50"
+            >
+              {sharingPdf ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+              <span>{sharingPdf ? 'Preparing...' : 'Share PDF'}</span>
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="px-5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-medium text-sm transition"

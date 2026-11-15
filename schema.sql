@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS public.bills (
   user_id uuid DEFAULT auth.uid(),
   bill_number text NOT NULL,
   customer_id uuid,
+  customer_name text,
   total numeric DEFAULT 0.00 NOT NULL,
   discount numeric DEFAULT 0.00 NOT NULL,
   gst_amount numeric DEFAULT 0.00 NOT NULL,
@@ -806,12 +807,12 @@ BEGIN
     v_bill_num := public.get_next_sequence('BILL');
 
     INSERT INTO public.bills (
-      user_id, bill_number, customer_id, group_bill_id, group_role,
+      user_id, bill_number, customer_id, customer_name, group_bill_id, group_role,
       total, discount, gst_amount, rounding_method, rounding_adjustment,
       grand_total, cash_paid, upi_paid, paid_total, advance_used, advance_earned,
       payment_method, status, notes
     ) VALUES (
-      v_uid, v_bill_num, v_cust_id, v_group_id, 'MEMBER',
+      v_uid, v_bill_num, v_cust_id, v_part_name, v_group_id, 'MEMBER',
       v_share, 0, ROUND(v_gst / v_n, 2), 'None', 0,
       v_share, 0, 0, 0, 0, 0,
       'Pay Later', 'COMPLETED', 'Shared Bill Share (' || v_group_num || ') - ' || v_part_name

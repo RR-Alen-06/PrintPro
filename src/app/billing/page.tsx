@@ -1662,7 +1662,7 @@ export default function BillingPage() {
                       <button
                         type="button"
                         onClick={() => handleUpdateItemQty(idx, item.isDecimal ? Math.max(0, Number((item.quantity - 1).toFixed(2))) : item.quantity - 1)}
-                        className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-bold flex items-center justify-center text-xs"
+                        className="w-8 h-8 sm:w-6 sm:h-6 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded text-slate-700 font-bold flex items-center justify-center text-sm sm:text-xs"
                         title="Decrease quantity"
                       >
                         -
@@ -1680,13 +1680,13 @@ export default function BillingPage() {
                             handleUpdateItemQty(idx, Number(val));
                           }
                         }}
-                        className="w-14 bg-slate-50 border border-slate-300 rounded px-1 py-0.5 text-xs font-bold text-center text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 font-data-mono"
+                        className="w-14 bg-slate-50 border border-slate-300 rounded px-1 py-1.5 sm:py-0.5 text-xs font-bold text-center text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 font-data-mono"
                         title="Type quantity using keyboard"
                       />
                       <button
                         type="button"
                         onClick={() => handleUpdateItemQty(idx, item.isDecimal ? Number((item.quantity + 1).toFixed(2)) : item.quantity + 1)}
-                        className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-bold flex items-center justify-center text-xs"
+                        className="w-8 h-8 sm:w-6 sm:h-6 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded text-slate-700 font-bold flex items-center justify-center text-sm sm:text-xs"
                         title="Increase quantity"
                       >
                         +
@@ -2231,7 +2231,7 @@ export default function BillingPage() {
             </div>
 
             {/* ACTION BUTTON */}
-            <div className="pt-2">
+            <div className="pt-2 pb-16 lg:pb-0">
               <button
                 onClick={handleCreateBill}
                 disabled={saving || cart.length === 0}
@@ -2242,6 +2242,28 @@ export default function BillingPage() {
               </button>
             </div>
             </div>
+            </div>
+          )}
+
+          {/* STICKY MOBILE CHECKOUT BAR */}
+          {billingMode === 'STANDARD' && cart.length > 0 && (
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-2.5 shadow-2xl flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Grand Total ({cart.length} {cart.length === 1 ? 'item' : 'items'})
+                </div>
+                <div className="text-lg font-extrabold text-slate-900 font-data-mono leading-tight">
+                  ₹{roundedTotal.toFixed(2)}
+                </div>
+              </div>
+              <button
+                onClick={handleCreateBill}
+                disabled={saving || cart.length === 0}
+                className="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50 shrink-0"
+              >
+                <Receipt size={16} />
+                <span>{saving ? 'Saving...' : 'Generate Bill'}</span>
+              </button>
             </div>
           )}
 

@@ -3,11 +3,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Payment, CustomerSummary, AllSettings } from '@/lib/types';
 import { ApiService, DEFAULT_SETTINGS } from '@/lib/services/api';
+import { buildWhatsAppUrl, sharePdfWithWebShare } from '@/lib/utils/shareUtils';
+import { jsPDF } from 'jspdf';
 import { 
   Printer, 
   X, 
   MessageSquare, 
-  Receipt
+  Receipt,
+  Share2,
+  Loader2
 } from 'lucide-react';
 
 interface PaymentReceiptModalProps {
@@ -25,7 +29,20 @@ export function PaymentReceiptModal({
 }: PaymentReceiptModalProps) {
   const [settings, setSettings] = useState<AllSettings>(propSettings || DEFAULT_SETTINGS);
   const [customerDetails, setCustomerDetails] = useState<CustomerSummary | null>(customer || null);
+  const [sharingPdf, setSharingPdf] = useState(false);
+  const [pdfUnsupportedFallback, setPdfUnsupportedFallback] = useState(false);
+  const [shareToast, setShareToast] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const voucherRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (shareToast) {
+      const timer = setTimeout(() => {
+        setShareToast(null);
+        setPdfUnsupportedFallback(false);
+      }, pdfUnsupportedFallback ? 8000 : 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [shareToast, pdfUnsupportedFallback]);
 
   useEffect(() => {
     if (!propSettings) {
@@ -65,12 +82,12 @@ export function PaymentReceiptModal({
     window.print();
   };
 
-  const handleShareWhatsApp = () => {
+  const buildWhatsAppMessage = () => {
     const custName = payment.customer_name || customerDetails?.name || 'Customer';
     const amountStr = Number(payment.amount).toFixed(2);
-    const shopName = settings.shop.shop_name || 'Store';
-    
-    let msg = isInactive 
+    const shopName = settings.shop.shop_name || 'PrintPRO';
+
+    let msg = isInactive
       ? `*[VOID / ${payment.status}] Payment Receipt - ${shopName}*\n`
       : `*Payment Receipt - ${shopName}*\n`;
     msg += `Receipt No: ${payment.payment_number || 'PAY'}\n`;
@@ -79,30 +96,141 @@ export function PaymentReceiptModal({
     msg += `Customer: ${custName}\n`;
     msg += `Payment Mode: ${payment.payment_method}\n`;
     msg += `*Amount: ₹${amountStr}* ${isInactive ? '(VOID)' : ''}\n`;
-    
+
     if (isInactive && payment.cancellation_reason) {
       msg += `Cancellation Reason: ${payment.cancellation_reason}\n`;
     }
 
     if (!isInactive && hasStructuredBreakdown) {
-      if (duesSettledVal > 0) msg += `• Dues Cleared: ₹${duesSettledVal.toFixed(2)}\n`;
-      if (advanceCreditedVal > 0) msg += `• Advance Credited: ₹${advanceCreditedVal.toFixed(2)}\n`;
+      if (duesSettledVal > 0) msg += `- Dues Cleared: ₹${duesSettledVal.toFixed(2)}\n`;
+      if (advanceCreditedVal > 0) msg += `- Advance Credited: ₹${advanceCreditedVal.toFixed(2)}\n`;
     }
 
     if (customerDetails) {
-      msg += `\n*Current Account Balance:*\n`;
-      msg += `• Pending Dues: ₹${customerDetails.balance_due.toFixed(2)}\n`;
-      msg += `• Advance Balance: ₹${customerDetails.advance_balance.toFixed(2)}\n`;
+      msg += `\n*Current Account Summary:*\n`;
+      const hasDues = customerDetails.balance_due > 0.009;
+      const hasAdv = customerDetails.advance_balance > 0.009;
+      if (hasDues) msg += `- Pending Dues: ₹${customerDetails.balance_due.toFixed(2)}\n`;
+      if (hasAdv) msg += `- Advance Balance: ₹${customerDetails.advance_balance.toFixed(2)}\n`;
+      if (!hasDues && !hasAdv) msg += `- Account Status: Settled (₹0.00 Due)\n`;
     }
-    
-    msg += `\n${isInactive ? 'Note: This payment receipt has been voided/cancelled.' : 'Thank you for your payment!'}`;
 
+    msg += `\n${isInactive ? 'Note: This payment receipt has been voided/cancelled.' : 'Thank you for your payment!'}\n_Powered by PrintPRO_`;
+    return msg;
+  };
+
+  const buildVoucherPdfDoc = () => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 12;
+    let y = 16;
+
+    const shopName = (settings.shop.shop_name || 'PRINTPRO STORE').toUpperCase();
+    const custName = payment.customer_name || customerDetails?.name || 'Customer';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(shopName, pageWidth / 2, y, { align: 'center' });
+    y += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(90, 90, 90);
+    doc.text(isInactive ? `VOID PAYMENT RECEIPT (${payment.status})` : 'PAYMENT RECEIPT VOUCHER', pageWidth / 2, y, { align: 'center' });
+    y += 6;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 7;
+
+    doc.setTextColor(20, 20, 20);
+    doc.setFontSize(9.5);
+    const rows: [string, string][] = [
+      ['Receipt No', payment.payment_number || 'PAY'],
+      ['Date', new Date(payment.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })],
+      ['Customer', custName],
+      ['Payment Mode', payment.payment_method || 'Cash'],
+      ['Amount Paid', `Rs. ${Number(payment.amount).toFixed(2)}${isInactive ? ' (VOID)' : ''}`],
+    ];
+    if (!isInactive && hasStructuredBreakdown) {
+      if (duesSettledVal > 0) rows.push(['Dues Cleared', `Rs. ${duesSettledVal.toFixed(2)}`]);
+      if (advanceCreditedVal > 0) rows.push(['Advance Credited', `Rs. ${advanceCreditedVal.toFixed(2)}`]);
+    }
+    if (customerDetails) {
+      if (customerDetails.balance_due > 0.009) rows.push(['Pending Dues', `Rs. ${customerDetails.balance_due.toFixed(2)}`]);
+      if (customerDetails.advance_balance > 0.009) rows.push(['Advance Balance', `Rs. ${customerDetails.advance_balance.toFixed(2)}`]);
+      if (customerDetails.balance_due <= 0.009 && customerDetails.advance_balance <= 0.009) {
+        rows.push(['Account Status', 'Settled (Rs. 0.00 Due)']);
+      }
+    }
+
+    for (const [label, value] of rows) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${label}:`, margin, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value, pageWidth - margin, y, { align: 'right' });
+      y += 6.5;
+    }
+
+    y += 4;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 6;
+    doc.setFontSize(8);
+    doc.setTextColor(110, 110, 110);
+    doc.text('Generated digitally by PrintPRO. Valid payment voucher.', pageWidth / 2, y, { align: 'center' });
+
+    const filename = `Payment_${(payment.payment_number || 'PAY').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+    return { doc, filename };
+  };
+
+  const handleShareWhatsApp = () => {
+    setPdfUnsupportedFallback(false);
+    const msg = buildWhatsAppMessage();
     const phone = payment.customer_mobile || customerDetails?.mobile;
-    const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : '';
-    const waUrl = cleanPhone 
-      ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msg)}`
-      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(waUrl, '_blank');
+    window.open(buildWhatsAppUrl(msg, phone), '_blank');
+  };
+
+  const handleSharePdf = async () => {
+    setPdfUnsupportedFallback(false);
+    setSharingPdf(true);
+    try {
+      const { doc, filename } = buildVoucherPdfDoc();
+      const blob = doc.output('blob');
+      const outcome = await sharePdfWithWebShare(
+        blob,
+        filename,
+        `Payment Receipt ${payment.payment_number || ''}`,
+        buildWhatsAppMessage()
+      );
+      if (outcome === 'shared') {
+        setShareToast({ text: 'Payment receipt PDF shared!', type: 'success' });
+      } else if (outcome === 'unsupported') {
+        setPdfUnsupportedFallback(true);
+        setShareToast({
+          text: 'Direct PDF sharing is only supported on mobile/compatible browsers.',
+          type: 'info'
+        });
+      }
+    } catch (e) {
+      console.error('Payment PDF share error:', e);
+      setShareToast({ text: 'Failed to share Payment PDF.', type: 'error' });
+    } finally {
+      setSharingPdf(false);
+    }
+  };
+
+  const handleCopyAndOpenWhatsApp = async () => {
+    const msg = buildWhatsAppMessage();
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(msg);
+      }
+    } catch {
+      // Clipboard may be blocked
+    }
+    const phone = payment.customer_mobile || customerDetails?.mobile;
+    window.open(buildWhatsAppUrl(msg, phone), '_blank');
+    setPdfUnsupportedFallback(false);
+    setShareToast({ text: 'Copied receipt & opened WhatsApp!', type: 'success' });
   };
 
   return (
@@ -170,7 +298,7 @@ export function PaymentReceiptModal({
           {/* Shop Header */}
           <div className="text-center border-b border-slate-100 pb-4 space-y-1">
             <h2 className="font-extrabold text-lg text-slate-900 uppercase tracking-wide">
-              {settings.shop.shop_name || 'SIMPLEBILLING STORE'}
+              {settings.shop.shop_name || 'PRINTPRO STORE'}
             </h2>
             {settings.shop.address && (
               <p className="text-xs text-slate-500">{settings.shop.address}</p>
@@ -332,27 +460,80 @@ export function PaymentReceiptModal({
             <p className="text-[10px] text-slate-400">
               {isInactive 
                 ? 'VOID PAYMENT RECEIPT - NOT VALID FOR ACCOUNTING' 
-                : `Generated digitally by ${settings.shop.shop_name || 'SimpleBilling'}. Valid payment voucher.`}
+                : `Generated digitally by ${settings.shop.shop_name || 'PrintPRO'}. Valid payment voucher.`}
             </p>
           </div>
         </div>
 
+        {/* Share Toast / Desktop Fallback Banner */}
+        {shareToast && (
+          <div className={`px-4 sm:px-6 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 print:hidden ${
+            shareToast.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-t border-emerald-200' :
+            shareToast.type === 'error' ? 'bg-rose-50 text-rose-800 border-t border-rose-200' :
+            'bg-blue-50 text-blue-800 border-t border-blue-200'
+          }`}>
+            <span>{shareToast.text}</span>
+            <div className="flex items-center gap-2 ml-auto">
+              {pdfUnsupportedFallback && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCopyAndOpenWhatsApp}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] transition cursor-pointer"
+                  >
+                    Copy Text & Open WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const { doc, filename } = buildVoucherPdfDoc();
+                      doc.save(filename);
+                      setPdfUnsupportedFallback(false);
+                    }}
+                    className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded font-bold text-[11px] transition cursor-pointer"
+                  >
+                    Download PDF
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { setShareToast(null); setPdfUnsupportedFallback(false); }}
+                className="text-slate-500 hover:text-slate-700 ml-1 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Modal Actions */}
-        <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex items-center justify-between gap-3 print:hidden">
-          <button
-            type="button"
-            onClick={handleShareWhatsApp}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
-          >
-            <MessageSquare size={15} />
-            <span>WhatsApp</span>
-          </button>
+        <div className="bg-slate-50 px-4 sm:px-6 py-3.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2.5 print:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShareWhatsApp}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+            >
+              <MessageSquare size={15} />
+              <span>WhatsApp</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSharePdf}
+              disabled={sharingPdf}
+              className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {sharingPdf ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />}
+              <span>{sharingPdf ? 'Preparing...' : 'Share PDF'}</span>
+            </button>
+          </div>
 
           <div className="flex items-center space-x-2">
             <button
               type="button"
               onClick={handlePrint}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 sm:px-4 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
             >
               <Printer size={15} />
               <span>Print Voucher</span>
