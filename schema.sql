@@ -362,7 +362,7 @@ BEGIN
         v_next_val := 1;
     END IF;
 
-    RETURN v_prefix || '-' || LPAD(v_next_val::text, COALESCE(v_padding, 6), '0');
+    RETURN v_prefix || '-' || LPAD(v_next_val::text, GREATEST(COALESCE(v_padding, 6), LENGTH(v_next_val::text)), '0');
 END;
 $function$;
 
