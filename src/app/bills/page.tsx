@@ -7,21 +7,22 @@ import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { InvoiceModal } from '@/components/InvoiceModal';
 import { GroupInvoiceModal } from '@/components/GroupInvoiceModal';
 import { EditBillModal } from '@/components/EditBillModal';
-import { 
-  FileText, 
-  Search, 
-  Eye, 
-  Edit3, 
-  AlertTriangle, 
-  CheckCircle2, 
-  X, 
+import {
+  FileText,
+  Search,
+  Eye,
+  Edit3,
+  AlertTriangle,
+  CheckCircle2,
+  X,
   Clock,
   CreditCard,
   RotateCcw,
   RefreshCw,
   Wallet,
   Loader2,
-  Users
+  Users,
+  UserPlus
 } from 'lucide-react';
 
 export default function ManageBillsPage() {
@@ -62,6 +63,15 @@ export default function ManageBillsPage() {
   const [settlePayerId, setSettlePayerId] = useState<string>('');
   const [settleAmount, setSettleAmount] = useState<string>('');
   const [settleMethod, setSettleMethod] = useState<'Cash' | 'UPI'>('Cash');
+
+  // Promote Walk-In / Guest to Customer Modal State
+  const [promotingBill, setPromotingBill] = useState<Bill | null>(null);
+  const [promoteName, setPromoteName] = useState('');
+  const [promoteMobile, setPromoteMobile] = useState('');
+  const [promoteExistingId, setPromoteExistingId] = useState('');
+  const [promoteCustomers, setPromoteCustomers] = useState<Customer[]>([]);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
   const [settleNotes, setSettleNotes] = useState<string>('');
   const [settling, setSettling] = useState(false);
 
@@ -275,7 +285,7 @@ export default function ManageBillsPage() {
     }
   };
 
-  
+
 
   const handleViewBill = async (id: string) => {
     const fullBill = await ApiService.getBillById(id);
@@ -309,7 +319,7 @@ export default function ManageBillsPage() {
     const matchesSearch =
       b.bill_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (b.customer_name && b.customer_name.toLowerCase().includes(searchTerm.toLowerCase()));
-    
+
     if (!matchesSearch) return false;
     if (groupFilter === 'INDIVIDUAL' && b.group_bill_id) return false;
     if (groupFilter === 'GROUP' && !b.group_bill_id) return false;
@@ -468,17 +478,16 @@ export default function ManageBillsPage() {
             <button
               key={pill.id}
               onClick={() => setPaymentStatusFilter(pill.id)}
-              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
-                paymentStatusFilter === pill.id
-                  ? pill.id === 'PAY_LATER'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : pill.id === 'PARTIAL'
+              className={`px-3 py-1.5 rounded-md transition cursor-pointer ${paymentStatusFilter === pill.id
+                ? pill.id === 'PAY_LATER'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : pill.id === 'PARTIAL'
                     ? 'bg-orange-600 text-white shadow-sm'
                     : pill.id === 'PAID'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               {pill.label}
             </button>
@@ -539,7 +548,35 @@ export default function ManageBillsPage() {
                       <td className="px-6 py-4 text-xs font-data-mono text-slate-500">
                         {new Date(b.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </td>
-                      <td className="px-6 py-4 font-medium text-slate-800">{b.customer_name || 'Walk-in Customer'}</td>
+                      <td className="px-6 py-4 font-medium text-slate-800">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{b.customer_name || 'Walk-in Customer'}</span>
+                          {!b.customer_id && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const defaultName = (b.customer_name && b.customer_name !== 'Walk-in Customer') ? b.customer_name : '';
+                                setPromotingBill(b);
+                                setPromoteName(defaultName);
+                                setPromoteMobile(b.customer_mobile || '');
+                                setPromoteExistingId('');
+                                setPromoteError(null);
+                                try {
+                                  const custs = await ApiService.getCustomers();
+                                  setPromoteCustomers(custs);
+                                } catch {
+                                  setPromoteCustomers([]);
+                                }
+                              }}
+                              title="Save as new Customer record (or link existing)"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold transition-colors"
+                            >
+                              <UserPlus className="w-2.5 h-2.5" />
+                              Save Customer
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {paid <= 0.01 || b.payment_method === 'Pay Later' ? (
@@ -564,7 +601,7 @@ export default function ManageBillsPage() {
                             </span>
                           )}
                           {Number(b.advance_used || 0) > 0 && (
-                            <span 
+                            <span
                               className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-teal-50 text-teal-800 border border-teal-200"
                               title={`₹${Number(b.advance_used).toFixed(2)} deducted from customer advance`}
                             >
@@ -572,7 +609,7 @@ export default function ManageBillsPage() {
                             </span>
                           )}
                           {Number(b.advance_earned || 0) > 0 && (
-                            <span 
+                            <span
                               className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200"
                               title={`+₹${Number(b.advance_earned).toFixed(2)} added to customer advance`}
                             >
@@ -606,73 +643,73 @@ export default function ManageBillsPage() {
                           </span>
                         )}
                       </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center space-x-1.5">
-                        {!isCancelled && !isFullyPaid && (
-                          <>
-                            {b.customer_id && (
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center space-x-1.5">
+                          {!isCancelled && !isFullyPaid && (
+                            <>
+                              {b.customer_id && (
+                                <button
+                                  onClick={() => handleOpenAllocateAdvance(b)}
+                                  className="p-1.5 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded transition"
+                                  title="Apply Customer Advance Credit to this Bill"
+                                >
+                                  <Wallet size={16} />
+                                </button>
+                              )}
                               <button
-                                onClick={() => handleOpenAllocateAdvance(b)}
-                                className="p-1.5 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded transition"
-                                title="Apply Customer Advance Credit to this Bill"
+                                onClick={() => handleOpenSettleBill(b)}
+                                className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md transition flex items-center gap-1 cursor-pointer"
+                                title="Settle Bill / Choose Who Pays"
                               >
-                                <Wallet size={16} />
+                                <CreditCard size={13} />
+                                <span>Settle Due</span>
                               </button>
-                            )}
+                            </>
+                          )}
+                          <button
+                            onClick={() => handleViewBill(b.id)}
+                            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                            title="View Invoice"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          {b.group_bill_id && (
                             <button
-                              onClick={() => handleOpenSettleBill(b)}
-                              className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md transition flex items-center gap-1 cursor-pointer"
-                              title="Settle Bill / Choose Who Pays"
+                              onClick={() => handleViewGroupBill(b.group_bill_id!)}
+                              disabled={loadingGroupBillId === b.group_bill_id}
+                              className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition"
+                              title="View Consolidated Group Invoice"
                             >
-                              <CreditCard size={13} />
-                              <span>Settle Due</span>
+                              {loadingGroupBillId === b.group_bill_id ? (
+                                <Loader2 size={16} className="animate-spin text-purple-600" />
+                              ) : (
+                                <Users size={16} />
+                              )}
                             </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => handleViewBill(b.id)}
-                          className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                          title="View Invoice"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        {b.group_bill_id && (
-                          <button
-                            onClick={() => handleViewGroupBill(b.group_bill_id!)}
-                            disabled={loadingGroupBillId === b.group_bill_id}
-                            className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition"
-                            title="View Consolidated Group Invoice"
-                          >
-                            {loadingGroupBillId === b.group_bill_id ? (
-                              <Loader2 size={16} className="animate-spin text-purple-600" />
-                            ) : (
-                              <Users size={16} />
-                            )}
-                          </button>
-                        )}
-                        {!isCancelled && (
-                          <button
-                            onClick={() => handleOpenEdit(b)}
-                            className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition"
-                            title="Super Admin: Edit Bill Items & Details"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                        )}
-                        {!isCancelled && paid > 0.01 && (
-                          <button
-                            onClick={() => handleOpenReversePayment(b)}
-                            className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded transition"
-                            title="Super Admin: Reverse Payment / Reset to Unpaid"
-                          >
-                            <RotateCcw size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                          )}
+                          {!isCancelled && (
+                            <button
+                              onClick={() => handleOpenEdit(b)}
+                              className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition"
+                              title="Super Admin: Edit Bill Items & Details"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                          )}
+                          {!isCancelled && paid > 0.01 && (
+                            <button
+                              onClick={() => handleOpenReversePayment(b)}
+                              className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                              title="Super Admin: Reverse Payment / Reset to Unpaid"
+                            >
+                              <RotateCcw size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -875,8 +912,8 @@ export default function ManageBillsPage() {
                 <Wallet className="text-teal-400" size={20} />
                 <h3 className="font-bold text-base">Apply Advance Credit</h3>
               </div>
-              <button 
-                onClick={() => setAllocatingBill(null)} 
+              <button
+                onClick={() => setAllocatingBill(null)}
                 className="text-slate-400 hover:text-white transition"
               >
                 <X size={20} />
@@ -1113,13 +1150,131 @@ export default function ManageBillsPage() {
         </div>
       )}
 
+      {/* Promote Walk-In / Guest to Customer Modal */}
+      {promotingBill && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden">
+            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-blue-400" />
+                <h3 className="font-bold text-sm">Save / Link Customer ({promotingBill.bill_number})</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPromotingBill(null)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPromoteError(null);
+                setPromoting(true);
+                try {
+                  await ApiService.promoteWalkInToCustomer(
+                    promotingBill.id,
+                    promoteName,
+                    promoteMobile || undefined,
+                    'Admin',
+                    promoteExistingId || undefined
+                  );
+                  setPromotingBill(null);
+                  await loadData();
+                } catch (err) {
+                  setPromoteError(err instanceof Error ? err.message : 'Failed to save customer');
+                } finally {
+                  setPromoting(false);
+                }
+              }}
+              className="p-5 space-y-4"
+            >
+              {promoteError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                  {promoteError}
+                </div>
+              )}
+
+              {promoteCustomers.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Link to Existing Customer (Optional)
+                  </label>
+                  <select
+                    value={promoteExistingId}
+                    onChange={(e) => setPromoteExistingId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Create / Match by Name & Mobile below —</option>
+                    {promoteCustomers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.mobile ? ` (${c.mobile})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {!promoteExistingId && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                      Customer Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={promoteName}
+                      onChange={(e) => setPromoteName(e.target.value)}
+                      placeholder="Enter customer full name"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                      Mobile Number (Optional)
+                    </label>
+                    <input
+                      type="tel"
+                      value={promoteMobile}
+                      onChange={(e) => setPromoteMobile(e.target.value)}
+                      placeholder="Prevents merging same-named customers"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPromotingBill(null)}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={promoting}
+                  className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {promoting ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                  <span>{promoting ? 'Saving...' : 'Save Customer'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Invoice Modal */}
       {selectedBill && (
-        <InvoiceModal 
-          bill={selectedBill} 
-          settings={settings || undefined} 
-          customerEmail={selectedBill.customer_email || undefined} 
-          onClose={() => setSelectedBill(null)} 
+        <InvoiceModal
+          bill={selectedBill}
+          settings={settings || undefined}
+          customerEmail={selectedBill.customer_email || undefined}
+          onClose={() => setSelectedBill(null)}
         />
       )}
 

@@ -153,7 +153,7 @@ export class SettingsService {
       user_name: userName,
       action: 'UPDATE_SETTINGS',
       entity: `settings.${key}`,
-      previous_value: JSON.stringify(prev[key]),
+      previous_value: key === 'security' ? '[REDACTED]' : JSON.stringify(prev[key]),
       new_value: key === 'security' ? '[REDACTED]' : JSON.stringify(sanitizedValue)
     });
   }

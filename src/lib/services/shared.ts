@@ -256,6 +256,8 @@ export function formatBillRow(row: Record<string, unknown> | null | undefined): 
   if (!row) return row as unknown as Bill;
   const custRaw = row.customers;
   const cust = Array.isArray(custRaw) ? custRaw[0] : (custRaw as Record<string, unknown> | undefined);
+  const payerRaw = row.payer;
+  const payer = Array.isArray(payerRaw) ? payerRaw[0] : (payerRaw as Record<string, unknown> | undefined);
   const rawItems = (row.items || row.bill_items || []) as Array<Record<string, unknown>>;
   const formattedItems: BillItem[] = rawItems.map((it) => ({
     id: it.id as string | undefined,
@@ -283,9 +285,14 @@ export function formatBillRow(row: Record<string, unknown> | null | undefined): 
     else if (paid <= 0.01 && (!resolvedPaymentMethod || resolvedPaymentMethod === 'Cash' || resolvedPaymentMethod === 'Auto-Allocation')) resolvedPaymentMethod = 'Pay Later';
   }
 
+  const notesStr = typeof row.notes === 'string' ? row.notes : '';
+  const sharedGuestMatch = notesStr.match(/^Shared Bill Share \([^)]+\)\s*-\s*(.+)$/i);
+  const parsedGuestName = sharedGuestMatch?.[1]?.trim() || undefined;
+
   return {
     ...(row as unknown as Bill),
-    customer_name: (row.customer_name as string | undefined) || (cust?.name as string | undefined) || ((row.customer_id as string | undefined) ? 'Customer' : 'Walk-in Customer'),
+    customer_name: (row.customer_name as string | undefined) || (cust?.name as string | undefined) || parsedGuestName || ((row.customer_id as string | undefined) ? 'Customer' : 'Walk-in Customer'),
+    paid_by_customer_name: (row.paid_by_customer_name as string | undefined) || (payer?.name as string | undefined),
     customer_mobile: (row.customer_mobile as string | null | undefined) ?? (cust?.mobile as string | null | undefined) ?? null,
     customer_email: (row.customer_email as string | null | undefined) ?? (cust?.email as string | null | undefined) ?? null,
     advance_used: adv,

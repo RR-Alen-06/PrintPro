@@ -529,7 +529,7 @@ export function ProductSalesHistoryModal({ product, onClose, onViewInvoice }: Pr
                       return (
                         <tr key={`${tx.bill_id}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-3.5 font-mono font-medium text-blue-600">
-                            {onViewInvoice ? (
+                            {onViewInvoice && !tx.bill_number.startsWith('GRP-') ? (
                               <button
                                 onClick={() => onViewInvoice(tx.bill_id)}
                                 className="hover:underline flex items-center gap-1 font-semibold group"

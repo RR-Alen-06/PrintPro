@@ -886,6 +886,70 @@ export class ApiService {
   }
 
 
+  static async promoteWalkInToCustomer(
+    billId: string,
+    name: string,
+    mobile?: string,
+    userName = 'Admin',
+    existingCustomerId?: string
+  ): Promise<Customer> {
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+    const cleanName = String(name || '').trim().replace(/\s+/g, ' ');
+    const cleanMobile = String(mobile || '').trim();
+    const existing = await this.getCustomers();
+
+    let customer: Customer | undefined;
+    if (existingCustomerId) {
+      customer = existing.find(c => c.id === existingCustomerId);
+      if (!customer) {
+        throw new Error('Selected customer record was not found.');
+      }
+    } else {
+      if (!cleanName || cleanName.toLowerCase() === 'walk-in customer') {
+        throw new Error('Please enter a valid customer name.');
+      }
+      if (cleanMobile) {
+        const digits = cleanMobile.replace(/\D/g, '');
+        customer = existing.find(c => {
+          const cm = (c.mobile || '').trim();
+          if (!cm) return false;
+          if (cm === cleanMobile) return true;
+          const cDigits = cm.replace(/\D/g, '');
+          return Boolean(digits && cDigits && digits === cDigits);
+        });
+      } else {
+        customer = existing.find(
+          c =>
+            !(c.mobile || '').trim() &&
+            c.name.trim().replace(/\s+/g, ' ').toLowerCase() === cleanName.toLowerCase()
+        );
+      }
+
+      if (!customer) {
+        customer = await this.addCustomer(
+          { name: cleanName, mobile: cleanMobile || undefined },
+          userName
+        );
+      }
+    }
+
+    const { error } = await supabase
+      .from('bills')
+      .update({ customer_id: customer.id, customer_name: customer.name })
+      .eq('id', billId);
+
+    if (error) throw error;
+
+    await this.logAudit({
+      user_name: userName,
+      action: 'LINK_WALKIN_CUSTOMER',
+      entity: `Bill -> ${customer.name} (${customer.customer_code || customer.id})`
+    });
+
+    return customer;
+  }
+
+
   static async updateCustomer(id: string, customer: { name: string; mobile?: string; email?: string }, userName = 'Admin'): Promise<Customer | null> {
     if (!isSupabaseConfigured) throw new Error('Supabase not configured');
 
@@ -2171,6 +2235,7 @@ export class ApiService {
         .insert([{
           bill_number: billNumber,
           customer_id: isRegistered ? part.customer_id : null,
+          customer_name: participantName,
           group_bill_id: groupBill.id,
           group_role: (part.customer_id && part.customer_id === primaryPayerId) ? 'PRIMARY_PAYER' : 'MEMBER',
           paid_by_customer_id: part.paid_by_customer_id || null,
@@ -2611,7 +2676,7 @@ export class ApiService {
     if (!isSupabaseConfigured) return [];
     const { data, error } = await supabase
       .from('group_bills')
-      .select('*, bills(*, customers!fk_bills_customer(name, mobile, email))')
+      .select('*, bills(*, customers!fk_bills_customer(name, mobile, email), payer:customers!fk_bills_paid_by(name))')
       .order('created_at', { ascending: false });
 
     if (error || !data) return [];
@@ -2625,7 +2690,7 @@ export class ApiService {
     if (!isSupabaseConfigured) return null;
     const { data: grp, error } = await supabase
       .from('group_bills')
-      .select('*, bills(*, customers!fk_bills_customer(name, mobile, email)), group_bill_items(*)')
+      .select('*, bills(*, customers!fk_bills_customer(name, mobile, email), payer:customers!fk_bills_paid_by(name)), group_bill_items(*)')
       .eq('id', id)
       .maybeSingle();
 
@@ -2762,7 +2827,10 @@ export class ApiService {
         payMethod = initialPayment.payment_method || payMethod;
         payRef = initialPayment.payment_number;
       } else {
-        paidAmount = Math.max(0, Number(b.paid_total || 0) - advUsed);
+        const laterLinkedPaid = activePayments
+          .filter(p => p.bill_id === b.id && !mergedPaymentIds.has(p.id))
+          .reduce((s, p) => s + Number(p.amount || 0), 0);
+        paidAmount = Math.max(0, Number((Number(b.paid_total || 0) - advUsed - laterLinkedPaid).toFixed(2)));
       }
 
       const directPaid = Math.min(grand, paidAmount);
@@ -4918,6 +4986,12 @@ export class ApiService {
         p_reset_sequences: resetSequences
       });
       if (!rpcErr) {
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.removeItem('sb_accounting_closings');
+            window.localStorage.removeItem('sb_internal_transfers');
+          } catch { }
+        }
         if (!resetSequences) {
           await this.logAudit({
             user_name: userName,
@@ -4944,24 +5018,43 @@ export class ApiService {
     }
 
     const nilUuid = '00000000-0000-0000-0000-000000000000';
-    await supabase.from('group_bill_items').delete().neq('id', nilUuid);
-    await supabase.from('bill_items').delete().neq('id', nilUuid);
-    await supabase.from('payments').delete().neq('id', nilUuid);
-    await supabase.from('bills').delete().neq('id', nilUuid);
-    await supabase.from('group_bills').delete().neq('id', nilUuid);
-    await supabase.from('expenses').delete().neq('id', nilUuid);
-    await supabase.from('internal_transfers').delete().neq('id', nilUuid);
-    await supabase.from('accounting_closings').delete().neq('id', nilUuid);
-    await supabase.from('loyalty_transactions').delete().neq('id', nilUuid);
-    await supabase.from('audit_logs').delete().neq('id', nilUuid);
-    await supabase.from('customers').delete().neq('id', nilUuid);
-    await supabase.from('products').delete().neq('id', nilUuid);
+    const tablesToPurge = [
+      'group_bill_items',
+      'bill_items',
+      'payments',
+      'bills',
+      'group_bills',
+      'expenses',
+      'internal_transfers',
+      'accounting_closings',
+      'loyalty_transactions',
+      'audit_logs',
+      'customers',
+      'products',
+    ] as const;
+
+    for (const table of tablesToPurge) {
+      const { error: deleteErr } = await supabase.from(table).delete().neq('id', nilUuid);
+      if (deleteErr) {
+        throw new Error(`Failed to purge ${table}: ${deleteErr.message}`);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem('sb_accounting_closings');
+        window.localStorage.removeItem('sb_internal_transfers');
+      } catch { }
+    }
 
     if (resetSequences) {
-      await supabase
+      const { error: seqErr } = await supabase
         .from('sequences')
         .update({ current_val: 0, updated_at: new Date().toISOString() })
         .neq('id', nilUuid);
+      if (seqErr) {
+        throw new Error(`Failed to reset sequences: ${seqErr.message}`);
+      }
     } else {
       await this.logAudit({
         user_name: userName,
@@ -5206,6 +5299,24 @@ export class ApiService {
     return ReceiptService.generateDigitalReceiptText(bill, financialSummary, shopSettings);
   }
 
+  static generateCompactReceiptText(
+    bill: Bill,
+    financialSummary?: BillFinancialSummary,
+    shopSettings?: Partial<ShopSettings>
+  ): string {
+    return ReceiptService.generateCompactReceiptText(bill, financialSummary, shopSettings);
+  }
+
+  static generateStatementSummaryText(data: CustomerStatementData): string {
+    return ReceiptService.generateStatementSummaryText(data);
+  }
+
+  static generateEndOfDaySummaryText(
+    params: Parameters<typeof ReceiptService.generateEndOfDaySummaryText>[0]
+  ): string {
+    return ReceiptService.generateEndOfDaySummaryText(params);
+  }
+
   // Backwards compatibility alias
 
   static generateWhatsAppTextReceipt(bill: Bill, financialSummary?: BillFinancialSummary, shopSettings?: Partial<ShopSettings>): string {
@@ -5219,7 +5330,7 @@ export class ApiService {
     financialSummary?: BillFinancialSummary,
     shopSettings?: Partial<ShopSettings>
   ): string {
-    const shopName = shopSettings?.shop_name || 'SimpleBilling Center';
+    const shopName = shopSettings?.shop_name || 'PrintPRO Store';
     const shopPhone = shopSettings?.phone || '';
     const shopAddress = shopSettings?.address || '';
     const shopGstin = shopSettings?.gst_number || '';
@@ -5325,7 +5436,7 @@ export class ApiService {
 
           <div style="text-align: center; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8;">
             <p style="margin: 0;">${footerMsg}</p>
-            <p style="margin: 4px 0 0 0;">Generated by SimpleBilling</p>
+            <p style="margin: 4px 0 0 0;">Generated by PrintPRO</p>
           </div>
         </div>
       </div>
@@ -5511,6 +5622,68 @@ export class ApiService {
       });
     }
 
+    // Also include SHARED group bill items (member bills only store a "Group Bill Share" line with product_id=NULL)
+    let gbQuery = supabase
+      .from('group_bill_items')
+      .select('*, group_bills(id, group_bill_number, billing_type, created_at, total_amount, grand_total, discount, status, primary_payer_id, customers!fk_group_bills_primary_payer(name))');
+
+    if (isCustom) {
+      gbQuery = gbQuery.is('product_id', null).eq('product_name', product.name);
+    } else {
+      gbQuery = gbQuery.or(`product_id.eq.${productId},product_name.eq.${product.name}`);
+    }
+
+    const { data: gbItems } = await gbQuery.order('created_at', { ascending: false });
+    for (const item of (gbItems || [])) {
+      const gb = item.group_bills as {
+        id?: string;
+        group_bill_number?: string;
+        billing_type?: string;
+        created_at?: string;
+        total_amount?: number;
+        grand_total?: number;
+        status?: string;
+        primary_payer_id?: string | null;
+        customers?: { name?: string };
+      } | null;
+      if (!gb || gb.billing_type !== 'SHARED') continue;
+      if (!this.isActiveBill(gb)) continue;
+
+      const createdAt = gb.created_at || item.created_at || new Date().toISOString();
+      const itemTime = new Date(createdAt).getTime();
+      if (startDate && itemTime < startDate.getTime()) continue;
+      if (endDate && itemTime > endDate.getTime()) continue;
+
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.price || 0);
+      const rawTotal = Number(item.total || (qty * price));
+
+      const gbSubtotal = Number(gb.total_amount || 0);
+      const gbGrandTotal = Number(gb.grand_total || 0);
+      const factor = (gbSubtotal > 0 && gbGrandTotal > 0) ? (gbGrandTotal / gbSubtotal) : 1;
+      const total = Number((rawTotal * factor).toFixed(2));
+
+      const isCustomRate = isCustom ? false : Math.abs(price - product.price) > 0.001;
+      const groupBillId = gb.id || item.group_bill_id || '';
+      if (groupBillId) billIds.add(`group:${groupBillId}`);
+
+      totalQty += qty;
+      totalRev += total;
+
+      transactions.push({
+        bill_id: groupBillId,
+        bill_number: gb.group_bill_number || 'GRP',
+        created_at: createdAt,
+        customer_id: gb.primary_payer_id || null,
+        customer_name: gb.customers?.name || 'Shared Group Bill',
+        quantity: qty,
+        price,
+        total,
+        is_custom_rate: isCustomRate,
+        catalog_price: product.price
+      });
+    }
+
     transactions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     const avgRate = totalQty > 0 ? Number((totalRev / totalQty).toFixed(2)) : product.price;
@@ -5571,7 +5744,7 @@ export class ApiService {
         ? item.product_name
         : String(rawItem.item_name || '');
       const name = resolvedName.trim();
-      if (!name || name === 'Custom Item') continue;
+      if (!name || name === 'Custom Item' || name.startsWith('Group Bill Share (')) continue;
 
       const qty = Number(item.quantity ?? rawItem.qty ?? 0);
       const price = Number(item.price ?? rawItem.unit_price ?? 0);
@@ -6892,11 +7065,38 @@ export class ApiService {
       }
     });
 
+    // Track unlinked (bill_id = NULL) customer-level payments (e.g. FIFO due settlements + advance)
+    // so bills settled by those vouchers are not double-counted below.
+    const unlinkedPoolByCustomer = new Map<string, number>();
+    payments.forEach(p => {
+      if (!p.bill_id && p.customer_id) {
+        unlinkedPoolByCustomer.set(
+          p.customer_id,
+          (unlinkedPoolByCustomer.get(p.customer_id) || 0) + Number(p.amount || 0)
+        );
+      }
+    });
+
     bills.forEach(b => {
-      // Include direct cash/upi from any bill without a registered payment voucher
+      // Include direct cash/upi only for bills without a linked or unlinked payment voucher
       if (!paymentBillIds.has(b.id)) {
-        current_cash_inflow += Number(b.cash_paid || 0);
-        current_upi_inflow += Number(b.upi_paid || 0);
+        const bCash = Number(b.cash_paid || 0);
+        const bUpi = Number(b.upi_paid || 0);
+        const bCashUpi = bCash + bUpi;
+        if (bCashUpi <= 0) return;
+
+        const payerKey = b.paid_by_customer_id || b.customer_id || '';
+        const pool = payerKey ? (unlinkedPoolByCustomer.get(payerKey) || 0) : 0;
+        if (pool > 0) {
+          const covered = Math.min(bCashUpi, pool);
+          unlinkedPoolByCustomer.set(payerKey, Number((pool - covered).toFixed(2)));
+          const uncoveredRatio = (bCashUpi - covered) / bCashUpi;
+          current_cash_inflow += Number((bCash * uncoveredRatio).toFixed(2));
+          current_upi_inflow += Number((bUpi * uncoveredRatio).toFixed(2));
+        } else {
+          current_cash_inflow += bCash;
+          current_upi_inflow += bUpi;
+        }
       }
     });
 

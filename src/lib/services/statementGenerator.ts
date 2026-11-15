@@ -485,13 +485,19 @@ export class StatementGenerator {
   }
 
   /**
+   * Returns a consistent filename for the generated statement PDF
+   */
+  static getStatementFilename(data: CustomerStatementData): string {
+    const safeCustName = data.customer.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `Statement_${safeCustName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  }
+
+  /**
    * Generates and downloads the PDF directly in the browser
    */
   static downloadStatementPdf(data: CustomerStatementData): void {
     const doc = this.generateStatementPdf(data);
-    const safeCustName = data.customer.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const fileName = `Statement_${safeCustName}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    doc.save(fileName);
+    doc.save(this.getStatementFilename(data));
   }
 
   /**

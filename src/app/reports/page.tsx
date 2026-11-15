@@ -14,6 +14,7 @@ import {
 } from '@/lib/types';
 import { SupabaseBanner } from '@/components/SupabaseBanner';
 import { downloadCSV } from '@/lib/utils/csv';
+import { buildWhatsAppUrl, sharePdfWithWebShare } from '@/lib/utils/shareUtils';
 import { REPORTS_DATE_FILTER_BUTTONS } from '@/lib/constants/filters';
 import { BusinessReportGenerator } from '@/lib/services/businessReportGenerator';
 import { 
@@ -33,7 +34,12 @@ import {
   Loader2,
   DollarSign,
   Sparkles,
-  ArrowRightLeft
+  ArrowRightLeft,
+  MessageSquare,
+  Share2,
+  Eye,
+  X,
+  ExternalLink
 } from 'lucide-react';
 
 export default function ReportsPage() {
@@ -47,6 +53,14 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [generatingMaster, setGeneratingMaster] = useState(false);
+  const [sharingPdf, setSharingPdf] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{
+    blob: Blob;
+    url: string;
+    filename: string;
+    title: string;
+  } | null>(null);
 
   // Date Filter State
   const [dateFilter, setDateFilter] = useState<DateFilterOption>('current_session');
@@ -275,6 +289,78 @@ export default function ReportsPage() {
     return 'All Time';
   };
 
+  const openPdfPreview = (blob: Blob, filename: string, title: string) => {
+    setPdfPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return { blob, url: URL.createObjectURL(blob), filename, title };
+    });
+    setShareToast(null);
+  };
+
+  const closePdfPreview = () => {
+    setPdfPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    setShareToast(null);
+  };
+
+  const handleDownloadPreviewPdf = () => {
+    if (!pdfPreview) return;
+    const link = document.createElement('a');
+    link.href = pdfPreview.url;
+    link.download = pdfPreview.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const getEndOfDaySummaryText = () =>
+    ApiService.generateEndOfDaySummaryText({
+      shopName: settings?.shop?.shop_name,
+      shopPhone: settings?.shop?.phone,
+      periodLabel: getFilterLabel(),
+      totalBills: bills.length,
+      totalSales,
+      totalPaid,
+      cashTotal,
+      upiTotal,
+      pendingTotal,
+      totalExpenses,
+      netProfit,
+      totalDuesAmount,
+      dueCustomersCount: dueCustomers.length,
+    });
+
+  const handleShareWhatsAppSummary = () => {
+    const text = getEndOfDaySummaryText();
+    window.open(buildWhatsAppUrl(text), '_blank');
+  };
+
+  const handleSharePreviewPdf = async () => {
+    if (!pdfPreview) return;
+    setSharingPdf(true);
+    setShareToast(null);
+    try {
+      const outcome = await sharePdfWithWebShare(
+        pdfPreview.blob,
+        pdfPreview.filename,
+        pdfPreview.title,
+        getEndOfDaySummaryText()
+      );
+      if (outcome === 'shared') {
+        setShareToast('PDF shared successfully!');
+      } else if (outcome === 'unsupported') {
+        setShareToast('Direct PDF sharing is only supported on mobile/compatible browsers. Use Download PDF or Share WhatsApp Summary.');
+      }
+    } catch (err) {
+      console.error('Failed to share report PDF:', err);
+      setShareToast('Failed to share PDF.');
+    } finally {
+      setSharingPdf(false);
+    }
+  };
+
   // Full Executive PDF Report Generator (Active Period)
   const handleExportPdfReport = () => {
     setGeneratingPdf(true);
@@ -313,7 +399,8 @@ export default function ReportsPage() {
       });
 
       const filename = `Business_Report_${dateFilter}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(filename);
+      const blob = doc.output('blob');
+      openPdfPreview(blob, filename, `Business Report — ${periodLabel}`);
     } catch (err) {
       console.error('Failed to export PDF report:', err);
     } finally {
@@ -431,7 +518,9 @@ export default function ReportsPage() {
         transfers: allTransfers
       });
 
-      doc.save(`MASTER_BUSINESS_REPORT_ALL_TIME_${new Date().toISOString().split('T')[0]}.pdf`);
+      const filename = `MASTER_BUSINESS_REPORT_ALL_TIME_${new Date().toISOString().split('T')[0]}.pdf`;
+      const blob = doc.output('blob');
+      openPdfPreview(blob, filename, 'All-Time Master Business Report');
     } catch (err) {
       console.error('Failed to generate master PDF:', err);
     } finally {
@@ -627,12 +716,23 @@ export default function ReportsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Period PDF Report */}
+          {/* WhatsApp End-of-Day Summary */}
+          <button
+            onClick={handleShareWhatsAppSummary}
+            disabled={loading}
+            className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition flex items-center space-x-1.5 cursor-pointer"
+            title="Share End-of-Day / Period Summary via WhatsApp"
+          >
+            <MessageSquare size={15} />
+            <span>WhatsApp Summary</span>
+          </button>
+
+          {/* Period PDF Report (Preview first) */}
           <button
             onClick={handleExportPdfReport}
             disabled={loading || generatingPdf}
             className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition flex items-center space-x-1.5 cursor-pointer"
-            title="Download Executive Vector PDF Report for the selected date range"
+            title="Preview & Export Executive Vector PDF Report for the selected date range"
           >
             {generatingPdf ? (
               <>
@@ -641,8 +741,8 @@ export default function ReportsPage() {
               </>
             ) : (
               <>
-                <FileText size={15} />
-                <span>Period PDF Report</span>
+                <Eye size={15} />
+                <span>Preview & Export PDF</span>
               </>
             )}
           </button>
@@ -1359,6 +1459,89 @@ export default function ReportsPage() {
           </div>
         )}
       </div>
+
+      {/* PDF PREVIEW MODAL */}
+      {pdfPreview && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
+            <div className="bg-slate-900 text-white px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={18} className="text-indigo-400 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base truncate">{pdfPreview.title}</h3>
+                  <p className="text-[11px] text-slate-400 truncate">{pdfPreview.filename}</p>
+                </div>
+              </div>
+              <button
+                onClick={closePdfPreview}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                title="Close Preview"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {shareToast && (
+              <div className="px-4 sm:px-6 py-2 bg-blue-50 text-blue-800 border-b border-blue-200 text-xs font-semibold flex items-center justify-between gap-2">
+                <span>{shareToast}</span>
+                <button onClick={() => setShareToast(null)} className="text-slate-500 hover:text-slate-700">×</button>
+              </div>
+            )}
+
+            <div className="flex-1 bg-slate-100 p-2 sm:p-4 overflow-hidden min-h-[55vh]">
+              <iframe
+                src={pdfPreview.url}
+                title={pdfPreview.title}
+                className="w-full h-[65vh] sm:h-[70vh] rounded-lg border border-slate-300 bg-white"
+              />
+            </div>
+
+            <div className="bg-slate-50 px-4 sm:px-6 py-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleShareWhatsAppSummary}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <MessageSquare size={14} />
+                  <span>WhatsApp Summary</span>
+                </button>
+                <button
+                  onClick={handleSharePreviewPdf}
+                  disabled={sharingPdf}
+                  className="px-3 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {sharingPdf ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+                  <span>{sharingPdf ? 'Preparing...' : 'Share PDF'}</span>
+                </button>
+                <a
+                  href={pdfPreview.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg flex items-center gap-1.5 transition"
+                >
+                  <ExternalLink size={14} />
+                  <span>Open Tab</span>
+                </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadPreviewPdf}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                >
+                  <Download size={14} />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  onClick={closePdfPreview}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

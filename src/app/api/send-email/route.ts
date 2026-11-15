@@ -1,6 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
+import { checkRateLimit } from '@/lib/services/rateLimit';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const EMAIL_RATE_LIMIT_MAX = 20;
+const EMAIL_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,8 +65,34 @@ export async function POST(request: NextRequest) {
     const customTemplateId = typeof body.customTemplateId === 'string' ? body.customTemplateId.trim() : undefined;
     const customPublicKey = typeof body.customPublicKey === 'string' ? body.customPublicKey.trim() : undefined;
 
-    if (!to_email) {
-      return NextResponse.json({ error: 'Recipient email is required.' }, { status: 400 });
+    if (!to_email || to_email.length > 254 || !EMAIL_REGEX.test(to_email)) {
+      return NextResponse.json({ error: 'A valid recipient email is required.' }, { status: 400 });
+    }
+
+    if (
+      bill_number.length > 200 ||
+      customer_name.length > 200 ||
+      shop_name.length > 200 ||
+      grand_total.length > 64 ||
+      message_html.length > 100_000 ||
+      message_text.length > 50_000 ||
+      pdf_attachment.length > 5_000_000
+    ) {
+      return NextResponse.json({ error: 'Request payload exceeds allowed size limits.' }, { status: 400 });
+    }
+
+    const rateCheck = await checkRateLimit(
+      supabase,
+      `send-email:${user.id}`,
+      EMAIL_RATE_LIMIT_MAX,
+      EMAIL_RATE_LIMIT_WINDOW_SECONDS,
+      true
+    );
+    if (rateCheck.blocked) {
+      return NextResponse.json(
+        { error: 'Too many email requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) } }
+      );
     }
 
     // 3. Resolve service credentials (server-side environment variables take precedence;
@@ -110,9 +141,10 @@ export async function POST(request: NextRequest) {
 
     if (!emailResponse.ok) {
       const errText = await emailResponse.text();
+      console.error('EmailJS delivery error:', emailResponse.status, errText);
       return NextResponse.json(
-        { error: errText || 'Failed to deliver email through EmailJS service.' },
-        { status: emailResponse.status }
+        { error: 'Failed to deliver email through EmailJS service.' },
+        { status: 502 }
       );
     }
 
@@ -121,7 +153,7 @@ export async function POST(request: NextRequest) {
       message: 'Invoice email sent successfully.',
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown server error';
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    console.error('send-email error:', err);
+    return NextResponse.json({ error: 'Failed to send email.' }, { status: 500 });
   }
 }

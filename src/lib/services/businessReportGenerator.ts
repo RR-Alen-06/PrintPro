@@ -78,7 +78,7 @@ export class BusinessReportGenerator {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
     doc.setTextColor(15, 23, 42);
-    doc.text((data.shop_settings.shop_name || 'SIMPLEBILLING CENTER').toUpperCase(), margin, y);
+    doc.text((data.shop_settings.shop_name || 'PRINTPRO STORE').toUpperCase(), margin, y);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -653,7 +653,7 @@ export class BusinessReportGenerator {
       doc.setLineWidth(0.3);
       doc.line(margin, pageHeight - 10, pageWidth - margin, pageHeight - 10);
       doc.text(
-        `${data.shop_settings.shop_name || 'SimpleBilling Center'} — Official Business Report`,
+        `${data.shop_settings.shop_name || 'PrintPRO Store'} — Official Business Report`,
         margin,
         pageHeight - 6
       );
