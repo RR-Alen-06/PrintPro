@@ -42,6 +42,48 @@ import {
   ExternalLink
 } from 'lucide-react';
 
+// Helper to compute cash, UPI, and total collected accurately using payments ledger (matching Dashboard)
+function computeCollections(targetBills: Bill[], targetPayments: Payment[]) {
+  const validPayments = targetPayments.filter(p => p.status !== 'CANCELLED' && p.status !== 'REVERSED');
+  const billsLookup = new Map<string, { cash_paid?: number; upi_paid?: number; customer_id?: string | null }>();
+  targetBills.forEach(b => billsLookup.set(b.id, b));
+  const paymentBillIds = new Set(validPayments.map(p => p.bill_id).filter(Boolean) as string[]);
+
+  let cash = 0;
+  let upi = 0;
+  validPayments.forEach(p => {
+    const amt = Number(p.amount || 0);
+    if (p.payment_method === 'Cash') {
+      cash += amt;
+    } else if (p.payment_method === 'UPI') {
+      upi += amt;
+    } else if (p.payment_method === 'Split Payment') {
+      const linked = p.bill_id ? billsLookup.get(p.bill_id) : undefined;
+      const linkedTotal = linked ? (Number(linked.cash_paid || 0) + Number(linked.upi_paid || 0)) : 0;
+      if (linked && linkedTotal > 0) {
+        cash += (Number(linked.cash_paid || 0) / linkedTotal) * amt;
+        upi += (Number(linked.upi_paid || 0) / linkedTotal) * amt;
+      } else {
+        cash += amt;
+      }
+    }
+  });
+
+  // Walk-in bills (no customer_id) that have no payment voucher — count their direct amounts
+  targetBills.forEach(b => {
+    if (!b.customer_id && !paymentBillIds.has(b.id)) {
+      cash += Number(b.cash_paid || 0);
+      upi += Number(b.upi_paid || 0);
+    }
+  });
+
+  return {
+    cashTotal: cash,
+    upiTotal: upi,
+    totalPaid: cash + upi
+  };
+}
+
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'sales' | 'dues' | 'items' | 'expenses' | 'cash_payers' | 'upi_payers' | 'transfers'>('sales');
   const [bills, setBills] = useState<Bill[]>([]);
@@ -234,13 +276,13 @@ export default function ReportsPage() {
 
   // Aggregate Metrics for Current Filter
   const totalSales = bills.reduce((sum, b) => sum + Number(b.grand_total || 0), 0);
-  const totalPaid = bills.reduce((sum, b) => sum + Math.min(Number(b.grand_total || 0), Number(b.paid_total || 0)), 0);
-  const cashTotal = bills.reduce((sum, b) => sum + Number(b.cash_paid || 0), 0);
-  const upiTotal = bills.reduce((sum, b) => sum + Number(b.upi_paid || 0), 0);
   const advanceUsedTotal = bills.reduce((sum, b) => sum + Number(b.advance_used || 0), 0);
   const totalTax = bills.reduce((sum, b) => sum + Number(b.gst_amount || 0), 0);
   const totalExpenses = periodExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const netProfit = totalSales - totalExpenses;
+
+  // Cash / UPI collected — sourced from payments table (same logic as Dashboard)
+  const { cashTotal, upiTotal, totalPaid } = computeCollections(bills, periodPayments);
+  const netProfit = totalPaid - totalExpenses;
 
   // Customer due list & total ledger dues
   const dueCustomers = customers.filter(c => c.balance_due > 0);
@@ -418,12 +460,10 @@ export default function ReportsPage() {
       const shopSettings = settings?.shop || {};
 
       const masterSales = allBills.reduce((sum, b) => sum + Number(b.grand_total || 0), 0);
-      const masterPaid = allBills.reduce((sum, b) => sum + Math.min(Number(b.grand_total || 0), Number(b.paid_total || 0)), 0);
-      const masterCash = allBills.reduce((sum, b) => sum + Number(b.cash_paid || 0), 0);
-      const masterUpi = allBills.reduce((sum, b) => sum + Number(b.upi_paid || 0), 0);
+      const { cashTotal: masterCash, upiTotal: masterUpi, totalPaid: masterPaid } = computeCollections(allBills, allPayments);
       const masterTax = allBills.reduce((sum, b) => sum + Number(b.gst_amount || 0), 0);
       const masterExpenses = allExp.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-      const masterNetProfit = masterSales - masterExpenses;
+      const masterNetProfit = masterPaid - masterExpenses;
       const masterPending = allBills.reduce((sum, b) => {
         const g = Number(b.grand_total || 0);
         const p = Math.min(g, Number(b.paid_total || 0));
@@ -534,12 +574,11 @@ export default function ReportsPage() {
     const dateStr = new Date().toISOString().split('T')[0];
 
     const exportBills = isMasterAllTime ? await ApiService.getBillsByDateRange('all_time') : bills;
+    const exportPayments = isMasterAllTime ? allPayments : periodPayments;
     const exportExpenses = isMasterAllTime ? allExpenses : periodExpenses;
     const exportSales = exportBills.reduce((s, b) => s + Number(b.grand_total || 0), 0);
-    const exportPaid = exportBills.reduce((s, b) => s + Number(b.paid_total || 0), 0);
+    const { cashTotal: exportCash, upiTotal: exportUpi, totalPaid: exportPaid } = computeCollections(exportBills, exportPayments);
     const exportTax = exportBills.reduce((s, b) => s + Number(b.gst_amount || 0), 0);
-    const exportCash = exportBills.reduce((s, b) => s + Number(b.cash_paid || 0), 0);
-    const exportUpi = exportBills.reduce((s, b) => s + Number(b.upi_paid || 0), 0);
     const exportPending = exportBills.reduce((s, b) => s + Math.max(0, Number(b.grand_total || 0) - Number(b.paid_total || 0)), 0);
     const exportExpTotal = exportExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
     const exportNetProfit = exportPaid - exportExpTotal;
